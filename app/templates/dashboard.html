@@ -1,0 +1,721 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="layout">
+  <aside class="sidebar">
+    <h3>Projects</h3>
+    <ul class="project-list">
+      {% for project in projects %}
+        <li class="{% if selected_project and project.id == selected_project.id %}active{% endif %}">
+          <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none;">
+            <strong>{{ project.name }}</strong>
+          </a>
+          <small>Defaults: {% if project.default_owner_calendar_opt_in %}owner calendar{% else %}no owner sync{% endif %}, {% if project.default_invitee_calendar_opt_in %}invitees prompted{% else %}no invites{% endif %}</small>
+        </li>
+      {% endfor %}
+      {% if not projects %}
+        <li><small>No projects yet.</small></li>
+      {% endif %}
+    </ul>
+
+    <div class="panel">
+      <h3>Add Project</h3>
+      <form method="post" action="{{ url_for('ui.create_project') }}">
+        <label for="project-name">Project name</label>
+        <input id="project-name" name="name" placeholder="Capstone plans" />
+        <label style="margin-top: 12px;">
+          <input type="checkbox" name="default_owner_calendar_opt_in" />
+          Default: add new tasks to my calendar
+        </label>
+        <label style="margin-top: 8px;">
+          <input type="checkbox" name="default_invitee_calendar_opt_in" />
+          Default: suggest calendar invites to collaborators
+        </label>
+        <div style="margin-top: 12px;">
+          <button class="btn" type="submit">Create project</button>
+        </div>
+      </form>
+    </div>
+  </aside>
+
+  <section class="content">
+    {% if selected_project %}
+      <div class="panel">
+        <h3>{{ selected_project.name }}</h3>
+        <div class="footer-note">Subdivision: Default</div>
+        <table class="table" data-project-id="{{ selected_project.id }}">
+          <thead>
+            <tr>
+              <th style="width: 4%;"></th>
+              <th style="width: 34%;">Task</th>
+              <th style="width: 18%;">Due</th>
+              <th style="width: 14%;">Status</th>
+              <th style="width: 34%;">Assign</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if tasks %}
+              {% for task in tasks %}
+                <tr data-task-row-id="{{ task.id }}">
+                  <td>
+                    <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="{{ task.id }}">▸</button>
+                  </td>
+                  <td>
+                    <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
+                  </td>
+                  <td>
+                    <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="due_at" data-col="2">{% if task.due_at %}{{ task.due_at }}{% endif %}</div>
+                  </td>
+                  <td>
+                    <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3">{{ task.status }}</div>
+                  </td>
+                  <td>
+                    <div class="assignments">
+                      {% for assignment in assignments_by_task.get(task.id, []) %}
+                        {% set assignee = user_map.get(assignment.user_id) %}
+                        {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                        <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
+                          <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
+                            <span class="badge-initial">{{ label[0]|upper }}</span>
+                            {% if assignee and assignee.avatar_url %}
+                              <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                            {% endif %}
+                            <span class="badge-x">×</span>
+                          </button>
+                          <span class="badge-label">{{ label }}</span>
+                          <span class="compact">
+                            {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
+                          </span>
+                          {% if not assignment.user_id %}
+                            {% if assignment.status in ["draft"] %}
+                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                            {% elif assignment.status in ["link_sent"] %}
+                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                            {% endif %}
+                          {% endif %}
+                        </span>
+                      {% endfor %}
+                      <span class="assign-action">
+                        <input class="assign-input" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" onkeydown="return window.submitAssignmentKey(event, this)" onblur="return window.submitAssignmentBlur(this)" onfocus="return window.submitAssignmentFocus(this)" />
+                      </span>
+                      <span class="assign-spacer"></span>
+                      <button class="icon-button" type="button" data-delete-task="{{ task.id }}" title="Delete task">×</button>
+                    </div>
+                  </td>
+                </tr>
+                {% for subtask in subtasks_by_task.get(task.id, []) %}
+                  <tr class="subtasks-row {% if loop.last %}last{% endif %}" data-subtasks-for="{{ task.id }}" style="display: none;">
+                    <td></td>
+                    <td class="tree-cell">
+                      <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="title" data-col="1">{{ subtask.title }}</div>
+                    </td>
+                    <td>
+                      <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="due_at" data-col="2">{% if subtask.due_at %}{{ subtask.due_at }}{% endif %}</div>
+                    </td>
+                    <td>
+                      <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="status" data-col="3">{{ subtask.status }}</div>
+                    </td>
+                    <td>
+                      <div class="assignments">
+                        {% for assignment in assignments_by_subtask.get(subtask.id, []) %}
+                          {% set assignee = user_map.get(assignment.user_id) %}
+                          {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                          <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
+                            <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
+                              <span class="badge-initial">{{ label[0]|upper }}</span>
+                              {% if assignee and assignee.avatar_url %}
+                                <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                              {% endif %}
+                              <span class="badge-x">×</span>
+                            </button>
+                            <span class="badge-label">{{ label }}</span>
+                            <span class="compact">
+                              {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
+                            </span>
+                            {% if not assignment.user_id %}
+                              {% if assignment.status in ["draft"] %}
+                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                              {% elif assignment.status in ["link_sent"] %}
+                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                              {% endif %}
+                            {% endif %}
+                          </span>
+                        {% endfor %}
+                        <span class="assign-action">
+                          <input class="assign-input" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" onkeydown="return window.submitAssignmentKey(event, this)" onblur="return window.submitAssignmentBlur(this)" onfocus="return window.submitAssignmentFocus(this)" />
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+                <tr class="subtasks-row" data-subtasks-for="{{ task.id }}" style="display: none;">
+                  <td></td>
+                  <td class="tree-cell">
+                    <input placeholder="New subtask..." data-subtask-new="title" data-task-id="{{ task.id }}" />
+                  </td>
+                  <td>
+                    <input placeholder="YYYY-MM-DDTHH:MM" data-subtask-new="due_at" data-task-id="{{ task.id }}" />
+                  </td>
+                  <td>
+                    <span class="tag">open</span>
+                  </td>
+                  <td>
+                    <input placeholder="assignee@email" data-subtask-new="assignee_email" data-task-id="{{ task.id }}" data-col="4" />
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="6" class="footer-note">No tasks yet.</td>
+              </tr>
+            {% endif %}
+            <tr class="new-row">
+                <td></td>
+                <td>
+                  <input name="title" placeholder="New task..." id="new-task-title" data-col="1" />
+                </td>
+                <td>
+                  <input name="due_at" placeholder="YYYY-MM-DDTHH:MM" id="new-task-due" data-col="2" />
+                </td>
+                <td>
+                  <span class="tag">open</span>
+                </td>
+                <td>
+                  <div class="cell-controls">
+                    <input name="assignee_email" placeholder="assignee@email" id="new-task-assignee" data-col="4" />
+                  </div>
+                </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="panel">
+        <h3>No project selected</h3>
+        <p class="footer-note">Create a project to start adding tasks.</p>
+      </div>
+    {% endif %}
+
+    <div class="panel">
+      <h3>Magic-Link Invites</h3>
+      {% if invites %}
+        <ul>
+          {% for invite in invites %}
+            <li>
+              {{ invite.email }}
+              <span class="tag">{{ invite.status }}</span>
+              {% if invite.calendar_opt_in %}<span class="tag">calendar on</span>{% endif %}
+              <div class="footer-note">Link: {{ url_for('ui.accept_invite', token=invite.token, _external=True) }}</div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="footer-note">No invites yet.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+<script>
+  window.addEventListener("DOMContentLoaded", () => {
+    const newTitle = document.getElementById("new-task-title");
+    const newDue = document.getElementById("new-task-due");
+    const newAssignee = document.getElementById("new-task-assignee");
+    const tasksTable = document.querySelector(".table");
+    const projectId = tasksTable ? tasksTable.getAttribute("data-project-id") : "";
+
+    const isValidDate = (value) => {
+      if (!value) return true;
+      const pattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+      return pattern.test(value);
+    };
+
+    const setInvalid = (el, invalid, message) => {
+      if (!el) return;
+      if (invalid) {
+        el.classList.add("invalid");
+        if (message) el.title = message;
+      } else {
+        el.classList.remove("invalid");
+        el.title = "";
+      }
+    };
+
+    const renderAssignmentBadge = (assignment) => {
+      const label = assignment.display_name || assignment.display_email || assignment.email || "User";
+      const avatarUrl = assignment.avatar_url;
+      const initial = label.trim().slice(0, 1).toUpperCase();
+      const status = assignment.status || "draft";
+      const statusLabel =
+        status === "draft"
+          ? "Send link"
+          : status === "link_sent"
+          ? "Link sent"
+          : status === "accepted"
+          ? "Accepted"
+          : status === "denied"
+          ? "Denied"
+          : status === "assigned"
+          ? "Assigned"
+          : status;
+      const button =
+        assignment.user_id
+          ? ""
+          : status === "draft"
+          ? "Send link"
+          : status === "link_sent"
+          ? "Resend"
+          : "";
+      return `
+        <span class="badge ${assignment.user_id ? "user" : "email"}" data-assignment-id="${assignment.id}">
+          <button class="badge-icon${avatarUrl ? " has-photo" : ""}" type="button" data-remove-assignment="${assignment.id}">
+            <span class="badge-initial">${initial}</span>
+            ${
+              avatarUrl
+                ? `<img class="badge-photo" src="${avatarUrl}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />`
+                : ""
+            }
+            <span class="badge-x">×</span>
+          </button>
+          <span class="badge-label">${label}</span>
+          <span class="compact">${statusLabel}</span>
+          ${button ? `<button class="btn link" type="button" data-send-link="${assignment.id}">${button}</button>` : ""}
+        </span>
+      `;
+    };
+
+    const insertAssignmentBadge = (container, assignment) => {
+      if (!container) return;
+      const action = container.querySelector(".assign-action");
+      const wrapper = document.createElement("span");
+      wrapper.innerHTML = renderAssignmentBadge(assignment);
+      if (action) {
+        container.insertBefore(wrapper.firstElementChild, action);
+      } else {
+        container.appendChild(wrapper.firstElementChild);
+      }
+    };
+
+    const createAssignment = (targetType, targetId, email, container) => {
+      return fetch("/api/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ target_type: targetType, target_id: Number(targetId), email }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data && data.id) {
+            insertAssignmentBadge(container, data);
+          }
+          return data;
+        });
+    };
+
+    const bindAssignInput = (input) => {
+      if (!input || input.dataset.boundAssign === "1") return;
+      input.dataset.boundAssign = "1";
+      input.addEventListener("input", (event) => {
+        const value = input.value.trim();
+        if (value.length < 1) {
+          hideSuggest(input);
+          return;
+        }
+        fetch(`/api/assignees?q=${encodeURIComponent(value)}`)
+          .then((res) => res.json().catch(() => ({ results: [] })))
+          .then((data) => {
+            showSuggest(input, data.results || []);
+          });
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === "," || event.key === " " || event.key === "Tab") {
+          event.preventDefault();
+          event.stopPropagation();
+          const targetType = input.getAttribute("data-assign-input");
+          const targetId = input.getAttribute("data-target-id");
+          const hasSuggest = input._suggestItems && input._suggestItems.length;
+          if (hasSuggest && (event.key === "Enter" || event.key === "Tab")) {
+            const first = input._suggestItems[0];
+            if (first && first.email) {
+              input.value = first.email;
+            }
+          }
+          submitAssignmentInput(input, targetType, targetId);
+        }
+        if (event.key === "Escape") {
+          hideSuggest(input);
+        }
+      });
+      input.addEventListener("blur", () => {
+        if (input.dataset.assignSelecting === "1") return;
+        const targetType = input.getAttribute("data-assign-input");
+        const targetId = input.getAttribute("data-target-id");
+        submitAssignmentInput(input, targetType, targetId);
+        setTimeout(() => hideSuggest(input), 150);
+      });
+    };
+
+    const insertSubtaskRow = (taskId, data) => {
+      const rows = Array.from(document.querySelectorAll(`[data-subtasks-for='${taskId}']`));
+      const newRow = rows.find((row) => row.querySelector("[data-subtask-new]"));
+      const lastRow = newRow || (rows.length ? rows[rows.length - 1] : null);
+      const tr = document.createElement("tr");
+      tr.className = "subtasks-row last";
+      tr.setAttribute("data-subtasks-for", taskId);
+      tr.style.display = rows.length ? rows[0].style.display : "table-row";
+      tr.innerHTML = `
+        <td></td>
+        <td class="tree-cell"><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="title" data-col="1">${data.title}</div></td>
+        <td><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="due_at" data-col="2">${data.due_at || ""}</div></td>
+        <td><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="status" data-col="3">open</div></td>
+        <td>
+          <div class="assignments">
+            ${data.assignment ? renderAssignmentBadge(data.assignment) : ""}
+            <span class="assign-action">
+              <input class="assign-input" placeholder="assignee@email" data-assign-input="subtask" data-target-id="${data.id}" />
+            </span>
+          </div>
+        </td>
+      `;
+      if (lastRow) {
+        lastRow.classList.remove("last");
+        lastRow.before(tr);
+      } else {
+        const taskRow = document.querySelector(`[data-task-row-id='${taskId}']`);
+        if (taskRow) {
+          taskRow.after(tr);
+        }
+      }
+      bindAssignInput(tr.querySelector("[data-assign-input]"));
+    };
+
+    const createSubtask = (taskId, title, due, assignee) => {
+      return fetch(`/api/tasks/${taskId}/subtasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, due_at: due || null, assignee_email: assignee || null }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data && data.id) {
+            insertSubtaskRow(taskId, data);
+          }
+          return data;
+        });
+    };
+
+    const insertTaskRow = (id, title, due, assignment) => {
+      if (!tasksTable) return null;
+      const newRow = tasksTable.querySelector(".new-row");
+      const tr = document.createElement("tr");
+      tr.dataset.taskRowId = String(id);
+      tr.innerHTML = `
+        <td><button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="${id}">▸</button></td>
+        <td><div class="editable" contenteditable="true" data-task-id="${id}" data-field="title" data-col="1">${title}</div></td>
+        <td><div class="editable" contenteditable="true" data-task-id="${id}" data-field="due_at" data-col="2">${due || ""}</div></td>
+        <td><div class="editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3">open</div></td>
+        <td>
+          <div class="assignments">
+            ${assignment ? renderAssignmentBadge(assignment) : ""}
+            <span class="assign-action">
+              <input class="assign-input" placeholder="assignee@email" data-assign-input="task" data-target-id="${id}" />
+            </span>
+          </div>
+        </td>
+      `;
+      if (newRow) {
+        newRow.before(tr);
+      }
+      bindAssignInput(tr.querySelector("[data-assign-input]"));
+      return tr;
+    };
+
+    const createTaskFromNewRow = () => {
+      if (!newTitle || !projectId) return Promise.resolve(null);
+      const title = newTitle.value.trim();
+      if (!title) return Promise.resolve(null);
+      const due = newDue ? newDue.value.trim() : "";
+      if (due && !isValidDate(due)) {
+        setInvalid(newDue, true, "Use YYYY-MM-DDTHH:MM");
+        return Promise.resolve(null);
+      }
+      return fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ title, project_id: Number(projectId), due_at: due || null }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (!data.id) return null;
+          const row = insertTaskRow(data.id, title, due, data.assignment);
+          newTitle.value = "";
+          if (newDue) newDue.value = "";
+          if (newAssignee) newAssignee.value = "";
+          newTitle.focus();
+          return { id: data.id, row };
+        });
+    };
+
+    const submitAssignmentInput = (input, targetType, targetId) => {
+      if (!input || !targetType) return;
+      if (input.dataset.assignSelecting === "1") return;
+      const raw = input.value.trim();
+      if (!raw) return;
+      const emails = raw.split(/[\s,]+/).map((e) => e.trim()).filter(Boolean);
+      if (!emails.length) return;
+      if (!targetId) return;
+      // Prevent free-form submits unless it looks like an email
+      const filtered = emails.filter((e) => e.includes("@"));
+      if (!filtered.length) {
+        return;
+      }
+      const container = input.closest(".assignments");
+      filtered.forEach((email) => createAssignment(targetType, targetId, email, container));
+      input.value = "";
+      hideSuggest(input);
+    };
+
+    const showSuggest = (input, results) => {
+      hideSuggest(input);
+      if (!results.length) return;
+      const rect = input.getBoundingClientRect();
+      const menu = document.createElement("div");
+      menu.className = "assign-suggest";
+      menu.style.left = `${rect.left + window.scrollX}px`;
+      menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
+      input._suggestItems = results;
+      results.forEach((item) => {
+        const btn = document.createElement("button");
+        const label = item.type === "user" ? (item.display_name || item.email) : item.email;
+        btn.innerHTML = `${label}<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
+        btn.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          input.dataset.assignSelecting = "1";
+        });
+        btn.addEventListener("click", (event) => {
+          event.preventDefault();
+          input.value = item.email;
+          const targetType = input.getAttribute("data-assign-input");
+          const targetId = input.getAttribute("data-target-id");
+          submitAssignmentInput(input, targetType, targetId);
+          hideSuggest(input);
+          setTimeout(() => {
+            input.dataset.assignSelecting = "0";
+          }, 50);
+        });
+        menu.appendChild(btn);
+      });
+      document.body.appendChild(menu);
+      input.dataset.suggestId = "active";
+      input._suggestEl = menu;
+    };
+
+    const hideSuggest = (input) => {
+      if (input && input._suggestEl) {
+        input._suggestEl.remove();
+        input._suggestEl = null;
+        input._suggestItems = [];
+        input.dataset.suggestId = "";
+      }
+    };
+
+    const getEditableCells = (row) =>
+      Array.from(row.querySelectorAll(".editable")).filter((cell) => cell.offsetParent !== null);
+
+    document.addEventListener("keydown", (event) => {
+      const cell = event.target.closest(".editable");
+      if (!cell) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        cell.blur();
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        const cells = getEditableCells(cell.closest("tr"));
+        const idx = cells.indexOf(cell);
+        const nextIdx = event.shiftKey ? idx - 1 : idx + 1;
+        if (cells[nextIdx]) cells[nextIdx].focus();
+      }
+    });
+
+    document.addEventListener("focusout", (event) => {
+      const cell = event.target.closest(".editable");
+      if (!cell || cell.tagName === "INPUT") return;
+      const taskId = cell.getAttribute("data-task-id");
+      const subtaskId = cell.getAttribute("data-subtask-id");
+      const field = cell.getAttribute("data-field");
+      const value = cell.textContent.trim();
+      if (!field) return;
+      if (field === "due_at" && !isValidDate(value)) {
+        setInvalid(cell, true, "Use YYYY-MM-DDTHH:MM");
+        return;
+      }
+      setInvalid(cell, false);
+      if (taskId) {
+        fetch(`/api/tasks/${taskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: value }),
+        });
+      } else if (subtaskId) {
+        fetch(`/api/subtasks/${subtaskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: value }),
+        });
+      }
+    });
+
+    if (newTitle) {
+      newTitle.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          createTaskFromNewRow().then(() => {
+            if (newDue) newDue.focus();
+          });
+        }
+      });
+    }
+
+    if (newDue) {
+      newDue.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          createTaskFromNewRow();
+        }
+      });
+      newDue.addEventListener("blur", () => {
+        setInvalid(newDue, !isValidDate(newDue.value.trim()), "Use YYYY-MM-DDTHH:MM");
+      });
+    }
+
+    if (newAssignee) {
+      newAssignee.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === "," || event.key === " ") {
+          event.preventDefault();
+          const raw = newAssignee.value.trim();
+          if (!raw) return;
+          createTaskFromNewRow().then((created) => {
+            if (!created) return;
+            const container = created.row ? created.row.querySelector(".assignments") : null;
+          const emails = raw
+            .split(/[\s,]+/)
+            .map((e) => e.trim())
+            .filter((e) => e && e.includes("@"));
+          emails.forEach((email) => createAssignment("task", created.id, email, container));
+        });
+      }
+    });
+  }
+
+    document.addEventListener("keydown", (event) => {
+      const subTitle = event.target.closest("[data-subtask-new='title']");
+      const subDue = event.target.closest("[data-subtask-new='due_at']");
+      const subAssign = event.target.closest("[data-subtask-new='assignee_email']");
+      if (!subTitle && !subDue && !subAssign) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const taskId = (subTitle || subDue || subAssign).getAttribute("data-task-id");
+        const titleInput = document.querySelector(`[data-subtask-new='title'][data-task-id='${taskId}']`);
+        const dueInput = document.querySelector(`[data-subtask-new='due_at'][data-task-id='${taskId}']`);
+        const assigneeInput = document.querySelector(`[data-subtask-new='assignee_email'][data-task-id='${taskId}']`);
+        if (!titleInput) return;
+        const title = titleInput.value.trim();
+        const due = dueInput ? dueInput.value.trim() : "";
+        const assignee = assigneeInput ? assigneeInput.value.trim() : "";
+        if (!title) return;
+        if (due && !isValidDate(due)) {
+          setInvalid(dueInput, true, "Use YYYY-MM-DDTHH:MM");
+          return;
+        }
+        createSubtask(taskId, title, due, assignee).then(() => {
+          titleInput.value = "";
+          if (dueInput) dueInput.value = "";
+          if (assigneeInput) assigneeInput.value = "";
+          titleInput.focus();
+        });
+      }
+    });
+
+    document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
+
+    document.addEventListener("click", (event) => {
+      const toggle = event.target.closest("[data-toggle='subtasks']");
+      if (toggle) {
+        const taskId = toggle.getAttribute("data-task-id");
+        const rows = document.querySelectorAll(`[data-subtasks-for='${taskId}']`);
+        if (!rows.length) return;
+        const isHidden = rows[0].style.display === "none";
+        rows.forEach((row) => {
+          row.style.display = isHidden ? "table-row" : "none";
+        });
+        toggle.textContent = isHidden ? "▾" : "▸";
+        return;
+      }
+
+      const sendLink = event.target.closest("[data-send-link]");
+      if (sendLink) {
+        const assignmentId = sendLink.getAttribute("data-send-link");
+        fetch(`/api/assignments/${assignmentId}/send_link`, { method: "POST" })
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data.status) return;
+            const badge = document.querySelector(`[data-assignment-id='${assignmentId}']`);
+            if (badge) {
+              const statusEl = badge.querySelector(".compact");
+              if (statusEl) statusEl.textContent = data.status === "link_sent" ? "Link sent" : data.status;
+              const button = badge.querySelector("[data-send-link]");
+              if (button) button.textContent = "Resend";
+            }
+          });
+        return;
+      }
+
+      const removeAssignment = event.target.closest("[data-remove-assignment]");
+      if (removeAssignment) {
+        const assignmentId = removeAssignment.getAttribute("data-remove-assignment");
+        if (!assignmentId) return;
+        fetch(`/api/assignments/${assignmentId}`, { method: "DELETE" })
+          .then((res) => res.json().catch(() => ({})))
+          .then((data) => {
+            if (data.status !== "deleted") return;
+            const badge = document.querySelector(`[data-assignment-id='${assignmentId}']`);
+            if (badge) badge.remove();
+          });
+        return;
+      }
+
+      const deleteBtn = event.target.closest("[data-delete-task]");
+      if (deleteBtn) {
+        const taskId = deleteBtn.getAttribute("data-delete-task");
+        if (!taskId) return;
+        fetch(`/api/tasks/${taskId}`, { method: "DELETE" })
+          .then((res) => res.json().catch(() => ({})))
+          .then((data) => {
+            if (data.requires_confirm) {
+              const needsInvite = data.invite_count > 0;
+              const needsSubtasks = data.subtask_count > 0;
+              const parts = [];
+              if (needsSubtasks) parts.push(`${data.subtask_count} subtasks`);
+              if (needsInvite) parts.push(`${data.invite_count} sent links`);
+              const message = `This task has ${parts.join(" and ")}. Delete anyway?`;
+              if (!confirm(message)) return;
+              return fetch(`/api/tasks/${taskId}?confirm=1`, { method: "DELETE" })
+                .then((res2) => res2.json().catch(() => ({})))
+                .then((data2) => {
+                  if (data2.status !== "deleted") return;
+                  const row = document.querySelector(`[data-task-row-id='${taskId}']`);
+                  if (row) row.remove();
+                  document.querySelectorAll(`[data-subtasks-for='${taskId}']`).forEach((r) => r.remove());
+                });
+            }
+            if (data.status !== "deleted") return;
+            const row = document.querySelector(`[data-task-row-id='${taskId}']`);
+            if (row) row.remove();
+            document.querySelectorAll(`[data-subtasks-for='${taskId}']`).forEach((r) => r.remove());
+          });
+        return;
+      }
+    });
+  });
+</script>
+{% endblock %}

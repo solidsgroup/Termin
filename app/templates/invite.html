@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+  {% if status == "invalid" %}
+    <h2>Invite not found</h2>
+    <p class="footer-note">This invite link is invalid or expired.</p>
+  {% else %}
+    <h2>Task invite</h2>
+    {% if subtask %}
+      <p><strong>{{ subtask.title }}</strong></p>
+      <p class="footer-note">Subtask of: {{ task.title if task else "Unknown task" }}</p>
+    {% else %}
+      <p><strong>{{ task.title if task else "Unknown task" }}</strong></p>
+    {% endif %}
+    {% if status == "accepted" %}
+      <p class="footer-note">You already accepted this invite.</p>
+    {% elif status == "declined" %}
+      <p class="footer-note">You declined this invite.</p>
+    {% else %}
+      <form method="post" action="{{ url_for('ui.respond_invite', token=invite.token) }}">
+        <label>
+          <input type="checkbox" name="calendar_opt_in" {% if invite.calendar_opt_in %}checked{% endif %} />
+          Send me a calendar invitation and keep it updated
+        </label>
+        <div style="margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="btn" type="submit" name="action" value="accept">Accept</button>
+          <button class="btn secondary" type="submit" name="action" value="decline">Decline</button>
+        </div>
+      </form>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

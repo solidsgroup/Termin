@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel">
+  <h2>Sign in</h2>
+  <p class="footer-note">Use Google or Microsoft to connect your calendar and start assigning tasks.</p>
+  <div style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+    <a class="btn" href="{{ url_for('auth.login_google') }}">Continue with Google</a>
+    <a class="btn secondary" href="{{ url_for('auth.login_microsoft') }}">Continue with Microsoft</a>
+  </div>
+</div>
+{% endblock %}
