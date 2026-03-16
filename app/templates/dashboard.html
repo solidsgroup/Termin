@@ -569,9 +569,7 @@
       newTitle.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
           event.preventDefault();
-          createTaskFromNewRow().then(() => {
-            if (newDue) newDue.focus();
-          });
+          createTaskFromNewRow();
         }
       });
     }
