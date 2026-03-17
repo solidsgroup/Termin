@@ -78,6 +78,216 @@
         margin-top: 16px;
       }
 
+      .group-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+
+      .share-avatars {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        position: relative;
+      }
+
+      .avatar-stack {
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .avatar-stack .avatar-chip {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--panel-alt);
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        overflow: hidden;
+      }
+
+      .avatar-stack .avatar-chip + .avatar-chip {
+        margin-left: -6px;
+      }
+
+      .avatar-stack .avatar-chip img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .share-avatars .avatar-chip {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--panel-alt);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        overflow: hidden;
+      }
+
+      .share-avatars .avatar-chip img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .share-avatars::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: 0;
+        top: 120%;
+        background: #0f141c;
+        color: var(--ink);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 11px;
+        white-space: pre;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease;
+        z-index: 10;
+        min-width: 160px;
+      }
+
+      .share-avatars:hover::after {
+        opacity: 1;
+      }
+
+      .group-block.dragging {
+        opacity: 0.6;
+      }
+
+      .group-block.drag-over .panel.group {
+        box-shadow: 0 0 0 1px var(--group-color, var(--accent));
+      }
+
+      .group-block {
+        transition: transform 140ms ease;
+        margin-bottom: 12px;
+      }
+
+      .group-header[draggable="true"] {
+        cursor: grab;
+      }
+
+      .group-header[draggable="true"]:active {
+        cursor: grabbing;
+      }
+
+      .panel.group {
+        border-color: var(--group-color, var(--border));
+        padding-top: 8px;
+      }
+
+      .group-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--group-color, var(--accent));
+        font-size: 15px;
+        margin: 0;
+        padding: 0 8px 0 6px;
+        background: linear-gradient(
+          to bottom,
+          transparent 0%,
+          transparent 35%,
+          var(--panel) 35%,
+          var(--panel) 65%,
+          transparent 65%,
+          transparent 100%
+        );
+        position: relative;
+        top: -18px;
+        line-height: 1.1;
+      }
+
+
+      .group-insert-wrap {
+        padding: 0 14px;
+        margin: 8px 0;
+      }
+
+      .group-insert-wrap.disabled {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .group-insert {
+        position: relative;
+        height: 20px;
+        width: 100%;
+        box-sizing: border-box;
+        cursor: pointer;
+        z-index: 2;
+      }
+
+      .group-insert-line {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        height: 1px;
+        background: rgba(76, 201, 240, 0.35);
+        opacity: 0.15;
+        transition: opacity 120ms ease;
+      }
+
+      .group-insert-btn {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) scale(0.9);
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        border: 1px solid rgba(76, 201, 240, 0.6);
+        background: #0b1118;
+        color: var(--accent);
+        font-size: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 120ms ease, transform 120ms ease;
+        cursor: pointer;
+      }
+
+      .group-insert:hover .group-insert-line,
+      .group-insert:focus-within .group-insert-line {
+        opacity: 0.6;
+      }
+
+      .group-insert:hover .group-insert-btn,
+      .group-insert:focus-within .group-insert-btn {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+
+      .panel + .group-insert {
+        margin-top: 10px;
+      }
+
+      .group-insert + .panel {
+        margin-top: 10px;
+      }
+
+
       .btn {
         display: inline-flex;
         align-items: center;
@@ -96,6 +306,123 @@
       .btn.secondary {
         background: transparent;
         color: var(--accent);
+      }
+
+      .context-menu {
+        position: fixed;
+        background: #0f141c;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        min-width: 160px;
+        z-index: 2000;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+        padding: 6px 0;
+        display: none;
+      }
+
+      .context-menu button {
+        width: 100%;
+        background: transparent;
+        border: none;
+        text-align: left;
+        padding: 8px 12px;
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      .context-menu button:hover {
+        background: rgba(76, 201, 240, 0.08);
+      }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(4, 7, 12, 0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2500;
+        pointer-events: auto;
+      }
+
+      .modal .panel {
+        width: 360px;
+        position: relative;
+        z-index: 2;
+        pointer-events: auto;
+      }
+
+      .modal .suggest-list {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-top: 8px;
+        max-height: 180px;
+        overflow: auto;
+        position: relative;
+        z-index: 3;
+        pointer-events: auto;
+      }
+
+      .modal .suggest-list button {
+        width: 100%;
+        border: none;
+        background: transparent;
+        text-align: left;
+        padding: 8px 10px;
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      .modal .suggest-list button:hover {
+        background: rgba(76, 201, 240, 0.08);
+      }
+
+      .share-list {
+        margin-top: 12px;
+        border-top: 1px solid var(--grid);
+        padding-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .share-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .share-item .meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .share-item .avatar-chip {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        overflow: hidden;
+      }
+
+      .share-item .avatar-chip img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .share-item .label {
+        font-size: 12px;
+        color: var(--ink);
+      }
+
+      .share-item .muted {
+        color: var(--muted);
+        font-size: 11px;
       }
 
       label {
@@ -136,6 +463,7 @@
       .table {
         width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
       }
 
       .table th, .table td {
@@ -145,6 +473,21 @@
         border-right: 1px solid var(--grid);
         font-size: 12px;
         vertical-align: top;
+        position: relative;
+      }
+
+      .table th {
+        position: relative;
+      }
+
+      .col-resizer {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        width: 6px;
+        cursor: col-resize;
+        user-select: none;
       }
 
       .table th {
@@ -195,7 +538,35 @@
         font-family: inherit;
         font-size: 12px;
         padding: 2px 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        position: relative;
+        z-index: 1;
       }
+
+      .table .task-cell {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .table .task-cell.has-link .editable {
+        text-decoration: underline;
+        cursor: pointer;
+      }
+
+      .table .task-cell .editable {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .table .task-cell .link-btn {
+        margin-left: auto;
+        white-space: nowrap;
+      }
+
 
       .table .editable[contenteditable="true"]:focus {
         outline: 1px solid rgba(76, 201, 240, 0.5);
@@ -221,6 +592,29 @@
         flex-wrap: wrap;
         gap: 6px;
         align-items: center;
+      }
+
+      .assign-add-btn {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 1px dashed var(--border);
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .assign-add-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .assign-input.hidden {
+        display: none;
       }
 
       .assignments .assign-action {
@@ -487,5 +881,14 @@
     <main>
       {% block content %}{% endblock %}
     </main>
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        document.querySelectorAll("input, textarea").forEach((el) => {
+          el.setAttribute("autocomplete", "off");
+          el.setAttribute("autocapitalize", "off");
+          el.setAttribute("spellcheck", "false");
+        });
+      });
+    </script>
   </body>
 </html>

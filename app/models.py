@@ -21,12 +21,40 @@ class Project(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ProjectMember(db.Model):
+    __tablename__ = "project_members"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Group(db.Model):
+    __tablename__ = "groups"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    position = db.Column(db.Integer, default=0, nullable=False)
+    color = db.Column(db.String(32))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GroupMember(db.Model):
+    __tablename__ = "group_members"
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Task(db.Model):
     __tablename__ = "tasks"
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"))
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
+    link = db.Column(db.String(1024))
     due_at = db.Column(db.DateTime)
     assignee_email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="open", nullable=False)
@@ -39,6 +67,7 @@ class Subtask(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
     title = db.Column(db.String(255), nullable=False)
+    link = db.Column(db.String(1024))
     due_at = db.Column(db.DateTime)
     assignee_email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="open", nullable=False)

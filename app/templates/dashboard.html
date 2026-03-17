@@ -1,14 +1,167 @@
 {% extends "base.html" %}
+{% macro render_tasks(task_list, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map) %}
+  {% if task_list %}
+    {% for task in task_list %}
+      <tr data-task-row-id="{{ task.id }}">
+        <td>
+          <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="{{ task.id }}">▸</button>
+        </td>
+        <td>
+          <div class="task-cell{% if task.link %} has-link{% endif %}">
+            <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1"{% if task.link %} data-link-url="{{ task.link }}"{% endif %}>{{ task.title }}</div>
+            <button class="btn link link-btn" type="button" data-link-edit="task" data-task-id="{{ task.id }}" data-link-value="{{ task.link or '' }}">Link</button>
+          </div>
+        </td>
+        <td>
+          <input class="due-input" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+        </td>
+        <td>
+          <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3">{{ task.status }}</div>
+        </td>
+        <td>
+          <div class="assignments">
+            {% for assignment in assignments_by_task.get(task.id, []) %}
+              {% set assignee = user_map.get(assignment.user_id) %}
+              {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+              <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
+                <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
+                  <span class="badge-initial">{{ label[0]|upper }}</span>
+                  {% if assignee and assignee.avatar_url %}
+                    <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                  {% endif %}
+                  <span class="badge-x">×</span>
+                </button>
+                <span class="badge-label">{{ label }}</span>
+                <span class="compact">
+                  {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
+                </span>
+                {% if not assignment.user_id %}
+                  {% if assignment.status in ["draft"] %}
+                    <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                  {% elif assignment.status in ["link_sent"] %}
+                    <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                  {% endif %}
+                {% endif %}
+              </span>
+            {% endfor %}
+            <span class="assign-action">
+              {% if assignments_by_task.get(task.id, [])|length == 0 %}
+                <button class="assign-add-btn" type="button" title="Assign">+</button>
+                <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
+              {% else %}
+                <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
+                <button class="assign-add-btn" type="button" title="Assign">+</button>
+              {% endif %}
+            </span>
+            <span class="assign-spacer"></span>
+            <button class="icon-button" type="button" data-delete-task="{{ task.id }}" title="Delete task">×</button>
+          </div>
+        </td>
+      </tr>
+      {% for subtask in subtasks_by_task.get(task.id, []) %}
+        <tr class="subtasks-row {% if loop.last %}last{% endif %}" data-subtasks-for="{{ task.id }}" style="display: none;">
+          <td></td>
+          <td class="tree-cell">
+            <div class="task-cell{% if subtask.link %} has-link{% endif %}">
+              <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="title" data-col="1"{% if subtask.link %} data-link-url="{{ subtask.link }}"{% endif %}>{{ subtask.title }}</div>
+              <button class="btn link link-btn" type="button" data-link-edit="subtask" data-subtask-id="{{ subtask.id }}" data-link-value="{{ subtask.link or '' }}">Link</button>
+            </div>
+          </td>
+          <td>
+            <input class="due-input" type="date" data-subtask-id="{{ subtask.id }}" data-field="due_at" data-col="2" value="{% if subtask.due_at %}{{ subtask.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+          </td>
+          <td>
+            <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="status" data-col="3">{{ subtask.status }}</div>
+          </td>
+          <td>
+            <div class="assignments">
+              {% for assignment in assignments_by_subtask.get(subtask.id, []) %}
+                {% set assignee = user_map.get(assignment.user_id) %}
+                {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
+                  <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
+                    <span class="badge-initial">{{ label[0]|upper }}</span>
+                    {% if assignee and assignee.avatar_url %}
+                      <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                    {% endif %}
+                    <span class="badge-x">×</span>
+                  </button>
+                  <span class="badge-label">{{ label }}</span>
+                  <span class="compact">
+                    {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
+                  </span>
+                  {% if not assignment.user_id %}
+                    {% if assignment.status in ["draft"] %}
+                      <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                    {% elif assignment.status in ["link_sent"] %}
+                      <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                    {% endif %}
+                  {% endif %}
+                </span>
+              {% endfor %}
+              <span class="assign-action">
+                {% if assignments_by_subtask.get(subtask.id, [])|length == 0 %}
+                  <button class="assign-add-btn" type="button" title="Assign">+</button>
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" />
+                {% else %}
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" />
+                  <button class="assign-add-btn" type="button" title="Assign">+</button>
+                {% endif %}
+              </span>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      <tr class="subtasks-row" data-subtasks-for="{{ task.id }}" style="display: none;">
+        <td></td>
+        <td class="tree-cell">
+          <input placeholder="New subtask..." data-subtask-new="title" data-task-id="{{ task.id }}" />
+        </td>
+        <td>
+          <input class="due-input" type="date" data-subtask-new="due_at" data-task-id="{{ task.id }}" />
+        </td>
+        <td>
+          <span class="tag">open</span>
+        </td>
+        <td>
+          <input placeholder="assignee@email" data-subtask-new="assignee_email" data-task-id="{{ task.id }}" data-col="4" />
+        </td>
+      </tr>
+    {% endfor %}
+  {% else %}
+    <tr>
+      <td colspan="5" class="footer-note">No tasks yet.</td>
+    </tr>
+  {% endif %}
+{% endmacro %}
 {% block content %}
 <div class="layout">
   <aside class="sidebar">
     <h3>Projects</h3>
     <ul class="project-list">
       {% for project in projects %}
-        <li class="{% if selected_project and project.id == selected_project.id %}active{% endif %}">
+        {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
+        <li class="{% if selected_project and project.id == selected_project.id %}active{% endif %}" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}">
           <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none;">
             <strong>{{ project.name }}</strong>
           </a>
+          {% set viewers = project_viewers.get(project.id, []) %}
+          {% if viewers %}
+            <div class="avatar-stack" style="margin-top: 6px;">
+              {% for u in viewers[:4] %}
+                <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+                  {% if u.avatar_url %}
+                    <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+                  {% else %}
+                    {{ (u.display_name or u.email)[0]|upper }}
+                  {% endif %}
+                </span>
+              {% endfor %}
+              {% if viewers|length > 4 %}
+                <span class="avatar-chip">+{{ viewers|length - 4 }}</span>
+              {% endif %}
+            </div>
+          {% endif %}
           <small>Defaults: {% if project.default_owner_calendar_opt_in %}owner calendar{% else %}no owner sync{% endif %}, {% if project.default_invitee_calendar_opt_in %}invitees prompted{% else %}no invites{% endif %}</small>
         </li>
       {% endfor %}
@@ -40,154 +193,157 @@
   <section class="content">
     {% if selected_project %}
       <div class="panel">
-        <h3>{{ selected_project.name }}</h3>
-        <div class="footer-note">Subdivision: Default</div>
-        <table class="table" data-project-id="{{ selected_project.id }}">
-          <thead>
-            <tr>
-              <th style="width: 4%;"></th>
-              <th style="width: 34%;">Task</th>
-              <th style="width: 18%;">Due</th>
-              <th style="width: 14%;">Status</th>
-              <th style="width: 34%;">Assign</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% if tasks %}
-              {% for task in tasks %}
-                <tr data-task-row-id="{{ task.id }}">
-                  <td>
-                    <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="{{ task.id }}">▸</button>
-                  </td>
-                  <td>
-                    <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
-                  </td>
-                  <td>
-                    <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="due_at" data-col="2">{% if task.due_at %}{{ task.due_at }}{% endif %}</div>
-                  </td>
-                  <td>
-                    <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3">{{ task.status }}</div>
-                  </td>
-                  <td>
-                    <div class="assignments">
-                      {% for assignment in assignments_by_task.get(task.id, []) %}
-                        {% set assignee = user_map.get(assignment.user_id) %}
-                        {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                        <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
-                          <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
-                            <span class="badge-initial">{{ label[0]|upper }}</span>
-                            {% if assignee and assignee.avatar_url %}
-                              <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
-                            {% endif %}
-                            <span class="badge-x">×</span>
-                          </button>
-                          <span class="badge-label">{{ label }}</span>
-                          <span class="compact">
-                            {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
-                          </span>
-                          {% if not assignment.user_id %}
-                            {% if assignment.status in ["draft"] %}
-                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                            {% elif assignment.status in ["link_sent"] %}
-                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                            {% endif %}
-                          {% endif %}
-                        </span>
-                      {% endfor %}
-                      <span class="assign-action">
-                        <input class="assign-input" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" onkeydown="return window.submitAssignmentKey(event, this)" onblur="return window.submitAssignmentBlur(this)" onfocus="return window.submitAssignmentFocus(this)" />
-                      </span>
-                      <span class="assign-spacer"></span>
-                      <button class="icon-button" type="button" data-delete-task="{{ task.id }}" title="Delete task">×</button>
-                    </div>
-                  </td>
-                </tr>
-                {% for subtask in subtasks_by_task.get(task.id, []) %}
-                  <tr class="subtasks-row {% if loop.last %}last{% endif %}" data-subtasks-for="{{ task.id }}" style="display: none;">
+        <div class="group-header">
+          <h3>{{ selected_project.name }}</h3>
+          {% set viewers = project_viewers.get(selected_project.id, []) %}
+          {% if viewers %}
+            {% set tooltip = viewers | map(attribute='display_name') | map('default', None) %}
+            <div class="share-avatars" data-tooltip="{% for u in viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+              {% for u in viewers[:6] %}
+                <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+                  {% if u.avatar_url %}
+                    <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+                  {% else %}
+                    {{ (u.display_name or u.email)[0]|upper }}
+                  {% endif %}
+                </span>
+              {% endfor %}
+              {% if viewers|length > 6 %}
+                <span class="avatar-chip">+{{ viewers|length - 6 }}</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% for group in groups %}
+        <div class="group-block" data-group-id="{{ group.id }}">
+          <div class="group-insert-wrap{% if not can_manage_project %} disabled{% endif %}">
+            <div class="group-insert" data-project-id="{{ selected_project.id }}">
+              <div class="group-insert-line"></div>
+              <button class="group-insert-btn" type="button" title="Add group">+</button>
+            </div>
+          </div>
+          <div class="panel group" style="--group-color: {{ group.color or '#4cc9f0' }};">
+            <div class="group-header" {% if can_manage_project %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
+              <h3 class="group-title {% if can_manage_project %}editable{% endif %}" {% if can_manage_project %}contenteditable="true" data-group-id="{{ group.id }}" data-field="name"{% endif %}>{{ group.name }}</h3>
+              {% set viewers = group_viewers.get(group.id, []) %}
+              {% if viewers %}
+                <div class="share-avatars" data-tooltip="{% for u in viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                  {% for u in viewers[:6] %}
+                    <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+                      {% if u.avatar_url %}
+                        <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+                      {% else %}
+                        {{ (u.display_name or u.email)[0]|upper }}
+                      {% endif %}
+                    </span>
+                  {% endfor %}
+                  {% if viewers|length > 6 %}
+                    <span class="avatar-chip">+{{ viewers|length - 6 }}</span>
+                  {% endif %}
+                </div>
+              {% endif %}
+            </div>
+            <table class="table tasks-table" data-project-id="{{ selected_project.id }}" data-group-id="{{ group.id }}">
+            <colgroup>
+              <col style="width: 4%;">
+              <col style="width: 46%;">
+              <col style="width: 16%;">
+              <col style="width: 14%;">
+              <col style="width: 20%;">
+            </colgroup>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Task<span class="col-resizer" data-col="1"></span></th>
+                <th>Due<span class="col-resizer" data-col="2"></span></th>
+                <th>Status<span class="col-resizer" data-col="3"></span></th>
+                <th>Assign<span class="col-resizer" data-col="4"></span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% set group_tasks = tasks_by_group.get(group.id, []) %}
+              {{ render_tasks(group_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map) }}
+              {% if can_manage_project %}
+                <tr class="new-row">
                     <td></td>
-                    <td class="tree-cell">
-                      <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="title" data-col="1">{{ subtask.title }}</div>
+                    <td>
+                      <input placeholder="New task..." data-new-task="title" data-col="1" />
                     </td>
                     <td>
-                      <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="due_at" data-col="2">{% if subtask.due_at %}{{ subtask.due_at }}{% endif %}</div>
+                      <input class="due-input" type="date" data-new-task="due_at" data-col="2" />
                     </td>
                     <td>
-                      <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="status" data-col="3">{{ subtask.status }}</div>
+                      <span class="tag">open</span>
                     </td>
                     <td>
-                      <div class="assignments">
-                        {% for assignment in assignments_by_subtask.get(subtask.id, []) %}
-                          {% set assignee = user_map.get(assignment.user_id) %}
-                          {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                          <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
-                            <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
-                              <span class="badge-initial">{{ label[0]|upper }}</span>
-                              {% if assignee and assignee.avatar_url %}
-                                <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
-                              {% endif %}
-                              <span class="badge-x">×</span>
-                            </button>
-                            <span class="badge-label">{{ label }}</span>
-                            <span class="compact">
-                              {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
-                            </span>
-                            {% if not assignment.user_id %}
-                              {% if assignment.status in ["draft"] %}
-                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                              {% elif assignment.status in ["link_sent"] %}
-                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                              {% endif %}
-                            {% endif %}
-                          </span>
-                        {% endfor %}
-                        <span class="assign-action">
-                          <input class="assign-input" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" onkeydown="return window.submitAssignmentKey(event, this)" onblur="return window.submitAssignmentBlur(this)" onfocus="return window.submitAssignmentFocus(this)" />
-                        </span>
+                      <div class="cell-controls">
+                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" />
                       </div>
                     </td>
-                  </tr>
-                {% endfor %}
-                <tr class="subtasks-row" data-subtasks-for="{{ task.id }}" style="display: none;">
-                  <td></td>
-                  <td class="tree-cell">
-                    <input placeholder="New subtask..." data-subtask-new="title" data-task-id="{{ task.id }}" />
-                  </td>
-                  <td>
-                    <input placeholder="YYYY-MM-DDTHH:MM" data-subtask-new="due_at" data-task-id="{{ task.id }}" />
-                  </td>
-                  <td>
-                    <span class="tag">open</span>
-                  </td>
-                  <td>
-                    <input placeholder="assignee@email" data-subtask-new="assignee_email" data-task-id="{{ task.id }}" data-col="4" />
-                  </td>
                 </tr>
-              {% endfor %}
-            {% else %}
-              <tr>
-                <td colspan="6" class="footer-note">No tasks yet.</td>
-              </tr>
-            {% endif %}
-            <tr class="new-row">
-                <td></td>
-                <td>
-                  <input name="title" placeholder="New task..." id="new-task-title" data-col="1" />
-                </td>
-                <td>
-                  <input name="due_at" placeholder="YYYY-MM-DDTHH:MM" id="new-task-due" data-col="2" />
-                </td>
-                <td>
-                  <span class="tag">open</span>
-                </td>
-                <td>
-                  <div class="cell-controls">
-                    <input name="assignee_email" placeholder="assignee@email" id="new-task-assignee" data-col="4" />
-                  </div>
-                </td>
-            </tr>
-          </tbody>
-        </table>
+              {% endif %}
+            </tbody>
+            </table>
+          </div>
+        </div>
+      {% endfor %}
+
+      <div class="group-insert-wrap{% if not can_manage_project %} disabled{% endif %}">
+        <div class="group-insert" data-project-id="{{ selected_project.id }}">
+          <div class="group-insert-line"></div>
+          <button class="group-insert-btn" type="button" title="Add group">+</button>
+        </div>
       </div>
+
+      {% if ungrouped_tasks %}
+        <div class="panel">
+          <div class="group-header">
+            <h3 class="group-title">Ungrouped</h3>
+          </div>
+          <table class="table tasks-table" data-project-id="{{ selected_project.id }}" data-group-id="">
+            <colgroup>
+              <col style="width: 4%;">
+              <col style="width: 46%;">
+              <col style="width: 16%;">
+              <col style="width: 14%;">
+              <col style="width: 20%;">
+            </colgroup>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Task<span class="col-resizer" data-col="1"></span></th>
+                <th>Due<span class="col-resizer" data-col="2"></span></th>
+                <th>Status<span class="col-resizer" data-col="3"></span></th>
+                <th>Assign<span class="col-resizer" data-col="4"></span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{ render_tasks(ungrouped_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map) }}
+              {% if can_manage_project %}
+                <tr class="new-row">
+                    <td></td>
+                    <td>
+                      <input placeholder="New task..." data-new-task="title" data-col="1" />
+                    </td>
+                    <td>
+                      <input class="due-input" type="date" data-new-task="due_at" data-col="2" />
+                    </td>
+                    <td>
+                      <span class="tag">open</span>
+                    </td>
+                    <td>
+                      <div class="cell-controls">
+                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" />
+                      </div>
+                    </td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
     {% else %}
       <div class="panel">
         <h3>No project selected</h3>
@@ -214,17 +370,47 @@
     </div>
   </section>
 </div>
+
+<div id="context-menu" class="context-menu">
+  <button data-action="rename">Rename</button>
+  <button data-action="share">Share</button>
+  <button data-action="duplicate">Duplicate</button>
+  <button data-action="delete">Delete</button>
+</div>
+
+<div id="share-modal" class="modal">
+  <div class="panel">
+    <h3 id="share-title">Share</h3>
+    <label for="share-input">Add user</label>
+    <input id="share-input" placeholder="Type a name or email" />
+    <div id="share-suggest" class="suggest-list"></div>
+    <div id="share-status" class="footer-note" style="margin-top: 8px;"></div>
+    <div id="share-list" class="share-list"></div>
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button class="btn secondary" type="button" id="share-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="link-modal" class="modal">
+  <div class="panel">
+    <h3 id="link-title">Edit link</h3>
+    <label for="link-input">Link</label>
+    <input id="link-input" placeholder="https://..." />
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button class="btn secondary" type="button" id="link-cancel">Cancel</button>
+      <button class="btn" type="button" id="link-save">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
   window.addEventListener("DOMContentLoaded", () => {
-    const newTitle = document.getElementById("new-task-title");
-    const newDue = document.getElementById("new-task-due");
-    const newAssignee = document.getElementById("new-task-assignee");
-    const tasksTable = document.querySelector(".table");
-    const projectId = tasksTable ? tasksTable.getAttribute("data-project-id") : "";
+    const tasksTables = Array.from(document.querySelectorAll(".tasks-table"));
 
     const isValidDate = (value) => {
       if (!value) return true;
-      const pattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+      const pattern = /^\d{4}-\d{2}-\d{2}$/;
       return pattern.test(value);
     };
 
@@ -350,6 +536,18 @@
         const targetId = input.getAttribute("data-target-id");
         submitAssignmentInput(input, targetType, targetId);
         setTimeout(() => hideSuggest(input), 150);
+        const action = input.closest(".assign-action");
+        if (action && input.value.trim() === "") {
+          input.classList.add("hidden");
+          if (!action.querySelector(".assign-add-btn")) {
+            const btn = document.createElement("button");
+            btn.className = "assign-add-btn";
+            btn.type = "button";
+            btn.title = "Assign";
+            btn.textContent = "+";
+            action.appendChild(btn);
+          }
+        }
       });
     };
 
@@ -363,8 +561,13 @@
       tr.style.display = rows.length ? rows[0].style.display : "table-row";
       tr.innerHTML = `
         <td></td>
-        <td class="tree-cell"><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="title" data-col="1">${data.title}</div></td>
-        <td><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="due_at" data-col="2">${data.due_at || ""}</div></td>
+        <td class="tree-cell">
+          <div class="task-cell${data.link ? " has-link" : ""}">
+            <div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="title" data-col="1"${data.link ? ` data-link-url="${data.link}"` : ""}>${data.title}</div>
+            <button class="btn link link-btn" type="button" data-link-edit="subtask" data-subtask-id="${data.id}" data-link-value="${data.link || ""}">Link</button>
+          </div>
+        </td>
+        <td><input class="due-input" type="date" data-subtask-id="${data.id}" data-field="due_at" data-col="2" value="${data.due_at ? String(data.due_at).slice(0, 10) : ""}" /></td>
         <td><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="status" data-col="3">open</div></td>
         <td>
           <div class="assignments">
@@ -385,6 +588,7 @@
         }
       }
       bindAssignInput(tr.querySelector("[data-assign-input]"));
+      bindDueInput(tr.querySelector(".due-input"));
     };
 
     const createSubtask = (taskId, title, due, assignee) => {
@@ -402,15 +606,20 @@
         });
     };
 
-    const insertTaskRow = (id, title, due, assignment) => {
-      if (!tasksTable) return null;
-      const newRow = tasksTable.querySelector(".new-row");
+    const insertTaskRow = (table, id, title, link, due, assignment) => {
+      if (!table) return null;
+      const newRow = table.querySelector(".new-row");
       const tr = document.createElement("tr");
       tr.dataset.taskRowId = String(id);
       tr.innerHTML = `
         <td><button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="${id}">▸</button></td>
-        <td><div class="editable" contenteditable="true" data-task-id="${id}" data-field="title" data-col="1">${title}</div></td>
-        <td><div class="editable" contenteditable="true" data-task-id="${id}" data-field="due_at" data-col="2">${due || ""}</div></td>
+        <td>
+          <div class="task-cell${link ? " has-link" : ""}">
+            <div class="editable" contenteditable="true" data-task-id="${id}" data-field="title" data-col="1"${link ? ` data-link-url="${link}"` : ""}>${title}</div>
+            <button class="btn link link-btn" type="button" data-link-edit="task" data-task-id="${id}" data-link-value="${link || ""}">Link</button>
+          </div>
+        </td>
+        <td><input class="due-input" type="date" data-task-id="${id}" data-field="due_at" data-col="2" value="${due ? String(due).slice(0, 10) : ""}" /></td>
         <td><div class="editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3">open</div></td>
         <td>
           <div class="assignments">
@@ -425,32 +634,49 @@
         newRow.before(tr);
       }
       bindAssignInput(tr.querySelector("[data-assign-input]"));
+      bindDueInput(tr.querySelector(".due-input"));
       return tr;
     };
 
-    const createTaskFromNewRow = () => {
-      if (!newTitle || !projectId) return Promise.resolve(null);
-      const title = newTitle.value.trim();
+    const normalizeLink = (value) => {
+      if (!value) return "";
+      const trimmed = value.trim();
+      if (!trimmed) return "";
+      if (/^https?:\/\//i.test(trimmed)) return trimmed;
+      return `https://${trimmed}`;
+    };
+
+    const createTaskFromRow = (table, titleInput, dueInput, assigneeInput) => {
+      if (!table || !titleInput) return Promise.resolve(null);
+      const projectId = table.getAttribute("data-project-id");
+      if (!projectId) return Promise.resolve(null);
+      const title = titleInput.value.trim();
       if (!title) return Promise.resolve(null);
-      const due = newDue ? newDue.value.trim() : "";
+      const due = dueInput ? dueInput.value.trim() : "";
       if (due && !isValidDate(due)) {
-        setInvalid(newDue, true, "Use YYYY-MM-DDTHH:MM");
+        setInvalid(dueInput, true, "Use YYYY-MM-DD");
         return Promise.resolve(null);
       }
+      const groupId = table.getAttribute("data-group-id");
       return fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ title, project_id: Number(projectId), due_at: due || null }),
+        body: JSON.stringify({
+          title,
+          project_id: Number(projectId),
+          group_id: groupId ? Number(groupId) : null,
+          due_at: due || null,
+        }),
       })
         .then((res) => res.json().catch(() => ({})))
         .then((data) => {
           if (!data.id) return null;
-          const row = insertTaskRow(data.id, title, due, data.assignment);
-          newTitle.value = "";
-          if (newDue) newDue.value = "";
-          if (newAssignee) newAssignee.value = "";
-          newTitle.focus();
+          const row = insertTaskRow(table, data.id, title, "", due, data.assignment);
+          titleInput.value = "";
+          if (dueInput) dueInput.value = "";
+          if (assigneeInput) assigneeInput.value = "";
+          titleInput.focus();
           return { id: data.id, row };
         });
     };
@@ -472,6 +698,38 @@
       filtered.forEach((email) => createAssignment(targetType, targetId, email, container));
       input.value = "";
       hideSuggest(input);
+    };
+
+    const applyDueInput = (input) => {
+      if (!input) return;
+      const taskId = input.getAttribute("data-task-id");
+      const subtaskId = input.getAttribute("data-subtask-id");
+      const value = input.value.trim();
+      if (value && !isValidDate(value)) {
+        setInvalid(input, true, "Use YYYY-MM-DD");
+        return;
+      }
+      setInvalid(input, false);
+      if (taskId) {
+        fetch(`/api/tasks/${taskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ due_at: value || null }),
+        });
+      } else if (subtaskId) {
+        fetch(`/api/subtasks/${subtaskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ due_at: value || null }),
+        });
+      }
+    };
+
+    const bindDueInput = (input) => {
+      if (!input) return;
+      input.addEventListener("change", () => applyDueInput(input));
+      input.addEventListener("input", () => applyDueInput(input));
+      input.addEventListener("blur", () => applyDueInput(input));
     };
 
     const showSuggest = (input, results) => {
@@ -540,9 +798,16 @@
     document.addEventListener("focusout", (event) => {
       const cell = event.target.closest(".editable");
       if (!cell || cell.tagName === "INPUT") return;
+      if (cell.dataset.linkUrl) {
+        cell.dataset.editing = "0";
+      }
       const taskId = cell.getAttribute("data-task-id");
       const subtaskId = cell.getAttribute("data-subtask-id");
+      const groupId = cell.getAttribute("data-group-id");
       const field = cell.getAttribute("data-field");
+      if (cell.querySelector("a")) {
+        cell.querySelector("a").replaceWith(cell.textContent);
+      }
       const value = cell.textContent.trim();
       if (!field) return;
       if (field === "due_at" && !isValidDate(value)) {
@@ -550,7 +815,13 @@
         return;
       }
       setInvalid(cell, false);
-      if (taskId) {
+      if (groupId) {
+        fetch(`/api/groups/${groupId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: value }),
+        });
+      } else if (taskId) {
         fetch(`/api/tasks/${taskId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -565,45 +836,82 @@
       }
     });
 
-    if (newTitle) {
-      newTitle.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          createTaskFromNewRow();
-        }
-      });
-    }
-
-    if (newDue) {
-      newDue.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          createTaskFromNewRow();
-        }
-      });
-      newDue.addEventListener("blur", () => {
-        setInvalid(newDue, !isValidDate(newDue.value.trim()), "Use YYYY-MM-DDTHH:MM");
-      });
-    }
-
-    if (newAssignee) {
-      newAssignee.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === "," || event.key === " ") {
-          event.preventDefault();
-          const raw = newAssignee.value.trim();
-          if (!raw) return;
-          createTaskFromNewRow().then((created) => {
-            if (!created) return;
-            const container = created.row ? created.row.querySelector(".assignments") : null;
-          const emails = raw
-            .split(/[\s,]+/)
-            .map((e) => e.trim())
-            .filter((e) => e && e.includes("@"));
-          emails.forEach((email) => createAssignment("task", created.id, email, container));
-        });
+    document.addEventListener("dblclick", (event) => {
+      const cell = event.target.closest(".editable");
+      if (!cell || cell.tagName === "INPUT") return;
+      if (cell.dataset.linkUrl) {
+        cell.dataset.cancelClick = "1";
+        cell.dataset.editing = "1";
+        cell.focus();
       }
     });
-  }
+
+    document.addEventListener("click", (event) => {
+      const cell = event.target.closest(".editable");
+      if (!cell || cell.tagName === "INPUT") return;
+      const link = cell.dataset.linkUrl;
+      if (!link) return;
+      if (cell.dataset.editing === "1") return;
+      if (event.detail && event.detail > 1) return;
+      setTimeout(() => {
+        if (cell.dataset.cancelClick === "1") {
+          cell.dataset.cancelClick = "0";
+          return;
+        }
+        window.open(link, "_blank", "noopener");
+      }, 180);
+    });
+
+    const bindNewTaskRow = (table) => {
+      if (!table) return;
+      const newRow = table.querySelector(".new-row");
+      if (!newRow) return;
+      const titleInput = newRow.querySelector("[data-new-task='title']");
+      const dueInput = newRow.querySelector("[data-new-task='due_at']");
+      const assigneeInput = newRow.querySelector("[data-new-task='assignee_email']");
+      if (!titleInput) return;
+
+      titleInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          createTaskFromRow(table, titleInput, dueInput, assigneeInput);
+        }
+      });
+
+      if (dueInput) {
+        dueInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            createTaskFromRow(table, titleInput, dueInput, assigneeInput);
+          }
+        });
+        dueInput.addEventListener("blur", () => {
+          setInvalid(dueInput, !isValidDate(dueInput.value.trim()), "Use YYYY-MM-DD");
+        });
+      }
+
+      if (assigneeInput) {
+        assigneeInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === "," || event.key === " ") {
+            event.preventDefault();
+            const raw = assigneeInput.value.trim();
+            if (!raw) return;
+            createTaskFromRow(table, titleInput, dueInput, assigneeInput).then((created) => {
+              if (!created) return;
+              const container = created.row ? created.row.querySelector(".assignments") : null;
+              const emails = raw
+                .split(/[\s,]+/)
+                .map((e) => e.trim())
+                .filter((e) => e && e.includes("@"));
+              emails.forEach((email) => createAssignment("task", created.id, email, container));
+            });
+          }
+        });
+      }
+    };
+
+    tasksTables.forEach(bindNewTaskRow);
+    document.querySelectorAll(".due-input").forEach(bindDueInput);
 
     document.addEventListener("keydown", (event) => {
       const subTitle = event.target.closest("[data-subtask-new='title']");
@@ -622,7 +930,7 @@
         const assignee = assigneeInput ? assigneeInput.value.trim() : "";
         if (!title) return;
         if (due && !isValidDate(due)) {
-          setInvalid(dueInput, true, "Use YYYY-MM-DDTHH:MM");
+          setInvalid(dueInput, true, "Use YYYY-MM-DD");
           return;
         }
         createSubtask(taskId, title, due, assignee).then(() => {
@@ -712,6 +1020,487 @@
             document.querySelectorAll(`[data-subtasks-for='${taskId}']`).forEach((r) => r.remove());
           });
         return;
+      }
+
+      const groupInsert = event.target.closest(".group-insert-btn");
+      if (groupInsert) {
+        const wrapper = groupInsert.closest(".group-insert");
+        const projectId = wrapper ? wrapper.getAttribute("data-project-id") : "";
+        if (!projectId) return;
+        const name = prompt("Group name");
+        if (!name || !name.trim()) return;
+        fetch("/groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ name: name.trim(), project_id: projectId }),
+        }).then(() => {
+          window.location.href = `/?project_id=${projectId}`;
+        });
+        return;
+      }
+
+      const assignAdd = event.target.closest(".assign-add-btn");
+      if (assignAdd) {
+        const action = assignAdd.closest(".assign-action");
+        const input = action ? action.querySelector(".assign-input") : null;
+        if (input) {
+          input.classList.remove("hidden");
+          input.focus();
+        }
+        assignAdd.remove();
+        return;
+      }
+
+      const linkEdit = event.target.closest("[data-link-edit]");
+      if (linkEdit) {
+        const type = linkEdit.getAttribute("data-link-edit");
+        const taskId = linkEdit.getAttribute("data-task-id");
+        const subtaskId = linkEdit.getAttribute("data-subtask-id");
+        const value = linkEdit.getAttribute("data-link-value") || "";
+        openLinkModal({ type, taskId, subtaskId, value });
+        return;
+      }
+    });
+
+    document.addEventListener("change", (event) => {
+      const input = event.target.closest(".due-input");
+      if (!input) return;
+      applyDueInput(input);
+    });
+
+    const initColumnResizers = () => {
+      const tables = Array.from(document.querySelectorAll(".tasks-table"));
+      const storageKey = (table) => `colWidths:${table.getAttribute("data-project-id")}:${table.getAttribute("data-group-id") || "all"}`;
+
+      tables.forEach((table) => {
+        const colgroup = table.querySelector("colgroup");
+        if (!colgroup) return;
+        const cols = Array.from(colgroup.querySelectorAll("col"));
+        const saved = localStorage.getItem(storageKey(table));
+        if (saved) {
+          const widths = saved.split(",").map((w) => w.trim());
+          widths.forEach((w, idx) => {
+            if (cols[idx]) cols[idx].style.width = w;
+          });
+        }
+
+        table.querySelectorAll(".col-resizer").forEach((resizer) => {
+          resizer.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            const colIndex = Number(resizer.getAttribute("data-col"));
+            const startX = event.clientX;
+            const startWidth = cols[colIndex]?.getBoundingClientRect().width || 0;
+            const nextIndex = colIndex + 1;
+            const startNextWidth = cols[nextIndex]?.getBoundingClientRect().width || 0;
+            const onMove = (moveEvent) => {
+              const delta = moveEvent.clientX - startX;
+              const next = Math.max(80, startWidth + delta);
+              const nextSibling = Math.max(80, startNextWidth - delta);
+              if (cols[colIndex]) cols[colIndex].style.width = `${next}px`;
+              if (cols[nextIndex]) cols[nextIndex].style.width = `${nextSibling}px`;
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+              const widths = cols.map((c) => c.style.width || `${c.getBoundingClientRect().width}px`);
+              localStorage.setItem(storageKey(table), widths.join(","));
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          });
+        });
+      });
+    };
+
+    initColumnResizers();
+
+    const contextMenu = document.getElementById("context-menu");
+    const shareModal = document.getElementById("share-modal");
+    const shareInput = document.getElementById("share-input");
+    const shareSuggest = document.getElementById("share-suggest");
+    const shareTitle = document.getElementById("share-title");
+    const shareCancel = document.getElementById("share-cancel");
+    const shareStatus = document.getElementById("share-status");
+    const shareList = document.getElementById("share-list");
+    const linkModal = document.getElementById("link-modal");
+    const linkInput = document.getElementById("link-input");
+    const linkSave = document.getElementById("link-save");
+    const linkCancel = document.getElementById("link-cancel");
+    let linkContext = null;
+    let currentContext = null;
+    let shareContext = null;
+
+    const hideContextMenu = () => {
+      if (contextMenu) contextMenu.style.display = "none";
+      currentContext = null;
+    };
+
+    const openShareModal = (context) => {
+      if (!shareModal) return;
+      shareContext = context;
+      shareTitle.textContent = context.type === "project" ? "Share Project" : "Share Group";
+      shareInput.value = "";
+      shareSuggest.innerHTML = "";
+      if (shareStatus) shareStatus.textContent = "";
+      shareModal.style.display = "flex";
+      shareInput.focus();
+      loadShareMembers();
+    };
+
+    const closeShareModal = () => {
+      if (!shareModal) return;
+      shareModal.style.display = "none";
+      shareContext = null;
+      if (shareStatus) shareStatus.textContent = "";
+      if (shareList) shareList.innerHTML = "";
+    };
+
+    const openLinkModal = (context) => {
+      if (!linkModal) return;
+      linkContext = context;
+      linkInput.value = context.value || "";
+      linkModal.style.display = "flex";
+      linkInput.focus();
+    };
+
+    const closeLinkModal = () => {
+      if (!linkModal) return;
+      linkModal.style.display = "none";
+      linkContext = null;
+    };
+
+    document.addEventListener("contextmenu", (event) => {
+      const projectItem = event.target.closest("[data-project-context]");
+      const groupHeader = event.target.closest("[data-group-context]");
+      if (!contextMenu) return;
+      if (projectItem) {
+        const canManage = projectItem.getAttribute("data-project-manage") === "1";
+        if (!canManage) return;
+        event.preventDefault();
+        currentContext = { type: "project", id: projectItem.getAttribute("data-project-context") };
+      } else if (groupHeader) {
+        if (!{{ 'true' if can_manage_project else 'false' }}) return;
+        event.preventDefault();
+        currentContext = { type: "group", id: groupHeader.getAttribute("data-group-context") };
+      } else {
+        return;
+      }
+      contextMenu.style.display = "block";
+      contextMenu.style.left = `${event.clientX}px`;
+      contextMenu.style.top = `${event.clientY}px`;
+    });
+
+    document.addEventListener("click", (event) => {
+      if (contextMenu && !contextMenu.contains(event.target)) {
+        hideContextMenu();
+      }
+    });
+
+    if (contextMenu) {
+      contextMenu.addEventListener("click", (event) => {
+        const action = event.target.getAttribute("data-action");
+        if (!action || !currentContext) return;
+        const id = currentContext.id;
+        if (action === "rename") {
+          const name = prompt("New name");
+          if (!name || !name.trim()) return;
+          const url = currentContext.type === "project" ? `/api/projects/${id}` : `/api/groups/${id}`;
+          fetch(url, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name.trim() }),
+          }).then(() => window.location.reload());
+        }
+        if (action === "share") {
+          openShareModal(currentContext);
+        }
+        if (action === "duplicate") {
+          const url =
+            currentContext.type === "project"
+              ? `/api/projects/${id}/duplicate`
+              : `/api/groups/${id}/duplicate`;
+          fetch(url, { method: "POST" }).then(() => window.location.reload());
+        }
+        if (action === "delete") {
+          if (!confirm("Delete this item?")) return;
+          const url = currentContext.type === "project" ? `/api/projects/${id}` : `/api/groups/${id}`;
+          fetch(url, { method: "DELETE" }).then(() => window.location.reload());
+        }
+        hideContextMenu();
+      });
+    }
+
+    const submitShare = (userId) => {
+      if (!shareContext || !userId) return;
+      const url =
+        shareContext.type === "project"
+          ? `/api/projects/${shareContext.id}/members`
+          : `/api/groups/${shareContext.id}/members`;
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (shareStatus) shareStatus.textContent = "Added.";
+          shareInput.value = "";
+          shareSuggest.innerHTML = "";
+          loadShareMembers();
+        });
+    };
+
+    const loadShareMembers = () => {
+      if (!shareContext || !shareList) return;
+      const url =
+        shareContext.type === "project"
+          ? `/api/projects/${shareContext.id}/members`
+          : `/api/groups/${shareContext.id}/members`;
+      fetch(url)
+        .then((res) => res.json().catch(() => ({ members: [] })))
+        .then((data) => {
+          shareList.innerHTML = "";
+          (data.members || []).forEach((u) => {
+            const row = document.createElement("div");
+            row.className = "share-item";
+            const meta = document.createElement("div");
+            meta.className = "meta";
+            const avatar = document.createElement("span");
+            avatar.className = "avatar-chip";
+            if (u.avatar_url) {
+              const img = document.createElement("img");
+              img.src = u.avatar_url;
+              img.referrerPolicy = "no-referrer";
+              img.onerror = () => img.remove();
+              avatar.appendChild(img);
+            } else {
+              avatar.textContent = (u.display_name || u.email || "?")[0].toUpperCase();
+            }
+            const label = document.createElement("div");
+            label.className = "label";
+            label.textContent = u.display_name || u.email;
+            const metaWrap = document.createElement("div");
+            metaWrap.appendChild(label);
+            if (u.owner) {
+              const tag = document.createElement("div");
+              tag.className = "muted";
+              tag.textContent = "Owner";
+              metaWrap.appendChild(tag);
+            } else if (u.project_member) {
+              const tag = document.createElement("div");
+              tag.className = "muted";
+              tag.textContent = "Project";
+              metaWrap.appendChild(tag);
+            } else if (u.group_member) {
+              const tag = document.createElement("div");
+              tag.className = "muted";
+              tag.textContent = "Group";
+              metaWrap.appendChild(tag);
+            }
+            meta.appendChild(avatar);
+            meta.appendChild(metaWrap);
+            row.appendChild(meta);
+            if (!u.owner) {
+              const remove = document.createElement("button");
+              remove.className = "btn link";
+              remove.type = "button";
+              remove.textContent = "Remove";
+              remove.addEventListener("click", () => {
+                const deleteUrl =
+                  shareContext.type === "project"
+                    ? `/api/projects/${shareContext.id}/members/${u.id}`
+                    : `/api/groups/${shareContext.id}/members/${u.id}`;
+                fetch(deleteUrl, { method: "DELETE" }).then(() => loadShareMembers());
+              });
+              row.appendChild(remove);
+            }
+            shareList.appendChild(row);
+          });
+        });
+    };
+
+    if (shareInput) {
+      shareInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const first = shareSuggest.querySelector("button[data-user-id]");
+          if (first) submitShare(first.getAttribute("data-user-id"));
+        }
+      });
+      shareInput.addEventListener("input", () => {
+        const q = shareInput.value.trim();
+        if (!q) {
+          shareSuggest.innerHTML = "";
+          return;
+        }
+        fetch(`/api/users?q=${encodeURIComponent(q)}`)
+          .then((res) => res.json())
+          .then((data) => {
+            shareSuggest.innerHTML = "";
+            (data.results || []).forEach((u) => {
+              const btn = document.createElement("button");
+              const label = u.display_name ? `${u.display_name} (${u.email})` : u.email;
+              btn.textContent = label;
+              btn.addEventListener("mousedown", (event) => event.preventDefault());
+              btn.type = "button";
+              btn.dataset.userId = u.id;
+              btn.addEventListener("click", (event) => event.stopPropagation());
+              btn.addEventListener("click", () => {
+                submitShare(u.id);
+              });
+              shareSuggest.appendChild(btn);
+            });
+          });
+      });
+    }
+
+    if (shareCancel) {
+      shareCancel.addEventListener("click", closeShareModal);
+    }
+
+    if (shareModal) {
+      shareModal.addEventListener("click", (event) => {
+        if (event.target === shareModal) closeShareModal();
+      });
+    }
+
+    if (linkCancel) {
+      linkCancel.addEventListener("click", closeLinkModal);
+    }
+
+    if (linkModal) {
+      linkModal.addEventListener("click", (event) => {
+        if (event.target === linkModal) closeLinkModal();
+      });
+    }
+
+    if (linkSave) {
+      linkSave.addEventListener("click", () => {
+        if (!linkContext) return;
+        const value = normalizeLink(linkInput.value.trim());
+        if (linkContext.type === "task") {
+          fetch(`/api/tasks/${linkContext.taskId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ link: value }),
+          }).then(() => window.location.reload());
+        } else if (linkContext.type === "subtask") {
+          fetch(`/api/subtasks/${linkContext.subtaskId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ link: value }),
+          }).then(() => window.location.reload());
+        }
+      });
+    }
+
+    let draggingGroup = null;
+    let dragRaf = null;
+    let dragLastTarget = null;
+
+    const getGroupOrder = () =>
+      Array.from(document.querySelectorAll(".group-block")).map((block) => block.getAttribute("data-group-id"));
+
+    const animateReorder = (moveFn) => {
+      const blocks = Array.from(document.querySelectorAll(".group-block"));
+      const first = new Map();
+      blocks.forEach((el) => first.set(el, el.getBoundingClientRect()));
+      moveFn();
+      const last = new Map();
+      blocks.forEach((el) => last.set(el, el.getBoundingClientRect()));
+      blocks.forEach((el) => {
+        const f = first.get(el);
+        const l = last.get(el);
+        if (!f || !l) return;
+        const dx = f.left - l.left;
+        const dy = f.top - l.top;
+        if (dx || dy) {
+          el.style.transition = "none";
+          el.style.transform = `translate(${dx}px, ${dy}px)`;
+          requestAnimationFrame(() => {
+            el.style.transition = "transform 160ms ease";
+            el.style.transform = "";
+          });
+        }
+      });
+    };
+
+    document.addEventListener("dragstart", (event) => {
+      const handle = event.target.closest(".group-header[draggable='true']");
+      if (!handle) return;
+      const block = handle.closest(".group-block");
+      if (!block) return;
+      draggingGroup = block;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", block.getAttribute("data-group-id"));
+      setTimeout(() => block.classList.add("dragging"), 0);
+    });
+
+    document.addEventListener("dragend", () => {
+      if (draggingGroup) draggingGroup.classList.remove("dragging");
+      draggingGroup = null;
+      document.querySelectorAll(".group-block.drag-over").forEach((el) => el.classList.remove("drag-over"));
+    });
+
+    document.addEventListener("dragover", (event) => {
+      if (!draggingGroup) return;
+      const inTable = event.target.closest(".table");
+      if (inTable) return;
+      const target = event.target.closest(".group-block");
+      if (!target || target === draggingGroup) return;
+      event.preventDefault();
+      if (dragLastTarget !== target) {
+        document.querySelectorAll(".group-block.drag-over").forEach((el) => el.classList.remove("drag-over"));
+        target.classList.add("drag-over");
+        dragLastTarget = target;
+      }
+      if (dragRaf) return;
+      dragRaf = requestAnimationFrame(() => {
+        dragRaf = null;
+        const rect = target.getBoundingClientRect();
+        const after = event.clientY > rect.top + rect.height / 2;
+        animateReorder(() => {
+          if (after) {
+            target.after(draggingGroup);
+          } else {
+            target.before(draggingGroup);
+          }
+        });
+      });
+    });
+
+    document.addEventListener("dragleave", (event) => {
+      const target = event.target.closest(".group-block");
+      if (!target) return;
+      target.classList.remove("drag-over");
+    });
+
+    document.addEventListener("drop", (event) => {
+      if (!draggingGroup) return;
+      const inTable = event.target.closest(".table");
+      if (inTable) return;
+      const target = event.target.closest(".group-block");
+      if (!target || target === draggingGroup) return;
+      event.preventDefault();
+      const rect = target.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      animateReorder(() => {
+        if (after) {
+          target.after(draggingGroup);
+        } else {
+          target.before(draggingGroup);
+        }
+      });
+      document.querySelectorAll(".group-block.drag-over").forEach((el) => el.classList.remove("drag-over"));
+
+      const order = getGroupOrder();
+      const projectId = document.querySelector(".tasks-table")?.getAttribute("data-project-id");
+      if (projectId && order.length) {
+        fetch("/api/groups/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project_id: Number(projectId), order }),
+        });
       }
     });
   });
