@@ -1,4 +1,51 @@
 {% extends "base.html" %}
+{% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, top_level=False, color=None) %}
+  {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
+  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ color or '#2a3442' }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}"{% if top_level and can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
+    <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none;">
+      <strong>{{ project.name }}</strong>
+    </a>
+    {% set viewers = project_viewers.get(project.id, []) %}
+    {% if viewers %}
+      <div class="avatar-stack" style="margin-top: 6px;">
+        {% for u in viewers[:4] %}
+          <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+            {% if u.avatar_url %}
+              <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+            {% else %}
+              {{ (u.display_name or u.email)[0]|upper }}
+            {% endif %}
+          </span>
+        {% endfor %}
+        {% if viewers|length > 4 %}
+          <span class="avatar-chip">+{{ viewers|length - 4 }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+    <small>Defaults: {% if project.default_owner_calendar_opt_in %}owner calendar{% else %}no owner sync{% endif %}, {% if project.default_invitee_calendar_opt_in %}invitees prompted{% else %}no invites{% endif %}</small>
+  </div>
+{% endmacro %}
+{% macro render_due_summary(item, now_utc) %}
+  {% if item.due_at %}
+    {% set due_date = item.due_at.strftime('%Y-%m-%d') %}
+    {% set due_days = (item.due_at.date() - now_utc.date()).days %}
+    {% if due_days > 0 %}
+      {{ due_date }} · {{ due_days }}d left
+    {% elif due_days == 0 %}
+      {{ due_date }} · Due today
+    {% else %}
+      {{ due_date }} · {{ -due_days }}d overdue
+    {% endif %}
+  {% else %}
+    {% set created_date = item.created_at.strftime('%Y-%m-%d') %}
+    {% set age_days = (now_utc.date() - item.created_at.date()).days %}
+    {% if age_days == 0 %}
+      {{ created_date }} · Created today
+    {% else %}
+      {{ created_date }} · {{ age_days }}d old
+    {% endif %}
+  {% endif %}
+{% endmacro %}
 {% macro render_tasks(task_list, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) %}
   {% if task_list %}
     {% for task in task_list %}
@@ -19,7 +66,12 @@
           </div>
         </td>
         <td>
-          <input class="due-input" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+          <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
+            <div class="due-summary{% if not task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if task.due_at %}Due {{ task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
+              <span class="due-summary-label">{{ render_due_summary(task, now_utc) }}</span>
+            </div>
+            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+          </div>
         </td>
         <td>
           <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3">{{ task.status }}</div>
@@ -72,7 +124,12 @@
             </div>
           </td>
           <td>
-            <input class="due-input" type="date" data-subtask-id="{{ subtask.id }}" data-field="due_at" data-col="2" value="{% if subtask.due_at %}{{ subtask.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+            <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
+              <div class="due-summary{% if not subtask.due_at %} is-fallback{% endif %}" data-due-summary title="{% if subtask.due_at %}Due {{ subtask.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ subtask.created_at.strftime('%Y-%m-%d') }}{% endif %}">
+                <span class="due-summary-label">{{ render_due_summary(subtask, now_utc) }}</span>
+              </div>
+              <input class="due-input hidden" type="date" data-subtask-id="{{ subtask.id }}" data-field="due_at" data-col="2" data-created-at="{{ subtask.created_at.strftime('%Y-%m-%d') }}" value="{% if subtask.due_at %}{{ subtask.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+            </div>
           </td>
           <td>
             <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="status" data-col="3">{{ subtask.status }}</div>
@@ -134,56 +191,50 @@
 {% block content %}
 <div class="layout">
   <aside class="sidebar">
-    <h3>Projects</h3>
-    <ul class="project-list">
-      {% for project in projects %}
-        {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
-        <li class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}">
-          <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none;">
-            <strong>{{ project.name }}</strong>
-          </a>
-          {% set viewers = project_viewers.get(project.id, []) %}
-          {% if viewers %}
-            <div class="avatar-stack" style="margin-top: 6px;">
-              {% for u in viewers[:4] %}
-                <span class="avatar-chip" title="{{ u.display_name or u.email }}">
-                  {% if u.avatar_url %}
-                    <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
-                  {% else %}
-                    {{ (u.display_name or u.email)[0]|upper }}
-                  {% endif %}
-                </span>
-              {% endfor %}
-              {% if viewers|length > 4 %}
-                <span class="avatar-chip">+{{ viewers|length - 4 }}</span>
-              {% endif %}
+    <div class="sidebar-heading-row">
+      <h3 style="margin: 0;">Projects</h3>
+    </div>
+    <div class="sidebar-stack" data-sidebar-stack>
+      <div class="sidebar-insert-row">
+        <div class="sidebar-insert-line"></div>
+        <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="1" onclick="return window.__openSidebarInsert(this);">+</button>
+        <div class="sidebar-insert-line"></div>
+        <div class="sidebar-insert-chooser" data-sidebar-insert-position="1">
+          <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
+          <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
+          <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
+        </div>
+      </div>
+      {% for item in top_level_items %}
+        <div class="sidebar-stack-item" data-sidebar-item="{{ item.type }}:{{ item.id }}">
+          {% if item.type == "project" %}
+            {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, True, None) }}
+          {% else %}
+            <div class="sidebar-division" style="--division-color: {{ item.division.color or '#4cc9f0' }}; color: {{ item.division.color or '#4cc9f0' }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ item.division.color or '#4cc9f0' }}">
+              <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
+                <h3 class="sidebar-division-title" style="color: {{ item.division.color or '#4cc9f0' }};">{{ item.division.name }}</h3>
+              </div>
+              <div class="project-list">
+                {% for project in projects_by_division.get(item.division.id, []) %}
+                  {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, False, item.division.color) }}
+                {% endfor %}
+              </div>
             </div>
           {% endif %}
-          <small>Defaults: {% if project.default_owner_calendar_opt_in %}owner calendar{% else %}no owner sync{% endif %}, {% if project.default_invitee_calendar_opt_in %}invitees prompted{% else %}no invites{% endif %}</small>
-        </li>
-      {% endfor %}
-      {% if not projects %}
-        <li><small>No projects yet.</small></li>
-      {% endif %}
-    </ul>
-
-    <div class="panel">
-      <h3>Add Project</h3>
-      <form method="post" action="{{ url_for('ui.create_project') }}">
-        <label for="project-name">Project name</label>
-        <input id="project-name" name="name" placeholder="Capstone plans" />
-        <label style="margin-top: 12px;">
-          <input type="checkbox" name="default_owner_calendar_opt_in" />
-          Default: add new tasks to my calendar
-        </label>
-        <label style="margin-top: 8px;">
-          <input type="checkbox" name="default_invitee_calendar_opt_in" />
-          Default: suggest calendar invites to collaborators
-        </label>
-        <div style="margin-top: 12px;">
-          <button class="btn" type="submit">Create project</button>
         </div>
-      </form>
+        <div class="sidebar-insert-row">
+          <div class="sidebar-insert-line"></div>
+          <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="{{ loop.index + 1 }}" onclick="return window.__openSidebarInsert(this);">+</button>
+          <div class="sidebar-insert-line"></div>
+          <div class="sidebar-insert-chooser" data-sidebar-insert-position="{{ loop.index + 1 }}">
+            <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
+            <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
+            <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
+          </div>
+        </div>
+      {% else %}
+        <div><small>No projects yet.</small></div>
+      {% endfor %}
     </div>
   </aside>
 
@@ -370,6 +421,29 @@
 
 <div id="context-menu" class="context-menu">
   <button data-action="rename">Rename</button>
+  <div class="context-menu-submenu">
+    <button data-action="color" data-submenu-toggle="division-color-submenu">Color</button>
+    <div id="division-color-submenu" class="context-submenu-panel">
+      <div class="color-menu-title">Division Color</div>
+      <div class="color-preset-grid">
+        <button type="button" class="color-preset" data-color-value="#4cc9f0" style="--swatch:#4cc9f0;" aria-label="Choose cyan"></button>
+        <button type="button" class="color-preset" data-color-value="#f59e0b" style="--swatch:#f59e0b;" aria-label="Choose amber"></button>
+        <button type="button" class="color-preset" data-color-value="#34d399" style="--swatch:#34d399;" aria-label="Choose green"></button>
+        <button type="button" class="color-preset" data-color-value="#f472b6" style="--swatch:#f472b6;" aria-label="Choose pink"></button>
+        <button type="button" class="color-preset" data-color-value="#a78bfa" style="--swatch:#a78bfa;" aria-label="Choose violet"></button>
+        <button type="button" class="color-preset" data-color-value="#f87171" style="--swatch:#f87171;" aria-label="Choose red"></button>
+        <button type="button" class="color-preset" data-color-value="#38bdf8" style="--swatch:#38bdf8;" aria-label="Choose sky"></button>
+        <button type="button" class="color-preset" data-color-value="#facc15" style="--swatch:#facc15;" aria-label="Choose yellow"></button>
+      </div>
+      <label class="color-custom-row" for="division-color-input">
+        <span>Custom</span>
+        <input id="division-color-input" type="color" value="#4cc9f0" />
+      </label>
+      <div class="color-menu-actions">
+        <button type="button" class="btn secondary" id="division-color-clear">Clear</button>
+      </div>
+    </div>
+  </div>
   <button data-action="share">Share</button>
   <button data-action="duplicate">Duplicate</button>
   <button data-action="delete">Delete</button>
@@ -784,7 +858,7 @@
             '<button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="' + taskId + '" data-info-payload="' + escapeHtml(JSON.stringify(info)) + '" onclick="return window.__openInfoModal(\'task\', \'' + taskId + '\');">Info</button>' +
           '</div>' +
         '</td>' +
-        '<td><input class="due-input" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" value="" /></td>' +
+        '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" /></div></td>' +
         '<td><div class="editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3">open</div></td>' +
         '<td>' +
           '<div class="assignments">' +
@@ -883,15 +957,25 @@
     function initEditableFallback() {
       if (window.__editableFallbackReady) return;
       window.__editableFallbackReady = true;
+      var lastEditableCell = null;
 
       document.addEventListener("focusin", function (event) {
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
         cell.dataset.originalValue = normalizeEditableText(cell);
+        lastEditableCell = cell;
       }, true);
 
       document.addEventListener("keydown", function (event) {
         var cell = event.target.closest(".editable");
+        if (!cell && (event.key === "ArrowDown" || event.key === "ArrowUp") && lastEditableCell && document.activeElement === document.body) {
+          if (moveEditableFocus(lastEditableCell, event.key === "ArrowDown" ? 1 : -1)) {
+            lastEditableCell = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".editable") : lastEditableCell;
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
         if (!cell || cell.tagName === "INPUT") return;
         if (event.key === "Enter" && event.ctrlKey && cell.hasAttribute("data-task-id")) {
           event.preventDefault();
@@ -906,11 +990,13 @@
           event.preventDefault();
           event.stopPropagation();
           normalizeEditableText(cell);
+          lastEditableCell = cell;
           cell.blur();
           return;
         }
         if (event.key === "ArrowDown") {
           if (moveEditableFocus(cell, 1)) {
+            lastEditableCell = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".editable") : cell;
             event.preventDefault();
             event.stopPropagation();
           }
@@ -918,6 +1004,7 @@
         }
         if (event.key === "ArrowUp") {
           if (moveEditableFocus(cell, -1)) {
+            lastEditableCell = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".editable") : cell;
             event.preventDefault();
             event.stopPropagation();
           }
@@ -935,6 +1022,7 @@
       document.addEventListener("focusout", function (event) {
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
+        lastEditableCell = cell;
         saveEditable(cell);
       }, true);
     }
@@ -956,11 +1044,66 @@
       var contextMenu = document.getElementById("context-menu");
       var canManageProject = {{ 'true' if can_manage_project else 'false' }};
       var currentContext = null;
+      var colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
+      var colorInput = document.getElementById("division-color-input");
+      var clearButton = document.getElementById("division-color-clear");
+
+      function setActiveDivisionColor(color) {
+        if (!contextMenu) return;
+        Array.prototype.forEach.call(contextMenu.querySelectorAll(".color-preset"), function (button) {
+          button.classList.toggle("is-active", button.getAttribute("data-color-value") === color);
+        });
+        if (colorInput && /^#[0-9a-fA-F]{6}$/.test(color || "")) {
+          colorInput.value = color;
+        }
+      }
+
+      function hideDivisionColorSubmenu() {
+        if (!colorSubmenu) return;
+        colorSubmenu.classList.remove("is-open");
+        colorSubmenu.removeAttribute("data-division-id");
+      }
+
+      function submitDivisionColor(color) {
+        if (!colorSubmenu) return;
+        var divisionId = colorSubmenu.getAttribute("data-division-id");
+        if (!divisionId) return;
+        fetch("/api/divisions/" + divisionId, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ color: color || null }),
+        }).then(function () { window.location.reload(); });
+      }
+
+      window.__openDivisionColorMenu = function (divisionId, currentColor) {
+        if (!colorSubmenu || !divisionId) return false;
+        colorSubmenu.setAttribute("data-division-id", divisionId);
+        setActiveDivisionColor(currentColor || "#4cc9f0");
+        colorSubmenu.classList.add("is-open");
+        return false;
+      };
+
+      window.__hideDivisionColorMenu = hideDivisionColorSubmenu;
 
       function hideContextMenu() {
         if (!contextMenu) return;
         contextMenu.style.display = "none";
+        hideDivisionColorSubmenu();
         currentContext = null;
+      }
+
+      function setContextMenuActions(type) {
+        if (!contextMenu) return;
+        if (colorSubmenu) {
+          colorSubmenu.style.display = type === "division" ? "" : "none";
+          if (type !== "division") hideDivisionColorSubmenu();
+        }
+        Array.prototype.forEach.call(contextMenu.querySelectorAll("[data-action]"), function (button) {
+          var action = button.getAttribute("data-action");
+          var show = type === "division" ? action === "rename" || action === "delete" || action === "color" : action !== "color";
+          button.style.display = show ? "" : "none";
+        });
       }
 
       function storageKey(table) {
@@ -1018,17 +1161,22 @@
         if (!contextMenu) return;
         var projectItem = event.target.closest("[data-project-context]");
         var groupHeader = event.target.closest("[data-group-context]");
+        var divisionHeader = event.target.closest("[data-division-context]");
         if (projectItem) {
           if (projectItem.getAttribute("data-project-manage") !== "1") return;
           currentContext = { type: "project", id: projectItem.getAttribute("data-project-context") };
         } else if (groupHeader) {
           if (!canManageProject) return;
           currentContext = { type: "group", id: groupHeader.getAttribute("data-group-context") };
+        } else if (divisionHeader) {
+          currentContext = { type: "division", id: divisionHeader.getAttribute("data-division-context") };
         } else {
           hideContextMenu();
           return;
         }
         event.preventDefault();
+        hideDivisionColorSubmenu();
+        setContextMenuActions(currentContext.type);
         contextMenu.style.display = "block";
         contextMenu.style.left = event.clientX + "px";
         contextMenu.style.top = event.clientY + "px";
@@ -1040,19 +1188,47 @@
           hideContextMenu();
           return;
         }
+        var preset = event.target.closest(".color-preset");
+        if (preset) {
+          event.preventDefault();
+          event.stopPropagation();
+          submitDivisionColor(preset.getAttribute("data-color-value"));
+          return;
+        }
+        if (event.target === colorInput) {
+          event.stopPropagation();
+          return;
+        }
+        if (event.target === clearButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          submitDivisionColor("");
+          return;
+        }
         var action = event.target.getAttribute("data-action");
         if (!action || !currentContext) return;
         var id = currentContext.id;
         if (action === "rename") {
           var name = window.prompt("New name");
           if (!name || !name.trim()) return;
-          var renameUrl = currentContext.type === "project" ? "/api/projects/" + id : "/api/groups/" + id;
+          var renameUrl = currentContext.type === "project"
+            ? "/api/projects/" + id
+            : currentContext.type === "group"
+              ? "/api/groups/" + id
+              : "/api/divisions/" + id;
           fetch(renameUrl, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
             body: JSON.stringify({ name: name.trim() }),
           }).then(function () { window.location.reload(); });
+        } else if (action === "color") {
+          var divisionNode = document.querySelector('[data-sidebar-division="' + id + '"]');
+          var currentColor = divisionNode ? (divisionNode.getAttribute("data-division-color") || "#4cc9f0") : "#4cc9f0";
+          if (window.__openDivisionColorMenu) {
+            window.__openDivisionColorMenu(id, currentColor);
+          }
+          return;
         } else if (action === "share") {
           var shareContext = { type: currentContext.type, id: currentContext.id };
           hideContextMenu();
@@ -1068,12 +1244,25 @@
             .then(function () { window.location.reload(); });
         } else if (action === "delete") {
           if (!window.confirm("Delete this item?")) return;
-          var deleteUrl = currentContext.type === "project" ? "/api/projects/" + id : "/api/groups/" + id;
+          var deleteUrl = currentContext.type === "project"
+            ? "/api/projects/" + id
+            : currentContext.type === "group"
+              ? "/api/groups/" + id
+              : "/api/divisions/" + id;
           fetch(deleteUrl, { method: "DELETE", credentials: "same-origin" })
             .then(function () { window.location.reload(); });
         }
         hideContextMenu();
       }, true);
+
+      if (colorInput) {
+        colorInput.addEventListener("input", function () {
+          setActiveDivisionColor(colorInput.value);
+        });
+        colorInput.addEventListener("change", function () {
+          submitDivisionColor(colorInput.value);
+        });
+      }
     }
 
     if (document.readyState === "loading") {
@@ -1547,6 +1736,325 @@
 </script>
 
 <script>
+  (function () {
+    function formatDueSummary(dueValue, createdValue) {
+      var today = new Date();
+      var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      if (dueValue) {
+        var dueDate = new Date(dueValue + "T00:00:00");
+        var dueDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+        var diffDays = Math.round((dueDay - nowDay) / 86400000);
+        if (diffDays > 0) return dueValue + " · " + diffDays + "d left";
+        if (diffDays === 0) return dueValue + " · Due today";
+        return dueValue + " · " + Math.abs(diffDays) + "d overdue";
+      }
+      if (createdValue) {
+        var createdDate = new Date(createdValue + "T00:00:00");
+        var createdDay = new Date(createdDate.getFullYear(), createdDate.getMonth(), createdDate.getDate());
+        var ageDays = Math.max(0, Math.round((nowDay - createdDay) / 86400000));
+        if (ageDays === 0) return createdValue + " · Created today";
+        return createdValue + " · " + ageDays + "d old";
+      }
+      return "Created today";
+    }
+
+    function updateDueDisplay(input) {
+      if (!input) return;
+      var cell = input.closest("[data-due-cell]");
+      var summary = cell ? cell.querySelector("[data-due-summary]") : null;
+      var label = summary ? summary.querySelector(".due-summary-label") : null;
+      var dueValue = (input.value || "").trim();
+      var createdValue = input.getAttribute("data-created-at");
+      if (label) {
+        label.textContent = formatDueSummary(dueValue, createdValue);
+      }
+      if (summary) {
+        summary.title = dueValue ? "Due " + dueValue : "Created " + (createdValue || new Date().toISOString().slice(0, 10));
+        summary.classList.toggle("is-fallback", !dueValue);
+      }
+    }
+
+    function hideDueInput(input) {
+      if (!input) return;
+      var cell = input.closest("[data-due-cell]");
+      var summary = cell ? cell.querySelector("[data-due-summary]") : null;
+      input.classList.add("hidden");
+      if (summary) {
+        summary.classList.remove("hidden");
+      }
+    }
+
+    function openDueInput(cell) {
+      if (!cell) return false;
+      var input = cell.querySelector(".due-input");
+      var summary = cell.querySelector("[data-due-summary]");
+      if (!input) return false;
+      if (summary) {
+        summary.classList.add("hidden");
+      }
+      input.classList.remove("hidden");
+      if (typeof input.focus === "function") {
+        input.focus();
+      }
+      if (typeof input.select === "function") {
+        input.select();
+      }
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      } else if (typeof input.click === "function") {
+        input.click();
+      }
+      return false;
+    }
+
+    function saveDueInput(input) {
+      if (!input) return;
+      var value = (input.value || "").trim();
+      var taskId = input.getAttribute("data-task-id");
+      var subtaskId = input.getAttribute("data-subtask-id");
+      var url = taskId ? "/api/tasks/" + taskId : (subtaskId ? "/api/subtasks/" + subtaskId : null);
+      updateDueDisplay(input);
+      hideDueInput(input);
+      if (!url) return;
+      fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ due_at: value || null }),
+      }).then(function (response) {
+        if (!response.ok) {
+          throw new Error("Failed to save due date");
+        }
+      }).catch(function () {
+        window.location.reload();
+      });
+    }
+
+    window.__openDueInput = openDueInput;
+
+    function bindDueInputFallback(input) {
+      if (!input || input.dataset.dueFallbackBound === "1") return;
+      input.dataset.dueFallbackBound = "1";
+      updateDueDisplay(input);
+      input.addEventListener("change", function () {
+        saveDueInput(input);
+      });
+      input.addEventListener("blur", function () {
+        saveDueInput(input);
+      });
+      input.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          saveDueInput(input);
+        } else if (event.key === "Escape") {
+          updateDueDisplay(input);
+          hideDueInput(input);
+        }
+      });
+    }
+
+    document.querySelectorAll(".due-input").forEach(bindDueInputFallback);
+  })();
+</script>
+
+<script>
+  (function () {
+    function removeTaskRows(taskId) {
+      var row = document.querySelector('[data-task-row-id="' + taskId + '"]');
+      if (row) {
+        row.remove();
+      }
+      document.querySelectorAll('[data-subtasks-for="' + taskId + '"]').forEach(function (subrow) {
+        subrow.remove();
+      });
+    }
+
+    document.addEventListener("click", function (event) {
+      var deleteBtn = event.target.closest("[data-delete-task]");
+      if (deleteBtn) {
+        event.preventDefault();
+        var taskId = deleteBtn.getAttribute("data-delete-task");
+        if (!taskId) return;
+        fetch("/api/tasks/" + taskId, { method: "DELETE", credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (data.requires_confirm) {
+              var parts = [];
+              if (data.subtask_count) parts.push(data.subtask_count + " subtasks");
+              if (data.invite_count) parts.push(data.invite_count + " sent links");
+              var message = "This task has " + parts.join(" and ") + ". Delete anyway?";
+              if (!window.confirm(message)) return;
+              return fetch("/api/tasks/" + taskId + "?confirm=1", { method: "DELETE", credentials: "same-origin" })
+                .then(function (res2) { return res2.json().catch(function () { return {}; }); })
+                .then(function (data2) {
+                  if (data2.status === "deleted") {
+                    removeTaskRows(taskId);
+                  }
+                });
+            }
+            if (data.status === "deleted") {
+              removeTaskRows(taskId);
+            }
+          });
+        return;
+      }
+
+      var groupInsert = event.target.closest(".group-insert-btn");
+      if (groupInsert) {
+        if (groupInsert.closest(".sidebar-plus-btn")) return;
+        event.preventDefault();
+        var wrapper = groupInsert.closest(".group-insert");
+        var projectId = wrapper ? wrapper.getAttribute("data-project-id") : "";
+        if (!projectId) return;
+        var name = window.prompt("Group name");
+        if (!name || !name.trim()) return;
+        fetch("/groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          credentials: "same-origin",
+          body: new URLSearchParams({ name: name.trim(), project_id: projectId }).toString(),
+        }).then(function () {
+          window.location.href = "/?project_id=" + encodeURIComponent(projectId);
+        });
+      }
+    });
+  })();
+</script>
+
+<script>
+  (function () {
+    var openInsertRow = null;
+    var draggingSidebarToken = null;
+
+    function closeSidebarInsertRow() {
+      if (openInsertRow) {
+        openInsertRow.classList.remove("is-open");
+      }
+      openInsertRow = null;
+    }
+
+    function openSidebarInsertRow(button) {
+      var row = button ? button.closest(".sidebar-insert-row") : null;
+      if (!row) return false;
+      if (openInsertRow && openInsertRow !== row) {
+        openInsertRow.classList.remove("is-open");
+      }
+      row.classList.add("is-open");
+      openInsertRow = row;
+      return false;
+    }
+
+    window.__openSidebarInsert = function (button) {
+      if (!button) return false;
+      return openSidebarInsertRow(button);
+    };
+
+    function submitSidebarInsert(kind, position) {
+      if (!position) return;
+      var name = window.prompt(kind === "division" ? "Division name" : "Project name");
+      if (!name || !name.trim()) return;
+      var payload = new URLSearchParams({ name: name.trim(), insert_position: position });
+      var url = kind === "division" ? "/divisions" : "/projects";
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        credentials: "same-origin",
+        body: payload.toString(),
+      }).then(function (response) {
+        window.location.href = response.url || window.location.href;
+      });
+    }
+
+    document.addEventListener("click", function (event) {
+      var insertBtn = event.target.closest("[data-sidebar-insert-position]");
+      if (insertBtn && event.target.closest(".sidebar-insert-btn")) {
+        event.preventDefault();
+        openSidebarInsertRow(insertBtn);
+        return;
+      }
+      var insertChoice = event.target.closest("[data-sidebar-insert-kind]");
+      if (insertChoice) {
+        event.preventDefault();
+        var chooser = insertChoice.closest(".sidebar-insert-chooser");
+        var position = chooser ? chooser.getAttribute("data-sidebar-insert-position") : "";
+        closeSidebarInsertRow();
+        submitSidebarInsert(insertChoice.getAttribute("data-sidebar-insert-kind"), position);
+        return;
+      }
+      var insertClose = event.target.closest("[data-sidebar-insert-close]");
+      if (insertClose) {
+        event.preventDefault();
+        closeSidebarInsertRow();
+        return;
+      }
+      if (openInsertRow && !event.target.closest(".sidebar-insert-row")) {
+        closeSidebarInsertRow();
+      }
+    });
+
+    document.addEventListener("dragstart", function (event) {
+      var project = event.target.closest("[data-sidebar-project]");
+      var division = event.target.closest("[data-sidebar-division]");
+      if (project) {
+        draggingSidebarToken = "project:" + project.getAttribute("data-sidebar-project");
+        project.closest(".sidebar-stack-item").classList.add("dragging");
+      } else if (division) {
+        draggingSidebarToken = "division:" + division.getAttribute("data-sidebar-division");
+        division.closest(".sidebar-stack-item").classList.add("dragging");
+      } else {
+        draggingSidebarToken = null;
+      }
+    });
+
+    document.addEventListener("dragover", function (event) {
+      if (!draggingSidebarToken) return;
+      var target = event.target.closest(".sidebar-stack-item");
+      if (!target) return;
+      event.preventDefault();
+      document.querySelectorAll(".sidebar-stack-item.drag-over").forEach(function (item) {
+        item.classList.remove("drag-over");
+      });
+      target.classList.add("drag-over");
+    });
+
+    document.addEventListener("drop", function (event) {
+      if (!draggingSidebarToken) return;
+      var target = event.target.closest(".sidebar-stack-item");
+      if (!target) return;
+      event.preventDefault();
+      var dragged = document.querySelector('.sidebar-stack-item[data-sidebar-item="' + draggingSidebarToken + '"]');
+      if (!dragged || dragged === target) return;
+      var rect = target.getBoundingClientRect();
+      if (event.clientY > rect.top + rect.height / 2) {
+        target.after(dragged);
+      } else {
+        target.before(dragged);
+      }
+      var order = Array.prototype.map.call(
+        document.querySelectorAll(".sidebar-stack-item[data-sidebar-item]"),
+        function (item) { return item.getAttribute("data-sidebar-item"); }
+      );
+      fetch("/api/sidebar/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ order: order }),
+      }).then(function () {
+        window.location.reload();
+      });
+    });
+
+    document.addEventListener("dragend", function () {
+      document.querySelectorAll(".sidebar-stack-item.dragging, .sidebar-stack-item.drag-over").forEach(function (item) {
+        item.classList.remove("dragging");
+        item.classList.remove("drag-over");
+      });
+      draggingSidebarToken = null;
+    });
+  })();
+</script>
+
+<script>
   window.addEventListener("DOMContentLoaded", () => {
     const tasksTables = Array.from(document.querySelectorAll(".tasks-table"));
     const infoByTask = {{ info_by_task|tojson }};
@@ -1736,7 +2244,7 @@
             <button class="btn link info-btn" type="button" data-info-edit="subtask" data-subtask-id="${data.id}" onclick="return window.__openInfoModal('subtask', '${data.id}');">Info</button>
           </div>
         </td>
-        <td><input class="due-input" type="date" data-subtask-id="${data.id}" data-field="due_at" data-col="2" value="${data.due_at ? String(data.due_at).slice(0, 10) : ""}" /></td>
+        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${data.due_at ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-subtask-id="${data.id}" data-field="due_at" data-col="2" data-created-at="${data.created_at ? String(data.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10)}" value="${data.due_at ? String(data.due_at).slice(0, 10) : ""}" /></div></td>
         <td><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="status" data-col="3">open</div></td>
         <td>
           <div class="assignments">
@@ -1799,7 +2307,7 @@
             <button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="${id}" onclick="return window.__openInfoModal('task', '${id}');">Info</button>
           </div>
         </td>
-        <td><input class="due-input" type="date" data-task-id="${id}" data-field="due_at" data-col="2" value="${due ? String(due).slice(0, 10) : ""}" /></td>
+        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
         <td><div class="editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3">open</div></td>
         <td>
           <div class="assignments">
@@ -1914,6 +2422,75 @@
       hideSuggest(input);
     };
 
+    const formatDueSummary = (dueValue, createdValue) => {
+      const today = new Date();
+      const nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      if (dueValue) {
+        const dueDate = new Date(`${dueValue}T00:00:00`);
+        const dueDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+        const diffDays = Math.round((dueDay - nowDay) / 86400000);
+        if (diffDays > 0) return `${dueValue} · ${diffDays}d left`;
+        if (diffDays === 0) return `${dueValue} · Due today`;
+        return `${dueValue} · ${Math.abs(diffDays)}d overdue`;
+      }
+      if (createdValue) {
+        const createdDate = new Date(`${createdValue}T00:00:00`);
+        const createdDay = new Date(createdDate.getFullYear(), createdDate.getMonth(), createdDate.getDate());
+        const ageDays = Math.max(0, Math.round((nowDay - createdDay) / 86400000));
+        if (ageDays === 0) return `${createdValue} · Created today`;
+        return `${createdValue} · ${ageDays}d old`;
+      }
+      return "Created today";
+    };
+
+    const updateDueDisplay = (input) => {
+      if (!input) return;
+      const dueCell = input.closest("[data-due-cell]");
+      const summary = dueCell ? dueCell.querySelector("[data-due-summary]") : null;
+      if (!summary) return;
+      const dueValue = input.value.trim();
+      const createdValue = input.getAttribute("data-created-at");
+      const label = summary.querySelector(".due-summary-label");
+      if (label) {
+        label.textContent = formatDueSummary(dueValue, createdValue);
+      }
+      summary.title = dueValue ? `Due ${dueValue}` : `Created ${createdValue || new Date().toISOString().slice(0, 10)}`;
+      summary.classList.toggle("is-fallback", !dueValue);
+    };
+
+    const showDueInput = (input) => {
+      if (!input) return;
+      const dueCell = input.closest("[data-due-cell]");
+      const summary = dueCell ? dueCell.querySelector("[data-due-summary]") : null;
+      if (summary) summary.classList.add("hidden");
+      input.classList.remove("hidden");
+      input.focus();
+      if (typeof input.select === "function") {
+        input.select();
+      }
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      } else if (typeof input.click === "function") {
+        input.click();
+      }
+    };
+
+    window.__openDueInput = (cell) => {
+      if (!cell) return false;
+      const input = cell.querySelector(".due-input");
+      if (!input) return false;
+      showDueInput(input);
+      return false;
+    };
+
+    const hideDueInput = (input) => {
+      if (!input) return;
+      const dueCell = input.closest("[data-due-cell]");
+      const summary = dueCell ? dueCell.querySelector("[data-due-summary]") : null;
+      input.classList.add("hidden");
+      if (summary) summary.classList.remove("hidden");
+    };
+
     const applyDueInput = (input) => {
       if (!input) return;
       const taskId = input.getAttribute("data-task-id");
@@ -1924,6 +2501,8 @@
         return;
       }
       setInvalid(input, false);
+      updateDueDisplay(input);
+      hideDueInput(input);
       if (taskId) {
         fetch(`/api/tasks/${taskId}`, {
           method: "PATCH",
@@ -1941,9 +2520,23 @@
 
     const bindDueInput = (input) => {
       if (!input) return;
+      updateDueDisplay(input);
+      const dueCell = input.closest("[data-due-cell]");
+      if (dueCell && !dueCell.dataset.bound) {
+        dueCell.dataset.bound = "1";
+        dueCell.addEventListener("click", (event) => {
+          if (event.target === input) return;
+          showDueInput(input);
+        });
+      }
       input.addEventListener("change", () => applyDueInput(input));
       input.addEventListener("input", () => applyDueInput(input));
       input.addEventListener("blur", () => applyDueInput(input));
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          hideDueInput(input);
+        }
+      });
     };
 
     const showSuggest = (input, results) => {
@@ -2319,6 +2912,9 @@
     initColumnResizers();
 
     const contextMenu = document.getElementById("context-menu");
+    const colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
+    const colorInput = document.getElementById("division-color-input");
+    const clearButton = document.getElementById("division-color-clear");
     const shareModal = document.getElementById("share-modal");
     const shareInput = document.getElementById("share-input");
     const shareSuggest = document.getElementById("share-suggest");
@@ -2338,7 +2934,68 @@
 
     const hideContextMenu = () => {
       if (contextMenu) contextMenu.style.display = "none";
+      if (colorSubmenu) {
+        colorSubmenu.classList.remove("is-open");
+        colorSubmenu.removeAttribute("data-division-id");
+      }
       currentContext = null;
+    };
+
+    const setActiveDivisionColor = (color) => {
+      if (!contextMenu) return;
+      contextMenu.querySelectorAll(".color-preset").forEach((button) => {
+        button.classList.toggle("is-active", button.getAttribute("data-color-value") === color);
+      });
+      if (colorInput && /^#[0-9a-fA-F]{6}$/.test(color || "")) {
+        colorInput.value = color;
+      }
+    };
+
+    const submitDivisionColor = (color) => {
+      if (!colorSubmenu) return;
+      const divisionId = colorSubmenu.getAttribute("data-division-id");
+      if (!divisionId) return;
+      fetch(`/api/divisions/${divisionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ color: color || null }),
+      }).then(() => window.location.reload());
+    };
+
+    if (colorInput) {
+      colorInput.addEventListener("input", () => {
+        setActiveDivisionColor(colorInput.value);
+      });
+      colorInput.addEventListener("change", () => {
+        submitDivisionColor(colorInput.value);
+      });
+      colorInput.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+    }
+
+    if (clearButton) {
+      clearButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        submitDivisionColor("");
+      });
+    }
+
+    const setContextMenuActions = (type) => {
+      if (!contextMenu) return;
+      if (colorSubmenu) {
+        colorSubmenu.style.display = type === "division" ? "" : "none";
+        if (type !== "division") {
+          colorSubmenu.classList.remove("is-open");
+          colorSubmenu.removeAttribute("data-division-id");
+        }
+      }
+      contextMenu.querySelectorAll("[data-action]").forEach((button) => {
+        const action = button.getAttribute("data-action");
+        const show = type === "division" ? action === "rename" || action === "delete" || action === "color" : action !== "color";
+        button.style.display = show ? "" : "none";
+      });
     };
 
     const openShareModal = (context) => {
@@ -2463,6 +3120,7 @@
     document.addEventListener("contextmenu", (event) => {
       const projectItem = event.target.closest("[data-project-context]");
       const groupHeader = event.target.closest("[data-group-context]");
+      const divisionHeader = event.target.closest("[data-division-context]");
       if (!contextMenu) return;
       if (projectItem) {
         const canManage = projectItem.getAttribute("data-project-manage") === "1";
@@ -2473,9 +3131,17 @@
         if (!{{ 'true' if can_manage_project else 'false' }}) return;
         event.preventDefault();
         currentContext = { type: "group", id: groupHeader.getAttribute("data-group-context") };
+      } else if (divisionHeader) {
+        event.preventDefault();
+        currentContext = { type: "division", id: divisionHeader.getAttribute("data-division-context") };
       } else {
         return;
       }
+      if (colorSubmenu) {
+        colorSubmenu.classList.remove("is-open");
+        colorSubmenu.removeAttribute("data-division-id");
+      }
+      setContextMenuActions(currentContext.type);
       contextMenu.style.display = "block";
       contextMenu.style.left = `${event.clientX}px`;
       contextMenu.style.top = `${event.clientY}px`;
@@ -2489,18 +3155,40 @@
 
     if (contextMenu) {
       contextMenu.addEventListener("click", (event) => {
+        const preset = event.target.closest(".color-preset");
+        if (preset) {
+          event.preventDefault();
+          event.stopPropagation();
+          submitDivisionColor(preset.getAttribute("data-color-value"));
+          return;
+        }
         const action = event.target.getAttribute("data-action");
         if (!action || !currentContext) return;
         const id = currentContext.id;
         if (action === "rename") {
           const name = prompt("New name");
           if (!name || !name.trim()) return;
-          const url = currentContext.type === "project" ? `/api/projects/${id}` : `/api/groups/${id}`;
+          const url =
+            currentContext.type === "project"
+              ? `/api/projects/${id}`
+              : currentContext.type === "group"
+                ? `/api/groups/${id}`
+                : `/api/divisions/${id}`;
           fetch(url, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: name.trim() }),
           }).then(() => window.location.reload());
+        }
+        if (action === "color") {
+          const divisionNode = document.querySelector(`[data-sidebar-division="${id}"]`);
+          const currentColor = divisionNode ? (divisionNode.getAttribute("data-division-color") || "#4cc9f0") : "#4cc9f0";
+          if (colorSubmenu) {
+            colorSubmenu.setAttribute("data-division-id", id);
+            setActiveDivisionColor(currentColor);
+            colorSubmenu.classList.add("is-open");
+          }
+          return;
         }
         if (action === "share") {
           openShareModal(currentContext);
@@ -2514,11 +3202,48 @@
         }
         if (action === "delete") {
           if (!confirm("Delete this item?")) return;
-          const url = currentContext.type === "project" ? `/api/projects/${id}` : `/api/groups/${id}`;
+          const url =
+            currentContext.type === "project"
+              ? `/api/projects/${id}`
+              : currentContext.type === "group"
+                ? `/api/groups/${id}`
+                : `/api/divisions/${id}`;
           fetch(url, { method: "DELETE" }).then(() => window.location.reload());
         }
         hideContextMenu();
       });
+
+      if (contextMenu) {
+        contextMenu.addEventListener("click", function (event) {
+          var preset = event.target.closest(".color-preset");
+          if (preset) {
+            event.preventDefault();
+            event.stopPropagation();
+            submitDivisionColor(preset.getAttribute("data-color-value"));
+            return;
+          }
+          if (event.target === colorInput) {
+            event.stopPropagation();
+          }
+          if (event.target === clearButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            submitDivisionColor("");
+          }
+        });
+      }
+
+      if (colorInput) {
+        colorInput.addEventListener("input", function () {
+          setActiveDivisionColor(colorInput.value);
+        });
+        colorInput.addEventListener("change", function () {
+          submitDivisionColor(colorInput.value);
+        });
+        colorInput.addEventListener("click", function (event) {
+          event.stopPropagation();
+        });
+      }
     }
 
     const submitShare = (userId) => {

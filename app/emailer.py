@@ -223,3 +223,34 @@ def send_magic_link_digest_email(
         from_name=inviter_name,
         reply_to=inviter_email,
     )
+
+
+def send_account_verification_email(
+    *,
+    to_email: str,
+    verify_url: str,
+    purpose: str,
+    inviter_email: str | None = None,
+    inviter_name: str | None = None,
+) -> None:
+    if purpose == "merge_account":
+        subject = "Verify account merge"
+        intro = "Use this secure link to approve merging another account into yours."
+    else:
+        subject = "Verify email for your account"
+        intro = "Use this secure link to add this email to your account."
+
+    text_body = f"{intro}\n\nOpen this secure verification link:\n{verify_url}\n"
+    html_body = (
+        "<p>" + escape(intro) + "</p>"
+        + '<p><a href="' + escape(verify_url) + '">Open secure verification link</a></p>'
+    )
+    send_email(
+        to_email=to_email,
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+        from_email=inviter_email,
+        from_name=inviter_name,
+        reply_to=inviter_email,
+    )

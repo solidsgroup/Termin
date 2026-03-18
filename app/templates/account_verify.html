@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content" style="max-width: 760px; margin: 0 auto;">
+  <div class="panel">
+    {% if status == "ok" %}
+      <h2>Verification complete</h2>
+      <p class="footer-note" style="color: var(--success);">{{ message }}</p>
+    {% elif status == "error" %}
+      <h2>Verification failed</h2>
+      <p class="footer-note" style="color: #f87171;">{{ message }}</p>
+    {% else %}
+      <h2>Verification unavailable</h2>
+      <p class="footer-note">{{ message }}</p>
+    {% endif %}
+    {% if continue_url %}
+      <div style="margin-top: 12px;">
+        <a class="btn" href="{{ continue_url }}">Continue</a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

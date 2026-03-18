@@ -21,6 +21,10 @@
 
       * { box-sizing: border-box; }
 
+      .hidden {
+        display: none !important;
+      }
+
       body {
         margin: 0;
         font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
@@ -43,6 +47,213 @@
         font-size: 22px;
         letter-spacing: 1px;
         text-transform: uppercase;
+      }
+
+      .account-shell {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .account-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 5px 8px 5px 6px;
+        cursor: pointer;
+        transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+      }
+
+      .account-trigger:hover {
+        border-color: rgba(76, 201, 240, 0.35);
+        background: rgba(76, 201, 240, 0.08);
+        transform: translateY(-1px);
+      }
+
+      .account-trigger:focus-visible {
+        outline: 2px solid rgba(76, 201, 240, 0.45);
+        outline-offset: 2px;
+      }
+
+      .account-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        border: 1px solid rgba(76, 201, 240, 0.25);
+        background: linear-gradient(135deg, rgba(76, 201, 240, 0.18), rgba(255, 255, 255, 0.05));
+        color: var(--ink);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+        overflow: hidden;
+      }
+
+      .account-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .account-email-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .account-email-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--grid);
+      }
+
+      .account-email-card {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .account-email-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 1px solid rgba(76, 201, 240, 0.24);
+        background: linear-gradient(135deg, rgba(76, 201, 240, 0.18), rgba(255, 255, 255, 0.05));
+        color: var(--ink);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+        overflow: hidden;
+        flex: 0 0 auto;
+      }
+
+      .account-email-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .account-email-copy {
+        min-width: 0;
+      }
+
+      .account-email-copy div:first-child {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .account-email-actions {
+        flex: 0 0 auto;
+      }
+
+      .account-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        min-width: 0;
+      }
+
+      .account-name {
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.1;
+        max-width: 180px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .account-email {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.1;
+        max-width: 180px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .account-chevron {
+        width: 14px;
+        height: 14px;
+        color: var(--muted);
+        transition: transform 140ms ease;
+      }
+
+      .account-shell.is-open .account-chevron {
+        transform: rotate(180deg);
+      }
+
+      .account-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 10px);
+        width: 250px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: rgba(17, 21, 28, 0.96);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+        padding: 10px;
+        display: none;
+        z-index: 40;
+        backdrop-filter: blur(10px);
+      }
+
+      .account-shell.is-open .account-menu {
+        display: block;
+      }
+
+      .account-menu-header {
+        padding: 8px 10px 10px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 8px;
+      }
+
+      .account-menu-name {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .account-menu-email {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .account-menu-link {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        text-decoration: none;
+        color: var(--ink);
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        transition: background 140ms ease, border-color 140ms ease;
+      }
+
+      .account-menu-link:hover {
+        background: rgba(76, 201, 240, 0.08);
+        border-color: rgba(76, 201, 240, 0.2);
+      }
+
+      .account-menu-link + .account-menu-link {
+        margin-top: 4px;
       }
 
       main {
@@ -320,7 +531,8 @@
         display: none;
       }
 
-      .context-menu button {
+      .context-menu > button,
+      .context-menu > .context-menu-submenu > button {
         width: 100%;
         background: transparent;
         border: none;
@@ -331,7 +543,8 @@
         font-size: 12px;
       }
 
-      .context-menu button:hover {
+      .context-menu > button:hover,
+      .context-menu > .context-menu-submenu > button:hover {
         background: rgba(76, 201, 240, 0.08);
       }
 
@@ -344,6 +557,10 @@
         justify-content: center;
         z-index: 2500;
         pointer-events: auto;
+      }
+
+      .modal.open {
+        display: flex;
       }
 
       .modal .panel {
@@ -692,6 +909,58 @@
         display: none;
       }
 
+      .due-cell {
+        display: flex;
+        align-items: center;
+        min-height: 28px;
+        width: 100%;
+        cursor: pointer;
+      }
+
+      .due-summary {
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        padding: 6px 10px;
+        font: inherit;
+        transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+      }
+
+      .due-summary:hover {
+        border-color: rgba(76, 201, 240, 0.34);
+        background: rgba(76, 201, 240, 0.08);
+        color: var(--accent);
+        transform: translateY(-1px);
+      }
+
+      .due-summary:focus-visible {
+        outline: 2px solid rgba(76, 201, 240, 0.4);
+        outline-offset: 2px;
+      }
+
+      .due-summary.is-fallback {
+        color: var(--muted);
+      }
+
+      .due-summary-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .due-input.hidden {
+        display: none;
+      }
+
+      .due-input {
+        width: 100%;
+      }
+
       .assignments .assign-action {
         display: flex;
         gap: 6px;
@@ -980,22 +1249,302 @@
       }
 
       .project-list {
-        list-style: none;
         padding: 0;
-        margin: 0 0 20px;
+        margin: 0;
       }
 
-      .project-list li {
-        margin-bottom: 10px;
-        padding: 8px 10px;
+      .project-list .project-item {
+        margin-bottom: 0;
+        padding: 9px 11px;
+        border: 1px solid var(--project-color, var(--border));
+        border-radius: 10px;
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--project-color, #121821) 10%, rgba(21, 26, 34, 0.97)), color-mix(in srgb, var(--project-color, #10141b) 6%, rgba(16, 20, 27, 0.9)));
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.03),
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 36%, transparent),
+          0 8px 18px rgba(0, 0, 0, 0.14);
+      }
+
+      .project-list .project-item.active {
+        border-color: var(--project-color, var(--accent));
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 72%, transparent),
+          0 0 0 3px color-mix(in srgb, var(--project-color, var(--accent)) 20%, transparent),
+          0 10px 22px rgba(0, 0, 0, 0.18);
+      }
+
+      .sidebar-division {
+        margin-top: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        box-shadow: none;
+        line-height: 1;
+      }
+
+      .sidebar-heading-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
+
+      .sidebar-division-title {
+        margin: 0;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--division-color, var(--muted));
+        line-height: 1;
+        text-shadow: 0 0 16px color-mix(in srgb, var(--division-color, transparent) 18%, transparent);
+      }
+
+      .sidebar-section-add {
+        margin-top: 8px;
+        display: flex;
+        justify-content: center;
+      }
+
+      .sidebar-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .sidebar-stack-item {
+        position: relative;
+      }
+
+      .sidebar-stack-item.dragging {
+        opacity: 0.55;
+      }
+
+      .sidebar-stack-item.drag-over {
+        box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.35);
+        border-radius: 12px;
+      }
+
+      .sidebar-division-rule {
+        flex: 1 1 auto;
+        height: 1px;
+        background: color-mix(in srgb, var(--division-color, var(--border)) 55%, transparent);
+      }
+
+      .sidebar-insert-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        min-height: 10px;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+
+      .sidebar-insert-row:hover,
+      .sidebar-insert-row.is-open {
+        opacity: 1;
+      }
+
+      .sidebar-insert-row.is-open {
+        justify-content: stretch;
+      }
+
+      .sidebar-insert-line {
+        flex: 1 1 auto;
+        height: 1px;
+        background: rgba(76, 201, 240, 0.28);
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+
+      .sidebar-insert-row:hover .sidebar-insert-line,
+      .sidebar-insert-row.is-open .sidebar-insert-line {
+        opacity: 1;
+      }
+
+      .sidebar-insert-btn {
+        width: 22px;
+        height: 22px;
+        margin: 0 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(76, 201, 240, 0.6);
+        background: #0b1118;
+        color: var(--accent);
+        font-size: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: transform 120ms ease, border-color 120ms ease;
+      }
+
+      .sidebar-insert-btn:hover {
+        transform: translateY(-1px);
+        border-color: rgba(76, 201, 240, 0.95);
+      }
+
+      .sidebar-insert-chooser {
+        width: 100%;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(12, 16, 23, 0.94);
+      }
+
+      .sidebar-insert-row.is-open .sidebar-insert-btn {
+        display: none;
+      }
+
+      .sidebar-insert-row.is-open .sidebar-insert-chooser {
+        display: flex;
+      }
+
+      .sidebar-insert-choice {
+        border: 1px solid rgba(76, 201, 240, 0.22);
+        background: rgba(76, 201, 240, 0.08);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .sidebar-insert-choice:hover {
+        border-color: rgba(76, 201, 240, 0.45);
+      }
+
+      .sidebar-insert-close {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font-size: 14px;
+        cursor: pointer;
+        padding: 2px 4px;
+      }
+
+      .sidebar-stack-item .project-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin-top: 1px;
+      }
+
+      .context-menu-submenu {
+        position: relative;
+      }
+
+      .context-menu-submenu > button::after {
+        content: "›";
+        float: right;
+        margin-left: 14px;
+        color: var(--muted);
+      }
+
+      .context-submenu-panel {
+        display: none;
+        position: absolute;
+        top: -8px;
+        left: calc(100% - 6px);
+        z-index: 40;
+        min-width: 190px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(12, 16, 23, 0.98);
+        box-shadow: 0 18px 30px rgba(0, 0, 0, 0.28);
+      }
+
+      .context-menu-submenu.is-open .context-submenu-panel {
+        display: block;
+      }
+
+      .color-menu-title {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .color-preset-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .color-preset {
+        appearance: none;
+        display: block;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border-radius: 999px;
+        border: 2px solid color-mix(in srgb, var(--swatch) 65%, white);
+        background: var(--swatch);
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.16);
+      }
+
+      .color-preset:hover,
+      .color-preset.is-active {
+        transform: translateY(-1px);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--swatch) 30%, transparent), 0 6px 14px rgba(0, 0, 0, 0.2);
+      }
+
+      .color-custom-row {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .color-custom-row input[type="color"] {
+        width: 36px;
+        height: 28px;
+        padding: 0;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: rgba(21, 26, 34, 0.8);
+        background: transparent;
+        cursor: pointer;
       }
 
-      .project-list li.active {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.3);
+      .color-menu-actions {
+        margin-top: 10px;
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .sidebar-plus-btn {
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        border: 1px solid rgba(76, 201, 240, 0.6);
+        background: #0b1118;
+        color: var(--accent);
+        font-size: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+      }
+
+      .sidebar-plus-btn:hover {
+        transform: translateY(-1px);
+        border-color: rgba(76, 201, 240, 0.9);
+      }
+
+      .sidebar .project-list:last-child {
+        margin-bottom: 0;
       }
 
       .project-drop-target {
@@ -1032,11 +1581,44 @@
       <h1>Termin</h1>
       <div>
         {% if user %}
-          {% if config.DEV_MAILBOX_ENABLED %}
-            <a class="btn secondary" href="{{ url_for('ui.dev_mailbox') }}">Dev Mail</a>
-          {% endif %}
-          <span class="tag">{{ user.email }}</span>
-          <a class="btn secondary" href="{{ url_for('auth.logout') }}">Log out</a>
+          <div class="account-shell" data-account-menu>
+            <button class="account-trigger" type="button" aria-haspopup="menu" aria-expanded="false" data-account-trigger>
+              <span class="account-avatar">
+                {% if user.avatar_url %}
+                  <img src="{{ user.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+                {% else %}
+                  {{ user.email[0]|upper }}
+                {% endif %}
+              </span>
+              <span class="account-meta">
+                <span class="account-name">{{ user.display_name or "Account" }}</span>
+                <span class="account-email">{{ user.email }}</span>
+              </span>
+              <svg class="account-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M7 10l5 5 5-5z"></path>
+              </svg>
+            </button>
+            <div class="account-menu" role="menu">
+              <div class="account-menu-header">
+                <div class="account-menu-name">{{ user.display_name or "Account" }}</div>
+                <div class="account-menu-email">{{ user.email }}</div>
+              </div>
+              <a class="account-menu-link" href="{{ url_for('ui.account') }}" role="menuitem">
+                <span>Account</span>
+                <span class="footer-note">Manage profile</span>
+              </a>
+              {% if config.DEV_MAILBOX_ENABLED %}
+                <a class="account-menu-link" href="{{ url_for('ui.dev_mailbox') }}" role="menuitem">
+                  <span>Dev Mail</span>
+                  <span class="footer-note">Captured emails</span>
+                </a>
+              {% endif %}
+              <a class="account-menu-link" href="{{ url_for('auth.logout') }}" role="menuitem">
+                <span>Log out</span>
+                <span class="footer-note">End session</span>
+              </a>
+            </div>
+          </div>
         {% endif %}
       </div>
     </header>
@@ -1050,6 +1632,38 @@
           el.setAttribute("autocapitalize", "off");
           el.setAttribute("spellcheck", "false");
         });
+
+        const accountShell = document.querySelector("[data-account-menu]");
+        const accountTrigger = document.querySelector("[data-account-trigger]");
+        if (accountShell && accountTrigger) {
+          const closeMenu = () => {
+            accountShell.classList.remove("is-open");
+            accountTrigger.setAttribute("aria-expanded", "false");
+          };
+
+          accountTrigger.addEventListener("click", (event) => {
+            event.preventDefault();
+            const nextOpen = !accountShell.classList.contains("is-open");
+            if (nextOpen) {
+              accountShell.classList.add("is-open");
+              accountTrigger.setAttribute("aria-expanded", "true");
+            } else {
+              closeMenu();
+            }
+          });
+
+          document.addEventListener("click", (event) => {
+            if (!accountShell.contains(event.target)) {
+              closeMenu();
+            }
+          });
+
+          document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              closeMenu();
+            }
+          });
+        }
       });
     </script>
   </body>

@@ -6,9 +6,20 @@ from flask import Blueprint, current_app, redirect, render_template, request, ur
 from app.auth import login_required
 from app.calendar_sync import CalendarSyncError, ensure_task_event
 from app.collaborators import get_or_create_collaborator_profile
+from app.emailer import MailDeliveryError, send_account_verification_email
 from app.extensions import db
+from app.identity import (
+    add_user_email,
+    consume_email_verification,
+    create_email_verification,
+    find_user_by_email,
+    list_user_emails,
+    merge_users,
+    remove_user_email,
+    set_primary_user_email,
+)
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CollaboratorProfile, DevMailboxMessage, Project, Task, Invite, Subtask, Assignment, User, Group, ProjectMember, GroupMember
+from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, Project, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
 from app.utils import current_user
 
 
@@ -17,6 +28,79 @@ ui_bp = Blueprint("ui", __name__)
 
 def _task_ordering(query):
     return query.order_by(Task.position.asc(), Task.id.asc())
+
+
+def _top_level_sidebar_items(user_id: int, projects: list[Project], divisions: list[Division]) -> list[dict]:
+    division_map = {division.id: division for division in divisions}
+    items = []
+    for project in projects:
+        if project.division_id:
+            continue
+        items.append({"type": "project", "id": project.id, "position": project.position or 0, "project": project})
+    for division in divisions:
+        items.append({"type": "division", "id": division.id, "position": division.position or 0, "division": division})
+    items.sort(key=lambda item: (item["position"], 0 if item["type"] == "division" else 1, item["id"]))
+    return items
+
+
+def _resequence_top_level_items(owner_id: int) -> None:
+    top_projects = Project.query.filter_by(owner_id=owner_id, division_id=None).order_by(Project.position.asc(), Project.id.asc()).all()
+    divisions = Division.query.filter_by(owner_id=owner_id).order_by(Division.position.asc(), Division.id.asc()).all()
+    combined = [{"type": "project", "obj": project, "position": project.position or 0, "id": project.id} for project in top_projects]
+    combined += [{"type": "division", "obj": division, "position": division.position or 0, "id": division.id} for division in divisions]
+    combined.sort(key=lambda item: (item["position"], 0 if item["type"] == "division" else 1, item["id"]))
+    for index, item in enumerate(combined, start=1):
+        item["obj"].position = index
+
+
+def _insert_top_level(owner_id: int, position: int | None) -> int:
+    _resequence_top_level_items(owner_id)
+    max_pos = max(
+        [division.position or 0 for division in Division.query.filter_by(owner_id=owner_id).all()]
+        + [project.position or 0 for project in Project.query.filter_by(owner_id=owner_id, division_id=None).all()]
+        + [0]
+    )
+    insert_pos = max(1, min(position or (max_pos + 1), max_pos + 1))
+    for division in Division.query.filter(Division.owner_id == owner_id, Division.position >= insert_pos).all():
+        division.position += 1
+    for project in Project.query.filter(Project.owner_id == owner_id, Project.division_id.is_(None), Project.position >= insert_pos).all():
+        project.position += 1
+    return insert_pos
+
+
+def _insert_project_position(owner_id: int, division_id: int | None, position: int | None) -> int:
+    if division_id is None:
+        return _insert_top_level(owner_id, position)
+    siblings = Project.query.filter_by(owner_id=owner_id, division_id=division_id).order_by(Project.position.asc(), Project.id.asc()).all()
+    for index, sibling in enumerate(siblings, start=1):
+        sibling.position = index
+    max_pos = len(siblings)
+    insert_pos = max(1, min(position or (max_pos + 1), max_pos + 1))
+    for sibling in siblings:
+        if (sibling.position or 0) >= insert_pos:
+            sibling.position += 1
+    return insert_pos
+
+
+def _division_palette() -> list[str]:
+    return ["#4cc9f0", "#f59e0b", "#34d399", "#f472b6", "#a78bfa", "#f87171", "#38bdf8", "#facc15"]
+
+
+def _render_account_page(user: User, *, error: str | None = None, message: str | None = None):
+    emails = list_user_emails(user.id)
+    pending = EmailVerification.query.filter(
+        EmailVerification.user_id == user.id,
+        EmailVerification.consumed_at.is_(None),
+    ).order_by(EmailVerification.created_at.desc()).all()
+    return render_template(
+        "account.html",
+        user=user,
+        emails=emails,
+        pending_verifications=pending,
+        title="Account",
+        error=error,
+        merge_message=message,
+    )
 
 
 def _safe_ensure_task_event(task_id: int, invitee_email: str | None = None) -> None:
@@ -85,6 +169,7 @@ def _ensure_assignment_invite(assignment: Assignment, calendar_opt_in: bool = Fa
 @login_required
 def dashboard():
     user = current_user()
+    now_utc = datetime.utcnow()
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
     member_project_ids = [
         m.project_id for m in ProjectMember.query.filter_by(user_id=user.id).all()
@@ -121,6 +206,15 @@ def dashboard():
         if accessible_project_ids
         else []
     )
+    sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.name.asc(), Division.id.asc()).all()
+    projects_by_division = {division.id: [] for division in sidebar_divisions}
+    top_level_items = _top_level_sidebar_items(user.id, projects, sidebar_divisions)
+    for project in projects:
+        if project.division_id and project.division_id in projects_by_division:
+            projects_by_division[project.division_id].append(project)
+    for division_id, grouped_projects in projects_by_division.items():
+        grouped_projects.sort(key=lambda project: (project.position or 0, project.id))
+
     selected_project = None
     selected_id = request.args.get("project_id")
     if projects:
@@ -247,7 +341,11 @@ def dashboard():
     return render_template(
         "dashboard.html",
         user=user,
+        now_utc=now_utc,
         projects=projects,
+        divisions=sidebar_divisions,
+        projects_by_division=projects_by_division,
+        top_level_items=top_level_items,
         tasks=tasks,
         invites=invites,
         selected_project=selected_project,
@@ -277,6 +375,148 @@ def dev_mailbox():
     return render_template("dev_mailbox.html", user=current_user(), messages=messages, title="Dev Mailbox")
 
 
+@ui_bp.get("/account")
+@login_required
+def account():
+    user = current_user()
+    return _render_account_page(user)
+
+
+@ui_bp.post("/account/emails")
+@login_required
+def add_account_email():
+    user = current_user()
+    try:
+        verification = create_email_verification(user=user, email=request.form.get("email"), purpose="add_email")
+        verify_url = url_for("ui.verify_account_email", token=verification.token, _external=True)
+        send_account_verification_email(
+            to_email=verification.email,
+            verify_url=verify_url,
+            purpose="add_email",
+            inviter_email=user.email,
+            inviter_name=user.display_name or user.email,
+        )
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return _render_account_page(user, error=str(exc))
+    except MailDeliveryError as exc:
+        db.session.rollback()
+        return _render_account_page(user, error=f"Could not send verification email: {exc}")
+    return _render_account_page(user, message=f"Verification email sent to {verification.email}.")
+
+
+@ui_bp.post("/account/emails/<int:email_id>/primary")
+@login_required
+def set_account_primary_email(email_id: int):
+    user = current_user()
+    try:
+        set_primary_user_email(user, email_id)
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return _render_account_page(user, error=str(exc))
+    return redirect(url_for("ui.account"))
+
+
+@ui_bp.post("/account/emails/<int:email_id>/unlink")
+@login_required
+def unlink_account_email(email_id: int):
+    user = current_user()
+    try:
+        remove_user_email(user, email_id)
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return _render_account_page(user, error=str(exc))
+    return _render_account_page(user, message="Email unlinked.")
+
+
+@ui_bp.post("/account/merge")
+@login_required
+def merge_account():
+    user = current_user()
+    email = request.form.get("email")
+    source_user = find_user_by_email(email)
+
+    if not source_user:
+        return _render_account_page(user, error="No account was found for that email.")
+
+    try:
+        verification = create_email_verification(
+            user=user,
+            email=email,
+            purpose="merge_account",
+            source_user=source_user,
+        )
+        verify_url = url_for("ui.verify_account_email", token=verification.token, _external=True)
+        send_account_verification_email(
+            to_email=verification.email,
+            verify_url=verify_url,
+            purpose="merge_account",
+            inviter_email=user.email,
+            inviter_name=user.display_name or user.email,
+        )
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return _render_account_page(user, error=str(exc))
+    except MailDeliveryError as exc:
+        db.session.rollback()
+        return _render_account_page(user, error=f"Could not send merge verification email: {exc}")
+
+    return _render_account_page(user, message=f"Merge verification email sent to {verification.email}.")
+
+
+@ui_bp.get("/account/verify/<token>")
+def verify_account_email(token: str):
+    verification = consume_email_verification(token)
+    if not verification:
+        return render_template(
+            "account_verify.html",
+            status="invalid",
+            message="This verification link is invalid or already used.",
+            continue_url=url_for("auth.login"),
+        )
+
+    user = User.query.get(verification.user_id)
+    if not user:
+        db.session.rollback()
+        return render_template(
+            "account_verify.html",
+            status="invalid",
+            message="The target account no longer exists.",
+            continue_url=url_for("auth.login"),
+        )
+
+    try:
+        if verification.purpose == "add_email":
+            add_user_email(user, verification.email)
+        elif verification.purpose == "merge_account":
+            source_user = User.query.get(verification.source_user_id) if verification.source_user_id else find_user_by_email(verification.email)
+            if not source_user:
+                raise ValueError("The source account no longer exists.")
+            merge_users(target_user=user, source_user=source_user)
+        else:
+            raise ValueError("Unsupported verification type.")
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return render_template(
+            "account_verify.html",
+            status="error",
+            message=str(exc),
+            continue_url=url_for("auth.login"),
+        )
+
+    return render_template(
+        "account_verify.html",
+        status="ok",
+        message="Email verification complete." if verification.purpose == "add_email" else "Account merge complete.",
+        continue_url=url_for("ui.account"),
+    )
+
+
 @ui_bp.post("/dev/mail/clear")
 @login_required
 def clear_dev_mailbox():
@@ -292,14 +532,30 @@ def clear_dev_mailbox():
 def create_project():
     user = current_user()
     name = (request.form.get("name") or "").strip()
+    division_id = (request.form.get("division_id") or "").strip()
+    insert_position_raw = (request.form.get("insert_position") or "").strip()
     default_owner_calendar_opt_in = request.form.get("default_owner_calendar_opt_in") == "on"
     default_invitee_calendar_opt_in = request.form.get("default_invitee_calendar_opt_in") == "on"
     if not name:
         return redirect(url_for("ui.dashboard"))
 
+    division = None
+    if division_id:
+        try:
+            division = Division.query.filter_by(id=int(division_id), owner_id=user.id).first()
+        except ValueError:
+            division = None
+    try:
+        insert_position = int(insert_position_raw) if insert_position_raw else None
+    except ValueError:
+        insert_position = None
+    project_position = _insert_project_position(user.id, division.id if division else None, insert_position)
+
     project = Project(
         name=name,
         owner_id=user.id,
+        division_id=division.id if division else None,
+        position=project_position,
         default_owner_calendar_opt_in=default_owner_calendar_opt_in,
         default_invitee_calendar_opt_in=default_invitee_calendar_opt_in,
     )
@@ -314,6 +570,32 @@ def create_project():
         color=palette[(max_pos) % len(palette)],
     )
     db.session.add(group)
+    db.session.commit()
+    return redirect(url_for("ui.dashboard", project_id=project.id))
+
+
+@ui_bp.post("/divisions")
+@login_required
+def create_division():
+    user = current_user()
+    name = (request.form.get("name") or "").strip()
+    insert_position_raw = (request.form.get("insert_position") or "").strip()
+    if not name:
+        return redirect(url_for("ui.dashboard"))
+    try:
+        insert_position = int(insert_position_raw) if insert_position_raw else None
+    except ValueError:
+        insert_position = None
+
+    division_position = _insert_top_level(user.id, insert_position)
+    palette = _division_palette()
+    division = Division(
+        owner_id=user.id,
+        name=name,
+        color=palette[(division_position - 1) % len(palette)],
+        position=division_position,
+    )
+    db.session.add(division)
     db.session.commit()
     return redirect(url_for("ui.dashboard"))
 

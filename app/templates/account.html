@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content" style="max-width: 900px; margin: 0 auto;">
+  <div class="panel">
+    <h2>Account</h2>
+    <p class="footer-note">Manage your primary email, add secondary emails, and merge another account into this one. New emails and merges require email verification.</p>
+    {% if error %}
+      <p class="footer-note" style="color: #f87171; margin-top: 10px;">{{ error }}</p>
+    {% endif %}
+    {% if merge_message %}
+      <p class="footer-note" style="color: var(--success); margin-top: 10px;">{{ merge_message }}</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h3>Email Addresses</h3>
+    <div class="account-email-list">
+      {% for email in emails %}
+        <div class="account-email-row">
+          <div class="account-email-card">
+            <span class="account-email-avatar">
+              {% if email.avatar_url %}
+                <img src="{{ email.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.account-email-avatar').textContent='{{ email.email[0]|upper }}'; this.remove();" />
+              {% else %}
+                {{ email.email[0]|upper }}
+              {% endif %}
+            </span>
+            <div class="account-email-copy">
+              <div>{{ email.email }}</div>
+              <div class="footer-note">{% if email.is_primary %}Primary email{% else %}Secondary email{% endif %}</div>
+            </div>
+          </div>
+          <div class="account-email-actions">
+            {% if not email.is_primary %}
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                <form method="post" action="{{ url_for('ui.set_account_primary_email', email_id=email.id) }}">
+                  <button class="btn secondary" type="submit">Make primary</button>
+                </form>
+                <form method="post" action="{{ url_for('ui.unlink_account_email', email_id=email.id) }}">
+                  <button class="btn secondary" type="submit">Unlink</button>
+                </form>
+              </div>
+            {% else %}
+              <span class="tag">primary</span>
+            {% endif %}
+          </div>
+        </div>
+      {% else %}
+        <p class="footer-note">No emails found on this account yet.</p>
+      {% endfor %}
+    </div>
+    <form method="post" action="{{ url_for('ui.add_account_email') }}" style="margin-top: 14px;">
+      <label for="account-email">Add email</label>
+      <div style="display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
+        <input id="account-email" name="email" placeholder="name@example.com" style="flex: 1 1 260px;" />
+        <button class="btn" type="submit">Send verification</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h3>Pending Verification</h3>
+    {% for verification in pending_verifications %}
+      <div style="padding: 10px 0; border-bottom: 1px solid var(--grid);">
+        <div>{{ verification.email }}</div>
+        <div class="footer-note">
+          {% if verification.purpose == "merge_account" %}Pending merge approval{% else %}Pending email addition{% endif %}
+          · requested {{ verification.created_at.strftime('%Y-%m-%d %H:%M') }}
+        </div>
+      </div>
+    {% else %}
+      <p class="footer-note">No pending verification requests.</p>
+    {% endfor %}
+  </div>
+
+  <div class="panel">
+    <h3>Merge Account</h3>
+    <p class="footer-note">Merge another existing account into this one by email. A verification message will be sent to that account email before the merge is allowed.</p>
+    <form method="post" action="{{ url_for('ui.merge_account') }}" style="margin-top: 14px;">
+      <label for="merge-email">Account email to merge</label>
+      <div style="display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
+        <input id="merge-email" name="email" placeholder="other-account@example.com" style="flex: 1 1 260px;" />
+        <button class="btn secondary" type="submit">Send merge verification</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -4,7 +4,8 @@ from functools import wraps
 from flask import Blueprint, redirect, session, url_for, render_template
 
 from app.extensions import db
-from app.models import User, CalendarAccount
+from app.identity import ensure_primary_user_email, find_user_by_email, normalize_email, sync_user_avatar_from_primary_email
+from app.models import CalendarAccount, User, UserEmail
 from app.oauth import oauth
 
 
@@ -12,15 +13,29 @@ auth_bp = Blueprint("auth", __name__)
 
 
 def _get_or_create_user(email: str, display_name: str | None, avatar_url: str | None):
-    user = User.query.filter_by(email=email).first()
+    normalized_email = normalize_email(email)
+    user = find_user_by_email(normalized_email)
     if not user:
-        user = User(email=email, display_name=display_name, avatar_url=avatar_url)
+        user = User(email=normalized_email, display_name=display_name, avatar_url=avatar_url)
         db.session.add(user)
     else:
         if display_name and user.display_name != display_name:
             user.display_name = display_name
-        if avatar_url and user.avatar_url != avatar_url:
-            user.avatar_url = avatar_url
+    db.session.flush()
+    primary_email = ensure_primary_user_email(user)
+    login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first()
+    if normalized_email and normalized_email != user.email:
+        from app.identity import add_user_email
+        try:
+            login_alias = add_user_email(user, normalized_email)
+        except ValueError:
+            login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first()
+    if avatar_url and login_alias and login_alias.user_id == user.id and login_alias.avatar_url != avatar_url:
+        login_alias.avatar_url = avatar_url
+    if primary_email and primary_email.id == (login_alias.id if login_alias else primary_email.id):
+        user.avatar_url = primary_email.avatar_url or avatar_url
+    else:
+        sync_user_avatar_from_primary_email(user)
     db.session.commit()
     return user
 

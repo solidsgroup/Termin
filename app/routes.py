@@ -7,10 +7,11 @@ from app.auth import login_required
 from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
 from app.extensions import db
+from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 import secrets
 
-from app.models import Task, Project, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember
+from app.models import Division, Task, Project, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember
 from app.utils import current_user
 
 
@@ -67,6 +68,16 @@ def _next_task_position(project_id: int, group_id: int | None) -> int:
     else:
         query = query.filter(Task.group_id == group_id)
     return (query.scalar() or 0) + 1
+
+
+def _resequence_sidebar(user_id: int) -> None:
+    top_projects = Project.query.filter_by(owner_id=user_id, division_id=None).order_by(Project.position.asc(), Project.id.asc()).all()
+    divisions = Division.query.filter_by(owner_id=user_id).order_by(Division.position.asc(), Division.id.asc()).all()
+    combined = [{"type": "project", "obj": project, "position": project.position or 0, "id": project.id} for project in top_projects]
+    combined += [{"type": "division", "obj": division, "position": division.position or 0, "id": division.id} for division in divisions]
+    combined.sort(key=lambda item: (item["position"], 0 if item["type"] == "division" else 1, item["id"]))
+    for index, item in enumerate(combined, start=1):
+        item["obj"].position = index
 
 
 def _resequence_tasks(project_id: int, group_id: int | None, exclude_task_id: int | None = None) -> None:
@@ -137,7 +148,7 @@ def create_task():
     assignment_payload = None
     if assignee_email:
         email = assignee_email.strip().lower()
-        account_user = User.query.filter(User.email.ilike(email)).first()
+        account_user = find_user_by_email(email)
         assignment = Assignment(
             task_id=task.id,
             user_id=account_user.id if account_user else None,
@@ -306,6 +317,33 @@ def update_project(project_id: int):
     return {"id": project.id, "name": project.name}, 200
 
 
+@api_bp.patch("/divisions/<int:division_id>")
+@login_required
+def update_division(division_id: int):
+    payload = request.get_json(silent=True) or {}
+    user = current_user()
+    name = payload.get("name")
+    color = payload.get("color")
+    if name is None and color is None:
+        return {"error": "name or color is required"}, 400
+    division = Division.query.filter_by(id=division_id, owner_id=user.id).first()
+    if not division:
+        return {"error": "division not found"}, 404
+    if name is not None:
+        division.name = name.strip() or division.name
+    if color is not None:
+        color_value = (color or "").strip()
+        if color_value and not (
+            len(color_value) == 7
+            and color_value.startswith("#")
+            and all(ch in "0123456789abcdefABCDEF" for ch in color_value[1:])
+        ):
+            return {"error": "invalid color"}, 400
+        division.color = color_value or None
+    db.session.commit()
+    return {"id": division.id, "name": division.name, "color": division.color}, 200
+
+
 @api_bp.delete("/projects/<int:project_id>")
 @login_required
 def delete_project(project_id: int):
@@ -333,6 +371,29 @@ def delete_project(project_id: int):
     return {"status": "deleted"}, 200
 
 
+@api_bp.delete("/divisions/<int:division_id>")
+@login_required
+def delete_division(division_id: int):
+    user = current_user()
+    division = Division.query.filter_by(id=division_id, owner_id=user.id).first()
+    if not division:
+        return {"error": "division not found"}, 404
+
+    top_projects = Project.query.filter_by(owner_id=user.id, division_id=None).order_by(Project.position.asc(), Project.id.asc()).all()
+    for index, project in enumerate(top_projects, start=1):
+        project.position = index
+    insert_pos = len(top_projects) + 1
+
+    moved_projects = Project.query.filter_by(owner_id=user.id, division_id=division.id).order_by(Project.position.asc(), Project.id.asc()).all()
+    for offset, project in enumerate(moved_projects, start=0):
+        project.division_id = None
+        project.position = insert_pos + offset
+
+    db.session.delete(division)
+    db.session.commit()
+    return {"status": "deleted"}, 200
+
+
 @api_bp.post("/projects/<int:project_id>/duplicate")
 @login_required
 def duplicate_project(project_id: int):
@@ -346,6 +407,7 @@ def duplicate_project(project_id: int):
     copy = Project(
         name=f"{project.name} Copy",
         owner_id=user.id,
+        division_id=project.division_id,
         default_owner_calendar_opt_in=project.default_owner_calendar_opt_in,
         default_invitee_calendar_opt_in=project.default_invitee_calendar_opt_in,
     )
@@ -473,17 +535,9 @@ def list_users():
     q = (request.args.get("q") or "").strip().lower()
     if not q:
         return {"results": []}
-    users = (
-        User.query.filter(
-            (User.email.ilike(f"%{q}%")) | (User.display_name.ilike(f"%{q}%"))
-        )
-        .limit(10)
-        .all()
-    )
+    users = search_users_by_identity(q, exclude_user_id=user.id, limit=10)
     results = []
     for u in users:
-        if u.id == user.id:
-            continue
         results.append(
             {
                 "id": u.id,
@@ -690,6 +744,45 @@ def reorder_groups():
     return {"status": "ok"}, 200
 
 
+@api_bp.post("/sidebar/reorder")
+@login_required
+def reorder_sidebar():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    order = payload.get("order") or []
+    if not isinstance(order, list) or not order:
+        return {"error": "order is required"}, 400
+
+    _resequence_sidebar(user.id)
+
+    expected = []
+    top_projects = Project.query.filter_by(owner_id=user.id, division_id=None).all()
+    divisions = Division.query.filter_by(owner_id=user.id).all()
+    expected.extend([f"project:{project.id}" for project in top_projects])
+    expected.extend([f"division:{division.id}" for division in divisions])
+    if sorted(order) != sorted(expected):
+        return {"error": "order mismatch"}, 400
+
+    for index, token in enumerate(order, start=1):
+        kind, raw_id = token.split(":", 1)
+        item_id = int(raw_id)
+        if kind == "project":
+            project = Project.query.filter_by(id=item_id, owner_id=user.id, division_id=None).first()
+            if not project:
+                return {"error": "project not found"}, 404
+            project.position = index
+        elif kind == "division":
+            division = Division.query.filter_by(id=item_id, owner_id=user.id).first()
+            if not division:
+                return {"error": "division not found"}, 404
+            division.position = index
+        else:
+            return {"error": "invalid token"}, 400
+
+    db.session.commit()
+    return {"status": "ok"}, 200
+
+
 @api_bp.delete("/tasks/<int:task_id>")
 @login_required
 def delete_task(task_id: int):
@@ -758,7 +851,7 @@ def create_assignment():
         if not _can_access_subtask(user, subtask):
             return {"error": "unauthorized"}, 403
 
-    account_user = User.query.filter(User.email.ilike(email)).first()
+    account_user = find_user_by_email(email)
     if not account_user:
         project = Project.query.get(task.project_id) if task else None
         get_or_create_collaborator_profile(
@@ -1001,7 +1094,7 @@ def create_subtask(task_id: int):
     assignment_payload = None
     if payload.get("assignee_email"):
         email = payload.get("assignee_email").strip().lower()
-        account_user = User.query.filter(User.email.ilike(email)).first()
+        account_user = find_user_by_email(email)
         assignment = Assignment(
             subtask_id=subtask.id,
             user_id=account_user.id if account_user else None,
@@ -1216,13 +1309,7 @@ def list_assignees():
     )
 
     # Users by email/display_name
-    users = (
-        User.query.filter(
-            (User.email.ilike(f"%{q}%")) | (User.display_name.ilike(f"%{q}%"))
-        )
-        .limit(10)
-        .all()
-    )
+    users = search_users_by_identity(q, limit=10)
 
     # Prior emails from assignments/invites within scope
     emails = set()
