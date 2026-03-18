@@ -52,8 +52,10 @@ class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
     group_id = db.Column(db.Integer, db.ForeignKey("groups.id"))
+    position = db.Column(db.Integer, default=0, nullable=False)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
+    info = db.Column(db.Text)
     link = db.Column(db.String(1024))
     due_at = db.Column(db.DateTime)
     assignee_email = db.Column(db.String(255))
@@ -67,6 +69,7 @@ class Subtask(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
     title = db.Column(db.String(255), nullable=False)
+    info = db.Column(db.Text)
     link = db.Column(db.String(1024))
     due_at = db.Column(db.DateTime)
     assignee_email = db.Column(db.String(255))
@@ -95,6 +98,31 @@ class Invite(db.Model):
     token = db.Column(db.String(64), unique=True, nullable=False)
     status = db.Column(db.String(50), default="sent", nullable=False)
     calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CollaboratorProfile(db.Model):
+    __tablename__ = "collaborator_profiles"
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    access_token = db.Column(db.String(64), unique=True, nullable=False)
+    display_name = db.Column(db.String(255))
+    default_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class DevMailboxMessage(db.Model):
+    __tablename__ = "dev_mailbox_messages"
+    id = db.Column(db.Integer, primary_key=True)
+    to_email = db.Column(db.String(255), nullable=False)
+    from_email = db.Column(db.String(255), nullable=False)
+    from_name = db.Column(db.String(255))
+    reply_to = db.Column(db.String(255))
+    subject = db.Column(db.String(255), nullable=False)
+    text_body = db.Column(db.Text, nullable=False)
+    html_body = db.Column(db.Text)
+    delivery_mode = db.Column(db.String(32), nullable=False, default="captured")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 

@@ -1,9 +1,13 @@
 from datetime import datetime
+from pathlib import Path
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request, send_from_directory
 
 from app.auth import login_required
+from app.collaborators import get_or_create_collaborator_profile
+from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
 from app.extensions import db
+from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 import secrets
 
 from app.models import Task, Project, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember
@@ -47,19 +51,51 @@ def _can_manage_project(user, project_id: int) -> bool:
     )
 
 
+def _task_bucket_query(project_id: int, group_id: int | None):
+    query = Task.query.filter_by(project_id=project_id)
+    if group_id is None:
+        query = query.filter(Task.group_id.is_(None))
+    else:
+        query = query.filter_by(group_id=group_id)
+    return query.order_by(Task.position.asc(), Task.id.asc())
+
+
+def _next_task_position(project_id: int, group_id: int | None) -> int:
+    query = db.session.query(db.func.max(Task.position)).filter(Task.project_id == project_id)
+    if group_id is None:
+        query = query.filter(Task.group_id.is_(None))
+    else:
+        query = query.filter(Task.group_id == group_id)
+    return (query.scalar() or 0) + 1
+
+
+def _resequence_tasks(project_id: int, group_id: int | None, exclude_task_id: int | None = None) -> None:
+    tasks = _task_bucket_query(project_id, group_id).all()
+    pos = 1
+    for task in tasks:
+        if exclude_task_id and task.id == exclude_task_id:
+            continue
+        task.position = pos
+        pos += 1
+
+
+def _info_payload_for(item) -> dict:
+    return load_info_payload(getattr(item, "info", None), getattr(item, "link", None))
+
+
+def _upload_root() -> Path:
+    return Path(current_app.instance_path) / "uploads"
+
+
 @api_bp.post("/tasks")
 @login_required
 def create_task():
     payload = request.get_json(silent=True) or {}
-    print("DEBUG /api/tasks payload:", payload)
     user = current_user()
     title = (payload.get("title") or "").strip()
-    link = (payload.get("link") or "").strip()
     project_id = payload.get("project_id")
     group_id = payload.get("group_id")
     due_at = payload.get("due_at")
-    link = payload.get("link")
-    link = payload.get("link")
     assignee_email = payload.get("assignee_email")
 
     if not title or not project_id:
@@ -89,9 +125,10 @@ def create_task():
     task = Task(
         project_id=project.id,
         group_id=group.id if group else None,
+        position=_next_task_position(project.id, group.id if group else None),
         title=title,
         description=payload.get("description"),
-        link=link.strip() if link else None,
+        info=normalize_info_payload(payload.get("info"), payload.get("link")),
         due_at=due_value,
         owner_calendar_opt_in=project.default_owner_calendar_opt_in,
     )
@@ -118,7 +155,7 @@ def create_task():
             "display_email": account_user.email if account_user else assignment.email,
         }
 
-    return {"id": task.id, "title": task.title, "assignment": assignment_payload}, 201
+    return {"id": task.id, "title": task.title, "assignment": assignment_payload, "info": _info_payload_for(task)}, 201
 
 
 @api_bp.patch("/tasks/<int:task_id>")
@@ -137,14 +174,14 @@ def update_task(task_id: int):
     title = payload.get("title")
     status = payload.get("status")
     due_at = payload.get("due_at")
-    link = payload.get("link")
+    info = payload.get("info")
 
     if title is not None:
         task.title = title.strip()
     if status is not None:
         task.status = status.strip() or task.status
-    if link is not None:
-        task.link = link.strip()
+    if info is not None:
+        task.info = normalize_info_payload(info, task.link)
     if due_at is not None:
         if due_at == "":
             task.due_at = None
@@ -154,7 +191,80 @@ def update_task(task_id: int):
             except ValueError:
                 return {"error": "Invalid due_at format"}, 400
     db.session.commit()
-    return {"id": task.id, "title": task.title, "status": task.status}, 200
+    return {"id": task.id, "title": task.title, "status": task.status, "info": _info_payload_for(task)}, 200
+
+
+@api_bp.post("/tasks/<int:task_id>/move")
+@login_required
+def move_task(task_id: int):
+    payload = request.get_json(silent=True) or {}
+    user = current_user()
+
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+
+    source_project_id = task.project_id
+    source_group_id = task.group_id
+    target_project_id = payload.get("project_id")
+    target_group_raw = payload.get("group_id")
+    before_task_id = payload.get("before_task_id")
+
+    if not target_project_id:
+        return {"error": "project_id is required"}, 400
+    if not _can_manage_project(user, source_project_id) or not _can_manage_project(user, target_project_id):
+        return {"error": "unauthorized"}, 403
+
+    target_project = Project.query.get(target_project_id)
+    if not target_project:
+        return {"error": "project not found"}, 404
+
+    target_group_id = None if target_group_raw in (None, "", "null") else int(target_group_raw)
+    if target_group_id is not None:
+        target_group = Group.query.filter_by(id=target_group_id, project_id=target_project.id).first()
+        if not target_group:
+            return {"error": "group not found"}, 404
+
+    before_task = None
+    if before_task_id:
+        before_task = Task.query.get(before_task_id)
+        if not before_task:
+            return {"error": "before_task not found"}, 404
+        if before_task.id == task.id:
+            before_task = None
+        elif before_task.project_id != target_project.id or before_task.group_id != target_group_id:
+            return {"error": "before_task bucket mismatch"}, 400
+
+    if source_project_id == target_project.id and source_group_id == target_group_id:
+        siblings = [row for row in _task_bucket_query(target_project.id, target_group_id).all() if row.id != task.id]
+    else:
+        siblings = _task_bucket_query(target_project.id, target_group_id).all()
+
+    insert_at = len(siblings)
+    if before_task:
+        for idx, sibling in enumerate(siblings):
+            if sibling.id == before_task.id:
+                insert_at = idx
+                break
+
+    task.project_id = target_project.id
+    task.group_id = target_group_id
+    siblings.insert(insert_at, task)
+
+    for idx, sibling in enumerate(siblings, start=1):
+        sibling.position = idx
+
+    if source_project_id != target_project.id or source_group_id != target_group_id:
+        _resequence_tasks(source_project_id, source_group_id, exclude_task_id=task.id)
+
+    db.session.commit()
+    return {
+        "status": "ok",
+        "task_id": task.id,
+        "project_id": task.project_id,
+        "group_id": task.group_id,
+        "position": task.position,
+    }, 200
 
 
 @api_bp.patch("/groups/<int:group_id>")
@@ -255,10 +365,11 @@ def duplicate_project(project_id: int):
         group_map[group.id] = new_group.id
 
     task_map = {}
-    for task in Task.query.filter_by(project_id=project.id).all():
+    for task in Task.query.filter_by(project_id=project.id).order_by(Task.position.asc(), Task.id.asc()).all():
         new_task = Task(
             project_id=copy.id,
             group_id=group_map.get(task.group_id),
+            position=task.position,
             title=task.title,
             description=task.description,
             due_at=task.due_at,
@@ -327,10 +438,11 @@ def duplicate_group(group_id: int):
     db.session.flush()
 
     task_map = {}
-    for task in Task.query.filter_by(group_id=group.id).all():
+    for task in Task.query.filter_by(group_id=group.id).order_by(Task.position.asc(), Task.id.asc()).all():
         new_task = Task(
             project_id=task.project_id,
             group_id=new_group.id,
+            position=task.position,
             title=task.title,
             description=task.description,
             due_at=task.due_at,
@@ -647,6 +759,12 @@ def create_assignment():
             return {"error": "unauthorized"}, 403
 
     account_user = User.query.filter(User.email.ilike(email)).first()
+    if not account_user:
+        project = Project.query.get(task.project_id) if task else None
+        get_or_create_collaborator_profile(
+            email=email,
+            default_calendar_opt_in=project.default_invitee_calendar_opt_in if project else False,
+        )
     assignment = Assignment(
         task_id=task.id if target_type == "task" else None,
         subtask_id=subtask.id if target_type == "subtask" else None,
@@ -690,6 +808,13 @@ def send_assignment_link(assignment_id: int):
     if not email:
         return {"error": "assignment has no email"}, 400
 
+    subtask = Subtask.query.get(assignment.subtask_id) if assignment.subtask_id else None
+    project = Project.query.get(task.project_id) if task.project_id else None
+    collaborator = get_or_create_collaborator_profile(
+        email=email,
+        default_calendar_opt_in=project.default_invitee_calendar_opt_in if project else False,
+    )
+
     invite = Invite.query.filter_by(assignment_id=assignment.id).first()
     if not invite:
         token = secrets.token_hex(24)
@@ -700,12 +825,120 @@ def send_assignment_link(assignment_id: int):
             email=email,
             token=token,
             status="sent",
+            calendar_opt_in=collaborator.default_calendar_opt_in,
         )
         db.session.add(invite)
+    invite_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/invites/{invite.token}"
+    manage_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/collaborators/{collaborator.access_token}"
+
+    try:
+        send_magic_link_email(
+            to_email=email,
+            invite_url=invite_url,
+            manage_url=manage_url,
+            project_name=project.name if project else None,
+            task_title=task.title if task else None,
+            subtask_title=subtask.title if subtask else None,
+            inviter_email=user.email,
+            inviter_name=user.display_name or user.email,
+        )
+    except MailDeliveryError as exc:
+        db.session.rollback()
+        return {"error": f"email delivery failed: {exc}"}, 503
+
+    invite.status = "sent"
     assignment.status = "link_sent"
     db.session.commit()
 
-    return {"status": "link_sent", "invite_url": f"{request.host_url.rstrip('/')}/invites/{invite.token}"}, 200
+    return {"status": "link_sent", "invite_url": invite_url}, 200
+
+
+@api_bp.post("/assignments/send_links")
+@login_required
+def send_assignment_links_bulk():
+    payload = request.get_json(silent=True) or {}
+    assignment_ids = payload.get("assignment_ids") or []
+    if not assignment_ids or not isinstance(assignment_ids, list):
+        return {"error": "assignment_ids is required"}, 400
+
+    user = current_user()
+    assignments = Assignment.query.filter(Assignment.id.in_(assignment_ids)).all()
+    if len(assignments) != len(set(int(item) for item in assignment_ids)):
+        return {"error": "one or more assignments were not found"}, 404
+
+    normalized_ids = [int(item) for item in assignment_ids]
+    assignments.sort(key=lambda assignment: normalized_ids.index(assignment.id))
+
+    first_email = None
+    prepared_items = []
+    prepared_assignments = []
+
+    for assignment in assignments:
+        task = Task.query.get(assignment.task_id) if assignment.task_id else None
+        subtask = Subtask.query.get(assignment.subtask_id) if assignment.subtask_id else None
+        if subtask and not task:
+            task = Task.query.get(subtask.task_id)
+        if not task:
+            return {"error": f"task not found for assignment {assignment.id}"}, 404
+        if not _can_access_task(user, task):
+            return {"error": "unauthorized"}, 403
+
+        email = assignment.email or (User.query.get(assignment.user_id).email if assignment.user_id else None)
+        if not email:
+            return {"error": f"assignment {assignment.id} has no email"}, 400
+        if first_email is None:
+            first_email = email
+        elif email != first_email:
+            return {"error": "all assignments in a bulk send must belong to the same email address"}, 400
+
+        project = Project.query.get(task.project_id) if task.project_id else None
+        collaborator = get_or_create_collaborator_profile(
+            email=email,
+            default_calendar_opt_in=project.default_invitee_calendar_opt_in if project else False,
+        )
+        invite = Invite.query.filter_by(assignment_id=assignment.id).first()
+        if not invite:
+            invite = Invite(
+                task_id=assignment.task_id,
+                subtask_id=assignment.subtask_id,
+                assignment_id=assignment.id,
+                email=email,
+                token=secrets.token_hex(24),
+                status="sent",
+                calendar_opt_in=collaborator.default_calendar_opt_in,
+            )
+            db.session.add(invite)
+
+        invite_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/invites/{invite.token}"
+        manage_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/collaborators/{collaborator.access_token}"
+        prepared_items.append(
+            {
+                "project_name": project.name if project else None,
+                "task_title": task.title if task else None,
+                "subtask_title": subtask.title if subtask else None,
+                "invite_url": invite_url,
+                "manage_url": manage_url,
+            }
+        )
+        prepared_assignments.append((assignment, invite))
+
+    try:
+        send_magic_link_digest_email(
+            to_email=first_email,
+            manage_url=prepared_items[0].get("manage_url") if prepared_items else None,
+            items=prepared_items,
+            inviter_email=user.email,
+            inviter_name=user.display_name or user.email,
+        )
+    except MailDeliveryError as exc:
+        db.session.rollback()
+        return {"error": f"email delivery failed: {exc}"}, 503
+
+    for assignment, invite in prepared_assignments:
+        invite.status = "sent"
+        assignment.status = "link_sent"
+    db.session.commit()
+    return {"status": "link_sent", "assignment_ids": [assignment.id for assignment, _ in prepared_assignments]}, 200
 
 
 @api_bp.delete("/assignments/<int:assignment_id>")
@@ -760,7 +993,7 @@ def create_subtask(task_id: int):
     subtask = Subtask(
         task_id=task.id,
         title=title,
-        link=link or None,
+        info=normalize_info_payload(payload.get("info"), payload.get("link")),
         due_at=due_at,
     )
     db.session.add(subtask)
@@ -786,7 +1019,7 @@ def create_subtask(task_id: int):
             "display_email": account_user.email if account_user else assignment.email,
             "avatar_url": account_user.avatar_url if account_user else None,
         }
-    return {"id": subtask.id, "title": subtask.title, "assignment": assignment_payload}, 201
+    return {"id": subtask.id, "title": subtask.title, "assignment": assignment_payload, "info": _info_payload_for(subtask)}, 201
 
 
 @api_bp.patch("/subtasks/<int:subtask_id>")
@@ -809,14 +1042,14 @@ def update_subtask(subtask_id: int):
     title = payload.get("title")
     status = payload.get("status")
     due_at = payload.get("due_at")
-    link = payload.get("link")
+    info = payload.get("info")
 
     if title is not None:
         subtask.title = title.strip()
     if status is not None:
         subtask.status = status.strip() or subtask.status
-    if link is not None:
-        subtask.link = link.strip()
+    if info is not None:
+        subtask.info = normalize_info_payload(info, subtask.link)
     if due_at is not None:
         if due_at == "":
             subtask.due_at = None
@@ -826,7 +1059,124 @@ def update_subtask(subtask_id: int):
             except ValueError:
                 return {"error": "Invalid due_at format"}, 400
     db.session.commit()
-    return {"id": subtask.id, "title": subtask.title, "status": subtask.status}, 200
+    return {"id": subtask.id, "title": subtask.title, "status": subtask.status, "info": _info_payload_for(subtask)}, 200
+
+
+@api_bp.post("/tasks/<int:task_id>/info/attachments")
+@login_required
+def upload_task_attachment(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    upload = request.files.get("file")
+    if not upload or not upload.filename:
+        return {"error": "file is required"}, 400
+    attachment = save_uploaded_file(upload, _upload_root(), "task", task.id)
+    info = _info_payload_for(task)
+    info.setdefault("attachments", []).append(attachment)
+    task.info = normalize_info_payload(info, task.link)
+    db.session.commit()
+    return {"attachment": attachment, "info": info}, 201
+
+
+@api_bp.post("/subtasks/<int:subtask_id>/info/attachments")
+@login_required
+def upload_subtask_attachment(subtask_id: int):
+    user = current_user()
+    subtask = Subtask.query.get(subtask_id)
+    if not subtask:
+        return {"error": "subtask not found"}, 404
+    if not _can_access_subtask(user, subtask):
+        return {"error": "unauthorized"}, 403
+    upload = request.files.get("file")
+    if not upload or not upload.filename:
+        return {"error": "file is required"}, 400
+    attachment = save_uploaded_file(upload, _upload_root(), "subtask", subtask.id)
+    info = _info_payload_for(subtask)
+    info.setdefault("attachments", []).append(attachment)
+    subtask.info = normalize_info_payload(info, subtask.link)
+    db.session.commit()
+    return {"attachment": attachment, "info": info}, 201
+
+
+@api_bp.delete("/tasks/<int:task_id>/info/attachments/<attachment_id>")
+@login_required
+def delete_task_attachment(task_id: int, attachment_id: str):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    info = _info_payload_for(task)
+    remaining = []
+    deleted = None
+    for item in info.get("attachments", []):
+        if item.get("id") == attachment_id and deleted is None:
+            deleted = item
+        else:
+            remaining.append(item)
+    if not deleted:
+        return {"error": "attachment not found"}, 404
+    if deleted.get("path"):
+        file_path = Path(current_app.instance_path) / deleted["path"]
+        if file_path.exists():
+            file_path.unlink()
+    info["attachments"] = remaining
+    task.info = normalize_info_payload(info, task.link)
+    db.session.commit()
+    return {"status": "deleted", "info": info}, 200
+
+
+@api_bp.delete("/subtasks/<int:subtask_id>/info/attachments/<attachment_id>")
+@login_required
+def delete_subtask_attachment(subtask_id: int, attachment_id: str):
+    user = current_user()
+    subtask = Subtask.query.get(subtask_id)
+    if not subtask:
+        return {"error": "subtask not found"}, 404
+    if not _can_access_subtask(user, subtask):
+        return {"error": "unauthorized"}, 403
+    info = _info_payload_for(subtask)
+    remaining = []
+    deleted = None
+    for item in info.get("attachments", []):
+        if item.get("id") == attachment_id and deleted is None:
+            deleted = item
+        else:
+            remaining.append(item)
+    if not deleted:
+        return {"error": "attachment not found"}, 404
+    if deleted.get("path"):
+        file_path = Path(current_app.instance_path) / deleted["path"]
+        if file_path.exists():
+            file_path.unlink()
+    info["attachments"] = remaining
+    subtask.info = normalize_info_payload(info, subtask.link)
+    db.session.commit()
+    return {"status": "deleted", "info": info}, 200
+
+
+@api_bp.get("/uploads/<item_type>/<int:item_id>/<filename>")
+@login_required
+def serve_upload(item_type: str, item_id: int, filename: str):
+    item = None
+    user = current_user()
+    if item_type == "task":
+        item = Task.query.get(item_id)
+        if not item or not _can_access_task(user, item):
+            return {"error": "not found"}, 404
+    elif item_type == "subtask":
+        item = Subtask.query.get(item_id)
+        if not item or not _can_access_subtask(user, item):
+            return {"error": "not found"}, 404
+    else:
+        return {"error": "not found"}, 404
+    upload_dir = _upload_root() / item_type / str(item_id)
+    return send_from_directory(upload_dir, filename, as_attachment=False)
 
 
 @api_bp.get("/assignees")

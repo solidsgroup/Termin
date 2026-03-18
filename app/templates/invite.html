@@ -13,9 +13,9 @@
       <p><strong>{{ task.title if task else "Unknown task" }}</strong></p>
     {% endif %}
     {% if status == "accepted" %}
-      <p class="footer-note">You already accepted this invite.</p>
+      <p class="footer-note" style="color: var(--success);">You already accepted this invite.</p>
     {% elif status == "declined" %}
-      <p class="footer-note">You declined this invite.</p>
+      <p class="footer-note" style="color: #f87171;">You declined this invite.</p>
     {% else %}
       <form method="post" action="{{ url_for('ui.respond_invite', token=invite.token) }}">
         <label>
@@ -27,6 +27,12 @@
           <button class="btn secondary" type="submit" name="action" value="decline">Decline</button>
         </div>
       </form>
+    {% endif %}
+    {% if collaborator %}
+      <p class="footer-note" style="margin-top: 14px;">
+        Want to manage all of your invites and preferences in one place?
+        <a href="{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}">Open collaborator settings</a>
+      </p>
     {% endif %}
   {% endif %}
 </div>

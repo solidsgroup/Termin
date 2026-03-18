@@ -1,15 +1,21 @@
 {% extends "base.html" %}
-{% macro render_tasks(task_list, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map) %}
+{% macro render_tasks(task_list, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) %}
   {% if task_list %}
     {% for task in task_list %}
-      <tr data-task-row-id="{{ task.id }}">
+      {% set task_info = info_by_task.get(task.id, {"html": "", "attachments": []}) %}
+      <tr class="task-row{% if can_manage_project %} task-row-draggable{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}">
         <td>
-          <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="{{ task.id }}">▸</button>
+          <div class="row-controls">
+            {% if can_manage_project %}
+              <button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="{{ task.id }}" title="Drag task">⋮⋮</button>
+            {% endif %}
+            <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="{{ task.id }}">▸</button>
+          </div>
         </td>
         <td>
-          <div class="task-cell{% if task.link %} has-link{% endif %}">
-            <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1"{% if task.link %} data-link-url="{{ task.link }}"{% endif %}>{{ task.title }}</div>
-            <button class="btn link link-btn" type="button" data-link-edit="task" data-task-id="{{ task.id }}" data-link-value="{{ task.link or '' }}">Link</button>
+          <div class="task-cell{% if task_info.html or task_info.attachments %} has-info{% endif %}">
+            <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
+            <button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="{{ task.id }}" data-info-payload="{{ task_info|tojson|forceescape }}" onclick="return window.__openInfoModal('task', '{{ task.id }}');">Info</button>
           </div>
         </td>
         <td>
@@ -23,8 +29,8 @@
             {% for assignment in assignments_by_task.get(task.id, []) %}
               {% set assignee = user_map.get(assignment.user_id) %}
               {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-              <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
-                <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
+              <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
                   <span class="badge-initial">{{ label[0]|upper }}</span>
                   {% if assignee and assignee.avatar_url %}
                     <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
@@ -32,9 +38,6 @@
                   <span class="badge-x">×</span>
                 </button>
                 <span class="badge-label">{{ label }}</span>
-                <span class="compact">
-                  {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
-                </span>
                 {% if not assignment.user_id %}
                   {% if assignment.status in ["draft"] %}
                     <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
@@ -59,12 +62,13 @@
         </td>
       </tr>
       {% for subtask in subtasks_by_task.get(task.id, []) %}
+        {% set subtask_info = info_by_subtask.get(subtask.id, {"html": "", "attachments": []}) %}
         <tr class="subtasks-row {% if loop.last %}last{% endif %}" data-subtasks-for="{{ task.id }}" style="display: none;">
           <td></td>
           <td class="tree-cell">
-            <div class="task-cell{% if subtask.link %} has-link{% endif %}">
-              <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="title" data-col="1"{% if subtask.link %} data-link-url="{{ subtask.link }}"{% endif %}>{{ subtask.title }}</div>
-              <button class="btn link link-btn" type="button" data-link-edit="subtask" data-subtask-id="{{ subtask.id }}" data-link-value="{{ subtask.link or '' }}">Link</button>
+            <div class="task-cell{% if subtask_info.html or subtask_info.attachments %} has-info{% endif %}">
+              <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="title" data-col="1">{{ subtask.title }}</div>
+              <button class="btn link info-btn" type="button" data-info-edit="subtask" data-subtask-id="{{ subtask.id }}" data-info-payload="{{ subtask_info|tojson|forceescape }}" onclick="return window.__openInfoModal('subtask', '{{ subtask.id }}');">Info</button>
             </div>
           </td>
           <td>
@@ -78,8 +82,8 @@
               {% for assignment in assignments_by_subtask.get(subtask.id, []) %}
                 {% set assignee = user_map.get(assignment.user_id) %}
                 {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                <span class="badge {% if assignee %}user{% else %}email{% endif %}" data-assignment-id="{{ assignment.id }}">
-                  <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}">
+                <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                  <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
                     <span class="badge-initial">{{ label[0]|upper }}</span>
                     {% if assignee and assignee.avatar_url %}
                       <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
@@ -87,9 +91,6 @@
                     <span class="badge-x">×</span>
                   </button>
                   <span class="badge-label">{{ label }}</span>
-                  <span class="compact">
-                    {% if assignment.status == "draft" %}Send link{% elif assignment.status == "link_sent" %}Link sent{% elif assignment.status == "accepted" %}Accepted{% elif assignment.status == "denied" %}Denied{% elif assignment.status == "assigned" %}Assigned{% else %}{{ assignment.status }}{% endif %}
-                  </span>
                   {% if not assignment.user_id %}
                     {% if assignment.status in ["draft"] %}
                       <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
@@ -128,10 +129,6 @@
         </td>
       </tr>
     {% endfor %}
-  {% else %}
-    <tr>
-      <td colspan="5" class="footer-note">No tasks yet.</td>
-    </tr>
   {% endif %}
 {% endmacro %}
 {% block content %}
@@ -141,7 +138,7 @@
     <ul class="project-list">
       {% for project in projects %}
         {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
-        <li class="{% if selected_project and project.id == selected_project.id %}active{% endif %}" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}">
+        <li class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}">
           <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none;">
             <strong>{{ project.name }}</strong>
           </a>
@@ -218,7 +215,7 @@
 
       {% for group in groups %}
         <div class="group-block" data-group-id="{{ group.id }}">
-          <div class="group-insert-wrap{% if not can_manage_project %} disabled{% endif %}">
+        <div class="group-insert-wrap{% if not can_manage_project %} disabled{% endif %}">
             <div class="group-insert" data-project-id="{{ selected_project.id }}">
               <div class="group-insert-line"></div>
               <button class="group-insert-btn" type="button" title="Add group">+</button>
@@ -262,9 +259,9 @@
                 <th>Assign<span class="col-resizer" data-col="4"></span></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
-              {{ render_tasks(group_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map) }}
+              {{ render_tasks(group_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) }}
               {% if can_manage_project %}
                 <tr class="new-row">
                     <td></td>
@@ -297,7 +294,7 @@
         </div>
       </div>
 
-      {% if ungrouped_tasks %}
+      {% if ungrouped_tasks or can_manage_project %}
         <div class="panel">
           <div class="group-header">
             <h3 class="group-title">Ungrouped</h3>
@@ -319,8 +316,8 @@
                 <th>Assign<span class="col-resizer" data-col="4"></span></th>
               </tr>
             </thead>
-            <tbody>
-              {{ render_tasks(ungrouped_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map) }}
+            <tbody data-task-dropzone="1">
+              {{ render_tasks(ungrouped_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) }}
               {% if can_manage_project %}
                 <tr class="new-row">
                     <td></td>
@@ -358,7 +355,7 @@
           {% for invite in invites %}
             <li>
               {{ invite.email }}
-              <span class="tag">{{ invite.status }}</span>
+              <span class="tag{% if invite.status == 'accepted' %} status-accepted{% elif invite.status == 'declined' %} status-declined{% endif %}">{{ invite.status }}</span>
               {% if invite.calendar_opt_in %}<span class="tag">calendar on</span>{% endif %}
               <div class="footer-note">Link: {{ url_for('ui.accept_invite', token=invite.token, _external=True) }}</div>
             </li>
@@ -392,21 +389,1168 @@
   </div>
 </div>
 
-<div id="link-modal" class="modal">
+<div id="info-modal" class="modal">
   <div class="panel">
-    <h3 id="link-title">Edit link</h3>
-    <label for="link-input">Link</label>
-    <input id="link-input" placeholder="https://..." />
+    <h3 id="info-title">Edit info</h3>
+    <div class="info-toolbar">
+      <button class="btn secondary" type="button" data-info-command="bold">Bold</button>
+      <button class="btn secondary" type="button" data-info-command="italic">Italic</button>
+      <button class="btn secondary" type="button" data-info-command="insertUnorderedList">Bullets</button>
+      <button class="btn secondary" type="button" data-info-command="createLink">Link</button>
+    </div>
+    <div id="info-editor-label">Notes</div>
+    <div id="info-editor" class="info-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="info-editor-label"></div>
+    <div class="info-upload-row">
+      <label for="info-file-input">Files</label>
+      <input id="info-file-input" type="file" />
+    </div>
+    <div id="info-attachments" class="info-attachments"></div>
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
-      <button class="btn secondary" type="button" id="link-cancel">Cancel</button>
-      <button class="btn" type="button" id="link-save">Save</button>
+      <button class="btn secondary" type="button" id="info-cancel">Cancel</button>
+      <button class="btn" type="button" id="info-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="bulk-send-modal" class="modal">
+  <div class="panel">
+    <h3 id="bulk-send-title">Send Invite Emails</h3>
+    <p id="bulk-send-message" class="footer-note"></p>
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+      <button class="btn secondary" type="button" id="bulk-send-cancel">Cancel</button>
+      <button class="btn secondary" type="button" id="bulk-send-single">Only this task</button>
+      <button class="btn" type="button" id="bulk-send-all">All tasks</button>
     </div>
   </div>
 </div>
 
 <script>
+  (function () {
+    function initBulkSendModal() {
+      if (window.__bulkSendModalReady) return;
+      window.__bulkSendModalReady = true;
+
+      var modal = document.getElementById("bulk-send-modal");
+      var message = document.getElementById("bulk-send-message");
+      var single = document.getElementById("bulk-send-single");
+      var all = document.getElementById("bulk-send-all");
+      var cancel = document.getElementById("bulk-send-cancel");
+      var resolver = null;
+
+      if (!modal || !message || !single || !all || !cancel) return;
+
+      function close(choice) {
+        modal.style.display = "none";
+        if (resolver) {
+          resolver(choice);
+          resolver = null;
+        }
+      }
+
+      single.addEventListener("click", function () { close("single"); });
+      all.addEventListener("click", function () { close("all"); });
+      cancel.addEventListener("click", function () { close("cancel"); });
+      modal.addEventListener("click", function (event) {
+        if (event.target === modal) close("cancel");
+      });
+
+      window.__chooseBulkSendMode = function (email, count) {
+        message.textContent = "There are " + count + " unsent assigned items for " + email + ". Choose what to send now.";
+        modal.style.display = "flex";
+        return new Promise(function (resolve) {
+          resolver = resolve;
+        });
+      };
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initBulkSendModal);
+    } else {
+      initBulkSendModal();
+    }
+  })();
+</script>
+
+<script>
+  (function () {
+    function parseInfoPayload(raw) {
+      if (!raw) return { html: "", attachments: [] };
+      try {
+        var parsed = JSON.parse(raw);
+        return {
+          html: parsed && parsed.html ? parsed.html : "",
+          attachments: parsed && Array.isArray(parsed.attachments) ? parsed.attachments : [],
+        };
+      } catch (error) {
+        return { html: "", attachments: [] };
+      }
+    }
+
+    function currentButtonSelector(type, id) {
+      return type === "task"
+        ? '[data-info-edit="task"][data-task-id="' + id + '"]'
+        : '[data-info-edit="subtask"][data-subtask-id="' + id + '"]';
+    }
+
+    function renderAttachments(modal, attachmentsEl) {
+      var infoData = modal.__infoData || { html: "", attachments: [] };
+      attachmentsEl.innerHTML = "";
+      if (!infoData.attachments.length) {
+        attachmentsEl.innerHTML = '<div class="footer-note">No files uploaded.</div>';
+        return;
+      }
+      infoData.attachments.forEach(function (item) {
+        var row = document.createElement("div");
+        row.className = "info-attachment";
+        row.innerHTML =
+          '<a href="' + item.url + '" target="_blank" rel="noopener">' +
+          item.name +
+          '</a>' +
+          '<button class="btn link" type="button" data-remove-info-attachment="' +
+          item.id +
+          '">Remove</button>';
+        attachmentsEl.appendChild(row);
+      });
+    }
+
+    function syncButtonState(type, id, infoData) {
+      var button = document.querySelector(currentButtonSelector(type, id));
+      if (!button) return;
+      button.setAttribute("data-info-payload", JSON.stringify(infoData));
+      var taskCell = button.closest(".task-cell");
+      if (taskCell) {
+        var hasInfo = Boolean((infoData && infoData.html) || (infoData && infoData.attachments && infoData.attachments.length));
+        taskCell.classList.toggle("has-info", hasInfo);
+      }
+    }
+
+    function initInfoModalFallback() {
+      var modal = document.getElementById("info-modal");
+      var editor = document.getElementById("info-editor");
+      var save = document.getElementById("info-save");
+      var cancel = document.getElementById("info-cancel");
+      var fileInput = document.getElementById("info-file-input");
+      var attachmentsEl = document.getElementById("info-attachments");
+      if (!modal || !editor || !save || !cancel || !fileInput || !attachmentsEl) return;
+
+      function closeModal() {
+        modal.style.display = "none";
+        modal.removeAttribute("data-info-type");
+        modal.removeAttribute("data-info-id");
+        modal.__infoData = { html: "", attachments: [] };
+        fileInput.value = "";
+      }
+
+      window.__openInfoModal = function (type, id) {
+        var button = document.querySelector(currentButtonSelector(type, id));
+        var payload = button ? button.getAttribute("data-info-payload") : "";
+        modal.setAttribute("data-info-type", type);
+        modal.setAttribute("data-info-id", String(id));
+        modal.__infoData = parseInfoPayload(payload);
+        editor.innerHTML = modal.__infoData.html || "";
+        renderAttachments(modal, attachmentsEl);
+        modal.style.display = "flex";
+        editor.focus();
+        return false;
+      };
+
+      save.addEventListener("click", function () {
+        var type = modal.getAttribute("data-info-type");
+        var id = modal.getAttribute("data-info-id");
+        if (!type || !id) return;
+        var url = type === "task" ? "/api/tasks/" + id : "/api/subtasks/" + id;
+        fetch(url, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            info: {
+              html: editor.innerHTML,
+              attachments: (modal.__infoData && modal.__infoData.attachments) || [],
+            },
+          }),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (!data.info) return;
+            modal.__infoData = data.info;
+            syncButtonState(type, id, data.info);
+            closeModal();
+          });
+      });
+
+      cancel.addEventListener("click", closeModal);
+      modal.addEventListener("click", function (event) {
+        if (event.target === modal) closeModal();
+      });
+
+      fileInput.addEventListener("change", function () {
+        var type = modal.getAttribute("data-info-type");
+        var id = modal.getAttribute("data-info-id");
+        if (!type || !id || !fileInput.files || !fileInput.files[0]) return;
+        var formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        var url = type === "task"
+          ? "/api/tasks/" + id + "/info/attachments"
+          : "/api/subtasks/" + id + "/info/attachments";
+        fetch(url, {
+          method: "POST",
+          body: formData,
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (!data.info) return;
+            modal.__infoData = data.info;
+            syncButtonState(type, id, data.info);
+            renderAttachments(modal, attachmentsEl);
+            fileInput.value = "";
+          });
+      });
+
+      attachmentsEl.addEventListener("click", function (event) {
+        var remove = event.target.closest("[data-remove-info-attachment]");
+        if (!remove) return;
+        var attachmentId = remove.getAttribute("data-remove-info-attachment");
+        var type = modal.getAttribute("data-info-type");
+        var id = modal.getAttribute("data-info-id");
+        if (!attachmentId || !type || !id) return;
+        var url = type === "task"
+          ? "/api/tasks/" + id + "/info/attachments/" + attachmentId
+          : "/api/subtasks/" + id + "/info/attachments/" + attachmentId;
+        fetch(url, { method: "DELETE" })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (!data.info) return;
+            modal.__infoData = data.info;
+            syncButtonState(type, id, data.info);
+            renderAttachments(modal, attachmentsEl);
+          });
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initInfoModalFallback);
+    } else {
+      initInfoModalFallback();
+    }
+  })();
+</script>
+
+<script>
+  (function () {
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function placeCaretAtEnd(element) {
+      if (!element) return;
+      element.focus();
+      if (!window.getSelection || !document.createRange) return;
+      var range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    function selectEditableContents(element) {
+      if (!element) return;
+      element.focus();
+      if (!window.getSelection || !document.createRange) return;
+      var range = document.createRange();
+      range.selectNodeContents(element);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    function getVisibleEditableCellsByColumn(col) {
+      return Array.prototype.filter.call(
+        document.querySelectorAll('.editable[data-col="' + col + '"]'),
+        function (cell) {
+          return cell.offsetParent !== null;
+        }
+      );
+    }
+
+    function moveEditableFocus(cell, direction) {
+      if (!cell) return false;
+      var col = cell.getAttribute("data-col");
+      if (!col) return false;
+      var cells = getVisibleEditableCellsByColumn(col);
+      var index = cells.indexOf(cell);
+      if (index === -1) return false;
+      var nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= cells.length) return false;
+      placeCaretAtEnd(cells[nextIndex]);
+      return true;
+    }
+
+    function getEditableTarget(cell) {
+      var field = cell.getAttribute("data-field");
+      var taskId = cell.getAttribute("data-task-id");
+      var subtaskId = cell.getAttribute("data-subtask-id");
+      var groupId = cell.getAttribute("data-group-id");
+      if (!field) return null;
+      if (taskId) {
+        return { url: "/api/tasks/" + taskId, field: field };
+      }
+      if (subtaskId) {
+        return { url: "/api/subtasks/" + subtaskId, field: field };
+      }
+      if (groupId) {
+        return { url: "/api/groups/" + groupId, field: field };
+      }
+      return null;
+    }
+
+    function normalizeEditableText(cell) {
+      if (!cell) return "";
+      var value = (cell.textContent || "").replace(/\s+/g, " ").trim();
+      cell.textContent = value;
+      return value;
+    }
+
+    function saveEditable(cell) {
+      if (!cell || cell.dataset.editableSaving === "1") return Promise.resolve();
+      var target = getEditableTarget(cell);
+      if (!target) return Promise.resolve();
+      var value = normalizeEditableText(cell);
+      var original = cell.dataset.originalValue;
+      if (original === undefined) {
+        cell.dataset.originalValue = value;
+        return Promise.resolve();
+      }
+      if (value === original) return Promise.resolve();
+      cell.dataset.editableSaving = "1";
+      return fetch(target.url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify((function () {
+          var payload = {};
+          payload[target.field] = value;
+          return payload;
+        })()),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok) {
+            throw new Error(result.data && result.data.error ? result.data.error : "Save failed");
+          }
+          var nextValue = result.data && result.data[target.field] != null
+            ? String(result.data[target.field]).trim()
+            : value;
+          cell.textContent = nextValue;
+          cell.dataset.originalValue = nextValue;
+        })
+        .catch(function () {
+          var fallback = original != null ? original : "";
+          cell.textContent = fallback;
+        })
+        .finally(function () {
+          cell.dataset.editableSaving = "0";
+        });
+    }
+
+    function buildTaskRow(taskId, title, infoPayload, showDragHandle) {
+      var info = infoPayload || { html: "", attachments: [] };
+      var hasInfo = Boolean(info.html || (info.attachments && info.attachments.length));
+      var tr = document.createElement("tr");
+      tr.className = "task-row" + (showDragHandle ? " task-row-draggable" : "");
+      tr.setAttribute("data-task-row-id", String(taskId));
+      tr.setAttribute("data-task-id", String(taskId));
+      tr.innerHTML =
+        '<td>' +
+          '<div class="row-controls">' +
+            (showDragHandle
+              ? '<button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="' + taskId + '" title="Drag task">⋮⋮</button>'
+              : "") +
+            '<button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="' + taskId + '">▸</button>' +
+          '</div>' +
+        '</td>' +
+        '<td>' +
+          '<div class="task-cell' + (hasInfo ? " has-info" : "") + '">' +
+            '<div class="editable" contenteditable="true" data-task-id="' + taskId + '" data-field="title" data-col="1">' + escapeHtml(title) + '</div>' +
+            '<button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="' + taskId + '" data-info-payload="' + escapeHtml(JSON.stringify(info)) + '" onclick="return window.__openInfoModal(\'task\', \'' + taskId + '\');">Info</button>' +
+          '</div>' +
+        '</td>' +
+        '<td><input class="due-input" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" value="" /></td>' +
+        '<td><div class="editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3">open</div></td>' +
+        '<td>' +
+          '<div class="assignments">' +
+            '<span class="assign-action">' +
+              '<button class="assign-add-btn" type="button" title="Assign">+</button>' +
+              '<input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + taskId + '" />' +
+            '</span>' +
+            '<span class="assign-spacer"></span>' +
+            '<button class="icon-button" type="button" data-delete-task="' + taskId + '" title="Delete task">×</button>' +
+          '</div>' +
+        '</td>';
+      return tr;
+    }
+
+    function focusNewTaskColumn(row, col) {
+      if (!row) return;
+      if (String(col) === "3") {
+        var statusCell = row.querySelector('.editable[data-col="3"]');
+        if (statusCell) {
+          selectEditableContents(statusCell);
+          statusCell.dataset.originalValue = normalizeEditableText(statusCell);
+        }
+        return;
+      }
+      var titleCell = row.querySelector('.editable[data-col="1"]');
+      if (titleCell) {
+        selectEditableContents(titleCell);
+        titleCell.dataset.originalValue = normalizeEditableText(titleCell);
+      }
+    }
+
+    function createTaskBelow(cell) {
+      var row = cell.closest("tr");
+      var table = cell.closest(".tasks-table");
+      if (!row || !table) return Promise.resolve();
+      var projectId = table.getAttribute("data-project-id");
+      var groupId = table.getAttribute("data-group-id");
+      var currentTaskId = cell.getAttribute("data-task-id");
+      if (!projectId || !currentTaskId) return Promise.resolve();
+
+      var beforeTaskId = null;
+      var next = row.nextElementSibling;
+      while (next) {
+        if (next.classList.contains("task-row")) {
+          beforeTaskId = next.getAttribute("data-task-id");
+          break;
+        }
+        next = next.nextElementSibling;
+      }
+
+      var payload = { title: "New task", project_id: Number(projectId) };
+      if (groupId) {
+        payload.group_id = Number(groupId);
+      }
+
+      return fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok || !result.data || !result.data.id) {
+            throw new Error("Task create failed");
+          }
+          var movePromise = beforeTaskId
+            ? fetch("/api/tasks/" + result.data.id + "/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({
+                  project_id: Number(projectId),
+                  group_id: groupId || null,
+                  before_task_id: Number(beforeTaskId),
+                }),
+              }).then(function () { return null; })
+            : Promise.resolve();
+          return movePromise.then(function () {
+            var newRow = buildTaskRow(result.data.id, result.data.title || "New task", result.data.info, Boolean(row.querySelector(".task-drag-handle")));
+            if (beforeTaskId && next && next.parentNode) {
+              next.parentNode.insertBefore(newRow, next);
+            } else if (row.parentNode) {
+              row.parentNode.insertBefore(newRow, next || table.querySelector(".new-row"));
+            }
+            focusNewTaskColumn(newRow, cell.getAttribute("data-col"));
+            return newRow;
+          });
+        });
+    }
+
+    function initEditableFallback() {
+      if (window.__editableFallbackReady) return;
+      window.__editableFallbackReady = true;
+
+      document.addEventListener("focusin", function (event) {
+        var cell = event.target.closest(".editable");
+        if (!cell || cell.tagName === "INPUT") return;
+        cell.dataset.originalValue = normalizeEditableText(cell);
+      }, true);
+
+      document.addEventListener("keydown", function (event) {
+        var cell = event.target.closest(".editable");
+        if (!cell || cell.tagName === "INPUT") return;
+        if (event.key === "Enter" && event.ctrlKey && cell.hasAttribute("data-task-id")) {
+          event.preventDefault();
+          event.stopPropagation();
+          normalizeEditableText(cell);
+          saveEditable(cell).then(function () {
+            return createTaskBelow(cell);
+          });
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          normalizeEditableText(cell);
+          cell.blur();
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          if (moveEditableFocus(cell, 1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          if (moveEditableFocus(cell, -1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }
+      }, true);
+
+      document.addEventListener("paste", function (event) {
+        var cell = event.target.closest(".editable");
+        if (!cell || cell.tagName === "INPUT") return;
+        event.preventDefault();
+        var text = (event.clipboardData || window.clipboardData).getData("text");
+        document.execCommand("insertText", false, text);
+      }, true);
+
+      document.addEventListener("focusout", function (event) {
+        var cell = event.target.closest(".editable");
+        if (!cell || cell.tagName === "INPUT") return;
+        saveEditable(cell);
+      }, true);
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initEditableFallback);
+    } else {
+      initEditableFallback();
+    }
+  })();
+</script>
+
+<script>
+  (function () {
+    function initDashboardChromeFallback() {
+      if (window.__dashboardChromeFallbackReady) return;
+      window.__dashboardChromeFallbackReady = true;
+
+      var contextMenu = document.getElementById("context-menu");
+      var canManageProject = {{ 'true' if can_manage_project else 'false' }};
+      var currentContext = null;
+
+      function hideContextMenu() {
+        if (!contextMenu) return;
+        contextMenu.style.display = "none";
+        currentContext = null;
+      }
+
+      function storageKey(table) {
+        return "colWidths:" + (table.getAttribute("data-project-id") || "") + ":" + (table.getAttribute("data-group-id") || "all");
+      }
+
+      document.querySelectorAll(".tasks-table").forEach(function (table) {
+        var colgroup = table.querySelector("colgroup");
+        if (!colgroup) return;
+        var cols = Array.prototype.slice.call(colgroup.querySelectorAll("col"));
+        var saved = localStorage.getItem(storageKey(table));
+        if (saved) {
+          saved.split(",").forEach(function (width, index) {
+            if (cols[index] && width) cols[index].style.width = width.trim();
+          });
+        }
+
+        table.querySelectorAll(".col-resizer").forEach(function (resizer) {
+          if (resizer.dataset.chromeFallbackBound === "1") return;
+          resizer.dataset.chromeFallbackBound = "1";
+          resizer.addEventListener("mousedown", function (event) {
+            event.preventDefault();
+            var colIndex = Number(resizer.getAttribute("data-col"));
+            if (!cols[colIndex]) return;
+            var startX = event.clientX;
+            var startWidth = cols[colIndex].getBoundingClientRect().width;
+            var nextIndex = colIndex + 1;
+            var startNextWidth = cols[nextIndex] ? cols[nextIndex].getBoundingClientRect().width : 0;
+
+            function onMove(moveEvent) {
+              var delta = moveEvent.clientX - startX;
+              var nextWidth = Math.max(80, startWidth + delta);
+              cols[colIndex].style.width = nextWidth + "px";
+              if (cols[nextIndex]) {
+                cols[nextIndex].style.width = Math.max(80, startNextWidth - delta) + "px";
+              }
+            }
+
+            function onUp() {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+              localStorage.setItem(
+                storageKey(table),
+                cols.map(function (col) { return col.style.width || (col.getBoundingClientRect().width + "px"); }).join(",")
+              );
+            }
+
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          });
+        });
+      });
+
+      document.addEventListener("contextmenu", function (event) {
+        if (!contextMenu) return;
+        var projectItem = event.target.closest("[data-project-context]");
+        var groupHeader = event.target.closest("[data-group-context]");
+        if (projectItem) {
+          if (projectItem.getAttribute("data-project-manage") !== "1") return;
+          currentContext = { type: "project", id: projectItem.getAttribute("data-project-context") };
+        } else if (groupHeader) {
+          if (!canManageProject) return;
+          currentContext = { type: "group", id: groupHeader.getAttribute("data-group-context") };
+        } else {
+          hideContextMenu();
+          return;
+        }
+        event.preventDefault();
+        contextMenu.style.display = "block";
+        contextMenu.style.left = event.clientX + "px";
+        contextMenu.style.top = event.clientY + "px";
+      }, true);
+
+      document.addEventListener("click", function (event) {
+        if (!contextMenu) return;
+        if (!contextMenu.contains(event.target)) {
+          hideContextMenu();
+          return;
+        }
+        var action = event.target.getAttribute("data-action");
+        if (!action || !currentContext) return;
+        var id = currentContext.id;
+        if (action === "rename") {
+          var name = window.prompt("New name");
+          if (!name || !name.trim()) return;
+          var renameUrl = currentContext.type === "project" ? "/api/projects/" + id : "/api/groups/" + id;
+          fetch(renameUrl, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ name: name.trim() }),
+          }).then(function () { window.location.reload(); });
+        } else if (action === "share") {
+          var shareContext = { type: currentContext.type, id: currentContext.id };
+          hideContextMenu();
+          if (typeof window.__openShareModal === "function") {
+            window.__openShareModal(shareContext);
+          }
+          return;
+        } else if (action === "duplicate") {
+          var duplicateUrl = currentContext.type === "project"
+            ? "/api/projects/" + id + "/duplicate"
+            : "/api/groups/" + id + "/duplicate";
+          fetch(duplicateUrl, { method: "POST", credentials: "same-origin" })
+            .then(function () { window.location.reload(); });
+        } else if (action === "delete") {
+          if (!window.confirm("Delete this item?")) return;
+          var deleteUrl = currentContext.type === "project" ? "/api/projects/" + id : "/api/groups/" + id;
+          fetch(deleteUrl, { method: "DELETE", credentials: "same-origin" })
+            .then(function () { window.location.reload(); });
+        }
+        hideContextMenu();
+      }, true);
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initDashboardChromeFallback);
+    } else {
+      initDashboardChromeFallback();
+    }
+  })();
+</script>
+
+<script>
+  (function () {
+    function initShareFallback() {
+      if (window.__shareFallbackReady) return;
+      window.__shareFallbackReady = true;
+
+      var shareModal = document.getElementById("share-modal");
+      var shareInput = document.getElementById("share-input");
+      var shareSuggest = document.getElementById("share-suggest");
+      var shareTitle = document.getElementById("share-title");
+      var shareCancel = document.getElementById("share-cancel");
+      var shareStatus = document.getElementById("share-status");
+      var shareList = document.getElementById("share-list");
+      var shareContext = null;
+
+      if (!shareModal || !shareInput || !shareSuggest || !shareTitle || !shareList) return;
+
+      function membersUrl(context) {
+        return context.type === "project"
+          ? "/api/projects/" + context.id + "/members"
+          : "/api/groups/" + context.id + "/members";
+      }
+
+      function closeShareModal() {
+        shareModal.style.display = "none";
+        shareContext = null;
+        shareInput.value = "";
+        shareSuggest.innerHTML = "";
+        shareList.innerHTML = "";
+        if (shareStatus) shareStatus.textContent = "";
+      }
+
+      function loadShareMembers() {
+        if (!shareContext) return;
+        fetch(membersUrl(shareContext), { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return { members: [] }; }); })
+          .then(function (data) {
+            shareList.innerHTML = "";
+            (data.members || []).forEach(function (user) {
+              var row = document.createElement("div");
+              row.className = "share-item";
+
+              var meta = document.createElement("div");
+              meta.className = "meta";
+
+              var avatar = document.createElement("span");
+              avatar.className = "avatar-chip";
+              if (user.avatar_url) {
+                var img = document.createElement("img");
+                img.src = user.avatar_url;
+                img.alt = "avatar";
+                img.referrerPolicy = "no-referrer";
+                img.onerror = function () { img.remove(); };
+                avatar.appendChild(img);
+              } else {
+                avatar.textContent = (user.display_name || user.email || "?").slice(0, 1).toUpperCase();
+              }
+
+              var labels = document.createElement("div");
+              var name = document.createElement("div");
+              name.className = "label";
+              name.textContent = user.display_name || user.email;
+              labels.appendChild(name);
+
+              if (user.owner || user.project_member || user.group_member) {
+                var tag = document.createElement("div");
+                tag.className = "muted";
+                tag.textContent = user.owner ? "Owner" : user.project_member ? "Project" : "Group";
+                labels.appendChild(tag);
+              }
+
+              meta.appendChild(avatar);
+              meta.appendChild(labels);
+              row.appendChild(meta);
+
+              if (!user.owner) {
+                var remove = document.createElement("button");
+                remove.className = "btn link";
+                remove.type = "button";
+                remove.textContent = "Remove";
+                remove.addEventListener("click", function () {
+                  fetch(membersUrl(shareContext) + "/" + user.id, {
+                    method: "DELETE",
+                    credentials: "same-origin",
+                  }).then(function () {
+                    loadShareMembers();
+                  });
+                });
+                row.appendChild(remove);
+              }
+
+              shareList.appendChild(row);
+            });
+          });
+      }
+
+      function submitShare(userId) {
+        if (!shareContext || !userId) return;
+        fetch(membersUrl(shareContext), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ user_id: Number(userId) }),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function () {
+            if (shareStatus) shareStatus.textContent = "Added.";
+            shareInput.value = "";
+            shareSuggest.innerHTML = "";
+            loadShareMembers();
+          });
+      }
+
+      function renderSuggestions(results) {
+        shareSuggest.innerHTML = "";
+        (results || []).forEach(function (user) {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.setAttribute("data-user-id", String(user.id));
+          btn.textContent = user.display_name ? (user.display_name + " (" + user.email + ")") : user.email;
+          btn.addEventListener("mousedown", function (event) { event.preventDefault(); });
+          btn.addEventListener("click", function () {
+            submitShare(user.id);
+          });
+          shareSuggest.appendChild(btn);
+        });
+      }
+
+      window.__openShareModal = function (context) {
+        shareContext = { type: context.type, id: String(context.id) };
+        shareTitle.textContent = context.type === "project" ? "Share Project" : "Share Group";
+        if (shareStatus) shareStatus.textContent = "";
+        shareModal.style.display = "flex";
+        shareInput.focus();
+        loadShareMembers();
+        return false;
+      };
+
+      shareInput.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        var first = shareSuggest.querySelector("[data-user-id]");
+        if (first) submitShare(first.getAttribute("data-user-id"));
+      });
+
+      shareInput.addEventListener("input", function () {
+        var q = shareInput.value.trim();
+        if (!q) {
+          shareSuggest.innerHTML = "";
+          return;
+        }
+        fetch("/api/users?q=" + encodeURIComponent(q), { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+          .then(function (data) {
+            renderSuggestions(data.results || []);
+          });
+      });
+
+      if (shareCancel) {
+        shareCancel.addEventListener("click", closeShareModal);
+      }
+
+      shareModal.addEventListener("click", function (event) {
+        if (event.target === shareModal) closeShareModal();
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initShareFallback);
+    } else {
+      initShareFallback();
+    }
+  })();
+</script>
+
+<script>
+  (function () {
+    function renderAssignmentBadge(assignment) {
+      var label = assignment.display_name || assignment.display_email || assignment.email || "User";
+      var avatarUrl = assignment.avatar_url;
+      var initial = label.trim().slice(0, 1).toUpperCase();
+      var status = assignment.status || "draft";
+      var statusClass = status === "accepted" ? " status-accepted" : status === "denied" ? " status-denied" : "";
+      var assignmentEmail = assignment.email || assignment.display_email || "";
+      var button = assignment.user_id
+        ? ""
+        : status === "draft"
+        ? "Send link"
+        : status === "link_sent"
+        ? "Resend"
+        : "";
+      return (
+        '<span class="badge ' + (assignment.user_id ? "user" : "email") + statusClass + '" data-assignment-id="' + assignment.id + '"' + (assignmentEmail ? ' data-assignment-email="' + assignmentEmail + '"' : "") + ' title="Assignment status: ' + status + '" aria-label="Assignment status: ' + status + '">' +
+          '<button class="badge-icon' + (avatarUrl ? " has-photo" : "") + '" type="button" data-remove-assignment="' + assignment.id + '" aria-label="Remove assignment for ' + label.replace(/"/g, "&quot;") + '. Status: ' + status + '">' +
+            '<span class="badge-initial">' + initial + '</span>' +
+            (avatarUrl
+              ? '<img class="badge-photo" src="' + avatarUrl + '" alt="avatar" referrerpolicy="no-referrer" />'
+              : "") +
+            '<span class="badge-x">×</span>' +
+          '</button>' +
+          '<span class="badge-label">' + label + '</span>' +
+          (button ? '<button class="btn link" type="button" data-send-link="' + assignment.id + '">' + button + '</button>' : "") +
+        '</span>'
+      );
+    }
+
+    function createAssignment(targetType, targetId, email, container) {
+      return fetch("/api/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ target_type: targetType, target_id: Number(targetId), email: email }),
+      })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          if (!data || !data.id || !container) return data;
+          var action = container.querySelector(".assign-action");
+          var wrapper = document.createElement("span");
+          wrapper.innerHTML = renderAssignmentBadge(data);
+          if (action) {
+            container.insertBefore(wrapper.firstElementChild, action);
+          } else {
+            container.appendChild(wrapper.firstElementChild);
+          }
+          return data;
+        });
+    }
+
+    function updateSendLinkBadge(assignmentId) {
+      var badge = document.querySelector('[data-assignment-id="' + assignmentId + '"]');
+      if (!badge) return;
+      var button = badge.querySelector("[data-send-link]");
+      if (button) button.textContent = "Resend";
+    }
+
+    function sendAssignmentLinks(ids, mode) {
+      if (mode === "digest" && ids.length > 1) {
+        return fetch("/api/assignments/send_links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ assignment_ids: ids }),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (!data.assignment_ids) return;
+            data.assignment_ids.forEach(updateSendLinkBadge);
+          });
+      }
+      return ids.reduce(function (chain, assignmentId) {
+        return chain.then(function () {
+          return fetch("/api/assignments/" + assignmentId + "/send_link", { method: "POST" })
+            .then(function (res) { return res.json().catch(function () { return {}; }); })
+            .then(function (data) {
+              if (!data.status) return;
+              updateSendLinkBadge(assignmentId);
+            });
+        });
+      }, Promise.resolve());
+    }
+
+    function bindAssignInput(input) {
+      if (!input || input.dataset.assignFallbackBound === "1") return;
+      input.dataset.assignFallbackBound = "1";
+      input.addEventListener("input", function () {
+        var value = input.value.trim();
+        hideAssignSuggest(input);
+        if (!value) return;
+        fetch("/api/assignees?q=" + encodeURIComponent(value))
+          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+          .then(function (data) {
+            showAssignSuggest(input, data.results || []);
+          });
+      });
+      input.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        var value = input.value.trim();
+        if (!value || value.indexOf("@") === -1) return;
+        var targetType = input.getAttribute("data-assign-input");
+        var targetId = input.getAttribute("data-target-id");
+        var container = input.closest(".assignments");
+        createAssignment(targetType, targetId, value, container).then(function (data) {
+          if (!data || !data.id) return;
+          input.value = "";
+          input.classList.add("hidden");
+          var action = input.closest(".assign-action");
+          if (action && !action.querySelector(".assign-add-btn")) {
+            var btn = document.createElement("button");
+            btn.className = "assign-add-btn";
+            btn.type = "button";
+            btn.title = "Assign";
+            btn.textContent = "+";
+            action.appendChild(btn);
+          }
+        });
+      });
+      input.addEventListener("blur", function () {
+        setTimeout(function () { hideAssignSuggest(input); }, 120);
+      });
+    }
+
+    function hideAssignSuggest(input) {
+      if (input && input._assignSuggestEl) {
+        input._assignSuggestEl.remove();
+        input._assignSuggestEl = null;
+      }
+    }
+
+    function showAssignSuggest(input, results) {
+      hideAssignSuggest(input);
+      if (!results || !results.length) return;
+      var rect = input.getBoundingClientRect();
+      var menu = document.createElement("div");
+      menu.className = "assign-suggest";
+      menu.style.left = rect.left + window.scrollX + "px";
+      menu.style.top = rect.bottom + window.scrollY + 4 + "px";
+      results.forEach(function (item) {
+        var btn = document.createElement("button");
+        var label = item.type === "user" ? (item.display_name || item.email) : item.email;
+        btn.type = "button";
+        btn.innerHTML = label + '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
+        btn.addEventListener("mousedown", function (event) {
+          event.preventDefault();
+        });
+        btn.addEventListener("click", function (event) {
+          event.preventDefault();
+          input.value = item.email;
+          hideAssignSuggest(input);
+          input.focus();
+        });
+        menu.appendChild(btn);
+      });
+      document.body.appendChild(menu);
+      input._assignSuggestEl = menu;
+    }
+
+    function initAssignFallback() {
+      document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
+      document.querySelectorAll("[data-new-task='assignee_email']").forEach(bindAssignInput);
+
+      document.querySelectorAll(".tasks-table").forEach(function (table) {
+        var newRow = table.querySelector(".new-row");
+        if (!newRow || newRow.dataset.newTaskFallbackBound === "1") return;
+        newRow.dataset.newTaskFallbackBound = "1";
+        var titleInput = newRow.querySelector("[data-new-task='title']");
+        var dueInput = newRow.querySelector("[data-new-task='due_at']");
+        var assigneeInput = newRow.querySelector("[data-new-task='assignee_email']");
+        if (!titleInput) return;
+
+        function submitNewTask() {
+          var title = titleInput.value.trim();
+          if (!title) return;
+          var projectId = table.getAttribute("data-project-id");
+          var groupId = table.getAttribute("data-group-id");
+          var due = dueInput ? dueInput.value.trim() : "";
+          var assignee = assigneeInput ? assigneeInput.value.trim() : "";
+          fetch("/api/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              title: title,
+              project_id: Number(projectId),
+              group_id: groupId ? Number(groupId) : null,
+              due_at: due || null,
+            }),
+          })
+            .then(function (res) { return res.json().catch(function () { return {}; }); })
+            .then(function (data) {
+              if (!data.id) return;
+              if (assignee && assignee.indexOf("@") !== -1) {
+                return createAssignment("task", data.id, assignee, null).then(function () {
+                  window.location.reload();
+                });
+              }
+              window.location.reload();
+            });
+        }
+
+        [titleInput, dueInput, assigneeInput].forEach(function (input) {
+          if (!input) return;
+          input.addEventListener("keydown", function (event) {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            submitNewTask();
+          });
+        });
+      });
+
+      document.addEventListener("click", function (event) {
+        var add = event.target.closest(".assign-add-btn");
+        if (add) {
+          event.preventDefault();
+          var action = add.closest(".assign-action");
+          var input = action ? action.querySelector("[data-assign-input]") : null;
+          if (input) {
+            input.classList.remove("hidden");
+            input.focus();
+          }
+          add.remove();
+          return;
+        }
+
+        var remove = event.target.closest("[data-remove-assignment]");
+        if (remove) {
+          event.preventDefault();
+          var assignmentId = remove.getAttribute("data-remove-assignment");
+          fetch("/api/assignments/" + assignmentId, { method: "DELETE" })
+            .then(function (res) { return res.json().catch(function () { return {}; }); })
+            .then(function (data) {
+              if (data.status !== "deleted") return;
+              var badge = document.querySelector('[data-assignment-id="' + assignmentId + '"]');
+              if (badge) badge.remove();
+            });
+          return;
+        }
+
+        var send = event.target.closest("[data-send-link]");
+        if (send) {
+          event.preventDefault();
+          var sendId = send.getAttribute("data-send-link");
+          var badge = send.closest(".badge");
+          var assignmentEmail = badge ? badge.getAttribute("data-assignment-email") : "";
+          var pendingIds = [sendId];
+          if ((send.textContent || "").trim() === "Send link" && assignmentEmail) {
+            pendingIds = Array.prototype.map.call(
+              document.querySelectorAll('.badge[data-assignment-email="' + assignmentEmail + '"] [data-send-link]'),
+              function (button) { return button.getAttribute("data-send-link"); }
+            ).filter(function (id, index, ids) {
+              var button = document.querySelector('[data-send-link="' + id + '"]');
+              return id && button && (button.textContent || "").trim() === "Send link" && ids.indexOf(id) === index;
+            });
+            if (pendingIds.length > 1) {
+              if (typeof window.__chooseBulkSendMode === "function") {
+                window.__chooseBulkSendMode(assignmentEmail, pendingIds.length).then(function (choice) {
+                  if (choice === "all") {
+                    sendAssignmentLinks(pendingIds, "digest");
+                    return;
+                  }
+                  if (choice === "single") {
+                    sendAssignmentLinks([sendId]);
+                  }
+                });
+                return;
+              }
+              pendingIds = [sendId];
+            }
+          }
+          sendAssignmentLinks(pendingIds);
+        }
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initAssignFallback);
+    } else {
+      initAssignFallback();
+    }
+  })();
+</script>
+
+<script>
   window.addEventListener("DOMContentLoaded", () => {
     const tasksTables = Array.from(document.querySelectorAll(".tasks-table"));
+    const infoByTask = {{ info_by_task|tojson }};
+    const infoBySubtask = {{ info_by_subtask|tojson }};
 
     const isValidDate = (value) => {
       if (!value) return true;
@@ -430,18 +1574,8 @@
       const avatarUrl = assignment.avatar_url;
       const initial = label.trim().slice(0, 1).toUpperCase();
       const status = assignment.status || "draft";
-      const statusLabel =
-        status === "draft"
-          ? "Send link"
-          : status === "link_sent"
-          ? "Link sent"
-          : status === "accepted"
-          ? "Accepted"
-          : status === "denied"
-          ? "Denied"
-          : status === "assigned"
-          ? "Assigned"
-          : status;
+      const statusClass = status === "accepted" ? " status-accepted" : status === "denied" ? " status-denied" : "";
+      const assignmentEmail = assignment.email || assignment.display_email || "";
       const button =
         assignment.user_id
           ? ""
@@ -451,8 +1585,8 @@
           ? "Resend"
           : "";
       return `
-        <span class="badge ${assignment.user_id ? "user" : "email"}" data-assignment-id="${assignment.id}">
-          <button class="badge-icon${avatarUrl ? " has-photo" : ""}" type="button" data-remove-assignment="${assignment.id}">
+        <span class="badge ${assignment.user_id ? "user" : "email"}${statusClass}" data-assignment-id="${assignment.id}"${assignmentEmail ? ` data-assignment-email="${assignmentEmail}"` : ""} title="Assignment status: ${status}" aria-label="Assignment status: ${status}">
+          <button class="badge-icon${avatarUrl ? " has-photo" : ""}" type="button" data-remove-assignment="${assignment.id}" aria-label="Remove assignment for ${label}. Status: ${status}">
             <span class="badge-initial">${initial}</span>
             ${
               avatarUrl
@@ -462,7 +1596,6 @@
             <span class="badge-x">×</span>
           </button>
           <span class="badge-label">${label}</span>
-          <span class="compact">${statusLabel}</span>
           ${button ? `<button class="btn link" type="button" data-send-link="${assignment.id}">${button}</button>` : ""}
         </span>
       `;
@@ -494,6 +1627,41 @@
           }
           return data;
         });
+    };
+
+    const updateSendLinkBadge = (assignmentId) => {
+      const badge = document.querySelector(`[data-assignment-id='${assignmentId}']`);
+      if (!badge) return;
+      const button = badge.querySelector("[data-send-link]");
+      if (button) button.textContent = "Resend";
+    };
+
+    const sendAssignmentLinks = (assignmentIds, mode) => {
+      if (mode === "digest" && assignmentIds.length > 1) {
+        return fetch("/api/assignments/send_links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ assignment_ids: assignmentIds }),
+        })
+          .then((res) => res.json().catch(() => ({})))
+          .then((data) => {
+            if (!data.assignment_ids) return;
+            data.assignment_ids.forEach(updateSendLinkBadge);
+          });
+      }
+      return assignmentIds.reduce(
+        (chain, assignmentId) =>
+          chain.then(() =>
+            fetch(`/api/assignments/${assignmentId}/send_link`, { method: "POST" })
+              .then((res) => res.json().catch(() => ({})))
+              .then((data) => {
+                if (!data.status) return;
+                updateSendLinkBadge(assignmentId);
+              })
+          ),
+        Promise.resolve()
+      );
     };
 
     const bindAssignInput = (input) => {
@@ -552,6 +1720,7 @@
     };
 
     const insertSubtaskRow = (taskId, data) => {
+      infoBySubtask[String(data.id)] = data.info || { html: "", attachments: [] };
       const rows = Array.from(document.querySelectorAll(`[data-subtasks-for='${taskId}']`));
       const newRow = rows.find((row) => row.querySelector("[data-subtask-new]"));
       const lastRow = newRow || (rows.length ? rows[rows.length - 1] : null);
@@ -562,9 +1731,9 @@
       tr.innerHTML = `
         <td></td>
         <td class="tree-cell">
-          <div class="task-cell${data.link ? " has-link" : ""}">
-            <div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="title" data-col="1"${data.link ? ` data-link-url="${data.link}"` : ""}>${data.title}</div>
-            <button class="btn link link-btn" type="button" data-link-edit="subtask" data-subtask-id="${data.id}" data-link-value="${data.link || ""}">Link</button>
+          <div class="task-cell${data.info && (data.info.html || (data.info.attachments || []).length) ? " has-info" : ""}">
+            <div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="title" data-col="1">${data.title}</div>
+            <button class="btn link info-btn" type="button" data-info-edit="subtask" data-subtask-id="${data.id}" onclick="return window.__openInfoModal('subtask', '${data.id}');">Info</button>
           </div>
         </td>
         <td><input class="due-input" type="date" data-subtask-id="${data.id}" data-field="due_at" data-col="2" value="${data.due_at ? String(data.due_at).slice(0, 10) : ""}" /></td>
@@ -589,6 +1758,7 @@
       }
       bindAssignInput(tr.querySelector("[data-assign-input]"));
       bindDueInput(tr.querySelector(".due-input"));
+      bindInfoButton(tr.querySelector("[data-info-edit]"));
     };
 
     const createSubtask = (taskId, title, due, assignee) => {
@@ -606,17 +1776,27 @@
         });
     };
 
-    const insertTaskRow = (table, id, title, link, due, assignment) => {
+    const insertTaskRow = (table, id, title, info, due, assignment) => {
       if (!table) return null;
+      infoByTask[String(id)] = info || { html: "", attachments: [] };
       const newRow = table.querySelector(".new-row");
       const tr = document.createElement("tr");
+      tr.className = "task-row{% if can_manage_project %} task-row-draggable{% endif %}";
       tr.dataset.taskRowId = String(id);
+      tr.dataset.taskId = String(id);
       tr.innerHTML = `
-        <td><button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="${id}">▸</button></td>
         <td>
-          <div class="task-cell${link ? " has-link" : ""}">
-            <div class="editable" contenteditable="true" data-task-id="${id}" data-field="title" data-col="1"${link ? ` data-link-url="${link}"` : ""}>${title}</div>
-            <button class="btn link link-btn" type="button" data-link-edit="task" data-task-id="${id}" data-link-value="${link || ""}">Link</button>
+          <div class="row-controls">
+            {% if can_manage_project %}
+              <button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="${id}" title="Drag task">⋮⋮</button>
+            {% endif %}
+            <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="${id}">▸</button>
+          </div>
+        </td>
+        <td>
+          <div class="task-cell${info && (info.html || (info.attachments || []).length) ? " has-info" : ""}">
+            <div class="editable" contenteditable="true" data-task-id="${id}" data-field="title" data-col="1">${title}</div>
+            <button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="${id}" onclick="return window.__openInfoModal('task', '${id}');">Info</button>
           </div>
         </td>
         <td><input class="due-input" type="date" data-task-id="${id}" data-field="due_at" data-col="2" value="${due ? String(due).slice(0, 10) : ""}" /></td>
@@ -627,6 +1807,8 @@
             <span class="assign-action">
               <input class="assign-input" placeholder="assignee@email" data-assign-input="task" data-target-id="${id}" />
             </span>
+            <span class="assign-spacer"></span>
+            <button class="icon-button" type="button" data-delete-task="${id}" title="Delete task">×</button>
           </div>
         </td>
       `;
@@ -635,15 +1817,47 @@
       }
       bindAssignInput(tr.querySelector("[data-assign-input]"));
       bindDueInput(tr.querySelector(".due-input"));
+      bindInfoButton(tr.querySelector("[data-info-edit]"));
       return tr;
     };
 
-    const normalizeLink = (value) => {
-      if (!value) return "";
-      const trimmed = value.trim();
-      if (!trimmed) return "";
-      if (/^https?:\/\//i.test(trimmed)) return trimmed;
-      return `https://${trimmed}`;
+    const emptyInfo = () => ({ html: "", attachments: [] });
+
+    const cloneInfo = (value) => ({
+      html: (value && value.html) || "",
+      attachments: Array.isArray(value && value.attachments)
+        ? value.attachments.map((item) => Object.assign({}, item))
+        : [],
+    });
+
+    const getInfoStore = (type) => (type === "task" ? infoByTask : infoBySubtask);
+
+    const getInfoValue = (type, id) => {
+      const store = getInfoStore(type);
+      return cloneInfo(store[String(id)] || emptyInfo());
+    };
+
+    const setInfoValue = (type, id, value) => {
+      const store = getInfoStore(type);
+      store[String(id)] = cloneInfo(value);
+      const button = document.querySelector(type === "task" ? `[data-info-edit='task'][data-task-id='${id}']` : `[data-info-edit='subtask'][data-subtask-id='${id}']`);
+      const taskCell = button ? button.closest(".task-cell") : null;
+      if (taskCell) {
+        taskCell.classList.toggle("has-info", Boolean((value && value.html) || ((value && value.attachments) || []).length));
+      }
+    };
+
+    const bindInfoButton = (button) => {
+      if (!button || button.dataset.boundInfo === "1") return;
+      button.dataset.boundInfo = "1";
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const type = button.getAttribute("data-info-edit");
+        const id = type === "task" ? button.getAttribute("data-task-id") : button.getAttribute("data-subtask-id");
+        if (!type || !id) return;
+        openInfoModal({ type, id });
+      });
     };
 
     const createTaskFromRow = (table, titleInput, dueInput, assigneeInput) => {
@@ -672,7 +1886,7 @@
         .then((res) => res.json().catch(() => ({})))
         .then((data) => {
           if (!data.id) return null;
-          const row = insertTaskRow(table, data.id, title, "", due, data.assignment);
+          const row = insertTaskRow(table, data.id, title, data.info, due, data.assignment);
           titleInput.value = "";
           if (dueInput) dueInput.value = "";
           if (assigneeInput) assigneeInput.value = "";
@@ -798,16 +2012,10 @@
     document.addEventListener("focusout", (event) => {
       const cell = event.target.closest(".editable");
       if (!cell || cell.tagName === "INPUT") return;
-      if (cell.dataset.linkUrl) {
-        cell.dataset.editing = "0";
-      }
       const taskId = cell.getAttribute("data-task-id");
       const subtaskId = cell.getAttribute("data-subtask-id");
       const groupId = cell.getAttribute("data-group-id");
       const field = cell.getAttribute("data-field");
-      if (cell.querySelector("a")) {
-        cell.querySelector("a").replaceWith(cell.textContent);
-      }
       const value = cell.textContent.trim();
       if (!field) return;
       if (field === "due_at" && !isValidDate(value)) {
@@ -834,32 +2042,6 @@
           body: JSON.stringify({ [field]: value }),
         });
       }
-    });
-
-    document.addEventListener("dblclick", (event) => {
-      const cell = event.target.closest(".editable");
-      if (!cell || cell.tagName === "INPUT") return;
-      if (cell.dataset.linkUrl) {
-        cell.dataset.cancelClick = "1";
-        cell.dataset.editing = "1";
-        cell.focus();
-      }
-    });
-
-    document.addEventListener("click", (event) => {
-      const cell = event.target.closest(".editable");
-      if (!cell || cell.tagName === "INPUT") return;
-      const link = cell.dataset.linkUrl;
-      if (!link) return;
-      if (cell.dataset.editing === "1") return;
-      if (event.detail && event.detail > 1) return;
-      setTimeout(() => {
-        if (cell.dataset.cancelClick === "1") {
-          cell.dataset.cancelClick = "0";
-          return;
-        }
-        window.open(link, "_blank", "noopener");
-      }, 180);
     });
 
     const bindNewTaskRow = (table) => {
@@ -943,6 +2125,7 @@
     });
 
     document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
+    document.querySelectorAll("[data-info-edit]").forEach(bindInfoButton);
 
     document.addEventListener("click", (event) => {
       const toggle = event.target.closest("[data-toggle='subtasks']");
@@ -961,18 +2144,35 @@
       const sendLink = event.target.closest("[data-send-link]");
       if (sendLink) {
         const assignmentId = sendLink.getAttribute("data-send-link");
-        fetch(`/api/assignments/${assignmentId}/send_link`, { method: "POST" })
-          .then((res) => res.json())
-          .then((data) => {
-            if (!data.status) return;
-            const badge = document.querySelector(`[data-assignment-id='${assignmentId}']`);
-            if (badge) {
-              const statusEl = badge.querySelector(".compact");
-              if (statusEl) statusEl.textContent = data.status === "link_sent" ? "Link sent" : data.status;
-              const button = badge.querySelector("[data-send-link]");
-              if (button) button.textContent = "Resend";
+        const badge = sendLink.closest(".badge");
+        const assignmentEmail = badge ? badge.getAttribute("data-assignment-email") : "";
+        let pendingIds = [assignmentId];
+        if ((sendLink.textContent || "").trim() === "Send link" && assignmentEmail) {
+          pendingIds = Array.from(
+            document.querySelectorAll(`.badge[data-assignment-email='${assignmentEmail}'] [data-send-link]`)
+          )
+            .map((button) => button.getAttribute("data-send-link"))
+            .filter((id, index, ids) => {
+              const button = document.querySelector(`[data-send-link='${id}']`);
+              return id && button && (button.textContent || "").trim() === "Send link" && ids.indexOf(id) === index;
+            });
+          if (pendingIds.length > 1) {
+            if (typeof window.__chooseBulkSendMode === "function") {
+              window.__chooseBulkSendMode(assignmentEmail, pendingIds.length).then((choice) => {
+                if (choice === "all") {
+                  sendAssignmentLinks(pendingIds, "digest");
+                  return;
+                }
+                if (choice === "single") {
+                  sendAssignmentLinks([assignmentId]);
+                }
+              });
+              return;
             }
-          });
+            pendingIds = [assignmentId];
+          }
+        }
+        sendAssignmentLinks(pendingIds);
         return;
       }
 
@@ -1051,13 +2251,17 @@
         return;
       }
 
-      const linkEdit = event.target.closest("[data-link-edit]");
-      if (linkEdit) {
-        const type = linkEdit.getAttribute("data-link-edit");
-        const taskId = linkEdit.getAttribute("data-task-id");
-        const subtaskId = linkEdit.getAttribute("data-subtask-id");
-        const value = linkEdit.getAttribute("data-link-value") || "";
-        openLinkModal({ type, taskId, subtaskId, value });
+      const infoEdit = event.target.closest("[data-info-edit]");
+      if (infoEdit) {
+        const type = infoEdit.getAttribute("data-info-edit");
+        const id = type === "task" ? infoEdit.getAttribute("data-task-id") : infoEdit.getAttribute("data-subtask-id");
+        openInfoModal({ type, id });
+        return;
+      }
+
+      const removeAttachment = event.target.closest("[data-remove-info-attachment]");
+      if (removeAttachment) {
+        deleteInfoAttachment(removeAttachment.getAttribute("data-remove-info-attachment"));
         return;
       }
     });
@@ -1089,9 +2293,9 @@
             event.preventDefault();
             const colIndex = Number(resizer.getAttribute("data-col"));
             const startX = event.clientX;
-            const startWidth = cols[colIndex]?.getBoundingClientRect().width || 0;
+            const startWidth = cols[colIndex] ? cols[colIndex].getBoundingClientRect().width : 0;
             const nextIndex = colIndex + 1;
-            const startNextWidth = cols[nextIndex]?.getBoundingClientRect().width || 0;
+            const startNextWidth = cols[nextIndex] ? cols[nextIndex].getBoundingClientRect().width : 0;
             const onMove = (moveEvent) => {
               const delta = moveEvent.clientX - startX;
               const next = Math.max(80, startWidth + delta);
@@ -1122,11 +2326,13 @@
     const shareCancel = document.getElementById("share-cancel");
     const shareStatus = document.getElementById("share-status");
     const shareList = document.getElementById("share-list");
-    const linkModal = document.getElementById("link-modal");
-    const linkInput = document.getElementById("link-input");
-    const linkSave = document.getElementById("link-save");
-    const linkCancel = document.getElementById("link-cancel");
-    let linkContext = null;
+    const infoModal = document.getElementById("info-modal");
+    const infoEditor = document.getElementById("info-editor");
+    const infoSave = document.getElementById("info-save");
+    const infoCancel = document.getElementById("info-cancel");
+    const infoFileInput = document.getElementById("info-file-input");
+    const infoAttachments = document.getElementById("info-attachments");
+    let infoContext = null;
     let currentContext = null;
     let shareContext = null;
 
@@ -1155,18 +2361,103 @@
       if (shareList) shareList.innerHTML = "";
     };
 
-    const openLinkModal = (context) => {
-      if (!linkModal) return;
-      linkContext = context;
-      linkInput.value = context.value || "";
-      linkModal.style.display = "flex";
-      linkInput.focus();
+    const renderInfoAttachments = () => {
+      if (!infoAttachments || !infoContext) return;
+      const value = infoContext.value || emptyInfo();
+      infoAttachments.innerHTML = "";
+      if (!(value.attachments || []).length) {
+        infoAttachments.innerHTML = `<div class="footer-note">No files uploaded.</div>`;
+        return;
+      }
+      value.attachments.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "info-attachment";
+        row.innerHTML = `
+          <a href="${item.url}" target="_blank" rel="noopener">${item.name}</a>
+          <button class="btn link" type="button" data-remove-info-attachment="${item.id}">Remove</button>
+        `;
+        infoAttachments.appendChild(row);
+      });
     };
 
-    const closeLinkModal = () => {
-      if (!linkModal) return;
-      linkModal.style.display = "none";
-      linkContext = null;
+    const openInfoModal = (context) => {
+      if (!infoModal || !infoEditor) return;
+      infoContext = Object.assign({}, context, {
+        value: getInfoValue(context.type, context.id),
+      });
+      infoEditor.innerHTML = infoContext.value.html || "";
+      renderInfoAttachments();
+      infoModal.style.display = "flex";
+      infoEditor.focus();
+    };
+
+    window.__openInfoModal = (type, id) => {
+      openInfoModal({ type, id: String(id) });
+      return false;
+    };
+
+    const closeInfoModal = () => {
+      if (!infoModal) return;
+      infoModal.style.display = "none";
+      infoContext = null;
+      if (infoFileInput) infoFileInput.value = "";
+    };
+
+    const infoEndpointBase = (context) =>
+      context.type === "task" ? `/api/tasks/${context.id}/info` : `/api/subtasks/${context.id}/info`;
+
+    const saveInfoModal = () => {
+      if (!infoContext || !infoEditor) return;
+      const payload = {
+        info: {
+          html: infoEditor.innerHTML,
+          attachments: infoContext.value.attachments || [],
+        },
+      };
+      const url = infoContext.type === "task" ? `/api/tasks/${infoContext.id}` : `/api/subtasks/${infoContext.id}`;
+      fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (!data.info) return;
+          setInfoValue(infoContext.type, infoContext.id, data.info);
+          closeInfoModal();
+        });
+    };
+
+    const uploadInfoFile = (file) => {
+      if (!infoContext || !file) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      fetch(`${infoEndpointBase(infoContext)}/attachments`, {
+        method: "POST",
+        body: formData,
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (!data.info) return;
+          infoContext.value = cloneInfo(data.info);
+          setInfoValue(infoContext.type, infoContext.id, data.info);
+          renderInfoAttachments();
+          if (infoFileInput) infoFileInput.value = "";
+        });
+    };
+
+    const deleteInfoAttachment = (attachmentId) => {
+      if (!infoContext || !attachmentId) return;
+      fetch(`${infoEndpointBase(infoContext)}/attachments/${attachmentId}`, {
+        method: "DELETE",
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (!data.info) return;
+          infoContext.value = cloneInfo(data.info);
+          setInfoValue(infoContext.type, infoContext.id, data.info);
+          renderInfoAttachments();
+        });
     };
 
     document.addEventListener("contextmenu", (event) => {
@@ -1364,35 +2655,268 @@
       });
     }
 
-    if (linkCancel) {
-      linkCancel.addEventListener("click", closeLinkModal);
+    if (infoCancel) {
+      infoCancel.addEventListener("click", closeInfoModal);
     }
 
-    if (linkModal) {
-      linkModal.addEventListener("click", (event) => {
-        if (event.target === linkModal) closeLinkModal();
+    if (infoModal) {
+      infoModal.addEventListener("click", (event) => {
+        if (event.target === infoModal) closeInfoModal();
       });
     }
 
-    if (linkSave) {
-      linkSave.addEventListener("click", () => {
-        if (!linkContext) return;
-        const value = normalizeLink(linkInput.value.trim());
-        if (linkContext.type === "task") {
-          fetch(`/api/tasks/${linkContext.taskId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ link: value }),
-          }).then(() => window.location.reload());
-        } else if (linkContext.type === "subtask") {
-          fetch(`/api/subtasks/${linkContext.subtaskId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ link: value }),
-          }).then(() => window.location.reload());
+    if (infoSave) {
+      infoSave.addEventListener("click", saveInfoModal);
+    }
+
+    if (infoFileInput) {
+      infoFileInput.addEventListener("change", () => {
+        if (infoFileInput.files && infoFileInput.files[0]) {
+          uploadInfoFile(infoFileInput.files[0]);
         }
       });
     }
+
+    document.querySelectorAll("[data-info-command]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!infoEditor) return;
+        const command = button.getAttribute("data-info-command");
+        infoEditor.focus();
+        if (command === "createLink") {
+          const url = prompt("URL");
+          if (!url || !url.trim()) return;
+          document.execCommand("createLink", false, url.trim());
+          return;
+        }
+        document.execCommand(command, false);
+      });
+    }
+
+    let draggingTask = null;
+    let taskDropPlaceholder = null;
+    let activeTaskDropzone = null;
+    let activeProjectDrop = null;
+
+    const createTaskPlaceholder = () => {
+      const row = document.createElement("tr");
+      row.className = "task-drop-placeholder";
+      row.innerHTML = `<td colspan="5"><div class="task-drop-slot"></div></td>`;
+      return row;
+    };
+
+    const getTaskBlockRows = (taskId) => {
+      const main = document.querySelector(`[data-task-row-id='${taskId}']`);
+      if (!main) return [];
+      return [main, ...document.querySelectorAll(`[data-subtasks-for='${taskId}']`)];
+    };
+
+    const getTaskRowsForAnimation = (scope) =>
+      Array.from(scope.querySelectorAll("tr")).filter(
+        (row) => !row.classList.contains("task-drop-placeholder")
+      );
+
+    const animateRowLayout = (rows, moveFn) => {
+      const first = new Map();
+      rows.forEach((row) => first.set(row, row.getBoundingClientRect()));
+      moveFn();
+      rows.forEach((row) => {
+        const initial = first.get(row);
+        const finalRect = row.getBoundingClientRect();
+        if (!initial || !finalRect) return;
+        const dx = initial.left - finalRect.left;
+        const dy = initial.top - finalRect.top;
+        if (!dx && !dy) return;
+        row.style.transition = "none";
+        row.style.transform = `translate(${dx}px, ${dy}px)`;
+        requestAnimationFrame(() => {
+          row.style.transition = "transform 190ms ease";
+          row.style.transform = "";
+        });
+      });
+    };
+
+    const clearTaskDropState = () => {
+      document.querySelectorAll(".tasks-table.drag-target").forEach((table) => table.classList.remove("drag-target"));
+      document.querySelectorAll(".project-drop-target.drag-over").forEach((item) => item.classList.remove("drag-over"));
+      if (taskDropPlaceholder) taskDropPlaceholder.remove();
+      taskDropPlaceholder = null;
+      activeTaskDropzone = null;
+      activeProjectDrop = null;
+    };
+
+    const findDropBeforeRow = (tbody, clientY) => {
+      const rows = Array.from(tbody.querySelectorAll("tr[data-task-row-id]")).filter(
+        (row) => !draggingTask || row.getAttribute("data-task-row-id") !== String(draggingTask.taskId)
+      );
+      for (const row of rows) {
+        const rect = row.getBoundingClientRect();
+        if (clientY < rect.top + rect.height / 2) return row;
+      }
+      return tbody.querySelector(".new-row");
+    };
+
+    const movePlaceholderToZone = (tbody, beforeRow) => {
+      if (!taskDropPlaceholder) taskDropPlaceholder = createTaskPlaceholder();
+      const table = tbody.closest(".tasks-table");
+      document.querySelectorAll(".tasks-table.drag-target").forEach((el) => el.classList.remove("drag-target"));
+      if (table) table.classList.add("drag-target");
+      activeTaskDropzone = tbody;
+      activeProjectDrop = null;
+      if (beforeRow) {
+        tbody.insertBefore(taskDropPlaceholder, beforeRow);
+      } else {
+        tbody.appendChild(taskDropPlaceholder);
+      }
+    };
+
+    const getDropPayloadForZone = (tbody) => {
+      const table = tbody.closest(".tasks-table");
+      const projectId = table ? table.getAttribute("data-project-id") : null;
+      const groupId = table ? table.getAttribute("data-group-id") : "";
+      let beforeTaskId = null;
+      let next = taskDropPlaceholder ? taskDropPlaceholder.nextElementSibling : null;
+      while (next) {
+        if (next.matches("[data-task-row-id]")) {
+          beforeTaskId = next.getAttribute("data-task-row-id");
+          break;
+        }
+        next = next.nextElementSibling;
+      }
+      return {
+        projectId: projectId ? Number(projectId) : null,
+        groupId: groupId || null,
+        beforeTaskId: beforeTaskId ? Number(beforeTaskId) : null,
+      };
+    };
+
+    const applyTaskBlockMove = (tbody, beforeRow) => {
+      if (!draggingTask) return;
+      const sourceRows = draggingTask.rows;
+      const targetRows = getTaskRowsForAnimation(tbody);
+      const sourceTbody = draggingTask.sourceTbody;
+      const animatedRows = Array.from(
+        new Set(sourceRows.concat(targetRows, getTaskRowsForAnimation(sourceTbody)))
+      );
+      animateRowLayout(animatedRows, () => {
+        sourceRows.forEach((row) => {
+          tbody.insertBefore(row, beforeRow || taskDropPlaceholder || tbody.querySelector(".new-row"));
+        });
+      });
+    };
+
+    const persistTaskMove = (payload, onSuccess) => {
+      if (!draggingTask) return;
+      fetch(`/api/tasks/${draggingTask.taskId}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          project_id: payload.projectId,
+          group_id: payload.groupId,
+          before_task_id: payload.beforeTaskId,
+        }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data.status !== "ok") {
+            window.location.reload();
+            return;
+          }
+          if (onSuccess) onSuccess(data);
+        })
+        .catch(() => window.location.reload());
+    };
+
+    document.addEventListener("dragstart", (event) => {
+      const handle = event.target.closest("[data-drag-task-handle]");
+      if (!handle) return;
+      const row = handle.closest("[data-task-row-id]");
+      const tbody = row ? row.closest("tbody") : null;
+      if (!row || !tbody) return;
+      draggingTask = {
+        taskId: row.getAttribute("data-task-row-id"),
+        row,
+        rows: getTaskBlockRows(row.getAttribute("data-task-row-id")),
+        sourceTbody: tbody,
+      };
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", draggingTask.taskId);
+      row.classList.add("drag-source");
+      document.querySelectorAll(".tasks-table").forEach((table) => table.classList.add("drag-active"));
+    });
+
+    document.addEventListener("dragover", (event) => {
+      if (!draggingTask) return;
+      const projectDrop = event.target.closest(".project-drop-target");
+      if (projectDrop) {
+        event.preventDefault();
+        if (activeProjectDrop && activeProjectDrop !== projectDrop) {
+          activeProjectDrop.classList.remove("drag-over");
+        }
+        clearTaskDropState();
+        activeProjectDrop = projectDrop;
+        projectDrop.classList.add("drag-over");
+        return;
+      }
+
+      const dropzone = event.target.closest("tbody[data-task-dropzone='1']");
+      if (!dropzone) return;
+      event.preventDefault();
+      if (activeProjectDrop) activeProjectDrop.classList.remove("drag-over");
+      const beforeRow = findDropBeforeRow(dropzone, event.clientY);
+      movePlaceholderToZone(dropzone, beforeRow);
+    });
+
+    document.addEventListener("drop", (event) => {
+      if (!draggingTask) return;
+
+      const projectDrop = event.target.closest(".project-drop-target");
+      if (projectDrop) {
+        event.preventDefault();
+        const targetProjectId = Number(projectDrop.getAttribute("data-project-drop-id"));
+        const selectedProjectTable = document.querySelector(".tasks-table");
+        const selectedProjectId = Number(selectedProjectTable ? selectedProjectTable.getAttribute("data-project-id") : null);
+        if (!targetProjectId) {
+          clearTaskDropState();
+          return;
+        }
+        if (targetProjectId === selectedProjectId) {
+          const ungroupedTbody = document.querySelector(`.tasks-table[data-project-id='${selectedProjectId}'][data-group-id=''] tbody[data-task-dropzone='1']`);
+          if (ungroupedTbody) {
+            const beforeRow = ungroupedTbody.querySelector(".new-row");
+            movePlaceholderToZone(ungroupedTbody, beforeRow);
+            applyTaskBlockMove(ungroupedTbody, beforeRow);
+            persistTaskMove({ projectId: targetProjectId, groupId: null, beforeTaskId: null }, () => {
+              clearTaskDropState();
+            });
+          }
+        } else {
+          persistTaskMove({ projectId: targetProjectId, groupId: null, beforeTaskId: null }, () => {
+            window.location.href = `/?project_id=${targetProjectId}`;
+          });
+        }
+        return;
+      }
+
+      const dropzone = event.target.closest("tbody[data-task-dropzone='1']");
+      if (!dropzone || !taskDropPlaceholder || activeTaskDropzone !== dropzone) return;
+      event.preventDefault();
+      const beforeRow = taskDropPlaceholder;
+      const payload = getDropPayloadForZone(dropzone);
+      applyTaskBlockMove(dropzone, beforeRow);
+      persistTaskMove(payload, () => {
+        clearTaskDropState();
+      });
+    });
+
+    document.addEventListener("dragend", (event) => {
+      const handle = event.target.closest("[data-drag-task-handle]");
+      if (!handle || !draggingTask) return;
+      if (draggingTask.row) draggingTask.row.classList.remove("drag-source");
+      document.querySelectorAll(".tasks-table").forEach((table) => table.classList.remove("drag-active", "drag-target"));
+      clearTaskDropState();
+      draggingTask = null;
+    });
 
     let draggingGroup = null;
     let dragRaf = null;
@@ -1494,7 +3018,8 @@
       document.querySelectorAll(".group-block.drag-over").forEach((el) => el.classList.remove("drag-over"));
 
       const order = getGroupOrder();
-      const projectId = document.querySelector(".tasks-table")?.getAttribute("data-project-id");
+      const firstTaskTable = document.querySelector(".tasks-table");
+      const projectId = firstTaskTable ? firstTaskTable.getAttribute("data-project-id") : null;
       if (projectId && order.length) {
         fetch("/api/groups/reorder", {
           method: "POST",
@@ -1503,6 +3028,210 @@
         });
       }
     });
+
+    window.__dashboardDragReady = true;
   });
+</script>
+
+<script>
+  (function () {
+    function initDragFallback() {
+      if (window.__dashboardDragReady) return;
+
+      var draggingTaskId = null;
+      var draggingGroupId = null;
+      var taskPlaceholder = null;
+
+      function getTaskRows(taskId) {
+        var rows = [];
+        var main = document.querySelector('[data-task-row-id="' + taskId + '"]');
+        if (!main) return rows;
+        rows.push(main);
+        document.querySelectorAll('[data-subtasks-for="' + taskId + '"]').forEach(function (row) {
+          rows.push(row);
+        });
+        return rows;
+      }
+
+      function ensureTaskPlaceholder() {
+        if (taskPlaceholder) return taskPlaceholder;
+        taskPlaceholder = document.createElement("tr");
+        taskPlaceholder.className = "task-drop-placeholder";
+        taskPlaceholder.innerHTML = '<td colspan="5"><div class="task-drop-slot"></div></td>';
+        return taskPlaceholder;
+      }
+
+      function clearTaskPlaceholder() {
+        if (taskPlaceholder && taskPlaceholder.parentNode) {
+          taskPlaceholder.parentNode.removeChild(taskPlaceholder);
+        }
+      }
+
+      document.addEventListener("dragstart", function (event) {
+        var taskHandle = event.target.closest("[data-drag-task-handle]");
+        if (taskHandle) {
+          var row = taskHandle.closest("[data-task-row-id]");
+          if (!row) return;
+          draggingTaskId = row.getAttribute("data-task-row-id");
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", draggingTaskId);
+          row.classList.add("drag-source");
+          return;
+        }
+
+        var groupHandle = event.target.closest(".group-header[draggable='true']");
+        if (groupHandle) {
+          var block = groupHandle.closest(".group-block");
+          if (!block) return;
+          draggingGroupId = block.getAttribute("data-group-id");
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", draggingGroupId);
+          block.classList.add("dragging");
+        }
+      });
+
+      document.addEventListener("dragover", function (event) {
+        if (draggingTaskId) {
+          var projectDrop = event.target.closest(".project-drop-target");
+          if (projectDrop) {
+            event.preventDefault();
+            document.querySelectorAll(".project-drop-target.drag-over").forEach(function (el) {
+              el.classList.remove("drag-over");
+            });
+            projectDrop.classList.add("drag-over");
+            clearTaskPlaceholder();
+            return;
+          }
+
+          var tbody = event.target.closest("tbody[data-task-dropzone='1']");
+          if (!tbody) return;
+          event.preventDefault();
+          document.querySelectorAll(".project-drop-target.drag-over").forEach(function (el) {
+            el.classList.remove("drag-over");
+          });
+          var rows = Array.from(tbody.querySelectorAll("tr[data-task-row-id]")).filter(function (row) {
+            return row.getAttribute("data-task-row-id") !== draggingTaskId;
+          });
+          var beforeRow = tbody.querySelector(".new-row");
+          for (var i = 0; i < rows.length; i += 1) {
+            var rect = rows[i].getBoundingClientRect();
+            if (event.clientY < rect.top + rect.height / 2) {
+              beforeRow = rows[i];
+              break;
+            }
+          }
+          tbody.insertBefore(ensureTaskPlaceholder(), beforeRow);
+          return;
+        }
+
+        if (draggingGroupId) {
+          var target = event.target.closest(".group-block");
+          if (!target || target.getAttribute("data-group-id") === draggingGroupId) return;
+          event.preventDefault();
+          document.querySelectorAll(".group-block.drag-over").forEach(function (el) {
+            el.classList.remove("drag-over");
+          });
+          target.classList.add("drag-over");
+        }
+      });
+
+      document.addEventListener("drop", function (event) {
+        if (draggingTaskId) {
+          var projectDrop = event.target.closest(".project-drop-target");
+          if (projectDrop) {
+            event.preventDefault();
+            var targetProjectId = Number(projectDrop.getAttribute("data-project-drop-id"));
+            fetch("/api/tasks/" + draggingTaskId + "/move", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({ project_id: targetProjectId, group_id: null, before_task_id: null }),
+            }).then(function () { window.location.reload(); });
+            return;
+          }
+
+          var tbody = event.target.closest("tbody[data-task-dropzone='1']");
+          if (!tbody) return;
+          event.preventDefault();
+          var table = tbody.closest(".tasks-table");
+          var projectId = Number(table.getAttribute("data-project-id"));
+          var groupId = table.getAttribute("data-group-id") || null;
+          var beforeTaskId = null;
+          var next = taskPlaceholder ? taskPlaceholder.nextElementSibling : null;
+          while (next) {
+            if (next.hasAttribute("data-task-row-id")) {
+              beforeTaskId = Number(next.getAttribute("data-task-row-id"));
+              break;
+            }
+            next = next.nextElementSibling;
+          }
+          fetch("/api/tasks/" + draggingTaskId + "/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              project_id: projectId,
+              group_id: groupId,
+              before_task_id: beforeTaskId,
+            }),
+          }).then(function () { window.location.reload(); });
+          return;
+        }
+
+        if (draggingGroupId) {
+          var target = event.target.closest(".group-block");
+          if (!target || target.getAttribute("data-group-id") === draggingGroupId) return;
+          event.preventDefault();
+          var dragged = document.querySelector('.group-block[data-group-id="' + draggingGroupId + '"]');
+          if (!dragged) return;
+          var rect = target.getBoundingClientRect();
+          if (event.clientY > rect.top + rect.height / 2) {
+            target.after(dragged);
+          } else {
+            target.before(dragged);
+          }
+          var order = Array.from(document.querySelectorAll(".group-block")).map(function (block) {
+            return block.getAttribute("data-group-id");
+          });
+          var firstTable = document.querySelector(".tasks-table");
+          var projectId = firstTable ? Number(firstTable.getAttribute("data-project-id")) : null;
+          if (projectId && order.length) {
+            fetch("/api/groups/reorder", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_id: projectId, order: order }),
+            }).then(function () { window.location.reload(); });
+          }
+        }
+      });
+
+      document.addEventListener("dragend", function () {
+        if (draggingTaskId) {
+          var row = document.querySelector('[data-task-row-id="' + draggingTaskId + '"]');
+          if (row) row.classList.remove("drag-source");
+        }
+        draggingTaskId = null;
+        clearTaskPlaceholder();
+        document.querySelectorAll(".project-drop-target.drag-over").forEach(function (el) {
+          el.classList.remove("drag-over");
+        });
+
+        if (draggingGroupId) {
+          var block = document.querySelector('.group-block[data-group-id="' + draggingGroupId + '"]');
+          if (block) block.classList.remove("dragging");
+        }
+        draggingGroupId = null;
+        document.querySelectorAll(".group-block.drag-over").forEach(function (el) {
+          el.classList.remove("drag-over");
+        });
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initDragFallback);
+    } else {
+      initDragFallback();
+    }
+  })();
 </script>
 {% endblock %}

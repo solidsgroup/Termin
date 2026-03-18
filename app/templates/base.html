@@ -455,6 +455,17 @@
         font-size: 11px;
       }
 
+      .tag.status-accepted {
+        background: rgba(110, 231, 183, 0.14);
+        color: var(--success);
+      }
+
+      .tag.status-declined,
+      .tag.status-denied {
+        background: rgba(248, 113, 113, 0.14);
+        color: #f87171;
+      }
+
       .footer-note {
         color: var(--muted);
         font-size: 12px;
@@ -507,6 +518,76 @@
         background: rgba(76, 201, 240, 0.06);
       }
 
+      .table tbody tr {
+        transition: background 180ms ease, opacity 180ms ease, transform 180ms ease;
+      }
+
+      .tasks-table.drag-active tbody {
+        position: relative;
+      }
+
+      .tasks-table.drag-target tbody {
+        background: linear-gradient(180deg, rgba(76, 201, 240, 0.04), transparent 45%);
+      }
+
+      .task-row.drag-source {
+        opacity: 0.38;
+      }
+
+      .task-row.task-row-draggable {
+        cursor: default;
+      }
+
+      .task-drop-placeholder td {
+        padding: 0;
+        border-right: none;
+        border-bottom: none;
+      }
+
+      .task-drop-slot {
+        height: 14px;
+        margin: 4px 8px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(76, 201, 240, 0.18), rgba(76, 201, 240, 0.72));
+        box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.16);
+        animation: pulse-slot 900ms ease-in-out infinite alternate;
+      }
+
+      @keyframes pulse-slot {
+        from {
+          transform: scaleX(0.985);
+          opacity: 0.72;
+        }
+        to {
+          transform: scaleX(1);
+          opacity: 1;
+        }
+      }
+
+      .row-controls {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .task-drag-handle {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        cursor: grab;
+        font-size: 12px;
+        padding: 0 4px;
+        line-height: 1;
+      }
+
+      .task-drag-handle:hover {
+        color: var(--accent);
+      }
+
+      .task-drag-handle:active {
+        cursor: grabbing;
+      }
+
       .table input {
         background: transparent;
         border: none;
@@ -523,11 +604,6 @@
         display: flex;
         align-items: center;
         gap: 6px;
-      }
-
-      .table .compact {
-        font-size: 11px;
-        color: var(--muted);
       }
 
       .table .editable {
@@ -552,19 +628,18 @@
         min-width: 0;
       }
 
-      .table .task-cell.has-link .editable {
-        text-decoration: underline;
-        cursor: pointer;
-      }
-
       .table .task-cell .editable {
         flex: 1 1 auto;
         min-width: 0;
       }
 
-      .table .task-cell .link-btn {
+      .table .task-cell .info-btn {
         margin-left: auto;
         white-space: nowrap;
+      }
+
+      .table .task-cell.has-info .info-btn {
+        color: var(--accent);
       }
 
 
@@ -698,6 +773,26 @@
         border-color: rgba(76, 201, 240, 0.35);
       }
 
+      .badge.status-accepted {
+        border-color: rgba(110, 231, 183, 0.55);
+        box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.14);
+      }
+
+      .badge.status-accepted .badge-icon {
+        border-color: var(--success);
+        box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.18);
+      }
+
+      .badge.status-denied {
+        border-color: rgba(248, 113, 113, 0.55);
+        box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.14);
+      }
+
+      .badge.status-denied .badge-icon {
+        border-color: #f87171;
+        box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.18);
+      }
+
       .badge-icon {
         width: 22px;
         height: 22px;
@@ -771,12 +866,65 @@
       .btn.link:hover {
         color: var(--accent);
       }
-      }
 
       .assign-action {
         display: inline-flex;
         align-items: center;
         gap: 6px;
+      }
+
+      .info-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .info-editor {
+        min-height: 180px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #0f141c;
+        padding: 10px 12px;
+        font-size: 13px;
+        line-height: 1.5;
+        overflow-y: auto;
+      }
+
+      .info-editor:focus {
+        outline: 1px solid rgba(76, 201, 240, 0.45);
+        outline-offset: 2px;
+      }
+
+      .info-upload-row {
+        margin-top: 12px;
+      }
+
+      .info-attachments {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .info-attachment {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 10px;
+        border: 1px solid var(--grid);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .info-attachment a {
+        color: var(--ink);
+        text-decoration: none;
+      }
+
+      .info-attachment a:hover {
+        color: var(--accent);
       }
 
       .tree-cell {
@@ -850,6 +998,17 @@
         box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.3);
       }
 
+      .project-drop-target {
+        transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+      }
+
+      .project-drop-target.drag-over {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.42), 0 12px 24px rgba(0, 0, 0, 0.18);
+        background: rgba(76, 201, 240, 0.08);
+        transform: translateX(4px);
+      }
+
       .project-list small {
         color: var(--muted);
         display: block;
@@ -873,6 +1032,9 @@
       <h1>Termin</h1>
       <div>
         {% if user %}
+          {% if config.DEV_MAILBOX_ENABLED %}
+            <a class="btn secondary" href="{{ url_for('ui.dev_mailbox') }}">Dev Mail</a>
+          {% endif %}
           <span class="tag">{{ user.email }}</span>
           <a class="btn secondary" href="{{ url_for('auth.logout') }}">Log out</a>
         {% endif %}

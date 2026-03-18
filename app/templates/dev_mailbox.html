@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content" style="max-width: 1080px; margin: 0 auto;">
+  <div class="panel">
+    <div class="group-header">
+      <h3>Dev Mailbox</h3>
+      <form method="post" action="{{ url_for('ui.clear_dev_mailbox') }}">
+        <button class="btn secondary" type="submit">Clear</button>
+      </form>
+    </div>
+    <p class="footer-note">Captured outgoing emails for local development.</p>
+  </div>
+
+  {% for message in messages %}
+    <div class="panel">
+      <div class="group-header">
+        <h3>{{ message.subject }}</h3>
+        <span class="tag">{{ message.delivery_mode }}</span>
+      </div>
+      <p><strong>To:</strong> {{ message.to_email }}</p>
+      <p><strong>From:</strong> {{ message.from_name or message.from_email }} &lt;{{ message.from_email }}&gt;</p>
+      {% if message.reply_to %}
+        <p><strong>Reply-To:</strong> {{ message.reply_to }}</p>
+      {% endif %}
+      <p><strong>Sent:</strong> {{ message.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+      <div class="panel" style="margin-top: 12px; background: var(--panel-alt);">
+        <h3 style="margin-top: 0;">Text</h3>
+        <pre style="white-space: pre-wrap; margin: 0; color: var(--ink);">{{ message.text_body }}</pre>
+      </div>
+      {% if message.html_body %}
+        <div class="panel" style="margin-top: 12px; background: var(--panel-alt);">
+          <h3 style="margin-top: 0;">HTML Preview</h3>
+          <iframe
+            title="mail-preview-{{ message.id }}"
+            sandbox=""
+            style="width: 100%; min-height: 220px; border: 1px solid var(--border); border-radius: 8px; background: white;"
+            srcdoc="{{ message.html_body|e }}"
+          ></iframe>
+        </div>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="panel">
+      <p class="footer-note">No captured emails yet.</p>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

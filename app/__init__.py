@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask
 from app.config import Config
 from app.extensions import db, migrate
@@ -10,8 +12,10 @@ from app.oauth import init_oauth
 
 
 def create_app() -> Flask:
-    app = Flask(__name__)
+    instance_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "instance")
+    app = Flask(__name__, instance_path=instance_path)
     app.config.from_object(Config)
+    os.makedirs(app.instance_path, exist_ok=True)
 
     db.init_app(app)
     migrate.init_app(app, db)
