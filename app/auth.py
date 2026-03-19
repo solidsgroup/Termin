@@ -58,9 +58,13 @@ def _store_external_identity(
     email: str | None,
     display_name: str | None,
     avatar_url: str | None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    expires_in: int | None = None,
 ):
     if not provider_user_id:
         return
+    token_expires_at = datetime.utcnow() + timedelta(seconds=int(expires_in)) if expires_in else None
     upsert_external_identity(
         user=user,
         provider=provider,
@@ -68,6 +72,9 @@ def _store_external_identity(
         email=email,
         display_name=display_name,
         avatar_url=avatar_url,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_expires_at=token_expires_at,
     )
 
 
@@ -78,6 +85,9 @@ def _link_provider_account(
     email: str | None,
     display_name: str | None,
     avatar_url: str | None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    expires_in: int | None = None,
 ) -> User:
     link_user_id = session.pop("oauth_link_user_id", None)
     if not link_user_id or session.get("user_id") != link_user_id:
@@ -104,6 +114,9 @@ def _link_provider_account(
         email=normalized_email,
         display_name=display_name,
         avatar_url=avatar_url,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
     )
 
     login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first() if normalized_email else None
@@ -122,6 +135,9 @@ def _claim_collaborator_with_provider(
     email: str | None,
     display_name: str | None,
     avatar_url: str | None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    expires_in: int | None = None,
 ) -> User:
     collaborator_token = session.pop("collaborator_claim_token", None)
     if not collaborator_token:
@@ -151,6 +167,9 @@ def _claim_collaborator_with_provider(
         email=normalized_email,
         display_name=display_name,
         avatar_url=avatar_url,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
     )
 
     login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first() if normalized_email else None
@@ -169,6 +188,9 @@ def _login_with_provider(
     email: str | None,
     display_name: str | None,
     avatar_url: str | None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    expires_in: int | None = None,
 ) -> User:
     user = find_user_by_external_identity(provider, provider_user_id)
     if not user:
@@ -187,6 +209,9 @@ def _login_with_provider(
         email=email,
         display_name=display_name,
         avatar_url=avatar_url,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
     )
     db.session.commit()
     session["user_id"] = user.id
@@ -370,6 +395,9 @@ def github_callback():
                 email=email,
                 display_name=display_name,
                 avatar_url=avatar_url,
+                access_token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                expires_in=token.get("expires_in"),
             )
             return redirect(url_for("ui.dashboard"))
         if session.get("oauth_link_user_id"):
@@ -379,6 +407,9 @@ def github_callback():
                 email=email,
                 display_name=display_name,
                 avatar_url=avatar_url,
+                access_token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                expires_in=token.get("expires_in"),
             )
             return redirect(url_for("ui.account"))
 
@@ -388,6 +419,9 @@ def github_callback():
             email=email,
             display_name=display_name,
             avatar_url=avatar_url,
+            access_token=token.get("access_token"),
+            refresh_token=token.get("refresh_token"),
+            expires_in=token.get("expires_in"),
         )
     except ValueError as exc:
         return str(exc), 400

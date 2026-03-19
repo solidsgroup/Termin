@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from functools import wraps
+import json
 import secrets
 
 from flask import Blueprint, current_app, redirect, render_template, request, url_for
@@ -10,6 +11,7 @@ from app.calendar_sync import CalendarSyncError, ensure_task_event
 from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_account_verification_email
 from app.extensions import db
+from app.github_sync import GitHubSyncError, github_identity_for_user, github_sync_state_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.identity import (
     add_user_email,
     claim_collaborator_profile,
@@ -23,7 +25,7 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
+from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -64,16 +66,92 @@ def _render_account_page(user: User, *, error: str | None = None, message: str |
         EmailVerification.user_id == user.id,
         EmailVerification.consumed_at.is_(None),
     ).order_by(EmailVerification.created_at.desc()).all()
+    github_identity = github_identity_for_user(user.id)
+    github_sync_state = github_sync_state_for_user(user.id)
     return render_template(
         "account.html",
         user=user,
         emails=emails,
         identities=identities,
         pending_verifications=pending,
+        github_identity=github_identity,
+        github_sync_state=github_sync_state,
         title="Account",
         error=error,
         merge_message=message,
     )
+
+
+def _build_github_task_meta(user_id: int, task_ids: list[int], user_map: dict[int, User]) -> tuple[dict[int, dict], int | None]:
+    if not task_ids:
+        return {}, None
+
+    github_links = GitHubIssueLink.query.filter(GitHubIssueLink.task_id.in_(task_ids)).all()
+    if not github_links:
+        return {}, None
+
+    provider_ids = set()
+    for link in github_links:
+        try:
+            assignees = json.loads(link.assignees_json) if link.assignees_json else []
+        except json.JSONDecodeError:
+            assignees = []
+        for assignee in assignees:
+            provider_user_id = str((assignee or {}).get("provider_user_id") or "").strip()
+            if provider_user_id:
+                provider_ids.add(provider_user_id)
+
+    github_identities = (
+        ExternalIdentity.query.filter(
+            ExternalIdentity.provider == "github",
+            ExternalIdentity.provider_user_id.in_(provider_ids),
+        ).all()
+        if provider_ids
+        else []
+    )
+    identities_by_provider_user_id = {identity.provider_user_id: identity for identity in github_identities}
+    sync_state = GitHubSyncState.query.filter_by(user_id=user_id).first()
+
+    meta_by_task: dict[int, dict] = {}
+    for link in github_links:
+        try:
+            assignees = json.loads(link.assignees_json) if link.assignees_json else []
+        except json.JSONDecodeError:
+            assignees = []
+        assignee_meta = []
+        for assignee in assignees:
+            provider_user_id = str((assignee or {}).get("provider_user_id") or "").strip()
+            identity = identities_by_provider_user_id.get(provider_user_id)
+            connected_user = user_map.get(identity.user_id) if identity and identity.user_id in user_map else None
+            label = (
+                (connected_user.display_name or connected_user.email)
+                if connected_user
+                else ((assignee or {}).get("login") or provider_user_id or "GitHub")
+            )
+            assignee_meta.append(
+                {
+                    "label": label,
+                    "avatar_url": (
+                        connected_user.avatar_url
+                        if connected_user and connected_user.avatar_url
+                        else (identity.avatar_url if identity and identity.avatar_url else (assignee or {}).get("avatar_url"))
+                    ),
+                    "provider_user_id": provider_user_id,
+                    "profile_url": (assignee or {}).get("html_url"),
+                    "is_connected": bool(connected_user),
+                    "login": (assignee or {}).get("login") or provider_user_id,
+                    "role": (assignee or {}).get("role") or "assignee",
+                }
+            )
+        meta_by_task[link.task_id] = {
+            "issue_url": link.issue_url,
+            "repository_full_name": link.repository_full_name,
+            "issue_number": link.issue_number,
+            "issue_state": link.issue_state,
+            "item_type": link.item_type or "issue",
+            "assignees": assignee_meta,
+        }
+    return meta_by_task, (sync_state.project_id if sync_state else None)
 
 
 def _render_admin_page(template: str, *, section: str, **context):
@@ -179,7 +257,7 @@ def _work_item_status(task: Task | None, subtask: Subtask | None) -> str:
 
 
 def _is_complete_status(status: str | None) -> bool:
-    return (status or "").strip().lower() in {"complete", "completed", "done", "closed"}
+    return (status or "").strip().lower() in {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
 
 
 def _mark_work_item_complete(task: Task | None, subtask: Subtask | None) -> None:
@@ -226,7 +304,12 @@ def _ensure_assignment_invite(assignment: Assignment, calendar_opt_in: bool = Fa
 def dashboard():
     user = current_user()
     now_utc = datetime.utcnow()
+    github_identity = github_identity_for_user(user.id)
+    github_sync_state = github_sync_state_for_user(user.id)
+    github_project_id = github_sync_state.project_id if github_sync_state else None
+    github_auto_sync_needed = bool(github_identity and github_identity.access_token and should_sync_github_issues(user.id))
     current_view = (request.args.get("view") or "project").strip().lower()
+    show_completed = (request.args.get("show_completed") or "1").strip().lower() not in {"0", "false", "no", "off"}
     if current_view not in {"project", "todo"}:
         current_view = "project"
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
@@ -299,8 +382,10 @@ def dashboard():
     is_project_member = False
     can_manage_project = False
     selected_project_color = "#4cc9f0"
+    is_github_project = False
     manageable_project_ids = {project.id for project in owned_projects}.union(member_project_ids)
     if selected_project:
+        is_github_project = bool(github_project_id and selected_project.id == github_project_id)
         selected_pref = sidebar_pref_map.get(selected_project.id)
         selected_project_color = division_color_map.get(selected_pref.division_id if selected_pref else None, "#4cc9f0")
         is_owner = selected_project.owner_id == user.id
@@ -311,6 +396,8 @@ def dashboard():
         can_manage_project = is_owner or is_project_member
         if can_manage_project:
             tasks = _task_ordering(Task.query.filter_by(project_id=selected_project.id)).all()
+            if not show_completed:
+                tasks = [task for task in tasks if not _is_complete_status(task.status)]
             groups = Group.query.filter_by(project_id=selected_project.id).order_by(Group.position.asc(), Group.id.asc()).all()
             tasks_by_group = {g.id: [] for g in groups}
             for task in tasks:
@@ -318,6 +405,10 @@ def dashboard():
                     tasks_by_group[task.group_id].append(task)
                 else:
                     ungrouped_tasks.append(task)
+            if is_github_project:
+                for grouped_tasks in tasks_by_group.values():
+                    grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
+                ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
         else:
             group_ids = [
                 m.group_id
@@ -333,6 +424,8 @@ def dashboard():
                 }.values()
             )
             tasks.sort(key=lambda task: (task.position, task.id))
+            if not show_completed:
+                tasks = [task for task in tasks if not _is_complete_status(task.status)]
             group_ids = [t.group_id for t in tasks if t.group_id]
             groups = (
                 Group.query.filter(Group.id.in_(group_ids))
@@ -347,6 +440,10 @@ def dashboard():
                     tasks_by_group[task.group_id].append(task)
                 else:
                     ungrouped_tasks.append(task)
+            if is_github_project:
+                for grouped_tasks in tasks_by_group.values():
+                    grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
+                ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
     project_ids = [p.id for p in projects]
     all_task_ids = [t.id for t in _task_ordering(Task.query.filter(Task.project_id.in_(project_ids))).all()] if project_ids else []
     all_subtask_ids = (
@@ -367,6 +464,8 @@ def dashboard():
             subtask_rows = Subtask.query.filter(Subtask.task_id.in_([t.id for t in tasks])).all()
         else:
             subtask_rows = [s for s in assigned_subtasks if s.task_id in [t.id for t in tasks]]
+        if not show_completed:
+            subtask_rows = [sub for sub in subtask_rows if not _is_complete_status(sub.status)]
         for sub in subtask_rows:
             subtasks_by_task.setdefault(sub.task_id, []).append(sub)
             info_by_subtask[sub.id] = load_info_payload(sub.info, sub.link)
@@ -425,6 +524,8 @@ def dashboard():
     visible_task_ids.update(task_id for task_id in assigned_task_ids if task_id)
     visible_task_ids.update(parent_task_ids)
     todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
+    if not show_completed:
+        todo_tasks = [task for task in todo_tasks if not _is_complete_status(task.status)]
     todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
     todo_items = []
     today = now_utc.date()
@@ -488,6 +589,11 @@ def dashboard():
             item["task"].id,
         )
     )
+    github_task_meta, github_project_id = _build_github_task_meta(
+        user.id,
+        [task.id for task in todo_tasks + tasks],
+        user_map,
+    )
     todo_groups_by_date = []
     for item in todo_items:
         if not todo_groups_by_date or todo_groups_by_date[-1]["key"] != item["date_key"]:
@@ -498,6 +604,7 @@ def dashboard():
         user=user,
         now_utc=now_utc,
         current_view=current_view,
+        show_completed=show_completed,
         projects=projects,
         divisions=sidebar_divisions,
         division_options=division_options,
@@ -522,6 +629,9 @@ def dashboard():
         project_viewers=project_viewers,
         group_viewers=group_viewers,
         todo_groups_by_date=todo_groups_by_date,
+        github_task_meta=github_task_meta,
+        github_project_id=github_project_id,
+        github_auto_sync_needed=github_auto_sync_needed,
     )
 
 
@@ -688,6 +798,22 @@ def merge_account():
         return _render_account_page(user, error=f"Could not send merge verification email: {exc}")
 
     return _render_account_page(user, message=f"Merge verification email sent to {verification.email}.")
+
+
+@ui_bp.post("/account/github/sync")
+@login_required
+def sync_github_account():
+    user = current_user()
+    try:
+        result = sync_github_issues_for_user(user)
+    except GitHubSyncError as exc:
+        db.session.rollback()
+        return _render_account_page(user, error=str(exc))
+
+    message = (
+        f"GitHub sync complete. {result['created']} created, {result['updated']} updated."
+    )
+    return _render_account_page(user, message=message)
 
 
 @ui_bp.get("/account/verify/<token>")

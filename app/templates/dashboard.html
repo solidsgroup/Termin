@@ -26,7 +26,6 @@
         </div>
       {% endif %}
     </div>
-    <small>Defaults: {% if project.default_owner_calendar_opt_in %}owner calendar{% else %}no owner sync{% endif %}, {% if project.default_invitee_calendar_opt_in %}invitees prompted{% else %}no invites{% endif %}</small>
   </div>
 {% endmacro %}
 {% macro render_due_summary(item, now_utc) %}
@@ -52,28 +51,80 @@
 {% endmacro %}
 {% macro status_state(status) -%}
   {% set value = (status or '')|trim|lower %}
-  {%- if value in ['complete', 'completed', 'done', 'closed'] -%}complete
+  {%- if value in ['complete', 'completed', 'done', 'closed', 'pr closed', 'pr merged'] -%}complete
   {%- elif value == 'critical' -%}critical
   {%- else -%}open
   {%- endif -%}
 {%- endmacro %}
-{% macro render_tasks(task_list, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) %}
+{% macro render_github_assignees(meta) %}
+  <div class="assignments github-assignments">
+    {% for assignee in meta.assignees %}
+      <span class="badge github-badge{% if assignee.is_connected %} user{% else %} email{% endif %}" title="GitHub {{ assignee.role }}: {{ assignee.login }}" aria-label="GitHub {{ assignee.role }}: {{ assignee.login }}">
+        <span class="badge-icon{% if assignee.avatar_url %} has-photo{% endif %}"{% if assignee.profile_url %} data-github-profile-link="{{ assignee.profile_url }}"{% endif %}>
+          <span class="badge-initial"><i class="fa-brands fa-github" aria-hidden="true"></i></span>
+          {% if assignee.avatar_url %}
+            <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+          {% endif %}
+        </span>
+        <span class="badge-label">{{ assignee.label }}{% if assignee.role == 'reviewer' %} · review{% elif assignee.role == 'creator' %} · creator{% endif %}</span>
+      </span>
+    {% else %}
+      <span class="footer-note">No assignees</span>
+    {% endfor %}
+  </div>
+{% endmacro %}
+{% macro render_github_status(meta, task_status_state, task_id=None, todo=False) %}
+      {% if meta.item_type == 'pull_request' %}
+    <div class="{% if todo %}todo-status-cell {% endif %}status-editable github-status-readonly" data-status-state="{{ task_status_state }}">
+      {% if task_status_state == 'complete' %}
+        <i class="fa-solid fa-code-merge" aria-hidden="true"></i><span>Merged</span>
+      {% elif (meta.issue_state or '')|lower == 'closed' %}
+        <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i><span>PR closed</span>
+      {% else %}
+        <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i><span>PR open</span>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="{% if todo %}todo-status-cell {% endif %}status-editable github-status-readonly" data-status-state="{{ task_status_state }}">
+      {% if task_status_state == 'complete' %}
+        <i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Issue closed</span>
+      {% else %}
+        <i class="fa-brands fa-github" aria-hidden="true"></i><span>Issue open</span>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}
+{% macro render_tasks(task_list, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask, github_task_meta) %}
   {% if task_list %}
     {% for task in task_list %}
       {% set task_info = info_by_task.get(task.id, {"html": "", "attachments": []}) %}
       {% set task_status_state = status_state(task.status) %}
-      <tr class="task-row{% if can_manage_project %} task-row-draggable{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-status-state="{{ task_status_state }}">
+      {% set github_meta = github_task_meta.get(task.id) %}
+      <tr class="task-row{% if can_manage_project and not github_meta %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-status-state="{{ task_status_state }}">
         <td>
           <div class="row-controls">
-            {% if can_manage_project %}
+            {% if can_manage_project and not github_meta %}
               <button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="{{ task.id }}" title="Drag task">⋮⋮</button>
             {% endif %}
-            <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="{{ task.id }}">▸</button>
+            {% if not github_meta %}
+              <button class="toggle-btn" type="button" data-toggle="subtasks" data-task-id="{{ task.id }}">▸</button>
+            {% endif %}
           </div>
         </td>
         <td>
-          <div class="task-cell{% if task_info.html or task_info.attachments %} has-info{% endif %}">
-            <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
+          <div class="task-cell{% if task_info.html or task_info.attachments %} has-info{% endif %}{% if github_meta %} is-github{% endif %}">
+            {% if github_meta %}
+              <a class="github-task-link" href="{{ github_meta.issue_url }}" target="_blank" rel="noopener">
+                {% if github_meta.item_type == 'pull_request' %}
+                  <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                {% else %}
+                  <i class="fa-brands fa-github" aria-hidden="true"></i>
+                {% endif %}
+                <span>{{ task.title }}</span>
+              </a>
+            {% else %}
+              <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
+            {% endif %}
             <button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="{{ task.id }}" data-info-payload="{{ task_info|tojson|forceescape }}" onclick="return window.__openInfoModal('task', '{{ task.id }}');">Info</button>
           </div>
         </td>
@@ -86,45 +137,54 @@
           </div>
         </td>
         <td>
-          <div class="editable status-editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ task_status_state }}">{{ task.status }}</div>
+          {% if github_meta %}
+            {{ render_github_status(github_meta, task_status_state, task.id) }}
+          {% else %}
+            <div class="editable status-editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ task_status_state }}">{{ task.status }}</div>
+          {% endif %}
         </td>
         <td>
-          <div class="assignments">
-            {% for assignment in assignments_by_task.get(task.id, []) %}
-              {% set assignee = user_map.get(assignment.user_id) %}
-              {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-              <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-                <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
-                  <span class="badge-initial">{{ label[0]|upper }}</span>
-                  {% if assignee and assignee.avatar_url %}
-                    <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+          {% if github_meta %}
+            {{ render_github_assignees(github_meta) }}
+          {% else %}
+            <div class="assignments">
+              {% for assignment in assignments_by_task.get(task.id, []) %}
+                {% set assignee = user_map.get(assignment.user_id) %}
+                {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                  <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+                    <span class="badge-initial">{{ label[0]|upper }}</span>
+                    {% if assignee and assignee.avatar_url %}
+                      <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                    {% endif %}
+                    <span class="badge-x">×</span>
+                  </button>
+                  <span class="badge-label">{{ label }}</span>
+                  {% if not assignment.user_id %}
+                    {% if assignment.status in ["draft"] %}
+                      <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                    {% elif assignment.status in ["link_sent"] %}
+                      <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                    {% endif %}
                   {% endif %}
-                  <span class="badge-x">×</span>
-                </button>
-                <span class="badge-label">{{ label }}</span>
-                {% if not assignment.user_id %}
-                  {% if assignment.status in ["draft"] %}
-                    <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                  {% elif assignment.status in ["link_sent"] %}
-                    <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                  {% endif %}
+                </span>
+              {% endfor %}
+              <span class="assign-action">
+                {% if assignments_by_task.get(task.id, [])|length == 0 %}
+                  <button class="assign-add-btn" type="button" title="Assign">+</button>
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
+                {% else %}
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
+                  <button class="assign-add-btn" type="button" title="Assign">+</button>
                 {% endif %}
               </span>
-            {% endfor %}
-            <span class="assign-action">
-              {% if assignments_by_task.get(task.id, [])|length == 0 %}
-                <button class="assign-add-btn" type="button" title="Assign">+</button>
-                <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
-              {% else %}
-                <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
-                <button class="assign-add-btn" type="button" title="Assign">+</button>
-              {% endif %}
-            </span>
-            <span class="assign-spacer"></span>
-            <button class="icon-button" type="button" data-delete-task="{{ task.id }}" title="Delete task">×</button>
-          </div>
+              <span class="assign-spacer"></span>
+              <button class="icon-button" type="button" data-delete-task="{{ task.id }}" title="Delete task">×</button>
+            </div>
+          {% endif %}
         </td>
       </tr>
+      {% if not github_meta %}
       {% for subtask in subtasks_by_task.get(task.id, []) %}
         {% set subtask_info = info_by_subtask.get(subtask.id, {"html": "", "attachments": []}) %}
         {% set subtask_status_state = status_state(subtask.status) %}
@@ -181,7 +241,7 @@
               </span>
             </div>
           </td>
-        </tr>
+      </tr>
       {% endfor %}
       <tr class="subtasks-row" data-subtasks-for="{{ task.id }}" style="display: none;">
         <td></td>
@@ -198,11 +258,13 @@
           <input placeholder="assignee@email" data-subtask-new="assignee_email" data-task-id="{{ task.id }}" data-col="4" />
         </td>
       </tr>
+      {% endif %}
     {% endfor %}
   {% endif %}
 {% endmacro %}
 {% block content %}
-<div class="layout">
+{% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
+<div class="layout"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %}>
   <aside class="sidebar">
     <div class="sidebar-heading-row">
       <h3 style="margin: 0;">Projects</h3>
@@ -253,8 +315,8 @@
 
   <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
     <div class="view-switcher">
-      <a class="view-switch{% if current_view == 'project' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='project') }}{% else %}{{ url_for('ui.dashboard', view='project') }}{% endif %}">Project</a>
-      <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo') }}{% else %}{{ url_for('ui.dashboard', view='todo') }}{% endif %}">Todo List</a>
+      <a class="view-switch{% if current_view == 'project' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='project', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='project', show_completed=1 if show_completed else 0) }}{% endif %}">Project</a>
+      <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if show_completed else 0) }}{% endif %}">Todo List</a>
     </div>
     {% if current_view == 'todo' %}
       <div class="todo-board">
@@ -264,13 +326,25 @@
             <div class="todo-list">
               {% for item in date_group["items"] %}
                 {% set todo_status_state = status_state(item.task.status) %}
-                <div class="todo-item" style="--todo-color: {{ item.division_color }};" data-status-state="{{ todo_status_state }}">
+                {% set github_meta = github_task_meta.get(item.task.id) %}
+                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-status-state="{{ todo_status_state }}">
                   <div class="todo-project-meta">
                     <span class="todo-project-name">{{ item.project.name }}</span>
                     {% if item.group %}<span class="todo-group-name">{{ item.group.name }}</span>{% endif %}
                   </div>
                   <div class="todo-item-main">
-                    <div class="editable todo-item-title" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="title" data-col="1">{{ item.task.title }}</div>
+                    {% if github_meta %}
+                      <a class="github-task-link todo-item-title" href="{{ github_meta.issue_url }}" target="_blank" rel="noopener">
+                        {% if github_meta.item_type == 'pull_request' %}
+                          <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                        {% else %}
+                          <i class="fa-brands fa-github" aria-hidden="true"></i>
+                        {% endif %}
+                        <span>{{ item.task.title }}</span>
+                      </a>
+                    {% else %}
+                      <div class="editable todo-item-title" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="title" data-col="1">{{ item.task.title }}</div>
+                    {% endif %}
                   </div>
                   <div class="due-cell todo-due-cell" data-due-cell onclick="return window.__openDueInput(this);">
                     <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
@@ -278,35 +352,43 @@
                     </div>
                     <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
                   </div>
-                  <div class="editable todo-status-cell status-editable" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ todo_status_state }}">{{ item.task.status }}</div>
-                  <div class="assignments todo-assignments">
-                    {% for assignment in assignments_by_task.get(item.task.id, []) %}
-                      {% set assignee = user_map.get(assignment.user_id) %}
-                      {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                      <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-                        <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
-                          <span class="badge-initial">{{ label[0]|upper }}</span>
-                          {% if assignee and assignee.avatar_url %}
-                            <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                  {% if github_meta %}
+                    {{ render_github_status(github_meta, todo_status_state, item.task.id, True) }}
+                  {% else %}
+                    <div class="editable todo-status-cell status-editable" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ todo_status_state }}">{{ item.task.status }}</div>
+                  {% endif %}
+                  {% if github_meta %}
+                    {{ render_github_assignees(github_meta) }}
+                  {% else %}
+                    <div class="assignments todo-assignments">
+                      {% for assignment in assignments_by_task.get(item.task.id, []) %}
+                        {% set assignee = user_map.get(assignment.user_id) %}
+                        {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                        <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                          <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+                            <span class="badge-initial">{{ label[0]|upper }}</span>
+                            {% if assignee and assignee.avatar_url %}
+                              <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                            {% endif %}
+                            <span class="badge-x">×</span>
+                          </button>
+                          <span class="badge-label">{{ label }}</span>
+                          {% if not assignment.user_id %}
+                            {% if assignment.status in ["draft"] %}
+                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                            {% elif assignment.status in ["link_sent"] %}
+                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                            {% endif %}
                           {% endif %}
-                          <span class="badge-x">×</span>
-                        </button>
-                        <span class="badge-label">{{ label }}</span>
-                        {% if not assignment.user_id %}
-                          {% if assignment.status in ["draft"] %}
-                            <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                          {% elif assignment.status in ["link_sent"] %}
-                            <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                          {% endif %}
-                        {% endif %}
+                        </span>
+                      {% endfor %}
+                      <span class="assign-action">
+                        <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" />
+                        <button class="assign-add-btn" type="button" title="Assign">+</button>
                       </span>
-                    {% endfor %}
-                    <span class="assign-action">
-                      <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" />
-                      <button class="assign-add-btn" type="button" title="Assign">+</button>
-                    </span>
-                  </div>
-                  <a class="todo-open-link" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project') }}">Open</a>
+                    </div>
+                  {% endif %}
+                  <a class="todo-open-link" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}">Open</a>
                 </div>
               {% endfor %}
             </div>
@@ -322,6 +404,8 @@
       <div class="panel">
         <div class="group-header">
           <h3>{{ selected_project.name }}</h3>
+          <div style="display: inline-flex; gap: 8px; align-items: center;">
+            <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
           {% set viewers = project_viewers.get(selected_project.id, []) %}
           {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
           {% if shared_viewers %}
@@ -340,20 +424,21 @@
               {% endif %}
             </div>
           {% endif %}
+          </div>
         </div>
       </div>
 
       {% for group in groups %}
         <div class="group-block" data-group-id="{{ group.id }}">
-        <div class="group-insert-wrap{% if not can_manage_project %} disabled{% endif %}">
+        <div class="group-insert-wrap{% if not can_manage_project or is_github_project %} disabled{% endif %}">
             <div class="group-insert" data-project-id="{{ selected_project.id }}">
               <div class="group-insert-line"></div>
               <button class="group-insert-btn" type="button" title="Add group">+</button>
             </div>
           </div>
           <div class="panel group" style="--group-color: {{ selected_project_color or '#4cc9f0' }};">
-            <div class="group-header" {% if can_manage_project %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
-              <h3 class="group-title {% if can_manage_project %}editable{% endif %}" {% if can_manage_project %}contenteditable="true" data-group-id="{{ group.id }}" data-field="name"{% endif %}>{{ group.name }}</h3>
+            <div class="group-header" {% if can_manage_project and not is_github_project %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
+              <h3 class="group-title {% if can_manage_project and not is_github_project %}editable{% endif %}" {% if can_manage_project and not is_github_project %}contenteditable="true" data-group-id="{{ group.id }}" data-field="name"{% endif %}>{{ group.name }}</h3>
               {% set viewers = group_viewers.get(group.id, []) %}
               {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
               {% if shared_viewers %}
@@ -392,8 +477,8 @@
             </thead>
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
-              {{ render_tasks(group_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) }}
-              {% if can_manage_project %}
+              {{ render_tasks(group_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask, github_task_meta) }}
+              {% if can_manage_project and not is_github_project %}
                 <tr class="new-row">
                     <td></td>
                     <td>
@@ -418,7 +503,7 @@
         </div>
       {% endfor %}
 
-      <div class="group-insert-wrap{% if not can_manage_project %} disabled{% endif %}">
+      <div class="group-insert-wrap{% if not can_manage_project or is_github_project %} disabled{% endif %}">
         <div class="group-insert" data-project-id="{{ selected_project.id }}">
           <div class="group-insert-line"></div>
           <button class="group-insert-btn" type="button" title="Add group">+</button>
@@ -448,8 +533,8 @@
               </tr>
             </thead>
             <tbody data-task-dropzone="1">
-              {{ render_tasks(ungrouped_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) }}
-              {% if can_manage_project %}
+              {{ render_tasks(ungrouped_tasks, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask, github_task_meta) }}
+              {% if can_manage_project and not is_github_project %}
                 <tr class="new-row">
                     <td></td>
                     <td>
@@ -478,24 +563,6 @@
         <p class="footer-note">Create a project to start adding tasks.</p>
       </div>
     {% endif %}
-
-    <div class="panel">
-      <h3>Magic-Link Invites</h3>
-      {% if invites %}
-        <ul>
-          {% for invite in invites %}
-            <li>
-              {{ invite.email }}
-              <span class="tag{% if invite.status == 'accepted' %} status-accepted{% elif invite.status == 'declined' %} status-declined{% endif %}">{{ invite.status }}</span>
-              {% if invite.calendar_opt_in %}<span class="tag">calendar on</span>{% endif %}
-              <div class="footer-note">Link: {{ url_for('ui.accept_invite', token=invite.token, _external=True) }}</div>
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="footer-note">No invites yet.</p>
-      {% endif %}
-    </div>
   </section>
 </div>
 
@@ -885,7 +952,7 @@
     function getStatusState(value) {
       var normalized = String(value || "").trim().toLowerCase();
       if (normalized === "critical") return "critical";
-      if (normalized === "complete" || normalized === "completed" || normalized === "done" || normalized === "closed") return "complete";
+      if (normalized === "complete" || normalized === "completed" || normalized === "done" || normalized === "closed" || normalized === "pr closed" || normalized === "pr merged") return "complete";
       return "open";
     }
 
@@ -4339,6 +4406,30 @@
       document.addEventListener("DOMContentLoaded", initDragFallback);
     } else {
       initDragFallback();
+    }
+  })();
+</script>
+
+<script>
+  (function () {
+    function initGithubBackgroundSync() {
+      var layout = document.querySelector("[data-github-auto-sync='1']");
+      if (!layout || window.__githubBackgroundSyncStarted) return;
+      window.__githubBackgroundSyncStarted = true;
+      window.setTimeout(function () {
+        fetch("/api/github/sync", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+          keepalive: true,
+        }).catch(function () {});
+      }, 50);
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initGithubBackgroundSync);
+    } else {
+      initGithubBackgroundSync();
     }
   })();
 </script>

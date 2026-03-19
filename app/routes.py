@@ -7,6 +7,7 @@ from app.auth import login_required
 from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
 from app.extensions import db
+from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 from app.sidebar_layout import (
@@ -32,6 +33,23 @@ api_bp = Blueprint("api", __name__)
 def me():
     user = current_user()
     return {"user": {"id": user.id, "email": user.email, "display_name": user.display_name}}
+
+
+@api_bp.post("/github/sync")
+@login_required
+def sync_github():
+    user = current_user()
+    identity = github_identity_for_user(user.id)
+    if not identity or not identity.access_token:
+        return {"error": "github not connected"}, 400
+    if not should_sync_github_issues(user.id):
+        return {"ok": True, "skipped": True}
+    try:
+        result = sync_github_issues_for_user(user)
+    except GitHubSyncError as exc:
+        current_app.logger.warning("Background GitHub sync skipped for user %s: %s", user.id, exc)
+        return {"error": str(exc)}, 400
+    return {"ok": True, "result": result}
 
 
 def _can_access_task(user, task: Task) -> bool:

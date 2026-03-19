@@ -57,6 +57,41 @@
   </div>
 
   <div class="panel">
+    <h3>GitHub Sync</h3>
+    <p class="footer-note">Import GitHub issues assigned to you into a dedicated uncategorized <strong>GitHub</strong> project.</p>
+    {% if github_identity %}
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="footer-note">
+          Connected as {{ github_identity.display_name or github_identity.email or github_identity.provider_user_id }}.
+          {% if github_sync_state and github_sync_state.last_synced_at %}
+            Last synced {{ github_sync_state.last_synced_at.strftime('%Y-%m-%d %H:%M') }}.
+          {% else %}
+            No sync has run yet.
+          {% endif %}
+        </div>
+        {% if github_identity.access_token %}
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <form method="post" action="{{ url_for('ui.sync_github_account') }}">
+              <button class="btn" type="submit">Sync assigned issues</button>
+            </form>
+            {% if github_sync_state %}
+              <a class="btn secondary" href="{{ url_for('ui.dashboard', project_id=github_sync_state.project_id) }}">Open GitHub Project</a>
+            {% endif %}
+            <a class="btn secondary" href="{{ url_for('auth.connect_github') }}">Reconnect GitHub</a>
+          </div>
+        {% else %}
+          <div class="footer-note">Reconnect GitHub once to grant repository access for issue sync.</div>
+          <div>
+            <a class="btn" href="{{ url_for('auth.connect_github') }}">Reconnect GitHub</a>
+          </div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="footer-note">Link GitHub first, then sync your assigned issues into Termin.</div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
     <h3>Email Addresses</h3>
     <div class="account-email-list">
       {% for email in emails %}

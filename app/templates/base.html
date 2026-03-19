@@ -725,6 +725,42 @@
         min-width: 0;
       }
 
+      .github-task-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        color: var(--ink);
+        text-decoration: none;
+        font-weight: 500;
+      }
+
+      .github-task-link i {
+        color: #f8fafc;
+        font-size: 13px;
+        flex: 0 0 auto;
+      }
+
+      .github-task-link .fa-code-pull-request,
+      .github-task-link .fa-code-merge {
+        color: #8ab4f8;
+      }
+
+      .github-task-link span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .github-task-link:hover {
+        color: var(--accent);
+      }
+
+      .github-task-link:hover i {
+        color: var(--accent);
+      }
+
       .todo-project-meta {
         display: flex;
         flex-direction: column;
@@ -1303,7 +1339,9 @@
 
       .task-row[data-status-state="complete"] .editable[data-field="title"],
       .subtasks-row[data-status-state="complete"] .editable[data-field="title"],
-      .todo-item[data-status-state="complete"] .todo-item-title {
+      .todo-item[data-status-state="complete"] .todo-item-title,
+      .task-row[data-status-state="complete"] .github-task-link,
+      .todo-item[data-status-state="complete"] .github-task-link {
         color: var(--muted);
         text-decoration: line-through;
         text-decoration-thickness: 1.5px;
@@ -1536,10 +1574,33 @@
         color: var(--success);
       }
 
+      .github-status-readonly {
+        width: auto;
+        max-width: 100%;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 98px;
+        cursor: default;
+        padding: 4px 10px;
+      }
+
+      .github-status-readonly i {
+        font-size: 12px;
+      }
+
+      .github-status-readonly::before {
+        display: none;
+      }
+
       .table .task-cell {
         display: flex;
         align-items: center;
         gap: 8px;
+        min-width: 0;
+      }
+
+      .table .task-cell.is-github {
         min-width: 0;
       }
 
@@ -1752,6 +1813,11 @@
         border-color: rgba(76, 201, 240, 0.35);
       }
 
+      .badge.github-badge {
+        border-color: rgba(148, 163, 184, 0.24);
+        background: rgba(148, 163, 184, 0.08);
+      }
+
       .badge.status-accepted {
         border-color: rgba(110, 231, 183, 0.55);
         box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.14);
@@ -1796,9 +1862,20 @@
         border-color: var(--accent);
       }
 
+      .badge.github-badge .badge-icon {
+        background: rgba(15, 20, 28, 0.9);
+        color: #f8fafc;
+        border-color: rgba(148, 163, 184, 0.34);
+        cursor: default;
+      }
+
       .badge-icon.has-photo {
         background: transparent;
         border-color: var(--border);
+      }
+
+      .badge.github-badge .badge-icon.has-photo {
+        border-color: rgba(148, 163, 184, 0.34);
       }
 
       .badge-photo {
@@ -1831,6 +1908,19 @@
 
       .badge:hover .badge-icon .badge-photo {
         opacity: 0;
+      }
+
+      .badge.github-badge:hover .badge-icon .badge-x {
+        opacity: 0;
+      }
+
+      .badge.github-badge:hover .badge-icon .badge-initial,
+      .badge.github-badge:hover .badge-icon .badge-photo {
+        opacity: 1;
+      }
+
+      .github-assignments {
+        min-height: 24px;
       }
 
       .btn.link {
@@ -1966,10 +2056,10 @@
       .project-list .project-item,
       .sidebar-stack > .sidebar-stack-item > .project-item {
         margin-bottom: 0;
-        padding: 9px 11px;
+        padding: 7px 10px;
         border: 1px solid var(--project-color, var(--border));
         border-left: 6px solid var(--project-color, var(--border));
-        border-radius: 10px;
+        border-radius: 9px;
         background:
           linear-gradient(180deg, color-mix(in srgb, var(--project-color, #121821) 3%, rgba(15, 18, 24, 0.86)), color-mix(in srgb, var(--project-color, #10141b) 2%, rgba(10, 13, 18, 0.82)));
         box-shadow:
@@ -2006,7 +2096,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
+        gap: 8px;
         min-width: 0;
       }
 
@@ -2016,13 +2106,6 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-      }
-
-      .project-list .project-item small,
-      .sidebar-stack > .sidebar-stack-item > .project-item small {
-        color: color-mix(in srgb, var(--muted) 90%, var(--ink) 10%);
-        display: block;
-        margin-top: 6px;
       }
 
       .project-list .project-item .avatar-stack,
@@ -2049,8 +2132,6 @@
         transform: none;
       }
 
-      .project-list .project-item.active small,
-      .sidebar-stack > .sidebar-stack-item > .project-item.active small,
       .project-list .project-item.active .avatar-stack,
       .sidebar-stack > .sidebar-stack-item > .project-item.active .avatar-stack {
         opacity: 1;

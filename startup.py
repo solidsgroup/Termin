@@ -6,6 +6,7 @@ from pathlib import Path
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
 from dotenv import load_dotenv
 from flask_migrate import upgrade
 from sqlalchemy import inspect, text
@@ -87,8 +88,11 @@ def _database_status() -> dict:
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
         migration_context = MigrationContext.configure(connection)
-        current_revision = migration_context.get_current_revision()
         current_heads = tuple(migration_context.get_current_heads())
+        try:
+            current_revision = migration_context.get_current_revision()
+        except CommandError:
+            current_revision = None
         table_names = sorted(inspector.get_table_names())
 
     return {
@@ -97,13 +101,73 @@ def _database_status() -> dict:
         "heads": heads,
         "current_revision": current_revision,
         "current_heads": current_heads,
+        "effective_current_heads": _effective_current_heads(script, current_heads),
         "has_version_table": "alembic_version" in table_names,
     }
+
+
+def _effective_current_heads(script: ScriptDirectory, current_heads: tuple[str, ...]) -> tuple[str, ...]:
+    if len(current_heads) < 2:
+        return current_heads
+
+    ancestor_map: dict[str, set[str]] = {}
+
+    def collect_ancestors(revision_id: str) -> set[str]:
+        if revision_id in ancestor_map:
+            return ancestor_map[revision_id]
+        revision = script.get_revision(revision_id)
+        if not revision:
+            ancestor_map[revision_id] = set()
+            return ancestor_map[revision_id]
+        down_revisions = revision.down_revision
+        if not down_revisions:
+            ancestor_map[revision_id] = set()
+            return ancestor_map[revision_id]
+        if isinstance(down_revisions, str):
+            parents = [down_revisions]
+        else:
+            parents = [item for item in down_revisions if item]
+        ancestors = set(parents)
+        for parent in parents:
+            ancestors.update(collect_ancestors(parent))
+        ancestor_map[revision_id] = ancestors
+        return ancestors
+
+    effective = []
+    for revision_id in current_heads:
+        is_ancestor_of_other = any(
+            revision_id != other_revision_id and revision_id in collect_ancestors(other_revision_id)
+            for other_revision_id in current_heads
+        )
+        if not is_ancestor_of_other:
+            effective.append(revision_id)
+    return tuple(effective)
+
+
+def _normalize_version_table(script: ScriptDirectory) -> None:
+    engine = app.extensions["sqlalchemy"].engine
+    inspector = inspect(engine)
+    if "alembic_version" not in inspector.get_table_names():
+        return
+
+    with engine.begin() as connection:
+        migration_context = MigrationContext.configure(connection)
+        current_heads = tuple(migration_context.get_current_heads())
+        effective_heads = _effective_current_heads(script, current_heads)
+        stale_heads = [revision_id for revision_id in current_heads if revision_id not in effective_heads]
+        for revision_id in stale_heads:
+            connection.execute(
+                text("DELETE FROM alembic_version WHERE version_num = :revision_id"),
+                {"revision_id": revision_id},
+            )
 
 
 def _run_upgrade() -> None:
     print("Applying database migrations...")
     with app.app_context():
+        config = _build_alembic_config()
+        script = ScriptDirectory.from_config(config)
+        _normalize_version_table(script)
         upgrade(directory="migrations", revision="heads")
     print("Database migrations complete.")
 
@@ -220,7 +284,7 @@ def ensure_database(interactive: bool | None = None) -> None:
         return
 
     current = status["current_revision"]
-    current_heads = tuple(status["current_heads"])
+    current_heads = tuple(status["effective_current_heads"] or status["current_heads"])
     heads = tuple(status["heads"])
 
     if heads and set(current_heads) == set(heads):

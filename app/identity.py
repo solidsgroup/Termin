@@ -167,6 +167,9 @@ def upsert_external_identity(
     email: str | None = None,
     display_name: str | None = None,
     avatar_url: str | None = None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    token_expires_at: datetime | None = None,
 ) -> ExternalIdentity:
     identity = ExternalIdentity.query.filter_by(provider=provider, provider_user_id=str(provider_user_id)).first()
     if identity and identity.user_id != user.id:
@@ -180,6 +183,12 @@ def upsert_external_identity(
         identity.display_name = display_name
     if avatar_url:
         identity.avatar_url = avatar_url
+    if access_token:
+        identity.access_token = access_token
+    if refresh_token:
+        identity.refresh_token = refresh_token
+    if token_expires_at is not None:
+        identity.token_expires_at = token_expires_at
     return identity
 
 
@@ -288,6 +297,9 @@ def merge_users(*, target_user: User, source_user: User) -> None:
             existing.email = existing.email or identity.email
             existing.display_name = existing.display_name or identity.display_name
             existing.avatar_url = existing.avatar_url or identity.avatar_url
+            existing.access_token = existing.access_token or identity.access_token
+            existing.refresh_token = existing.refresh_token or identity.refresh_token
+            existing.token_expires_at = existing.token_expires_at or identity.token_expires_at
             db.session.delete(identity)
         else:
             identity.user_id = target_user.id

@@ -43,6 +43,9 @@ class ExternalIdentity(db.Model):
     email = db.Column(db.String(255))
     display_name = db.Column(db.String(255))
     avatar_url = db.Column(db.String(1024))
+    access_token = db.Column(db.Text)
+    refresh_token = db.Column(db.Text)
+    token_expires_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
@@ -190,6 +193,35 @@ class DevMailboxMessage(db.Model):
     html_body = db.Column(db.Text)
     delivery_mode = db.Column(db.String(32), nullable=False, default="captured")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GitHubSyncState(db.Model):
+    __tablename__ = "github_sync_states"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    last_synced_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GitHubIssueLink(db.Model):
+    __tablename__ = "github_issue_links"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False, unique=True)
+    github_issue_id = db.Column(db.String(255), nullable=False)
+    item_type = db.Column(db.String(32), nullable=False, default="issue")
+    repository_full_name = db.Column(db.String(255), nullable=False)
+    issue_number = db.Column(db.Integer, nullable=False)
+    issue_url = db.Column(db.String(1024), nullable=False)
+    issue_state = db.Column(db.String(32), nullable=False, default="open")
+    assignees_json = db.Column(db.Text)
+    last_seen_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "github_issue_id", name="uq_github_issue_links_user_issue"),
+    )
 
 
 class CalendarAccount(db.Model):

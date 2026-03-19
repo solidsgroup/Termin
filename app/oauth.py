@@ -22,5 +22,5 @@ def init_oauth(app):
         access_token_url="https://github.com/login/oauth/access_token",
         authorize_url="https://github.com/login/oauth/authorize",
         api_base_url="https://api.github.com/",
-        client_kwargs={"scope": "read:user user:email"},
+        client_kwargs={"scope": "read:user user:email repo"},
     )
