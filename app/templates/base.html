@@ -157,6 +157,39 @@
         text-overflow: ellipsis;
       }
 
+      .account-provider-badge {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--ink);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        flex: 0 0 auto;
+      }
+
+      .account-provider-badge.github {
+        color: #f8fafc;
+        background: rgba(148, 163, 184, 0.12);
+        border-color: rgba(148, 163, 184, 0.28);
+      }
+
+      .account-provider-badge.google {
+        color: #8ab4f8;
+        background: rgba(66, 133, 244, 0.14);
+        border-color: rgba(66, 133, 244, 0.28);
+      }
+
+      .account-provider-name {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-transform: capitalize;
+      }
+
       .account-email-actions {
         flex: 0 0 auto;
       }
@@ -276,6 +309,346 @@
 
       .content {
         padding: 16px 18px 32px;
+      }
+
+      .auth-page {
+        min-height: calc(100vh - 55px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 20px 48px;
+      }
+
+      .auth-card {
+        width: min(100%, 440px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+          rgba(16, 20, 27, 0.94);
+        box-shadow: 0 24px 56px rgba(0, 0, 0, 0.34);
+        padding: 28px;
+      }
+
+      .auth-card-header {
+        margin-bottom: 18px;
+      }
+
+      .auth-eyebrow {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 8px;
+      }
+
+      .auth-card h2 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        line-height: 1.05;
+      }
+
+      .auth-error {
+        margin-bottom: 16px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(248, 113, 113, 0.28);
+        background: rgba(127, 29, 29, 0.22);
+        color: #fecaca;
+        font-size: 13px;
+      }
+
+      .auth-form {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .auth-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .auth-submit {
+        width: 100%;
+        justify-content: center;
+        margin-top: 4px;
+      }
+
+      .auth-divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 20px 0 16px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .auth-divider::before,
+      .auth-divider::after {
+        content: "";
+        flex: 1 1 auto;
+        height: 1px;
+        background: var(--border);
+      }
+
+      .auth-provider-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .auth-provider-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 12px;
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        text-decoration: none;
+        font-weight: 600;
+        transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+      }
+
+      .auth-provider-btn:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .auth-provider-btn.google:hover {
+        border-color: rgba(66, 133, 244, 0.28);
+      }
+
+      .auth-provider-btn.github:hover {
+        border-color: rgba(148, 163, 184, 0.28);
+      }
+
+      .auth-provider-icon {
+        width: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex: 0 0 auto;
+      }
+
+      .auth-provider-btn.google .auth-provider-icon {
+        color: #8ab4f8;
+      }
+
+      .auth-provider-btn.github .auth-provider-icon {
+        color: #f8fafc;
+      }
+
+      .admin-layout {
+        grid-template-columns: 220px 1fr;
+      }
+
+      .admin-sidebar {
+        padding-top: 18px;
+      }
+
+      .admin-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .admin-nav-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 11px;
+        border-radius: 10px;
+        color: var(--muted);
+        text-decoration: none;
+        border: 1px solid transparent;
+      }
+
+      .admin-nav-link:hover {
+        color: var(--ink);
+        background: rgba(76, 201, 240, 0.08);
+        border-color: rgba(76, 201, 240, 0.16);
+      }
+
+      .admin-nav-link.active {
+        color: var(--ink);
+        background: rgba(76, 201, 240, 0.12);
+        border-color: rgba(76, 201, 240, 0.22);
+      }
+
+      .admin-user-list,
+      .admin-collaborator-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .admin-user-card,
+      .admin-collaborator-row {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.02);
+        padding: 12px 14px;
+      }
+
+      .admin-collaborator-entry {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.02);
+        padding: 12px 14px;
+      }
+
+      .admin-mail-entry {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.02);
+        overflow: hidden;
+      }
+
+      .admin-mail-entry summary {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+      }
+
+      .admin-mail-entry summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .admin-mail-entry[open] summary {
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .admin-mail-body {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .admin-mail-section {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .admin-mail-section-title {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .admin-mail-text {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--ink);
+      }
+
+      .admin-mail-html {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .admin-user-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .admin-user-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .admin-user-copy {
+        min-width: 0;
+      }
+
+      .admin-user-copy > div:first-child {
+        font-weight: 600;
+      }
+
+      .admin-user-sections {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .admin-user-section {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .admin-user-section-title {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .admin-inline-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .admin-provider-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--ink);
+        font-size: 12px;
+        text-transform: capitalize;
+      }
+
+      .admin-provider-pill.github {
+        border-color: rgba(148, 163, 184, 0.24);
+      }
+
+      .admin-provider-pill.google {
+        border-color: rgba(66, 133, 244, 0.24);
+      }
+
+      .admin-tag-primary {
+        border-color: rgba(110, 231, 183, 0.28);
+        color: var(--success);
       }
 
       .view-switcher {
@@ -2022,6 +2395,12 @@
                 <span>Account</span>
                 <span class="footer-note">Manage profile</span>
               </a>
+              {% if is_admin_user %}
+                <a class="account-menu-link" href="{{ url_for('ui.admin_users') }}" role="menuitem">
+                  <span>Admin</span>
+                  <span class="footer-note">Users and access</span>
+                </a>
+              {% endif %}
               {% if config.DEV_MAILBOX_ENABLED %}
                 <a class="account-menu-link" href="{{ url_for('ui.dev_mailbox') }}" role="menuitem">
                   <span>Dev Mail</span>

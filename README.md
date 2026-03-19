@@ -4,7 +4,7 @@ Lightweight project management web service with calendar-first collaboration.
 
 ## Goals
 - Assign tasks without requiring accounts for collaborators.
-- Support Google Calendar and Microsoft 365 with real-time sync.
+- Support Google Calendar with real-time sync.
 - Provide optional multi-user logins for students/teams.
 
 ## Architecture Outline
@@ -13,7 +13,6 @@ Lightweight project management web service with calendar-first collaboration.
 - Magic-link invites for non-account collaborators.
 - Calendar sync via:
   - Google Calendar push notifications (watch channels).
-  - Microsoft Graph subscriptions.
 
 ## Local Setup
 1. Install dependencies for your system Python.
@@ -27,12 +26,12 @@ The app will check the database on startup and apply migrations if needed.
 - `DATABASE_URL` (default: sqlite at `instance/app.db`)
 - `PUBLIC_BASE_URL`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-- `MS_CLIENT_ID`, `MS_CLIENT_SECRET`
-- `GOOGLE_WEBHOOK_SECRET`, `MS_WEBHOOK_SECRET`
+- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+- `GOOGLE_WEBHOOK_SECRET`
 
 ## OAuth Redirect URIs
 - Google: `http://localhost:5000/auth/google/callback`
-- Microsoft: `http://localhost:5000/auth/microsoft/callback`
+- GitHub: `http://localhost:5000/auth/github/callback`
 
 ## Render Deploy
 This repo includes [render.yaml](./render.yaml) for a first hosted test deploy on Render.
@@ -66,10 +65,8 @@ When you later move to Postgres/object storage, you can switch to a cleaner stat
 - `GET /api/me`
 - `POST /api/tasks`
 - `POST /webhooks/google/calendar`
-- `POST /webhooks/microsoft/calendar`
  - `GET /login`
  - `GET /login/google`
- - `GET /login/microsoft`
  - `GET /`
  - `GET /invites/<token>`
 

@@ -104,7 +104,7 @@ def _database_status() -> dict:
 def _run_upgrade() -> None:
     print("Applying database migrations...")
     with app.app_context():
-        upgrade(directory="migrations")
+        upgrade(directory="migrations", revision="heads")
     print("Database migrations complete.")
 
 

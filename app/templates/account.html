@@ -13,6 +13,50 @@
   </div>
 
   <div class="panel">
+    <h3>Connected Accounts</h3>
+    <p class="footer-note">Link provider accounts you want to use for sign-in.</p>
+    <div class="account-email-list">
+      {% for identity in identities %}
+        <div class="account-email-row">
+          <div class="account-email-card">
+            <span class="account-provider-badge {{ identity.provider }}">
+              {% if identity.provider == "github" %}
+                <i class="fa-brands fa-github" aria-hidden="true"></i>
+              {% elif identity.provider == "google" %}
+                <i class="fa-brands fa-google" aria-hidden="true"></i>
+              {% else %}
+                <i class="fa-solid fa-link" aria-hidden="true"></i>
+              {% endif %}
+            </span>
+            <span class="account-email-avatar">
+              {% if identity.avatar_url %}
+                <img src="{{ identity.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.account-email-avatar').textContent='{{ identity.provider[0]|upper }}'; this.remove();" />
+              {% else %}
+                {{ identity.provider[0]|upper }}
+              {% endif %}
+            </span>
+            <div class="account-email-copy">
+              <div class="account-provider-name">{{ identity.provider }}</div>
+              <div class="footer-note">{{ identity.display_name or identity.email or identity.provider_user_id }}</div>
+            </div>
+          </div>
+          <div class="account-email-actions">
+            <form method="post" action="{{ url_for('auth.unlink_external_account', identity_id=identity.id) }}">
+              <button class="btn secondary" type="submit">Unlink</button>
+            </form>
+          </div>
+        </div>
+      {% else %}
+        <p class="footer-note">No provider accounts linked yet.</p>
+      {% endfor %}
+    </div>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px;">
+      <a class="btn" href="{{ url_for('auth.connect_google') }}">Link Google</a>
+      <a class="btn secondary" href="{{ url_for('auth.connect_github') }}">Link GitHub</a>
+    </div>
+  </div>
+
+  <div class="panel">
     <h3>Email Addresses</h3>
     <div class="account-email-list">
       {% for email in emails %}

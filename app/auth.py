@@ -1,11 +1,22 @@
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Blueprint, redirect, session, url_for, render_template
+from flask import Blueprint, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash
 
 from app.extensions import db
-from app.identity import ensure_primary_user_email, find_user_by_email, normalize_email, sync_user_avatar_from_primary_email
-from app.models import CalendarAccount, User, UserEmail
+from app.identity import (
+    add_user_email,
+    claim_collaborator_profile,
+    ensure_primary_user_email,
+    find_user_by_email,
+    find_user_by_external_identity,
+    normalize_email,
+    remove_external_identity,
+    sync_user_avatar_from_primary_email,
+    upsert_external_identity,
+)
+from app.models import CollaboratorProfile, User, UserEmail
 from app.oauth import oauth
 
 
@@ -25,7 +36,6 @@ def _get_or_create_user(email: str, display_name: str | None, avatar_url: str | 
     primary_email = ensure_primary_user_email(user)
     login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first()
     if normalized_email and normalized_email != user.email:
-        from app.identity import add_user_email
         try:
             login_alias = add_user_email(user, normalized_email)
         except ValueError:
@@ -38,6 +48,170 @@ def _get_or_create_user(email: str, display_name: str | None, avatar_url: str | 
         sync_user_avatar_from_primary_email(user)
     db.session.commit()
     return user
+
+
+def _store_external_identity(
+    *,
+    user: User,
+    provider: str,
+    provider_user_id: str | None,
+    email: str | None,
+    display_name: str | None,
+    avatar_url: str | None,
+):
+    if not provider_user_id:
+        return
+    upsert_external_identity(
+        user=user,
+        provider=provider,
+        provider_user_id=str(provider_user_id),
+        email=email,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
+
+
+def _link_provider_account(
+    *,
+    provider: str,
+    provider_user_id: str | None,
+    email: str | None,
+    display_name: str | None,
+    avatar_url: str | None,
+) -> User:
+    link_user_id = session.pop("oauth_link_user_id", None)
+    if not link_user_id or session.get("user_id") != link_user_id:
+        raise ValueError("Provider linking session expired. Start the link again from the Account page.")
+
+    user = User.query.get(link_user_id)
+    if not user:
+        raise ValueError("Signed-in account not found.")
+
+    normalized_email = normalize_email(email)
+    existing_user = find_user_by_email(normalized_email) if normalized_email else None
+    if existing_user and existing_user.id != user.id:
+        raise ValueError("That email is already attached to another account.")
+
+    if normalized_email:
+        ensure_primary_user_email(user)
+        if normalized_email != user.email:
+            add_user_email(user, normalized_email)
+
+    _store_external_identity(
+        user=user,
+        provider=provider,
+        provider_user_id=provider_user_id,
+        email=normalized_email,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
+
+    login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first() if normalized_email else None
+    if avatar_url and login_alias and login_alias.user_id == user.id:
+        login_alias.avatar_url = avatar_url
+    sync_user_avatar_from_primary_email(user)
+    db.session.commit()
+    session["user_id"] = user.id
+    return user
+
+
+def _claim_collaborator_with_provider(
+    *,
+    provider: str,
+    provider_user_id: str | None,
+    email: str | None,
+    display_name: str | None,
+    avatar_url: str | None,
+) -> User:
+    collaborator_token = session.pop("collaborator_claim_token", None)
+    if not collaborator_token:
+        raise ValueError("Collaborator claim session expired. Start again from the collaborator portal.")
+
+    collaborator = CollaboratorProfile.query.filter_by(access_token=collaborator_token).first()
+    if not collaborator:
+        raise ValueError("Collaborator link not found.")
+
+    user = claim_collaborator_profile(
+        collaborator,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
+
+    normalized_email = normalize_email(email)
+    if normalized_email and normalized_email != collaborator.email:
+        existing_user = find_user_by_email(normalized_email)
+        if existing_user and existing_user.id != user.id:
+            raise ValueError("That provider email is already attached to another account.")
+        add_user_email(user, normalized_email)
+
+    _store_external_identity(
+        user=user,
+        provider=provider,
+        provider_user_id=provider_user_id,
+        email=normalized_email,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
+
+    login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first() if normalized_email else None
+    if avatar_url and login_alias and login_alias.user_id == user.id:
+        login_alias.avatar_url = avatar_url
+    sync_user_avatar_from_primary_email(user)
+    db.session.commit()
+    session["user_id"] = user.id
+    return user
+
+
+def _login_with_provider(
+    *,
+    provider: str,
+    provider_user_id: str | None,
+    email: str | None,
+    display_name: str | None,
+    avatar_url: str | None,
+) -> User:
+    user = find_user_by_external_identity(provider, provider_user_id)
+    if not user:
+        normalized_email = normalize_email(email)
+        if not normalized_email:
+            raise ValueError(f"Email not available from {provider.title()}")
+        user = _get_or_create_user(
+            email=normalized_email,
+            display_name=display_name,
+            avatar_url=avatar_url,
+        )
+    _store_external_identity(
+        user=user,
+        provider=provider,
+        provider_user_id=provider_user_id,
+        email=email,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
+    db.session.commit()
+    session["user_id"] = user.id
+    return user
+
+
+def _github_primary_email(token: dict) -> str | None:
+    response = oauth.github.get(
+        "user/emails",
+        token=token,
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    emails = response.json()
+    if not isinstance(emails, list):
+        return None
+    primary_verified = next((row for row in emails if row.get("primary") and row.get("verified") and row.get("email")), None)
+    if primary_verified:
+        return primary_verified.get("email")
+    verified = next((row for row in emails if row.get("verified") and row.get("email")), None)
+    if verified:
+        return verified.get("email")
+    fallback = next((row for row in emails if row.get("email")), None)
+    if fallback:
+        return fallback.get("email")
+    return None
 
 
 def login_required(fn):
@@ -54,9 +228,25 @@ def login_required(fn):
     return wrapper
 
 
-@auth_bp.get("/login")
+@auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    return render_template("login.html")
+    error = None
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password") or ""
+        user = find_user_by_email(email)
+        if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
+            error = "Invalid email or password."
+        else:
+            session["user_id"] = user.id
+            return redirect(url_for("ui.dashboard"))
+
+    if session.get("collaborator_claim_token"):
+        error = error or "Finish claiming your collaborator account by setting a password or linking an account."
+    if session.get("oauth_link_user_id"):
+        error = error or "Finish linking your provider account from the Account page."
+
+    return render_template("login.html", error=error)
 
 
 @auth_bp.get("/logout")
@@ -71,6 +261,14 @@ def login_google():
     return oauth.google.authorize_redirect(redirect_uri)
 
 
+@auth_bp.get("/connect/google")
+@login_required
+def connect_google():
+    session["oauth_link_user_id"] = session.get("user_id")
+    redirect_uri = url_for("auth.google_callback", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
 @auth_bp.get("/auth/google/callback")
 def google_callback():
     token = oauth.google.authorize_access_token()
@@ -80,10 +278,51 @@ def google_callback():
     if not email:
         return "Email not available from Google", 400
 
-    user = _get_or_create_user(
-        email=email, display_name=userinfo.get("name"), avatar_url=userinfo.get("picture")
-    )
-    session["user_id"] = user.id
+    try:
+        if session.get("collaborator_claim_token"):
+            user = _claim_collaborator_with_provider(
+                provider="google",
+                provider_user_id=userinfo.get("sub"),
+                email=email,
+                display_name=userinfo.get("name"),
+                avatar_url=userinfo.get("picture"),
+            )
+            _upsert_calendar_account(
+                user_id=user.id,
+                provider="google",
+                provider_user_id=userinfo.get("sub"),
+                access_token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                expires_in=token.get("expires_in"),
+            )
+            return redirect(url_for("ui.dashboard"))
+        if session.get("oauth_link_user_id"):
+            user = _link_provider_account(
+                provider="google",
+                provider_user_id=userinfo.get("sub"),
+                email=email,
+                display_name=userinfo.get("name"),
+                avatar_url=userinfo.get("picture"),
+            )
+            _upsert_calendar_account(
+                user_id=user.id,
+                provider="google",
+                provider_user_id=userinfo.get("sub"),
+                access_token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                expires_in=token.get("expires_in"),
+            )
+            return redirect(url_for("ui.account"))
+
+        user = _login_with_provider(
+            provider="google",
+            provider_user_id=userinfo.get("sub"),
+            email=email,
+            display_name=userinfo.get("name"),
+            avatar_url=userinfo.get("picture"),
+        )
+    except ValueError as exc:
+        return str(exc), 400
 
     _upsert_calendar_account(
         user_id=user.id,
@@ -96,36 +335,76 @@ def google_callback():
 
     return redirect(url_for("ui.dashboard"))
 
+@auth_bp.get("/login/github")
+def login_github():
+    redirect_uri = url_for("auth.github_callback", _external=True)
+    return oauth.github.authorize_redirect(redirect_uri)
 
-@auth_bp.get("/login/microsoft")
-def login_microsoft():
-    redirect_uri = url_for("auth.microsoft_callback", _external=True)
-    return oauth.microsoft.authorize_redirect(redirect_uri)
+
+@auth_bp.get("/connect/github")
+@login_required
+def connect_github():
+    session["oauth_link_user_id"] = session.get("user_id")
+    redirect_uri = url_for("auth.github_callback", _external=True)
+    return oauth.github.authorize_redirect(redirect_uri)
 
 
-@auth_bp.get("/auth/microsoft/callback")
-def microsoft_callback():
-    token = oauth.microsoft.authorize_access_token()
+@auth_bp.get("/auth/github/callback")
+def github_callback():
+    token = oauth.github.authorize_access_token()
+    profile = oauth.github.get(
+        "user",
+        token=token,
+        headers={"Accept": "application/vnd.github+json"},
+    ).json()
+    email = profile.get("email") or _github_primary_email(token)
+    avatar_url = profile.get("avatar_url")
+    display_name = profile.get("name") or profile.get("login")
+    provider_user_id = profile.get("id")
 
-    # Use Graph for reliable profile + email
-    profile = oauth.microsoft.get("https://graph.microsoft.com/v1.0/me").json()
-    email = profile.get("mail") or profile.get("userPrincipalName")
-    if not email:
-        return "Email not available from Microsoft", 400
+    try:
+        if session.get("collaborator_claim_token"):
+            _claim_collaborator_with_provider(
+                provider="github",
+                provider_user_id=provider_user_id,
+                email=email,
+                display_name=display_name,
+                avatar_url=avatar_url,
+            )
+            return redirect(url_for("ui.dashboard"))
+        if session.get("oauth_link_user_id"):
+            _link_provider_account(
+                provider="github",
+                provider_user_id=provider_user_id,
+                email=email,
+                display_name=display_name,
+                avatar_url=avatar_url,
+            )
+            return redirect(url_for("ui.account"))
 
-    user = _get_or_create_user(email=email, display_name=profile.get("displayName"), avatar_url=None)
-    session["user_id"] = user.id
-
-    _upsert_calendar_account(
-        user_id=user.id,
-        provider="microsoft",
-        provider_user_id=profile.get("id"),
-        access_token=token.get("access_token"),
-        refresh_token=token.get("refresh_token"),
-        expires_in=token.get("expires_in"),
-    )
+        _login_with_provider(
+            provider="github",
+            provider_user_id=provider_user_id,
+            email=email,
+            display_name=display_name,
+            avatar_url=avatar_url,
+        )
+    except ValueError as exc:
+        return str(exc), 400
 
     return redirect(url_for("ui.dashboard"))
+
+
+@auth_bp.post("/account/identities/<int:identity_id>/unlink")
+@login_required
+def unlink_external_account(identity_id: int):
+    user = User.query.get(session.get("user_id"))
+    try:
+        remove_external_identity(user, identity_id)
+        db.session.commit()
+    except ValueError as exc:
+        return str(exc), 400
+    return redirect(url_for("ui.account"))
 
 
 def _upsert_calendar_account(
@@ -137,6 +416,8 @@ def _upsert_calendar_account(
     refresh_token: str | None,
     expires_in: int | None,
 ):
+    from app.models import CalendarAccount
+
     expires_at = None
     if expires_in:
         expires_at = datetime.utcnow().replace(microsecond=0) + timedelta(seconds=expires_in)

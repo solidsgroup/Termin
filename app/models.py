@@ -8,6 +8,7 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False)
     display_name = db.Column(db.String(255))
     avatar_url = db.Column(db.String(1024))
+    password_hash = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -31,6 +32,22 @@ class EmailVerification(db.Model):
     purpose = db.Column(db.String(32), nullable=False)
     consumed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ExternalIdentity(db.Model):
+    __tablename__ = "external_identities"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    provider = db.Column(db.String(32), nullable=False)
+    provider_user_id = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255))
+    display_name = db.Column(db.String(255))
+    avatar_url = db.Column(db.String(1024))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("provider", "provider_user_id", name="uq_external_identities_provider_user"),
+    )
 
 
 class Project(db.Model):
@@ -154,6 +171,7 @@ class CollaboratorProfile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False)
     access_token = db.Column(db.String(64), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     display_name = db.Column(db.String(255))
     default_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -178,7 +196,7 @@ class CalendarAccount(db.Model):
     __tablename__ = "calendar_accounts"
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    provider = db.Column(db.String(50), nullable=False)  # google | microsoft
+    provider = db.Column(db.String(50), nullable=False)  # google
     provider_user_id = db.Column(db.String(255))
     access_token = db.Column(db.Text)
     refresh_token = db.Column(db.Text)

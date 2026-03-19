@@ -25,12 +25,11 @@ class Config:
     # OAuth
     GOOGLE_CLIENT_ID = _env("GOOGLE_CLIENT_ID")
     GOOGLE_CLIENT_SECRET = _env("GOOGLE_CLIENT_SECRET")
-    MS_CLIENT_ID = _env("MS_CLIENT_ID")
-    MS_CLIENT_SECRET = _env("MS_CLIENT_SECRET")
+    GITHUB_CLIENT_ID = _env("GITHUB_CLIENT_ID")
+    GITHUB_CLIENT_SECRET = _env("GITHUB_CLIENT_SECRET")
 
     # Webhook endpoints verification
     GOOGLE_WEBHOOK_SECRET = _env("GOOGLE_WEBHOOK_SECRET", "change-me")
-    MS_WEBHOOK_SECRET = _env("MS_WEBHOOK_SECRET", "change-me")
 
     # Base URL for constructing callback/webhook URLs
     _render_hostname = _env("RENDER_EXTERNAL_HOSTNAME")
@@ -51,3 +50,4 @@ class Config:
     MAIL_FROM_NAME = _env("MAIL_FROM_NAME", "Termin")
     DEV_MAILBOX_ENABLED = _env_bool("DEV_MAILBOX_ENABLED", True)
     DEV_MAILBOX_CAPTURE_ONLY = _env_bool("DEV_MAILBOX_CAPTURE_ONLY", True)
+    ADMIN_EMAILS = _env("ADMIN_EMAILS", "")

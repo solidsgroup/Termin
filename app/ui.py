@@ -1,7 +1,9 @@
 from datetime import date, datetime, timedelta
+from functools import wraps
 import secrets
 
 from flask import Blueprint, current_app, redirect, render_template, request, url_for
+from werkzeug.security import generate_password_hash
 
 from app.auth import login_required
 from app.calendar_sync import CalendarSyncError, ensure_task_event
@@ -10,16 +12,18 @@ from app.emailer import MailDeliveryError, send_account_verification_email
 from app.extensions import db
 from app.identity import (
     add_user_email,
+    claim_collaborator_profile,
     consume_email_verification,
     create_email_verification,
     find_user_by_email,
+    list_external_identities,
     list_user_emails,
     merge_users,
     remove_user_email,
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
+from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -28,9 +32,21 @@ from app.sidebar_layout import (
     top_level_sidebar_items,
 )
 from app.utils import current_user
+from app.utils import is_admin as user_is_admin
 
 
 ui_bp = Blueprint("ui", __name__)
+
+
+def admin_required(fn):
+    @wraps(fn)
+    @login_required
+    def wrapper(*args, **kwargs):
+        user = current_user()
+        if not user_is_admin(user):
+            return redirect(url_for("ui.dashboard"))
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 def _task_ordering(query):
@@ -43,6 +59,7 @@ def _division_palette() -> list[str]:
 
 def _render_account_page(user: User, *, error: str | None = None, message: str | None = None):
     emails = list_user_emails(user.id)
+    identities = list_external_identities(user.id)
     pending = EmailVerification.query.filter(
         EmailVerification.user_id == user.id,
         EmailVerification.consumed_at.is_(None),
@@ -51,10 +68,20 @@ def _render_account_page(user: User, *, error: str | None = None, message: str |
         "account.html",
         user=user,
         emails=emails,
+        identities=identities,
         pending_verifications=pending,
         title="Account",
         error=error,
         merge_message=message,
+    )
+
+
+def _render_admin_page(template: str, *, section: str, **context):
+    return render_template(
+        template,
+        title="Admin",
+        admin_section=section,
+        **context,
     )
 
 
@@ -71,6 +98,80 @@ def _resolve_work_item(task_id: int | None, subtask_id: int | None) -> tuple[Tas
     if subtask and not task:
         task = Task.query.get(subtask.task_id)
     return task, subtask
+
+
+def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]:
+    invites = Invite.query.filter_by(email=collaborator.email).order_by(Invite.created_at.desc(), Invite.id.desc()).all()
+    assignments = Assignment.query.filter_by(email=collaborator.email).order_by(Assignment.created_at.desc(), Assignment.id.desc()).all()
+    invite_by_assignment_id = {invite.assignment_id: invite for invite in invites if invite.assignment_id}
+    task_ids = {invite.task_id for invite in invites if invite.task_id}
+    task_ids.update({assignment.task_id for assignment in assignments if assignment.task_id})
+    subtask_ids = {invite.subtask_id for invite in invites if invite.subtask_id}
+    subtask_ids.update({assignment.subtask_id for assignment in assignments if assignment.subtask_id})
+    tasks = {task.id: task for task in Task.query.filter(Task.id.in_(task_ids)).all()} if task_ids else {}
+    subtasks = {subtask.id: subtask for subtask in Subtask.query.filter(Subtask.id.in_(subtask_ids)).all()} if subtask_ids else {}
+    project_ids = {task.project_id for task in tasks.values() if task and task.project_id}
+    projects = {project.id: project for project in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
+    entries: list[dict] = []
+
+    def resolve_context(task_id: int | None, subtask_id: int | None) -> tuple[Task | None, Subtask | None, Project | None]:
+        task = tasks.get(task_id) if task_id else None
+        subtask = subtasks.get(subtask_id) if subtask_id else None
+        if subtask and not task:
+            task = tasks.get(subtask.task_id) or Task.query.get(subtask.task_id)
+            if task:
+                tasks[task.id] = task
+        project = None
+        if task and task.project_id:
+            project = projects.get(task.project_id)
+            if not project:
+                project = Project.query.get(task.project_id)
+                if project:
+                    projects[project.id] = project
+        return task, subtask, project
+
+    for assignment in assignments:
+        invite = invite_by_assignment_id.get(assignment.id)
+        task, subtask, project = resolve_context(assignment.task_id, assignment.subtask_id)
+        entries.append(
+            {
+                "kind": "assignment",
+                "assignment": assignment,
+                "invite": invite,
+                "task": task,
+                "subtask": subtask,
+                "project": project,
+                "status": invite.status if invite else assignment.status,
+                "calendar_opt_in": invite.calendar_opt_in if invite else collaborator.default_calendar_opt_in,
+                "created_at": (invite.created_at if invite else assignment.created_at),
+                "work_status": _work_item_status(task, subtask),
+                "is_complete": _is_complete_status(_work_item_status(task, subtask)),
+            }
+        )
+
+    assigned_invite_ids = {invite.id for invite in invites if invite.assignment_id}
+    for invite in invites:
+        if invite.id in assigned_invite_ids:
+            continue
+        task, subtask, project = resolve_context(invite.task_id, invite.subtask_id)
+        entries.append(
+            {
+                "kind": "invite",
+                "assignment": None,
+                "invite": invite,
+                "task": task,
+                "subtask": subtask,
+                "project": project,
+                "status": invite.status,
+                "calendar_opt_in": invite.calendar_opt_in,
+                "created_at": invite.created_at,
+                "work_status": _work_item_status(task, subtask),
+                "is_complete": _is_complete_status(_work_item_status(task, subtask)),
+            }
+        )
+
+    entries.sort(key=lambda item: (item["created_at"], item["invite"].id if item["invite"] else item["assignment"].id), reverse=True)
+    return entries
 
 
 def _work_item_status(task: Task | None, subtask: Subtask | None) -> str:
@@ -438,6 +539,69 @@ def dev_mailbox():
 def account():
     user = current_user()
     return _render_account_page(user)
+
+
+@ui_bp.get("/admin")
+@admin_required
+def admin_index():
+    return redirect(url_for("ui.admin_users"))
+
+
+@ui_bp.get("/admin/users")
+@admin_required
+def admin_users():
+    users = User.query.order_by(User.created_at.desc(), User.id.desc()).all()
+    emails = UserEmail.query.order_by(UserEmail.user_id.asc(), UserEmail.is_primary.desc(), UserEmail.email.asc()).all()
+    identities = ExternalIdentity.query.order_by(
+        ExternalIdentity.user_id.asc(),
+        ExternalIdentity.provider.asc(),
+        ExternalIdentity.created_at.asc(),
+    ).all()
+    collaborators = CollaboratorProfile.query.order_by(CollaboratorProfile.updated_at.desc(), CollaboratorProfile.id.desc()).all()
+
+    emails_by_user: dict[int, list[UserEmail]] = {}
+    for email in emails:
+        emails_by_user.setdefault(email.user_id, []).append(email)
+
+    identities_by_user: dict[int, list[ExternalIdentity]] = {}
+    for identity in identities:
+        identities_by_user.setdefault(identity.user_id, []).append(identity)
+
+    return _render_admin_page(
+        "admin_users.html",
+        section="users",
+        users=users,
+        emails_by_user=emails_by_user,
+        identities_by_user=identities_by_user,
+        collaborators=collaborators,
+    )
+
+
+@ui_bp.get("/admin/collaborators/<int:collaborator_id>")
+@admin_required
+def admin_collaborator(collaborator_id: int):
+    collaborator = CollaboratorProfile.query.get_or_404(collaborator_id)
+    entries = _build_collaborator_entries(collaborator)
+    sent_messages = DevMailboxMessage.query.filter_by(to_email=collaborator.email).order_by(
+        DevMailboxMessage.created_at.desc(),
+        DevMailboxMessage.id.desc(),
+    ).all()
+
+    open_entries = [entry for entry in entries if entry["status"] in {"sent", "draft", "assigned", "link_sent"}]
+    history_entries = [entry for entry in entries if entry["status"] in {"accepted", "declined", "denied"}]
+    todo_entries = [entry for entry in entries if not entry["is_complete"]]
+
+    return _render_admin_page(
+        "admin_collaborator.html",
+        section="users",
+        collaborator=collaborator,
+        entries=entries,
+        open_entries=open_entries,
+        history_entries=history_entries,
+        todo_entries=todo_entries,
+        sent_messages=sent_messages,
+        collaborator_portal_url=url_for("ui.collaborator_portal", token=collaborator.access_token),
+    )
 
 
 @ui_bp.post("/account/emails")
@@ -821,77 +985,7 @@ def collaborator_portal(token: str):
     collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
     if not collaborator:
         return render_template("collaborator_portal.html", status="invalid", collaborator=None, entries=[])
-
-    invites = Invite.query.filter_by(email=collaborator.email).order_by(Invite.created_at.desc(), Invite.id.desc()).all()
-    assignments = Assignment.query.filter_by(email=collaborator.email).order_by(Assignment.created_at.desc(), Assignment.id.desc()).all()
-    invite_by_assignment_id = {invite.assignment_id: invite for invite in invites if invite.assignment_id}
-    task_ids = {invite.task_id for invite in invites if invite.task_id}
-    task_ids.update({assignment.task_id for assignment in assignments if assignment.task_id})
-    subtask_ids = {invite.subtask_id for invite in invites if invite.subtask_id}
-    subtask_ids.update({assignment.subtask_id for assignment in assignments if assignment.subtask_id})
-    tasks = {task.id: task for task in Task.query.filter(Task.id.in_(task_ids)).all()} if task_ids else {}
-    subtasks = {subtask.id: subtask for subtask in Subtask.query.filter(Subtask.id.in_(subtask_ids)).all()} if subtask_ids else {}
-    project_ids = {task.project_id for task in tasks.values() if task and task.project_id}
-    projects = {project.id: project for project in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
-    entries = []
-
-    def resolve_context(task_id: int | None, subtask_id: int | None) -> tuple[Task | None, Subtask | None, Project | None]:
-        task = tasks.get(task_id) if task_id else None
-        subtask = subtasks.get(subtask_id) if subtask_id else None
-        if subtask and not task:
-            task = tasks.get(subtask.task_id) or Task.query.get(subtask.task_id)
-            if task:
-                tasks[task.id] = task
-        project = None
-        if task and task.project_id:
-            project = projects.get(task.project_id)
-            if not project:
-                project = Project.query.get(task.project_id)
-                if project:
-                    projects[project.id] = project
-        return task, subtask, project
-
-    for assignment in assignments:
-        invite = invite_by_assignment_id.get(assignment.id)
-        task, subtask, project = resolve_context(assignment.task_id, assignment.subtask_id)
-        entries.append(
-            {
-                "kind": "assignment",
-                "assignment": assignment,
-                "invite": invite,
-                "task": task,
-                "subtask": subtask,
-                "project": project,
-                "status": invite.status if invite else assignment.status,
-                "calendar_opt_in": invite.calendar_opt_in if invite else collaborator.default_calendar_opt_in,
-                "created_at": (invite.created_at if invite else assignment.created_at),
-                "work_status": _work_item_status(task, subtask),
-                "is_complete": _is_complete_status(_work_item_status(task, subtask)),
-            }
-        )
-
-    assigned_invite_ids = {invite.id for invite in invites if invite.assignment_id}
-    for invite in invites:
-        if invite.id in assigned_invite_ids:
-            continue
-        task, subtask, project = resolve_context(invite.task_id, invite.subtask_id)
-        entries.append(
-            {
-                "kind": "invite",
-                "assignment": None,
-                "invite": invite,
-                "task": task,
-                "subtask": subtask,
-                "project": project,
-                "status": invite.status,
-                "calendar_opt_in": invite.calendar_opt_in,
-                "created_at": invite.created_at,
-                "work_status": _work_item_status(task, subtask),
-                "is_complete": _is_complete_status(_work_item_status(task, subtask)),
-            }
-        )
-
-    entries.sort(key=lambda item: (item["created_at"], item["invite"].id if item["invite"] else item["assignment"].id), reverse=True)
+    entries = _build_collaborator_entries(collaborator)
 
     return render_template(
         "collaborator_portal.html",
@@ -899,6 +993,51 @@ def collaborator_portal(token: str):
         collaborator=collaborator,
         entries=entries,
     )
+
+
+@ui_bp.post("/collaborators/<token>/claim/password")
+def claim_collaborator_password(token: str):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return render_template("collaborator_portal.html", status="invalid", collaborator=None, entries=[])
+
+    password = request.form.get("password") or ""
+    password_confirm = request.form.get("password_confirm") or ""
+    if len(password) < 8:
+        return render_template(
+            "collaborator_portal.html",
+            status="ok",
+            collaborator=collaborator,
+            entries=_build_collaborator_entries(collaborator),
+            claim_error="Password must be at least 8 characters.",
+        )
+    if password != password_confirm:
+        return render_template(
+            "collaborator_portal.html",
+            status="ok",
+            collaborator=collaborator,
+            entries=_build_collaborator_entries(collaborator),
+            claim_error="Passwords do not match.",
+        )
+
+    user = claim_collaborator_profile(collaborator)
+    user.password_hash = generate_password_hash(password)
+    db.session.commit()
+    from flask import session
+    session["user_id"] = user.id
+    return redirect(url_for("ui.dashboard"))
+
+
+@ui_bp.get("/collaborators/<token>/claim/<provider>")
+def claim_collaborator_provider(token: str, provider: str):
+    if provider not in {"google", "github"}:
+        return redirect(url_for("ui.collaborator_portal", token=token))
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return render_template("collaborator_portal.html", status="invalid", collaborator=None, entries=[])
+    from flask import session
+    session["collaborator_claim_token"] = token
+    return redirect(url_for(f"auth.login_{provider}"))
 
 
 @ui_bp.post("/collaborators/<token>/settings")

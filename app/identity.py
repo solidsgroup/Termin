@@ -6,7 +6,7 @@ import secrets
 from sqlalchemy import or_
 
 from app.extensions import db
-from app.models import Assignment, CalendarAccount, EmailVerification, GroupMember, Project, ProjectMember, User, UserEmail
+from app.models import Assignment, CalendarAccount, CollaboratorProfile, EmailVerification, ExternalIdentity, GroupMember, Project, ProjectMember, User, UserEmail
 
 
 def normalize_email(email: str | None) -> str:
@@ -21,6 +21,15 @@ def find_user_by_email(email: str | None) -> User | None:
     if alias:
         return User.query.get(alias.user_id)
     return User.query.filter(User.email.ilike(normalized)).first()
+
+
+def find_user_by_external_identity(provider: str, provider_user_id: str | None) -> User | None:
+    if not provider_user_id:
+        return None
+    identity = ExternalIdentity.query.filter_by(provider=provider, provider_user_id=str(provider_user_id)).first()
+    if not identity:
+        return None
+    return User.query.get(identity.user_id)
 
 
 def ensure_primary_user_email(user: User) -> UserEmail:
@@ -49,6 +58,10 @@ def ensure_primary_user_email(user: User) -> UserEmail:
 
 def list_user_emails(user_id: int) -> list[UserEmail]:
     return UserEmail.query.filter_by(user_id=user_id).order_by(UserEmail.is_primary.desc(), UserEmail.email.asc()).all()
+
+
+def list_external_identities(user_id: int) -> list[ExternalIdentity]:
+    return ExternalIdentity.query.filter_by(user_id=user_id).order_by(ExternalIdentity.provider.asc(), ExternalIdentity.created_at.asc()).all()
 
 
 def add_user_email(user: User, email: str) -> UserEmail:
@@ -146,6 +159,69 @@ def remove_user_email(user: User, email_id: int) -> None:
     db.session.delete(alias)
 
 
+def upsert_external_identity(
+    *,
+    user: User,
+    provider: str,
+    provider_user_id: str,
+    email: str | None = None,
+    display_name: str | None = None,
+    avatar_url: str | None = None,
+) -> ExternalIdentity:
+    identity = ExternalIdentity.query.filter_by(provider=provider, provider_user_id=str(provider_user_id)).first()
+    if identity and identity.user_id != user.id:
+        raise ValueError(f"That {provider.title()} account is already linked to another user.")
+    if not identity:
+        identity = ExternalIdentity(user_id=user.id, provider=provider, provider_user_id=str(provider_user_id))
+        db.session.add(identity)
+
+    identity.email = normalize_email(email) if email else identity.email
+    if display_name:
+        identity.display_name = display_name
+    if avatar_url:
+        identity.avatar_url = avatar_url
+    return identity
+
+
+def remove_external_identity(user: User, identity_id: int) -> None:
+    identity = ExternalIdentity.query.filter_by(id=identity_id, user_id=user.id).first()
+    if not identity:
+        raise ValueError("Connected account not found.")
+    db.session.delete(identity)
+
+
+def claim_collaborator_profile(
+    collaborator: CollaboratorProfile,
+    *,
+    display_name: str | None = None,
+    avatar_url: str | None = None,
+) -> User:
+    user = User.query.get(collaborator.user_id) if collaborator.user_id else find_user_by_email(collaborator.email)
+    if not user:
+        user = User(
+            email=collaborator.email,
+            display_name=display_name or collaborator.display_name,
+            avatar_url=avatar_url,
+        )
+        db.session.add(user)
+        db.session.flush()
+    else:
+        if display_name and not user.display_name:
+            user.display_name = display_name
+        elif collaborator.display_name and not user.display_name:
+            user.display_name = collaborator.display_name
+        if avatar_url and not user.avatar_url:
+            user.avatar_url = avatar_url
+
+    ensure_primary_user_email(user)
+    collaborator.user_id = user.id
+    Assignment.query.filter(
+        Assignment.email == collaborator.email,
+        Assignment.user_id.is_(None),
+    ).update({"user_id": user.id}, synchronize_session=False)
+    return user
+
+
 def search_users_by_identity(query: str, exclude_user_id: int | None = None, limit: int = 10) -> list[User]:
     q = normalize_email(query)
     if not q:
@@ -201,6 +277,20 @@ def merge_users(*, target_user: User, source_user: User) -> None:
             db.session.delete(account)
         else:
             account.user_id = target_user.id
+
+    for identity in ExternalIdentity.query.filter_by(user_id=source_user.id).all():
+        existing = ExternalIdentity.query.filter_by(
+            user_id=target_user.id,
+            provider=identity.provider,
+            provider_user_id=identity.provider_user_id,
+        ).first()
+        if existing:
+            existing.email = existing.email or identity.email
+            existing.display_name = existing.display_name or identity.display_name
+            existing.avatar_url = existing.avatar_url or identity.avatar_url
+            db.session.delete(identity)
+        else:
+            identity.user_id = target_user.id
 
     ensure_primary_user_email(target_user)
     source_aliases = list_user_emails(source_user.id)

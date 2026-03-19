@@ -1,0 +1,113 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<div class="panel">
+  <div class="group-header" style="margin-bottom: 0;">
+    <div>
+      <h2 style="margin: 0;">{{ collaborator.display_name or collaborator.email }}</h2>
+      <div class="footer-note" style="margin-top: 4px;">{{ collaborator.email }} · collaborator #{{ collaborator.id }}</div>
+    </div>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+      <a class="btn secondary" href="{{ collaborator_portal_url }}">Open collaborator portal</a>
+      <a class="btn secondary" href="{{ url_for('ui.admin_users') }}">Back to users</a>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Current Todo</h3>
+  <div class="admin-collaborator-list">
+    {% for entry in todo_entries %}
+      <div class="admin-collaborator-entry">
+        <div>
+          <div>{{ entry.subtask.title if entry.subtask else (entry.task.title if entry.task else 'Unknown task') }}</div>
+          <div class="footer-note">
+            {% if entry.project %}{{ entry.project.name }} · {% endif %}
+            {{ entry.status }}
+            {% if entry.invite %} · link ready{% else %} · not yet sent{% endif %}
+          </div>
+        </div>
+        {% if entry.invite %}
+          <a class="btn secondary" href="{{ url_for('ui.accept_invite', token=entry.invite.token) }}">Open request</a>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="footer-note">No current todo items for this collaborator.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Open Requests</h3>
+  <div class="admin-collaborator-list">
+    {% for entry in open_entries %}
+      <div class="admin-collaborator-entry">
+        <div>
+          <div>{{ entry.subtask.title if entry.subtask else (entry.task.title if entry.task else 'Unknown task') }}</div>
+          <div class="footer-note">
+            {% if entry.project %}{{ entry.project.name }} · {% endif %}
+            {{ entry.status }} · {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}
+          </div>
+        </div>
+        {% if entry.invite %}
+          <a class="btn secondary" href="{{ url_for('ui.accept_invite', token=entry.invite.token) }}">Open request</a>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="footer-note">No open requests.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Decision History</h3>
+  <div class="admin-collaborator-list">
+    {% for entry in history_entries %}
+      <div class="admin-collaborator-entry">
+        <div>
+          <div>{{ entry.subtask.title if entry.subtask else (entry.task.title if entry.task else 'Unknown task') }}</div>
+          <div class="footer-note">
+            {% if entry.project %}{{ entry.project.name }} · {% endif %}
+            {{ entry.status }} · {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}
+          </div>
+        </div>
+        {% if entry.invite %}
+          <a class="btn secondary" href="{{ url_for('ui.accept_invite', token=entry.invite.token) }}">Open request</a>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="footer-note">No accepted or declined history yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Sent Emails</h3>
+  <div class="admin-collaborator-list">
+    {% for message in sent_messages %}
+      <details class="admin-mail-entry">
+        <summary>
+          <div>
+            <div>{{ message.subject }}</div>
+            <div class="footer-note">{{ message.delivery_mode }} · {{ message.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+          </div>
+          <div class="footer-note">{{ message.from_name or message.from_email }}</div>
+        </summary>
+        <div class="admin-mail-body">
+          <div class="admin-mail-section">
+            <div class="admin-mail-section-title">Text Body</div>
+            <pre class="admin-mail-text">{{ message.text_body }}</pre>
+          </div>
+          {% if message.html_body %}
+            <div class="admin-mail-section">
+              <div class="admin-mail-section-title">HTML Preview</div>
+              <div class="admin-mail-html">{{ message.html_body|safe }}</div>
+            </div>
+          {% endif %}
+        </div>
+      </details>
+    {% else %}
+      <p class="footer-note">No captured emails found for this collaborator.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

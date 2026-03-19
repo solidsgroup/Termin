@@ -122,6 +122,37 @@
 
   {% if status != "invalid" %}
     <div class="panel">
+      <h3>Convert To Full Account</h3>
+      {% if claim_error %}
+        <p class="footer-note" style="color: #f87171;">{{ claim_error }}</p>
+      {% endif %}
+      {% if collaborator.user_id %}
+        <p class="footer-note">This collaborator email is already linked to an account. You can sign in with a password or a linked provider account.</p>
+      {% else %}
+        <p class="footer-note">This magic link already proves your email. To convert this collaborator identity into a full account, either set a password or link a provider account.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('ui.claim_collaborator_password', token=collaborator.access_token) }}" style="margin-top: 14px;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 220px; flex: 1 1 220px;">
+            <label for="claim-password">Set password</label>
+            <input id="claim-password" name="password" type="password" autocomplete="new-password" />
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 220px; flex: 1 1 220px;">
+            <label for="claim-password-confirm">Confirm password</label>
+            <input id="claim-password-confirm" name="password_confirm" type="password" autocomplete="new-password" />
+          </div>
+          <div style="display: flex; align-items: flex-end;">
+            <button class="btn" type="submit">Set password</button>
+          </div>
+        </div>
+      </form>
+      <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <a class="btn secondary" href="{{ url_for('ui.claim_collaborator_provider', token=collaborator.access_token, provider='google') }}">Link Google</a>
+        <a class="btn secondary" href="{{ url_for('ui.claim_collaborator_provider', token=collaborator.access_token, provider='github') }}">Link GitHub</a>
+      </div>
+    </div>
+
+    <div class="panel">
       <h3>Assignments And Decisions</h3>
       <div class="collab-list">
       {% for entry in entries %}

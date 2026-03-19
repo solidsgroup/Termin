@@ -25,6 +25,5 @@ Brief, living record of key decisions, changes, and known issues while iterating
 - If external image loading becomes unreliable, consider proxying avatar images through the app.
 
 ## Next Ideas
-- Add Microsoft avatar retrieval via Graph `/photo/$value`.
 - Add assignment remove confirm or undo.
 - Improve assignee suggestions ranking (recent, frequent).

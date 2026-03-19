@@ -1,0 +1,92 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<div class="panel">
+  <h2>Users</h2>
+  <p class="footer-note">Review registered users, their linked provider accounts, and collaborator-only email identities.</p>
+</div>
+
+<div class="panel">
+  <h3>Registered Users</h3>
+  <div class="admin-user-list">
+    {% for item in users %}
+      {% set user_emails = emails_by_user.get(item.id, []) %}
+      {% set user_identities = identities_by_user.get(item.id, []) %}
+      <div class="admin-user-card">
+        <div class="admin-user-header">
+          <div class="admin-user-title">
+            <span class="account-email-avatar">
+              {% if item.avatar_url %}
+                <img src="{{ item.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.account-email-avatar').textContent='{{ item.email[0]|upper }}'; this.remove();" />
+              {% else %}
+                {{ item.email[0]|upper }}
+              {% endif %}
+            </span>
+            <div class="admin-user-copy">
+              <div>{{ item.display_name or item.email }}</div>
+              <div class="footer-note">{{ item.email }} · user #{{ item.id }} · joined {{ item.created_at.strftime('%Y-%m-%d') }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-user-sections">
+          <div class="admin-user-section">
+            <div class="admin-user-section-title">Emails</div>
+            <div class="admin-inline-list">
+              {% for email in user_emails %}
+                <span class="tag{% if email.is_primary %} admin-tag-primary{% endif %}">{{ email.email }}{% if email.is_primary %} · primary{% endif %}</span>
+              {% else %}
+                <span class="footer-note">No linked emails</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="admin-user-section">
+            <div class="admin-user-section-title">Connected Accounts</div>
+            <div class="admin-inline-list">
+              {% for identity in user_identities %}
+                <span class="admin-provider-pill {{ identity.provider }}">
+                  {% if identity.provider == "github" %}
+                    <i class="fa-brands fa-github" aria-hidden="true"></i>
+                  {% elif identity.provider == "google" %}
+                    <i class="fa-brands fa-google" aria-hidden="true"></i>
+                  {% else %}
+                    <i class="fa-solid fa-link" aria-hidden="true"></i>
+                  {% endif %}
+                  <span>{{ identity.provider }}</span>
+                  {% if identity.email %}
+                    <span class="footer-note">{{ identity.email }}</span>
+                  {% endif %}
+                </span>
+              {% else %}
+                <span class="footer-note">No connected accounts</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <p class="footer-note">No registered users found.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Email Collaborators</h3>
+  <div class="admin-collaborator-list">
+    {% for collaborator in collaborators %}
+      <div class="admin-collaborator-row">
+        <div>
+          <div><a href="{{ url_for('ui.admin_collaborator', collaborator_id=collaborator.id) }}" style="color: inherit; text-decoration: none;">{{ collaborator.display_name or collaborator.email }}</a></div>
+          <div class="footer-note">{{ collaborator.email }}</div>
+        </div>
+        <div class="footer-note">
+          {% if collaborator.default_calendar_opt_in %}calendar default on{% else %}calendar default off{% endif %}
+          · updated {{ collaborator.updated_at.strftime('%Y-%m-%d') }}
+        </div>
+      </div>
+    {% else %}
+      <p class="footer-note">No collaborator-only identities found.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
