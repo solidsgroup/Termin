@@ -6,7 +6,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python3 render_start.py
     healthCheckPath: /health
-    autoDeployTrigger: on_commit
+    autoDeployTrigger: commit
     disk:
       name: instance
       mountPath: /opt/render/project/src/instance
