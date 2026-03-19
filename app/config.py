@@ -33,7 +33,11 @@ class Config:
     MS_WEBHOOK_SECRET = _env("MS_WEBHOOK_SECRET", "change-me")
 
     # Base URL for constructing callback/webhook URLs
-    PUBLIC_BASE_URL = _env("PUBLIC_BASE_URL", "http://localhost:5000")
+    _render_hostname = _env("RENDER_EXTERNAL_HOSTNAME")
+    PUBLIC_BASE_URL = _env(
+        "PUBLIC_BASE_URL",
+        f"https://{_render_hostname}" if _render_hostname else "http://localhost:5000",
+    )
 
     # SMTP for magic-link delivery
     SMTP_HOST = _env("SMTP_HOST")
