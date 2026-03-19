@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title or "Termin" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <style>
       :root {
         color-scheme: light;
@@ -275,6 +276,149 @@
 
       .content {
         padding: 16px 18px 32px;
+      }
+
+      .view-switcher {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 14px;
+        padding: 4px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(12, 16, 23, 0.72);
+      }
+
+      .view-switch {
+        padding: 7px 12px;
+        border-radius: 999px;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .view-switch.active {
+        background: color-mix(in srgb, var(--accent) 18%, rgba(255, 255, 255, 0.02));
+        color: var(--ink);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
+      }
+
+      .todo-board {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .todo-date-group {
+        padding-top: 14px;
+      }
+
+      .todo-date-heading {
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .todo-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .todo-item {
+        display: grid;
+        grid-template-columns: minmax(130px, 0.75fr) minmax(0, 1.4fr) minmax(140px, 0.8fr) minmax(90px, 0.45fr) minmax(180px, 0.95fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-left: 4px solid var(--todo-color, var(--accent));
+        border-radius: 10px;
+        background: rgba(16, 20, 27, 0.82);
+      }
+
+      .todo-item-main {
+        min-width: 0;
+      }
+
+      .todo-item-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--ink);
+        min-width: 0;
+      }
+
+      .todo-project-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        min-width: 0;
+        padding-right: 6px;
+      }
+
+      .todo-project-name,
+      .todo-group-name,
+      .todo-status-cell {
+        font-size: 11px;
+        line-height: 1.2;
+      }
+
+      .todo-project-name {
+        color: color-mix(in srgb, var(--todo-color, var(--accent)) 70%, white 30%);
+        font-weight: 600;
+      }
+
+      .todo-group-name {
+        color: var(--muted);
+      }
+
+      .todo-due-cell {
+        min-height: 0;
+      }
+
+      .todo-due-cell .due-summary {
+        padding: 5px 8px;
+        min-height: 0;
+      }
+
+      .todo-status-cell {
+        color: var(--muted);
+        text-transform: lowercase;
+      }
+
+      .todo-assignments {
+        min-width: 0;
+        gap: 4px;
+      }
+
+      .todo-assignments .badge {
+        max-width: 100%;
+      }
+
+      .todo-open-link {
+        color: var(--ink);
+        text-decoration: none;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 900px) {
+        .todo-item {
+          grid-template-columns: minmax(0, 1fr);
+          align-items: stretch;
+        }
+
+        .todo-open-link {
+          justify-self: start;
+        }
       }
 
       .panel {
@@ -746,7 +890,153 @@
       }
 
       .table tbody tr {
-        transition: background 180ms ease, opacity 180ms ease, transform 180ms ease;
+        transition: background 180ms ease, opacity 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+      }
+
+      .table tbody tr[data-status-state] td {
+        transition: background 180ms ease, color 180ms ease, border-color 180ms ease, opacity 180ms ease;
+      }
+
+      .task-row[data-status-state="critical"] td,
+      .subtasks-row[data-status-state="critical"] td,
+      .todo-item[data-status-state="critical"] {
+        background: color-mix(in srgb, #f87171 10%, transparent);
+      }
+
+      .task-row[data-status-state="critical"] td:first-child,
+      .subtasks-row[data-status-state="critical"] td:first-child {
+        box-shadow: inset 3px 0 0 #f87171;
+      }
+
+      .task-row[data-status-state="critical"] .editable[data-field="title"],
+      .subtasks-row[data-status-state="critical"] .editable[data-field="title"] {
+        color: #ffd1d1;
+      }
+
+      .task-row[data-status-state="complete"] td,
+      .subtasks-row[data-status-state="complete"] td {
+        background: rgba(16, 20, 27, 0.52);
+      }
+
+      .task-row[data-status-state="complete"],
+      .subtasks-row[data-status-state="complete"] {
+        opacity: 0.68;
+      }
+
+      .task-row[data-status-state="complete"] td:first-child,
+      .subtasks-row[data-status-state="complete"] td:first-child {
+        box-shadow: inset 3px 0 0 rgba(110, 231, 183, 0.85);
+      }
+
+      .task-row[data-status-state="complete"] .editable[data-field="title"],
+      .subtasks-row[data-status-state="complete"] .editable[data-field="title"],
+      .todo-item[data-status-state="complete"] .todo-item-title {
+        color: var(--muted);
+        text-decoration: line-through;
+        text-decoration-thickness: 1.5px;
+      }
+
+      .todo-item[data-status-state="complete"] {
+        opacity: 0.74;
+        background: rgba(16, 20, 27, 0.56);
+      }
+
+      .status-editable {
+        position: relative;
+        min-height: 18px;
+        display: inline-flex;
+        align-items: center;
+        min-width: 76px;
+        padding: 4px 10px 4px 28px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .status-editable::before {
+        content: "\f192";
+        position: absolute;
+        left: 9px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: color-mix(in srgb, var(--muted) 88%, var(--ink) 12%);
+        font-family: "Font Awesome 7 Free";
+        font-weight: 900;
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .status-editable[data-status-state="critical"] {
+        border-color: rgba(248, 113, 113, 0.35);
+        background: rgba(248, 113, 113, 0.1);
+        color: #f87171;
+        font-weight: 700;
+      }
+
+      .status-editable[data-status-state="critical"]::before {
+        content: "\f071";
+        color: #f87171;
+      }
+
+      .status-editable[data-status-state="complete"] {
+        color: var(--success);
+        font-weight: 700;
+        border-color: rgba(110, 231, 183, 0.35);
+        background: rgba(110, 231, 183, 0.1);
+      }
+
+      .status-editable[data-status-state="complete"]::before {
+        content: "\f058";
+        color: var(--success);
+      }
+
+      .status-menu > button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .status-menu > button i {
+        width: 14px;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      .status-menu > button[data-status-option="open"] i {
+        color: color-mix(in srgb, var(--muted) 88%, var(--ink) 12%);
+      }
+
+      .status-menu > button[data-status-option="critical"] i {
+        color: #f87171;
+      }
+
+      .status-menu > button[data-status-option="complete"] i {
+        color: var(--success);
+      }
+
+      .status-editable {
+        cursor: pointer;
+      }
+
+      .status-menu {
+        min-width: 180px;
+      }
+
+      .status-menu .status-menu-custom {
+        padding: 8px 10px 10px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .status-menu .status-menu-custom label {
+        margin: 0;
+        font-size: 11px;
+      }
+
+      .status-menu .status-menu-custom input {
+        width: 100%;
       }
 
       .tasks-table.drag-active tbody {
@@ -848,6 +1138,31 @@
         z-index: 1;
       }
 
+      .table .status-editable {
+        width: auto;
+        max-width: 100%;
+        display: inline-flex;
+        align-items: center;
+        min-width: 76px;
+        min-height: 18px;
+        padding: 4px 10px 4px 28px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .table .status-editable[data-status-state="critical"] {
+        border-color: rgba(248, 113, 113, 0.35);
+        background: rgba(248, 113, 113, 0.1);
+        color: #f87171;
+      }
+
+      .table .status-editable[data-status-state="complete"] {
+        border-color: rgba(110, 231, 183, 0.35);
+        background: rgba(110, 231, 183, 0.1);
+        color: var(--success);
+      }
+
       .table .task-cell {
         display: flex;
         align-items: center;
@@ -873,6 +1188,12 @@
       .table .editable[contenteditable="true"]:focus {
         outline: 1px solid rgba(76, 201, 240, 0.5);
         outline-offset: 2px;
+      }
+
+      .table td .status-editable[contenteditable="true"]:focus {
+        outline-offset: 1px;
+        border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+        background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.03));
       }
 
       .table .invalid {
@@ -939,6 +1260,12 @@
         padding: 6px 10px;
         font: inherit;
         transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+      }
+
+      .task-row .due-summary,
+      .subtasks-row .due-summary {
+        padding: 5px 8px;
+        border-radius: 9px;
       }
 
       .due-summary:hover {

@@ -50,11 +50,19 @@
     {% endif %}
   {% endif %}
 {% endmacro %}
+{% macro status_state(status) -%}
+  {% set value = (status or '')|trim|lower %}
+  {%- if value in ['complete', 'completed', 'done', 'closed'] -%}complete
+  {%- elif value == 'critical' -%}critical
+  {%- else -%}open
+  {%- endif -%}
+{%- endmacro %}
 {% macro render_tasks(task_list, assignments_by_task, assignments_by_subtask, subtasks_by_task, user_map, can_manage_project, info_by_task, info_by_subtask) %}
   {% if task_list %}
     {% for task in task_list %}
       {% set task_info = info_by_task.get(task.id, {"html": "", "attachments": []}) %}
-      <tr class="task-row{% if can_manage_project %} task-row-draggable{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}">
+      {% set task_status_state = status_state(task.status) %}
+      <tr class="task-row{% if can_manage_project %} task-row-draggable{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-status-state="{{ task_status_state }}">
         <td>
           <div class="row-controls">
             {% if can_manage_project %}
@@ -78,7 +86,7 @@
           </div>
         </td>
         <td>
-          <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3">{{ task.status }}</div>
+          <div class="editable status-editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ task_status_state }}">{{ task.status }}</div>
         </td>
         <td>
           <div class="assignments">
@@ -119,7 +127,8 @@
       </tr>
       {% for subtask in subtasks_by_task.get(task.id, []) %}
         {% set subtask_info = info_by_subtask.get(subtask.id, {"html": "", "attachments": []}) %}
-        <tr class="subtasks-row {% if loop.last %}last{% endif %}" data-subtasks-for="{{ task.id }}" style="display: none;">
+        {% set subtask_status_state = status_state(subtask.status) %}
+        <tr class="subtasks-row {% if loop.last %}last{% endif %}" data-subtasks-for="{{ task.id }}" data-status-state="{{ subtask_status_state }}" style="display: none;">
           <td></td>
           <td class="tree-cell">
             <div class="task-cell{% if subtask_info.html or subtask_info.attachments %} has-info{% endif %}">
@@ -136,7 +145,7 @@
             </div>
           </td>
           <td>
-            <div class="editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="status" data-col="3">{{ subtask.status }}</div>
+            <div class="editable status-editable" contenteditable="true" data-subtask-id="{{ subtask.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ subtask_status_state }}">{{ subtask.status }}</div>
           </td>
           <td>
             <div class="assignments">
@@ -243,7 +252,73 @@
   </aside>
 
   <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
-    {% if selected_project %}
+    <div class="view-switcher">
+      <a class="view-switch{% if current_view == 'project' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='project') }}{% else %}{{ url_for('ui.dashboard', view='project') }}{% endif %}">Project</a>
+      <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo') }}{% else %}{{ url_for('ui.dashboard', view='todo') }}{% endif %}">Todo List</a>
+    </div>
+    {% if current_view == 'todo' %}
+      <div class="todo-board">
+        {% for date_group in todo_groups_by_date %}
+          <div class="panel todo-date-group">
+            <div class="todo-date-heading">{{ date_group["label"] }}</div>
+            <div class="todo-list">
+              {% for item in date_group["items"] %}
+                {% set todo_status_state = status_state(item.task.status) %}
+                <div class="todo-item" style="--todo-color: {{ item.division_color }};" data-status-state="{{ todo_status_state }}">
+                  <div class="todo-project-meta">
+                    <span class="todo-project-name">{{ item.project.name }}</span>
+                    {% if item.group %}<span class="todo-group-name">{{ item.group.name }}</span>{% endif %}
+                  </div>
+                  <div class="todo-item-main">
+                    <div class="editable todo-item-title" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="title" data-col="1">{{ item.task.title }}</div>
+                  </div>
+                  <div class="due-cell todo-due-cell" data-due-cell onclick="return window.__openDueInput(this);">
+                    <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
+                      <span class="due-summary-label">{{ render_due_summary(item.task, now_utc) }}</span>
+                    </div>
+                    <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+                  </div>
+                  <div class="editable todo-status-cell status-editable" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ todo_status_state }}">{{ item.task.status }}</div>
+                  <div class="assignments todo-assignments">
+                    {% for assignment in assignments_by_task.get(item.task.id, []) %}
+                      {% set assignee = user_map.get(assignment.user_id) %}
+                      {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                      <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                        <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+                          <span class="badge-initial">{{ label[0]|upper }}</span>
+                          {% if assignee and assignee.avatar_url %}
+                            <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                          {% endif %}
+                          <span class="badge-x">×</span>
+                        </button>
+                        <span class="badge-label">{{ label }}</span>
+                        {% if not assignment.user_id %}
+                          {% if assignment.status in ["draft"] %}
+                            <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                          {% elif assignment.status in ["link_sent"] %}
+                            <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                          {% endif %}
+                        {% endif %}
+                      </span>
+                    {% endfor %}
+                    <span class="assign-action">
+                      <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" />
+                      <button class="assign-add-btn" type="button" title="Assign">+</button>
+                    </span>
+                  </div>
+                  <a class="todo-open-link" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project') }}">Open</a>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% else %}
+          <div class="panel">
+            <h3>No tasks</h3>
+            <p class="footer-note">No visible tasks yet.</p>
+          </div>
+        {% endfor %}
+      </div>
+    {% elif selected_project %}
       <div class="panel">
         <div class="group-header">
           <h3>{{ selected_project.name }}</h3>
@@ -453,6 +528,17 @@
   <button data-action="share">Share</button>
   <button data-action="duplicate">Duplicate</button>
   <button data-action="delete">Delete</button>
+</div>
+
+<div id="status-menu" class="context-menu status-menu">
+  <button type="button" data-status-option="open"><i class="fa-solid fa-circle-dot" aria-hidden="true"></i><span>Open</span></button>
+  <button type="button" data-status-option="critical"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>Critical</span></button>
+  <button type="button" data-status-option="complete"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Complete</span></button>
+  <div class="status-menu-custom">
+    <label for="status-menu-input">Custom</label>
+    <input id="status-menu-input" type="text" placeholder="Custom status" />
+    <button type="button" class="btn secondary" id="status-menu-apply">Apply</button>
+  </div>
 </div>
 
 <div id="share-modal" class="modal">
@@ -796,6 +882,23 @@
       return value;
     }
 
+    function getStatusState(value) {
+      var normalized = String(value || "").trim().toLowerCase();
+      if (normalized === "critical") return "critical";
+      if (normalized === "complete" || normalized === "completed" || normalized === "done" || normalized === "closed") return "complete";
+      return "open";
+    }
+
+    function applyStatusState(cell, value) {
+      if (!cell || cell.getAttribute("data-field") !== "status") return;
+      var state = getStatusState(value != null ? value : cell.textContent);
+      cell.setAttribute("data-status-state", state);
+      var row = cell.closest("tr") || cell.closest(".todo-item");
+      if (row) {
+        row.setAttribute("data-status-state", state);
+      }
+    }
+
     function saveEditable(cell) {
       if (!cell || cell.dataset.editableSaving === "1") return Promise.resolve();
       var target = getEditableTarget(cell);
@@ -832,10 +935,12 @@
             : value;
           cell.textContent = nextValue;
           cell.dataset.originalValue = nextValue;
+          applyStatusState(cell, nextValue);
         })
         .catch(function () {
           var fallback = original != null ? original : "";
           cell.textContent = fallback;
+          applyStatusState(cell, fallback);
         })
         .finally(function () {
           cell.dataset.editableSaving = "0";
@@ -849,6 +954,7 @@
       tr.className = "task-row" + (showDragHandle ? " task-row-draggable" : "");
       tr.setAttribute("data-task-row-id", String(taskId));
       tr.setAttribute("data-task-id", String(taskId));
+      tr.setAttribute("data-status-state", "open");
       tr.innerHTML =
         '<td>' +
           '<div class="row-controls">' +
@@ -865,7 +971,7 @@
           '</div>' +
         '</td>' +
         '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" /></div></td>' +
-        '<td><div class="editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3">open</div></td>' +
+        '<td><div class="editable status-editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></td>' +
         '<td>' +
           '<div class="assignments">' +
             '<span class="assign-action">' +
@@ -964,13 +1070,87 @@
       if (window.__editableFallbackReady) return;
       window.__editableFallbackReady = true;
       var lastEditableCell = null;
+      var statusMenu = document.getElementById("status-menu");
+      var statusMenuInput = document.getElementById("status-menu-input");
+      var statusMenuApply = document.getElementById("status-menu-apply");
+      var activeStatusCell = null;
+
+      function closeStatusMenu() {
+        if (!statusMenu) return;
+        statusMenu.style.display = "none";
+        activeStatusCell = null;
+      }
+
+      function openStatusMenu(cell) {
+        if (!statusMenu || !cell) return;
+        activeStatusCell = cell;
+        var rect = cell.getBoundingClientRect();
+        statusMenu.style.display = "block";
+        statusMenu.style.left = Math.round(rect.left) + "px";
+        statusMenu.style.top = Math.round(rect.bottom + 6) + "px";
+        if (statusMenuInput) {
+          statusMenuInput.value = normalizeEditableText(cell);
+        }
+      }
+
+      function commitStatusValue(value) {
+        if (!activeStatusCell) return;
+        var nextValue = String(value || "").trim();
+        if (!nextValue) return;
+        activeStatusCell.textContent = nextValue;
+        applyStatusState(activeStatusCell, nextValue);
+        saveEditable(activeStatusCell);
+        closeStatusMenu();
+      }
 
       document.addEventListener("focusin", function (event) {
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
         cell.dataset.originalValue = normalizeEditableText(cell);
+        applyStatusState(cell, cell.dataset.originalValue);
         lastEditableCell = cell;
+        if (cell.classList.contains("status-editable")) {
+          openStatusMenu(cell);
+        }
       }, true);
+
+      document.querySelectorAll('.editable[data-field="status"]').forEach(function (cell) {
+        applyStatusState(cell);
+      });
+
+      if (statusMenu) {
+        statusMenu.addEventListener("click", function (event) {
+          var option = event.target.closest("[data-status-option]");
+          if (option) {
+            event.preventDefault();
+            event.stopPropagation();
+            commitStatusValue(option.getAttribute("data-status-option"));
+          }
+        });
+      }
+
+      if (statusMenuApply) {
+        statusMenuApply.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          commitStatusValue(statusMenuInput ? statusMenuInput.value : "");
+        });
+      }
+
+      if (statusMenuInput) {
+        statusMenuInput.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commitStatusValue(statusMenuInput.value);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            closeStatusMenu();
+          }
+        });
+        statusMenuInput.addEventListener("click", function (event) {
+          event.stopPropagation();
+        });
+      }
 
       document.addEventListener("keydown", function (event) {
         var cell = event.target.closest(".editable");
@@ -983,6 +1163,25 @@
           return;
         }
         if (!cell || cell.tagName === "INPUT") return;
+        if (cell.classList.contains("status-editable")) {
+          if (event.key === "Escape") {
+            closeStatusMenu();
+            cell.blur();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key.length === 1) {
+            openStatusMenu(cell);
+            if (statusMenuInput && event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+              statusMenuInput.focus();
+              statusMenuInput.value = event.key;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+        }
         if (event.key === "Enter" && event.ctrlKey && cell.hasAttribute("data-task-id")) {
           event.preventDefault();
           event.stopPropagation();
@@ -1020,6 +1219,15 @@
       document.addEventListener("paste", function (event) {
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
+        if (cell.classList.contains("status-editable")) {
+          event.preventDefault();
+          openStatusMenu(cell);
+          if (statusMenuInput) {
+            statusMenuInput.focus();
+            statusMenuInput.value = (event.clipboardData || window.clipboardData).getData("text");
+          }
+          return;
+        }
         event.preventDefault();
         var text = (event.clipboardData || window.clipboardData).getData("text");
         document.execCommand("insertText", false, text);
@@ -1029,7 +1237,25 @@
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
         lastEditableCell = cell;
+        if (cell.classList.contains("status-editable")) {
+          return;
+        }
+        if (cell.getAttribute("data-field") === "status") {
+          applyStatusState(cell, normalizeEditableText(cell));
+        }
         saveEditable(cell);
+      }, true);
+
+      document.addEventListener("mousedown", function (event) {
+        var statusCell = event.target.closest(".status-editable");
+        if (statusCell) {
+          event.preventDefault();
+          statusCell.focus();
+          openStatusMenu(statusCell);
+          return;
+        }
+        if (statusMenu && statusMenu.contains(event.target)) return;
+        closeStatusMenu();
       }, true);
     }
 
@@ -1773,6 +1999,8 @@
 
 <script>
   (function () {
+    var isTodoView = {{ 'true' if current_view == 'todo' else 'false' }};
+
     function formatDueSummary(dueValue, createdValue) {
       var today = new Date();
       var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -1860,6 +2088,9 @@
       }).then(function (response) {
         if (!response.ok) {
           throw new Error("Failed to save due date");
+        }
+        if (isTodoView) {
+          window.location.reload();
         }
       }).catch(function () {
         window.location.reload();
@@ -2356,6 +2587,7 @@
       const tr = document.createElement("tr");
       tr.className = "subtasks-row last";
       tr.setAttribute("data-subtasks-for", taskId);
+      tr.setAttribute("data-status-state", "open");
       tr.style.display = rows.length ? rows[0].style.display : "table-row";
       tr.innerHTML = `
         <td></td>
@@ -2366,7 +2598,7 @@
           </div>
         </td>
         <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${data.due_at ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-subtask-id="${data.id}" data-field="due_at" data-col="2" data-created-at="${data.created_at ? String(data.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10)}" value="${data.due_at ? String(data.due_at).slice(0, 10) : ""}" /></div></td>
-        <td><div class="editable" contenteditable="true" data-subtask-id="${data.id}" data-field="status" data-col="3">open</div></td>
+        <td><div class="editable status-editable" contenteditable="true" data-subtask-id="${data.id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></td>
         <td>
           <div class="assignments">
             ${data.assignment ? renderAssignmentBadge(data.assignment) : ""}

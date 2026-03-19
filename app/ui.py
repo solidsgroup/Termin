@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import secrets
 
 from flask import Blueprint, current_app, redirect, render_template, request, url_for
@@ -125,6 +125,9 @@ def _ensure_assignment_invite(assignment: Assignment, calendar_opt_in: bool = Fa
 def dashboard():
     user = current_user()
     now_utc = datetime.utcnow()
+    current_view = (request.args.get("view") or "project").strip().lower()
+    if current_view not in {"project", "todo"}:
+        current_view = "project"
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
     member_project_ids = [
         m.project_id for m in ProjectMember.query.filter_by(user_id=user.id).all()
@@ -195,6 +198,7 @@ def dashboard():
     is_project_member = False
     can_manage_project = False
     selected_project_color = "#4cc9f0"
+    manageable_project_ids = {project.id for project in owned_projects}.union(member_project_ids)
     if selected_project:
         selected_pref = sidebar_pref_map.get(selected_project.id)
         selected_project_color = division_color_map.get(selected_pref.division_id if selected_pref else None, "#4cc9f0")
@@ -277,6 +281,7 @@ def dashboard():
             info_by_task[task.id] = load_info_payload(task.info, task.link)
 
     user_map = {u.id: u for u in User.query.all()}
+    project_map = {project.id: project for project in projects}
     project_viewers = {}
     group_viewers = {}
     if projects:
@@ -300,10 +305,98 @@ def dashboard():
             viewers.update(project_viewers_ids)
             viewers.update(group_member_map.get(group.id, set()))
             group_viewers[group.id] = [user_map.get(uid) for uid in viewers if user_map.get(uid)]
+
+    visible_group_ids = {
+        row.group_id
+        for row in GroupMember.query.join(Group, Group.id == GroupMember.group_id)
+        .filter(GroupMember.user_id == user.id, Group.project_id.in_(project_ids if project_ids else [-1]))
+        .all()
+    } if project_ids else set()
+    visible_task_ids = set()
+    if manageable_project_ids:
+        visible_task_ids.update(
+            row.id for row in Task.query.filter(Task.project_id.in_(manageable_project_ids)).all()
+        )
+    if visible_group_ids:
+        visible_task_ids.update(
+            row.id for row in Task.query.filter(Task.group_id.in_(visible_group_ids)).all()
+        )
+    visible_task_ids.update(task_id for task_id in assigned_task_ids if task_id)
+    visible_task_ids.update(parent_task_ids)
+    todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
+    todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
+    todo_items = []
+    today = now_utc.date()
+    week_start = today - timedelta(days=today.weekday())
+    next_week_start = week_start + timedelta(days=7)
+    two_weeks_start = week_start + timedelta(days=14)
+    three_weeks_start = week_start + timedelta(days=21)
+    four_weeks_start = week_start + timedelta(days=28)
+    next_month_year = today.year + (1 if today.month == 12 else 0)
+    next_month_month = 1 if today.month == 12 else today.month + 1
+    month_after_next_year = next_month_year + (1 if next_month_month == 12 else 0)
+    month_after_next_month = 1 if next_month_month == 12 else next_month_month + 1
+    next_month_start = date(next_month_year, next_month_month, 1)
+    month_after_next_start = date(month_after_next_year, month_after_next_month, 1)
+
+    def todo_bucket(due_date):
+        if due_date is None:
+            return ("none", "No Due Date", 9)
+        if due_date < today:
+            return ("overdue", "Overdue", 0)
+        if due_date == today:
+            return ("today", "Today", 1)
+        if due_date == today + timedelta(days=1):
+            return ("tomorrow", "Tomorrow", 2)
+        if due_date < next_week_start:
+            return ("this_week", "This Week", 3)
+        if due_date < two_weeks_start:
+            return ("next_week", "Next Week", 4)
+        if due_date < three_weeks_start:
+            return ("two_weeks", "Two Weeks", 5)
+        if due_date < four_weeks_start:
+            return ("three_weeks", "Three Weeks", 6)
+        if next_month_start <= due_date < month_after_next_start:
+            return ("next_month", "Next Month", 7)
+        return ("later", "Later", 8)
+
+    for task in todo_tasks:
+        project = project_map.get(task.project_id)
+        if not project:
+            continue
+        pref = sidebar_pref_map.get(project.id)
+        division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
+        bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
+        todo_items.append(
+            {
+                "task": task,
+                "project": project,
+                "group": todo_groups.get(task.group_id),
+                "division_color": (division.color if division and division.color else "#4cc9f0"),
+                "date_key": bucket_key,
+                "date_label": bucket_label,
+                "date_rank": bucket_rank,
+            }
+        )
+    todo_items.sort(
+        key=lambda item: (
+            item["date_rank"],
+            item["task"].due_at.date().isoformat() if item["task"].due_at else "9999-12-31",
+            item["project"].name.lower(),
+            item["task"].position or 0,
+            item["task"].id,
+        )
+    )
+    todo_groups_by_date = []
+    for item in todo_items:
+        if not todo_groups_by_date or todo_groups_by_date[-1]["key"] != item["date_key"]:
+            todo_groups_by_date.append({"key": item["date_key"], "label": item["date_label"], "items": []})
+        todo_groups_by_date[-1]["items"].append(item)
     return render_template(
         "dashboard.html",
         user=user,
         now_utc=now_utc,
+        current_view=current_view,
         projects=projects,
         divisions=sidebar_divisions,
         division_options=division_options,
@@ -327,6 +420,7 @@ def dashboard():
         member_project_ids=member_project_ids,
         project_viewers=project_viewers,
         group_viewers=group_viewers,
+        todo_groups_by_date=todo_groups_by_date,
     )
 
 
