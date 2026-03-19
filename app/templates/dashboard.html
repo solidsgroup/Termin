@@ -1,27 +1,31 @@
 {% extends "base.html" %}
 {% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
-  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ color or '#2a3442' }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}"{% if top_level and can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
-    <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none;">
-      <strong>{{ project.name }}</strong>
-    </a>
+  {% set project_color = color or '#2a3442' %}
+  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ project_color }}; border-color: {{ project_color }}; border-left-color: {{ project_color }}; box-shadow: inset 0 0 0 1px color-mix(in srgb, {{ project_color }} 88%, transparent), 0 0 0 1px color-mix(in srgb, {{ project_color }} 62%, transparent), 0 8px 18px rgba(0, 0, 0, 0.14);" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}"{% if can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
     {% set viewers = project_viewers.get(project.id, []) %}
-    {% if viewers %}
-      <div class="avatar-stack" style="margin-top: 6px;">
-        {% for u in viewers[:4] %}
-          <span class="avatar-chip" title="{{ u.display_name or u.email }}">
-            {% if u.avatar_url %}
-              <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
-            {% else %}
-              {{ (u.display_name or u.email)[0]|upper }}
-            {% endif %}
-          </span>
-        {% endfor %}
-        {% if viewers|length > 4 %}
-          <span class="avatar-chip">+{{ viewers|length - 4 }}</span>
-        {% endif %}
-      </div>
-    {% endif %}
+    {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
+    <div class="project-item-top">
+      <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
+        <strong>{{ project.name }}</strong>
+      </a>
+      {% if shared_viewers %}
+        <div class="avatar-stack">
+          {% for u in shared_viewers[:4] %}
+            <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+              {% if u.avatar_url %}
+                <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+              {% else %}
+                {{ (u.display_name or u.email)[0]|upper }}
+              {% endif %}
+            </span>
+          {% endfor %}
+          {% if shared_viewers|length > 4 %}
+            <span class="avatar-chip">+{{ shared_viewers|length - 4 }}</span>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
     <small>Defaults: {% if project.default_owner_calendar_opt_in %}owner calendar{% else %}no owner sync{% endif %}, {% if project.default_invitee_calendar_opt_in %}invitees prompted{% else %}no invites{% endif %}</small>
   </div>
 {% endmacro %}
@@ -238,16 +242,16 @@
     </div>
   </aside>
 
-  <section class="content">
+  <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
     {% if selected_project %}
       <div class="panel">
         <div class="group-header">
           <h3>{{ selected_project.name }}</h3>
           {% set viewers = project_viewers.get(selected_project.id, []) %}
-          {% if viewers %}
-            {% set tooltip = viewers | map(attribute='display_name') | map('default', None) %}
-            <div class="share-avatars" data-tooltip="{% for u in viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-              {% for u in viewers[:6] %}
+          {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
+          {% if shared_viewers %}
+            <div class="share-avatars" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+              {% for u in shared_viewers[:6] %}
                 <span class="avatar-chip" title="{{ u.display_name or u.email }}">
                   {% if u.avatar_url %}
                     <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
@@ -256,8 +260,8 @@
                   {% endif %}
                 </span>
               {% endfor %}
-              {% if viewers|length > 6 %}
-                <span class="avatar-chip">+{{ viewers|length - 6 }}</span>
+              {% if shared_viewers|length > 6 %}
+                <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
               {% endif %}
             </div>
           {% endif %}
@@ -272,13 +276,14 @@
               <button class="group-insert-btn" type="button" title="Add group">+</button>
             </div>
           </div>
-          <div class="panel group" style="--group-color: {{ group.color or '#4cc9f0' }};">
+          <div class="panel group" style="--group-color: {{ selected_project_color or '#4cc9f0' }};">
             <div class="group-header" {% if can_manage_project %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
               <h3 class="group-title {% if can_manage_project %}editable{% endif %}" {% if can_manage_project %}contenteditable="true" data-group-id="{{ group.id }}" data-field="name"{% endif %}>{{ group.name }}</h3>
               {% set viewers = group_viewers.get(group.id, []) %}
-              {% if viewers %}
-                <div class="share-avatars" data-tooltip="{% for u in viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-                  {% for u in viewers[:6] %}
+              {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
+              {% if shared_viewers %}
+                <div class="share-avatars" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                  {% for u in shared_viewers[:6] %}
                     <span class="avatar-chip" title="{{ u.display_name or u.email }}">
                       {% if u.avatar_url %}
                         <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
@@ -287,8 +292,8 @@
                       {% endif %}
                     </span>
                   {% endfor %}
-                  {% if viewers|length > 6 %}
-                    <span class="avatar-chip">+{{ viewers|length - 6 }}</span>
+                  {% if shared_viewers|length > 6 %}
+                    <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
                   {% endif %}
                 </div>
               {% endif %}
@@ -421,6 +426,7 @@
 
 <div id="context-menu" class="context-menu">
   <button data-action="rename">Rename</button>
+  <button data-action="move">Move</button>
   <div class="context-menu-submenu">
     <button data-action="color" data-submenu-toggle="division-color-submenu">Color</button>
     <div id="division-color-submenu" class="context-submenu-panel">
@@ -1041,6 +1047,7 @@
       if (window.__dashboardChromeFallbackReady) return;
       window.__dashboardChromeFallbackReady = true;
 
+      var divisionOptions = {{ division_options|tojson }};
       var contextMenu = document.getElementById("context-menu");
       var canManageProject = {{ 'true' if can_manage_project else 'false' }};
       var currentContext = null;
@@ -1101,9 +1108,36 @@
         }
         Array.prototype.forEach.call(contextMenu.querySelectorAll("[data-action]"), function (button) {
           var action = button.getAttribute("data-action");
-          var show = type === "division" ? action === "rename" || action === "delete" || action === "color" : action !== "color";
+          var show = type === "division"
+            ? action === "rename" || action === "delete" || action === "color"
+            : (action === "move" ? type === "project" : action !== "color");
           button.style.display = show ? "" : "none";
         });
+      }
+
+      function promptProjectDivisionMove(projectId) {
+        if (!projectId) return;
+        var options = ["0) Uncategorized"];
+        divisionOptions.forEach(function (division, index) {
+          options.push(String(index + 1) + ") " + division.name);
+        });
+        var choice = window.prompt("Move project to:\n" + options.join("\n"));
+        if (choice === null) return;
+        var value = choice.trim();
+        var divisionId = null;
+        if (value === "" || value === "0") {
+          divisionId = null;
+        } else if (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= divisionOptions.length) {
+          divisionId = divisionOptions[Number(value) - 1].id;
+        } else {
+          return;
+        }
+        fetch("/api/projects/" + projectId, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ division_id: divisionId }),
+        }).then(function () { window.location.reload(); });
       }
 
       function storageKey(table) {
@@ -1229,6 +1263,8 @@
             window.__openDivisionColorMenu(id, currentColor);
           }
           return;
+        } else if (action === "move") {
+          promptProjectDivisionMove(id);
         } else if (action === "share") {
           var shareContext = { type: currentContext.type, id: currentContext.id };
           hideContextMenu();
@@ -1925,6 +1961,33 @@
   (function () {
     var openInsertRow = null;
     var draggingSidebarToken = null;
+    var draggedSidebarProjectId = null;
+
+    function clearSidebarDragState() {
+      document.querySelectorAll(".sidebar-stack-item.dragging, .sidebar-stack-item.drag-over").forEach(function (item) {
+        item.classList.remove("dragging");
+        item.classList.remove("drag-over");
+      });
+      document.querySelectorAll(".project-item.dragging, .project-item.drag-over").forEach(function (item) {
+        item.classList.remove("dragging");
+        item.classList.remove("drag-over");
+      });
+      document.querySelectorAll(".sidebar-insert-row.drag-over").forEach(function (row) {
+        row.classList.remove("drag-over");
+      });
+    }
+
+    function moveSidebarProject(payload) {
+      if (!draggedSidebarProjectId) return;
+      fetch("/api/projects/" + draggedSidebarProjectId + "/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+      }).then(function () {
+        window.location.reload();
+      });
+    }
 
     function closeSidebarInsertRow() {
       if (openInsertRow) {
@@ -1997,28 +2060,88 @@
       var division = event.target.closest("[data-sidebar-division]");
       if (project) {
         draggingSidebarToken = "project:" + project.getAttribute("data-sidebar-project");
-        project.closest(".sidebar-stack-item").classList.add("dragging");
+        draggedSidebarProjectId = project.getAttribute("data-sidebar-project");
+        project.classList.add("dragging");
       } else if (division) {
         draggingSidebarToken = "division:" + division.getAttribute("data-sidebar-division");
+        draggedSidebarProjectId = null;
         division.closest(".sidebar-stack-item").classList.add("dragging");
       } else {
         draggingSidebarToken = null;
+        draggedSidebarProjectId = null;
       }
     });
 
     document.addEventListener("dragover", function (event) {
       if (!draggingSidebarToken) return;
+      clearSidebarDragState();
+      if (draggingSidebarToken.indexOf("project:") === 0) {
+        var projectTarget = event.target.closest("[data-sidebar-project]");
+        if (projectTarget && projectTarget.getAttribute("data-sidebar-project") !== draggedSidebarProjectId) {
+          event.preventDefault();
+          projectTarget.classList.add("drag-over");
+          return;
+        }
+        var insertRow = event.target.closest(".sidebar-insert-row");
+        if (insertRow) {
+          event.preventDefault();
+          insertRow.classList.add("drag-over");
+          return;
+        }
+      }
+      var divisionDrop = event.target.closest("[data-sidebar-division]");
       var target = event.target.closest(".sidebar-stack-item");
+      if (draggingSidebarToken.indexOf("project:") === 0 && divisionDrop) {
+        event.preventDefault();
+        var divisionStackItem = divisionDrop.closest(".sidebar-stack-item");
+        if (divisionStackItem) divisionStackItem.classList.add("drag-over");
+        return;
+      }
       if (!target) return;
       event.preventDefault();
-      document.querySelectorAll(".sidebar-stack-item.drag-over").forEach(function (item) {
-        item.classList.remove("drag-over");
-      });
       target.classList.add("drag-over");
     });
 
     document.addEventListener("drop", function (event) {
       if (!draggingSidebarToken) return;
+      if (draggingSidebarToken.indexOf("project:") === 0) {
+        var projectTarget = event.target.closest("[data-sidebar-project]");
+        if (projectTarget && projectTarget.getAttribute("data-sidebar-project") !== draggedSidebarProjectId) {
+          event.preventDefault();
+          var rect = projectTarget.getBoundingClientRect();
+          var placement = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+          clearSidebarDragState();
+          moveSidebarProject({
+            target_project_id: projectTarget.getAttribute("data-sidebar-project"),
+            placement: placement,
+          });
+          return;
+        }
+        var insertRow = event.target.closest(".sidebar-insert-row");
+        if (insertRow) {
+          event.preventDefault();
+          var positionSource = insertRow.querySelector("[data-sidebar-insert-position]");
+          var insertPosition = positionSource ? positionSource.getAttribute("data-sidebar-insert-position") : "";
+          clearSidebarDragState();
+          moveSidebarProject({
+            target_division_id: null,
+            insert_position: insertPosition,
+            placement: "append",
+          });
+          return;
+        }
+      }
+      var divisionDrop = event.target.closest("[data-sidebar-division]");
+      if (draggingSidebarToken.indexOf("project:") === 0 && divisionDrop) {
+        event.preventDefault();
+        var divisionId = divisionDrop.getAttribute("data-sidebar-division");
+        clearSidebarDragState();
+        moveSidebarProject({
+          target_division_id: divisionId,
+          placement: "append",
+        });
+        return;
+      }
       var target = event.target.closest(".sidebar-stack-item");
       if (!target) return;
       event.preventDefault();
@@ -2045,11 +2168,9 @@
     });
 
     document.addEventListener("dragend", function () {
-      document.querySelectorAll(".sidebar-stack-item.dragging, .sidebar-stack-item.drag-over").forEach(function (item) {
-        item.classList.remove("dragging");
-        item.classList.remove("drag-over");
-      });
+      clearSidebarDragState();
       draggingSidebarToken = null;
+      draggedSidebarProjectId = null;
     });
   })();
 </script>
@@ -2911,6 +3032,7 @@
 
     initColumnResizers();
 
+    const divisionOptions = {{ division_options|tojson }};
     const contextMenu = document.getElementById("context-menu");
     const colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
     const colorInput = document.getElementById("division-color-input");
@@ -2993,9 +3115,35 @@
       }
       contextMenu.querySelectorAll("[data-action]").forEach((button) => {
         const action = button.getAttribute("data-action");
-        const show = type === "division" ? action === "rename" || action === "delete" || action === "color" : action !== "color";
+        const show = type === "division"
+          ? action === "rename" || action === "delete" || action === "color"
+          : (action === "move" ? type === "project" : action !== "color");
         button.style.display = show ? "" : "none";
       });
+    };
+
+    const promptProjectDivisionMove = (projectId) => {
+      if (!projectId) return;
+      const options = ["0) Uncategorized"];
+      divisionOptions.forEach((division, index) => {
+        options.push(`${index + 1}) ${division.name}`);
+      });
+      const choice = prompt(`Move project to:\n${options.join("\n")}`);
+      if (choice === null) return;
+      const value = choice.trim();
+      let divisionId = null;
+      if (value === "" || value === "0") {
+        divisionId = null;
+      } else if (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= divisionOptions.length) {
+        divisionId = divisionOptions[Number(value) - 1].id;
+      } else {
+        return;
+      }
+      fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ division_id: divisionId }),
+      }).then(() => window.location.reload());
     };
 
     const openShareModal = (context) => {
@@ -3189,6 +3337,9 @@
             colorSubmenu.classList.add("is-open");
           }
           return;
+        }
+        if (action === "move") {
+          promptProjectDivisionMove(id);
         }
         if (action === "share") {
           openShareModal(currentContext);

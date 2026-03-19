@@ -9,9 +9,18 @@ from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_ma
 from app.extensions import db
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
+from app.sidebar_layout import (
+    apply_top_level_project_order,
+    ensure_sidebar_preference,
+    insert_project_position,
+    resequence_division_projects,
+    resequence_top_level_items,
+    sidebar_preference_map,
+    top_level_sidebar_items,
+)
 import secrets
 
-from app.models import Division, Task, Project, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember
+from app.models import Division, Task, Project, ProjectSidebarPreference, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember
 from app.utils import current_user
 
 
@@ -52,6 +61,72 @@ def _can_manage_project(user, project_id: int) -> bool:
     )
 
 
+def _can_access_project(user, project_id: int) -> bool:
+    if Project.query.filter_by(id=project_id, owner_id=user.id).first():
+        return True
+    if ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first():
+        return True
+    if (
+        db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == project_id, GroupMember.user_id == user.id)
+        .first()
+        is not None
+    ):
+        return True
+    if (
+        db.session.query(Task.id)
+        .join(Assignment, Assignment.task_id == Task.id)
+        .filter(Task.project_id == project_id, Assignment.user_id == user.id)
+        .first()
+        is not None
+    ):
+        return True
+    return (
+        db.session.query(Subtask.id)
+        .join(Assignment, Assignment.subtask_id == Subtask.id)
+        .join(Task, Task.id == Subtask.task_id)
+        .filter(Task.project_id == project_id, Assignment.user_id == user.id)
+        .first()
+        is not None
+    )
+
+
+def _accessible_projects_for_user(user) -> list[Project]:
+    owned_projects = Project.query.filter_by(owner_id=user.id).all()
+    member_project_ids = [row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()]
+    member_group_project_ids = [
+        row.project_id
+        for row in db.session.query(Group.project_id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(GroupMember.user_id == user.id)
+        .all()
+    ]
+    assigned_task_project_ids = [
+        row.project_id
+        for row in db.session.query(Task.project_id)
+        .join(Assignment, Assignment.task_id == Task.id)
+        .filter(Assignment.user_id == user.id)
+        .all()
+    ]
+    assigned_subtask_project_ids = [
+        row.project_id
+        for row in db.session.query(Task.project_id)
+        .join(Subtask, Subtask.task_id == Task.id)
+        .join(Assignment, Assignment.subtask_id == Subtask.id)
+        .filter(Assignment.user_id == user.id)
+        .all()
+    ]
+    accessible_project_ids = list(
+        {project.id for project in owned_projects}
+        .union(member_project_ids)
+        .union(member_group_project_ids)
+        .union(assigned_task_project_ids)
+        .union(assigned_subtask_project_ids)
+    )
+    return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
+
+
 def _task_bucket_query(project_id: int, group_id: int | None):
     query = Task.query.filter_by(project_id=project_id)
     if group_id is None:
@@ -68,16 +143,6 @@ def _next_task_position(project_id: int, group_id: int | None) -> int:
     else:
         query = query.filter(Task.group_id == group_id)
     return (query.scalar() or 0) + 1
-
-
-def _resequence_sidebar(user_id: int) -> None:
-    top_projects = Project.query.filter_by(owner_id=user_id, division_id=None).order_by(Project.position.asc(), Project.id.asc()).all()
-    divisions = Division.query.filter_by(owner_id=user_id).order_by(Division.position.asc(), Division.id.asc()).all()
-    combined = [{"type": "project", "obj": project, "position": project.position or 0, "id": project.id} for project in top_projects]
-    combined += [{"type": "division", "obj": division, "position": division.position or 0, "id": division.id} for division in divisions]
-    combined.sort(key=lambda item: (item["position"], 0 if item["type"] == "division" else 1, item["id"]))
-    for index, item in enumerate(combined, start=1):
-        item["obj"].position = index
 
 
 def _resequence_tasks(project_id: int, group_id: int | None, exclude_task_id: int | None = None) -> None:
@@ -305,16 +370,182 @@ def update_project(project_id: int):
     payload = request.get_json(silent=True) or {}
     user = current_user()
     name = payload.get("name")
-    if name is None:
-        return {"error": "name is required"}, 400
-    if not _can_manage_project(user, project_id):
+    division_id = payload.get("division_id", "__missing__")
+    if name is None and division_id == "__missing__":
+        return {"error": "name or division_id is required"}, 400
+    if name is not None and not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    if division_id != "__missing__" and not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
     project = Project.query.get(project_id)
     if not project:
         return {"error": "project not found"}, 404
-    project.name = name.strip() or project.name
+    if name is not None:
+        project.name = name.strip() or project.name
+    if division_id != "__missing__":
+        pref = ensure_sidebar_preference(user.id, project.id, default_division_id=project.division_id, default_position=project.position or 0)
+        old_division_id = pref.division_id
+        if division_id in (None, "", 0, "0"):
+            resequence_top_level_items(user.id)
+            max_top_pos = max(
+                [division.position or 0 for division in Division.query.filter_by(owner_id=user.id).all()]
+                + [row.position or 0 for row in ProjectSidebarPreference.query.filter_by(user_id=user.id, division_id=None).all() if row.project_id != project.id]
+                + [0]
+            )
+            pref.division_id = None
+            pref.position = max_top_pos + 1
+            if old_division_id is not None:
+                resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
+        else:
+            try:
+                division_id_int = int(division_id)
+            except (TypeError, ValueError):
+                return {"error": "invalid division_id"}, 400
+            division = Division.query.filter_by(id=division_id_int, owner_id=user.id).first()
+            if not division:
+                return {"error": "division not found"}, 404
+            pref.division_id = division.id
+            sibling_prefs = (
+                ProjectSidebarPreference.query.filter(
+                    ProjectSidebarPreference.user_id == user.id,
+                    ProjectSidebarPreference.division_id == division.id,
+                    ProjectSidebarPreference.project_id != project.id,
+                )
+                .order_by(ProjectSidebarPreference.position.asc(), ProjectSidebarPreference.id.asc())
+                .all()
+            )
+            pref.position = len(sibling_prefs) + 1
+            if old_division_id is None:
+                resequence_top_level_items(user.id)
+            elif old_division_id != division.id:
+                resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
     db.session.commit()
-    return {"id": project.id, "name": project.name}, 200
+    current_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
+    return {"id": project.id, "name": project.name, "division_id": current_pref.division_id if current_pref else None}, 200
+
+
+@api_bp.post("/projects/<int:project_id>/move")
+@login_required
+def move_project(project_id: int):
+    payload = request.get_json(silent=True) or {}
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+
+    placement = (payload.get("placement") or "before").strip().lower()
+    if placement not in {"before", "after", "append"}:
+        return {"error": "invalid placement"}, 400
+
+    target_project_id = payload.get("target_project_id")
+    target_division_id = payload.get("target_division_id", "__missing__")
+    insert_position = payload.get("insert_position")
+    moving_pref = ensure_sidebar_preference(user.id, project.id, default_division_id=project.division_id, default_position=project.position or 0)
+    old_division_id = moving_pref.division_id
+
+    if target_project_id:
+        try:
+            target_project_id = int(target_project_id)
+        except (TypeError, ValueError):
+            return {"error": "invalid target_project_id"}, 400
+        target_project = Project.query.get(target_project_id)
+        if not target_project or target_project.id == project.id:
+            return {"error": "target project not found"}, 404
+        if not _can_access_project(user, target_project.id):
+            return {"error": "unauthorized"}, 403
+        target_pref = ensure_sidebar_preference(user.id, target_project.id, default_division_id=target_project.division_id, default_position=target_project.position or 0)
+
+        if target_pref.division_id is None:
+            accessible_projects = _accessible_projects_for_user(user)
+            divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
+            pref_map = sidebar_preference_map(user.id, accessible_projects, divisions)
+            combined = top_level_sidebar_items(accessible_projects, divisions, pref_map)
+            target_index = next((idx for idx, item in enumerate(combined) if item["type"] == "project" and item["id"] == target_project.id), None)
+            if target_index is None:
+                return {"error": "target project not found"}, 404
+            insert_index = target_index + (1 if placement == "after" else 0)
+            apply_top_level_project_order(user.id, moving_pref, insert_index)
+            if old_division_id is not None:
+                resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
+        else:
+            target_division_id = target_pref.division_id
+            moving_pref.division_id = target_division_id
+            siblings = (
+                ProjectSidebarPreference.query.filter(
+                    ProjectSidebarPreference.user_id == user.id,
+                    ProjectSidebarPreference.division_id == target_division_id,
+                    ProjectSidebarPreference.project_id != project.id,
+                )
+                .order_by(ProjectSidebarPreference.position.asc(), ProjectSidebarPreference.id.asc())
+                .all()
+            )
+            target_index = next((idx for idx, item in enumerate(siblings) if item.project_id == target_project.id), None)
+            if target_index is None:
+                return {"error": "target project not found"}, 404
+            insert_index = target_index + (1 if placement == "after" else 0)
+            siblings.insert(insert_index, moving_pref)
+            for index, item in enumerate(siblings, start=1):
+                item.position = index
+            if old_division_id is None:
+                resequence_top_level_items(user.id)
+            elif old_division_id != target_division_id:
+                resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
+    else:
+        if target_division_id in ("__missing__",):
+            return {"error": "target is required"}, 400
+        if target_division_id in (None, "", 0, "0"):
+            if insert_position is None:
+                top_count = ProjectSidebarPreference.query.filter(
+                    ProjectSidebarPreference.user_id == user.id,
+                    ProjectSidebarPreference.division_id.is_(None),
+                    ProjectSidebarPreference.project_id != project.id,
+                ).count()
+                insert_index = top_count + len(Division.query.filter_by(owner_id=user.id).all())
+            else:
+                try:
+                    insert_index = max(0, int(insert_position) - 1)
+                except (TypeError, ValueError):
+                    return {"error": "invalid insert_position"}, 400
+            apply_top_level_project_order(user.id, moving_pref, insert_index)
+            if old_division_id is not None:
+                resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
+        else:
+            try:
+                target_division_id = int(target_division_id)
+            except (TypeError, ValueError):
+                return {"error": "invalid target_division_id"}, 400
+            division = Division.query.filter_by(id=target_division_id, owner_id=user.id).first()
+            if not division:
+                return {"error": "division not found"}, 404
+            moving_pref.division_id = division.id
+            siblings = (
+                ProjectSidebarPreference.query.filter(
+                    ProjectSidebarPreference.user_id == user.id,
+                    ProjectSidebarPreference.division_id == division.id,
+                    ProjectSidebarPreference.project_id != project.id,
+                )
+                .order_by(ProjectSidebarPreference.position.asc(), ProjectSidebarPreference.id.asc())
+                .all()
+            )
+            if placement == "append":
+                siblings.append(moving_pref)
+            else:
+                try:
+                    insert_index = max(0, int(insert_position or 1) - 1)
+                except (TypeError, ValueError):
+                    return {"error": "invalid insert_position"}, 400
+                siblings.insert(min(insert_index, len(siblings)), moving_pref)
+            for index, item in enumerate(siblings, start=1):
+                item.position = index
+            if old_division_id is None:
+                resequence_top_level_items(user.id)
+            elif old_division_id != division.id:
+                resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
+
+    db.session.commit()
+    return {"status": "ok", "id": project.id, "division_id": moving_pref.division_id, "position": moving_pref.position}, 200
 
 
 @api_bp.patch("/divisions/<int:division_id>")
@@ -365,6 +596,7 @@ def delete_project(project_id: int):
     Task.query.filter(Task.project_id == project.id).delete(synchronize_session=False)
     GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).delete(synchronize_session=False)
     ProjectMember.query.filter(ProjectMember.project_id == project.id).delete(synchronize_session=False)
+    ProjectSidebarPreference.query.filter_by(project_id=project.id).delete(synchronize_session=False)
     Group.query.filter(Group.project_id == project.id).delete(synchronize_session=False)
     db.session.delete(project)
     db.session.commit()
@@ -379,15 +611,20 @@ def delete_division(division_id: int):
     if not division:
         return {"error": "division not found"}, 404
 
-    top_projects = Project.query.filter_by(owner_id=user.id, division_id=None).order_by(Project.position.asc(), Project.id.asc()).all()
-    for index, project in enumerate(top_projects, start=1):
-        project.position = index
-    insert_pos = len(top_projects) + 1
-
-    moved_projects = Project.query.filter_by(owner_id=user.id, division_id=division.id).order_by(Project.position.asc(), Project.id.asc()).all()
-    for offset, project in enumerate(moved_projects, start=0):
-        project.division_id = None
-        project.position = insert_pos + offset
+    resequence_top_level_items(user.id)
+    max_top_pos = max(
+        [division_row.position or 0 for division_row in Division.query.filter(Division.owner_id == user.id, Division.id != division.id).all()]
+        + [pref.position or 0 for pref in ProjectSidebarPreference.query.filter_by(user_id=user.id, division_id=None).all()]
+        + [0]
+    )
+    moved_prefs = (
+        ProjectSidebarPreference.query.filter_by(user_id=user.id, division_id=division.id)
+        .order_by(ProjectSidebarPreference.position.asc(), ProjectSidebarPreference.id.asc())
+        .all()
+    )
+    for offset, pref in enumerate(moved_prefs, start=1):
+        pref.division_id = None
+        pref.position = max_top_pos + offset
 
     db.session.delete(division)
     db.session.commit()
@@ -407,12 +644,24 @@ def duplicate_project(project_id: int):
     copy = Project(
         name=f"{project.name} Copy",
         owner_id=user.id,
-        division_id=project.division_id,
+        division_id=None,
+        position=0,
         default_owner_calendar_opt_in=project.default_owner_calendar_opt_in,
         default_invitee_calendar_opt_in=project.default_invitee_calendar_opt_in,
     )
     db.session.add(copy)
     db.session.flush()
+    source_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
+    source_division_id = source_pref.division_id if source_pref else None
+    copy_pref_position = insert_project_position(user.id, source_division_id, (source_pref.position + 1) if source_pref else None)
+    db.session.add(
+        ProjectSidebarPreference(
+            user_id=user.id,
+            project_id=copy.id,
+            division_id=source_division_id,
+            position=copy_pref_position,
+        )
+    )
 
     group_map = {}
     for group in Group.query.filter_by(project_id=project.id).order_by(Group.position.asc()).all():
@@ -753,12 +1002,10 @@ def reorder_sidebar():
     if not isinstance(order, list) or not order:
         return {"error": "order is required"}, 400
 
-    _resequence_sidebar(user.id)
-
-    expected = []
-    top_projects = Project.query.filter_by(owner_id=user.id, division_id=None).all()
+    accessible_projects = _accessible_projects_for_user(user)
     divisions = Division.query.filter_by(owner_id=user.id).all()
-    expected.extend([f"project:{project.id}" for project in top_projects])
+    pref_map = sidebar_preference_map(user.id, accessible_projects, divisions)
+    expected = [f"project:{project.id}" for project in accessible_projects if pref_map.get(project.id) and pref_map[project.id].division_id is None]
     expected.extend([f"division:{division.id}" for division in divisions])
     if sorted(order) != sorted(expected):
         return {"error": "order mismatch"}, 400
@@ -767,10 +1014,12 @@ def reorder_sidebar():
         kind, raw_id = token.split(":", 1)
         item_id = int(raw_id)
         if kind == "project":
-            project = Project.query.filter_by(id=item_id, owner_id=user.id, division_id=None).first()
-            if not project:
+            project = Project.query.get(item_id)
+            if not project or not _can_access_project(user, item_id):
                 return {"error": "project not found"}, 404
-            project.position = index
+            pref = ensure_sidebar_preference(user.id, project.id, default_division_id=project.division_id, default_position=project.position or 0)
+            pref.division_id = None
+            pref.position = index
         elif kind == "division":
             division = Division.query.filter_by(id=item_id, owner_id=user.id).first()
             if not division:

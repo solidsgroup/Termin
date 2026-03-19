@@ -309,6 +309,12 @@
         align-items: center;
       }
 
+      .project-list .project-item .avatar-stack,
+      .sidebar-stack > .sidebar-stack-item > .project-item .avatar-stack {
+        width: 100%;
+        justify-content: flex-end;
+      }
+
       .avatar-stack .avatar-chip {
         width: 16px;
         height: 16px;
@@ -403,6 +409,9 @@
       .panel.group {
         border-color: var(--group-color, var(--border));
         padding-top: 8px;
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 24%, transparent),
+          0 18px 40px rgba(0, 0, 0, 0.2);
       }
 
       .group-title {
@@ -425,6 +434,7 @@
         position: relative;
         top: -18px;
         line-height: 1.1;
+        text-shadow: 0 0 18px color-mix(in srgb, var(--group-color, transparent) 18%, transparent);
       }
 
 
@@ -1253,25 +1263,97 @@
         margin: 0;
       }
 
-      .project-list .project-item {
+      .project-list .project-item,
+      .sidebar-stack > .sidebar-stack-item > .project-item {
         margin-bottom: 0;
         padding: 9px 11px;
         border: 1px solid var(--project-color, var(--border));
+        border-left: 6px solid var(--project-color, var(--border));
         border-radius: 10px;
         background:
-          linear-gradient(180deg, color-mix(in srgb, var(--project-color, #121821) 10%, rgba(21, 26, 34, 0.97)), color-mix(in srgb, var(--project-color, #10141b) 6%, rgba(16, 20, 27, 0.9)));
+          linear-gradient(180deg, color-mix(in srgb, var(--project-color, #121821) 3%, rgba(15, 18, 24, 0.86)), color-mix(in srgb, var(--project-color, #10141b) 2%, rgba(10, 13, 18, 0.82)));
         box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.03),
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 36%, transparent),
-          0 8px 18px rgba(0, 0, 0, 0.14);
+          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 55%, transparent),
+          inset 0 1px 0 rgba(255, 255, 255, 0.02),
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 18%, transparent),
+          0 4px 10px rgba(0, 0, 0, 0.08);
+        color: color-mix(in srgb, var(--ink) 66%, var(--muted) 34%);
+        opacity: 0.68;
+        filter: saturate(0.72);
+        transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease, opacity 140ms ease, transform 140ms ease;
       }
 
-      .project-list .project-item.active {
-        border-color: var(--project-color, var(--accent));
+      .project-list .project-item:hover,
+      .sidebar-stack > .sidebar-stack-item > .project-item:hover {
+        opacity: 0.82;
+        filter: saturate(0.84);
+        transform: translateY(-1px);
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 72%, transparent),
-          0 0 0 3px color-mix(in srgb, var(--project-color, var(--accent)) 20%, transparent),
-          0 10px 22px rgba(0, 0, 0, 0.18);
+          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 68%, transparent),
+          inset 0 1px 0 rgba(255, 255, 255, 0.03),
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 30%, transparent),
+          0 6px 14px rgba(0, 0, 0, 0.12);
+      }
+
+      .project-list .project-item a,
+      .sidebar-stack > .sidebar-stack-item > .project-item a,
+      .project-list .project-item strong,
+      .sidebar-stack > .sidebar-stack-item > .project-item strong {
+        color: inherit;
+      }
+
+      .project-item-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .project-item-top strong {
+        display: block;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .project-list .project-item small,
+      .sidebar-stack > .sidebar-stack-item > .project-item small {
+        color: color-mix(in srgb, var(--muted) 90%, var(--ink) 10%);
+        display: block;
+        margin-top: 6px;
+      }
+
+      .project-list .project-item .avatar-stack,
+      .sidebar-stack > .sidebar-stack-item > .project-item .avatar-stack {
+        opacity: 0.62;
+        width: auto;
+        flex: 0 0 auto;
+      }
+
+      .project-list .project-item.active,
+      .sidebar-stack > .sidebar-stack-item > .project-item.active {
+        border-color: var(--project-color, var(--accent));
+        border-left-color: var(--project-color, var(--accent));
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--project-color, #121821) 14%, rgba(21, 26, 34, 0.98)), color-mix(in srgb, var(--project-color, #10141b) 8%, rgba(16, 20, 27, 0.92)));
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 92%, transparent),
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 100%, transparent),
+          0 0 0 5px color-mix(in srgb, var(--project-color, var(--accent)) 32%, transparent),
+          0 12px 26px rgba(0, 0, 0, 0.2);
+        color: var(--ink);
+        opacity: 1;
+        filter: none;
+        transform: none;
+      }
+
+      .project-list .project-item.active small,
+      .sidebar-stack > .sidebar-stack-item > .project-item.active small,
+      .project-list .project-item.active .avatar-stack,
+      .sidebar-stack > .sidebar-stack-item > .project-item.active .avatar-stack {
+        opacity: 1;
       }
 
       .sidebar-division {
@@ -1325,6 +1407,10 @@
         border-radius: 12px;
       }
 
+      .project-item.dragging {
+        opacity: 0.55;
+      }
+
       .sidebar-division-rule {
         flex: 1 1 auto;
         height: 1px;
@@ -1342,7 +1428,8 @@
       }
 
       .sidebar-insert-row:hover,
-      .sidebar-insert-row.is-open {
+      .sidebar-insert-row.is-open,
+      .sidebar-insert-row.drag-over {
         opacity: 1;
       }
 
@@ -1359,7 +1446,8 @@
       }
 
       .sidebar-insert-row:hover .sidebar-insert-line,
-      .sidebar-insert-row.is-open .sidebar-insert-line {
+      .sidebar-insert-row.is-open .sidebar-insert-line,
+      .sidebar-insert-row.drag-over .sidebar-insert-line {
         opacity: 1;
       }
 

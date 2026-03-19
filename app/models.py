@@ -45,6 +45,20 @@ class Project(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ProjectSidebarPreference(db.Model):
+    __tablename__ = "project_sidebar_preferences"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    division_id = db.Column(db.Integer, db.ForeignKey("divisions.id"))
+    position = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "project_id", name="uq_project_sidebar_preferences_user_project"),
+    )
+
+
 class ProjectMember(db.Model):
     __tablename__ = "project_members"
     id = db.Column(db.Integer, primary_key=True)

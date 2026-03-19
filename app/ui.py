@@ -19,7 +19,14 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, Project, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
+from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
+from app.sidebar_layout import (
+    ensure_sidebar_preference,
+    insert_project_position,
+    insert_top_level,
+    sidebar_preference_map,
+    top_level_sidebar_items,
+)
 from app.utils import current_user
 
 
@@ -28,58 +35,6 @@ ui_bp = Blueprint("ui", __name__)
 
 def _task_ordering(query):
     return query.order_by(Task.position.asc(), Task.id.asc())
-
-
-def _top_level_sidebar_items(user_id: int, projects: list[Project], divisions: list[Division]) -> list[dict]:
-    division_map = {division.id: division for division in divisions}
-    items = []
-    for project in projects:
-        if project.division_id:
-            continue
-        items.append({"type": "project", "id": project.id, "position": project.position or 0, "project": project})
-    for division in divisions:
-        items.append({"type": "division", "id": division.id, "position": division.position or 0, "division": division})
-    items.sort(key=lambda item: (item["position"], 0 if item["type"] == "division" else 1, item["id"]))
-    return items
-
-
-def _resequence_top_level_items(owner_id: int) -> None:
-    top_projects = Project.query.filter_by(owner_id=owner_id, division_id=None).order_by(Project.position.asc(), Project.id.asc()).all()
-    divisions = Division.query.filter_by(owner_id=owner_id).order_by(Division.position.asc(), Division.id.asc()).all()
-    combined = [{"type": "project", "obj": project, "position": project.position or 0, "id": project.id} for project in top_projects]
-    combined += [{"type": "division", "obj": division, "position": division.position or 0, "id": division.id} for division in divisions]
-    combined.sort(key=lambda item: (item["position"], 0 if item["type"] == "division" else 1, item["id"]))
-    for index, item in enumerate(combined, start=1):
-        item["obj"].position = index
-
-
-def _insert_top_level(owner_id: int, position: int | None) -> int:
-    _resequence_top_level_items(owner_id)
-    max_pos = max(
-        [division.position or 0 for division in Division.query.filter_by(owner_id=owner_id).all()]
-        + [project.position or 0 for project in Project.query.filter_by(owner_id=owner_id, division_id=None).all()]
-        + [0]
-    )
-    insert_pos = max(1, min(position or (max_pos + 1), max_pos + 1))
-    for division in Division.query.filter(Division.owner_id == owner_id, Division.position >= insert_pos).all():
-        division.position += 1
-    for project in Project.query.filter(Project.owner_id == owner_id, Project.division_id.is_(None), Project.position >= insert_pos).all():
-        project.position += 1
-    return insert_pos
-
-
-def _insert_project_position(owner_id: int, division_id: int | None, position: int | None) -> int:
-    if division_id is None:
-        return _insert_top_level(owner_id, position)
-    siblings = Project.query.filter_by(owner_id=owner_id, division_id=division_id).order_by(Project.position.asc(), Project.id.asc()).all()
-    for index, sibling in enumerate(siblings, start=1):
-        sibling.position = index
-    max_pos = len(siblings)
-    insert_pos = max(1, min(position or (max_pos + 1), max_pos + 1))
-    for sibling in siblings:
-        if (sibling.position or 0) >= insert_pos:
-            sibling.position += 1
-    return insert_pos
 
 
 def _division_palette() -> list[str]:
@@ -207,15 +162,19 @@ def dashboard():
         else []
     )
     sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.name.asc(), Division.id.asc()).all()
+    division_options = [{"id": division.id, "name": division.name, "color": division.color} for division in sidebar_divisions]
+    sidebar_pref_map = sidebar_preference_map(user.id, projects, sidebar_divisions)
     projects_by_division = {division.id: [] for division in sidebar_divisions}
-    top_level_items = _top_level_sidebar_items(user.id, projects, sidebar_divisions)
+    top_level_items = top_level_sidebar_items(projects, sidebar_divisions, sidebar_pref_map)
     for project in projects:
-        if project.division_id and project.division_id in projects_by_division:
-            projects_by_division[project.division_id].append(project)
+        pref = sidebar_pref_map.get(project.id)
+        if pref and pref.division_id and pref.division_id in projects_by_division:
+            projects_by_division[pref.division_id].append(project)
     for division_id, grouped_projects in projects_by_division.items():
-        grouped_projects.sort(key=lambda project: (project.position or 0, project.id))
+        grouped_projects.sort(key=lambda project: ((sidebar_pref_map.get(project.id).position if sidebar_pref_map.get(project.id) else 0), project.id))
 
     selected_project = None
+    division_color_map = {division.id: (division.color or "#4cc9f0") for division in sidebar_divisions}
     selected_id = request.args.get("project_id")
     if projects:
         if selected_id:
@@ -235,7 +194,10 @@ def dashboard():
     is_owner = False
     is_project_member = False
     can_manage_project = False
+    selected_project_color = "#4cc9f0"
     if selected_project:
+        selected_pref = sidebar_pref_map.get(selected_project.id)
+        selected_project_color = division_color_map.get(selected_pref.division_id if selected_pref else None, "#4cc9f0")
         is_owner = selected_project.owner_id == user.id
         is_project_member = (
             ProjectMember.query.filter_by(project_id=selected_project.id, user_id=user.id).first()
@@ -344,6 +306,8 @@ def dashboard():
         now_utc=now_utc,
         projects=projects,
         divisions=sidebar_divisions,
+        division_options=division_options,
+        selected_project_color=selected_project_color,
         projects_by_division=projects_by_division,
         top_level_items=top_level_items,
         tasks=tasks,
@@ -549,17 +513,26 @@ def create_project():
         insert_position = int(insert_position_raw) if insert_position_raw else None
     except ValueError:
         insert_position = None
-    project_position = _insert_project_position(user.id, division.id if division else None, insert_position)
+    project_position = insert_project_position(user.id, division.id if division else None, insert_position)
 
     project = Project(
         name=name,
         owner_id=user.id,
-        division_id=division.id if division else None,
-        position=project_position,
+        division_id=None,
+        position=0,
         default_owner_calendar_opt_in=default_owner_calendar_opt_in,
         default_invitee_calendar_opt_in=default_invitee_calendar_opt_in,
     )
     db.session.add(project)
+    db.session.flush()
+    db.session.add(
+        ProjectSidebarPreference(
+            user_id=user.id,
+            project_id=project.id,
+            division_id=division.id if division else None,
+            position=project_position,
+        )
+    )
     db.session.commit()
     max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
     palette = ["#4cc9f0", "#7dd3fc", "#f59e0b", "#34d399", "#f472b6", "#a78bfa", "#f87171", "#38bdf8"]
@@ -587,7 +560,7 @@ def create_division():
     except ValueError:
         insert_position = None
 
-    division_position = _insert_top_level(user.id, insert_position)
+    division_position = insert_top_level(user.id, insert_position)
     palette = _division_palette()
     division = Division(
         owner_id=user.id,
