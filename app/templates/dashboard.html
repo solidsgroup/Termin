@@ -314,10 +314,6 @@
   </aside>
 
   <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
-    <div class="view-switcher">
-      <a class="view-switch{% if current_view == 'project' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='project', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='project', show_completed=1 if show_completed else 0) }}{% endif %}">Project</a>
-      <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if show_completed else 0) }}{% endif %}">Todo List</a>
-    </div>
     {% if current_view == 'todo' %}
       <div class="todo-board">
         {% for date_group in todo_groups_by_date %}
