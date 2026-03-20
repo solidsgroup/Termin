@@ -283,6 +283,33 @@ def _upload_root() -> Path:
     return Path(current_app.instance_path) / "uploads"
 
 
+def _existing_assignment_for_target(
+    *,
+    task_id: int | None = None,
+    subtask_id: int | None = None,
+    account_user_id: int | None = None,
+    email: str | None = None,
+) -> Assignment | None:
+    query = Assignment.query
+    if task_id is None:
+        query = query.filter(Assignment.task_id.is_(None))
+    else:
+        query = query.filter_by(task_id=task_id)
+    if subtask_id is None:
+        query = query.filter(Assignment.subtask_id.is_(None))
+    else:
+        query = query.filter_by(subtask_id=subtask_id)
+
+    normalized_email = (email or "").strip().lower()
+    if account_user_id:
+        existing = query.filter_by(user_id=account_user_id).first()
+        if existing:
+            return existing
+    if normalized_email:
+        return query.filter(db.func.lower(Assignment.email) == normalized_email).first()
+    return None
+
+
 @api_bp.post("/tasks")
 @login_required
 def create_task():
@@ -334,6 +361,25 @@ def create_task():
     if assignee_email:
         email = assignee_email.strip().lower()
         account_user = find_user_by_email(email)
+        existing_assignment = _existing_assignment_for_target(
+            task_id=task.id,
+            account_user_id=account_user.id if account_user else None,
+            email=email,
+        )
+        if existing_assignment:
+            return {
+                "id": task.id,
+                "title": task.title,
+                "assignment": {
+                    "id": existing_assignment.id,
+                    "user_id": existing_assignment.user_id,
+                    "email": existing_assignment.email,
+                    "status": existing_assignment.status,
+                    "display_name": account_user.display_name if account_user else None,
+                    "display_email": account_user.email if account_user else existing_assignment.email,
+                },
+                "info": _info_payload_for(task),
+            }, 200
         assignment = Assignment(
             task_id=task.id,
             user_id=account_user.id if account_user else None,
@@ -1346,6 +1392,22 @@ def create_assignment():
             email=email,
             default_calendar_opt_in=project.default_invitee_calendar_opt_in if project else False,
         )
+    existing_assignment = _existing_assignment_for_target(
+        task_id=task.id if target_type == "task" else None,
+        subtask_id=subtask.id if target_type == "subtask" else None,
+        account_user_id=account_user.id if account_user else None,
+        email=email,
+    )
+    if existing_assignment:
+        return {
+            "id": existing_assignment.id,
+            "user_id": existing_assignment.user_id,
+            "email": existing_assignment.email,
+            "status": existing_assignment.status,
+            "display_name": account_user.display_name if account_user else None,
+            "display_email": account_user.email if account_user else existing_assignment.email,
+            "avatar_url": account_user.avatar_url if account_user else None,
+        }, 200
     assignment = Assignment(
         task_id=task.id if target_type == "task" else None,
         subtask_id=subtask.id if target_type == "subtask" else None,
@@ -1409,14 +1471,18 @@ def send_assignment_link(assignment_id: int):
             calendar_opt_in=collaborator.default_calendar_opt_in,
         )
         db.session.add(invite)
-    invite_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/invites/{invite.token}"
-    manage_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/collaborators/{collaborator.access_token}"
+    base_url = current_app.config["PUBLIC_BASE_URL"].rstrip("/")
+    manage_url = f"{base_url}/collaborators/{collaborator.access_token}"
+    accept_url = f"{base_url}/invites/{invite.token}/quick/accept"
+    decline_url = f"{base_url}/invites/{invite.token}/quick/decline"
 
     try:
         send_magic_link_email(
             to_email=email,
-            invite_url=invite_url,
+            invite_url=None,
             manage_url=manage_url,
+            accept_url=accept_url,
+            decline_url=decline_url,
             project_name=project.name if project else None,
             task_title=task.title if task else None,
             subtask_title=subtask.title if subtask else None,
@@ -1431,7 +1497,7 @@ def send_assignment_link(assignment_id: int):
     assignment.status = "link_sent"
     db.session.commit()
 
-    return {"status": "link_sent", "invite_url": invite_url}, 200
+    return {"status": "link_sent", "invite_url": manage_url}, 200
 
 
 @api_bp.post("/assignments/send_links")
@@ -1453,6 +1519,7 @@ def send_assignment_links_bulk():
     first_email = None
     prepared_items = []
     prepared_assignments = []
+    collaborator = None
 
     for assignment in assignments:
         task = Task.query.get(assignment.task_id) if assignment.task_id else None
@@ -1489,24 +1556,32 @@ def send_assignment_links_bulk():
                 calendar_opt_in=collaborator.default_calendar_opt_in,
             )
             db.session.add(invite)
+            db.session.flush()
 
-        invite_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/invites/{invite.token}"
-        manage_url = f"{current_app.config['PUBLIC_BASE_URL'].rstrip('/')}/collaborators/{collaborator.access_token}"
+        base_url = current_app.config["PUBLIC_BASE_URL"].rstrip("/")
+        manage_url = f"{base_url}/collaborators/{collaborator.access_token}"
         prepared_items.append(
             {
                 "project_name": project.name if project else None,
                 "task_title": task.title if task else None,
                 "subtask_title": subtask.title if subtask else None,
-                "invite_url": invite_url,
+                "invite_url": manage_url,
+                "portal_url": manage_url,
+                "accept_url": f"{base_url}/invites/{invite.token}/quick/accept",
+                "decline_url": f"{base_url}/invites/{invite.token}/quick/decline",
                 "manage_url": manage_url,
             }
         )
         prepared_assignments.append((assignment, invite))
 
     try:
+        invite_id_list = ",".join(str(invite.id) for _assignment, invite in prepared_assignments)
+        bulk_base_url = f"{base_url}/collaborators/{collaborator.access_token}/quick" if collaborator else ""
         send_magic_link_digest_email(
             to_email=first_email,
             manage_url=prepared_items[0].get("manage_url") if prepared_items else None,
+            accept_all_url=f"{bulk_base_url}/accept?invites={invite_id_list}" if bulk_base_url and invite_id_list else None,
+            decline_all_url=f"{bulk_base_url}/decline?invites={invite_id_list}" if bulk_base_url and invite_id_list else None,
             items=prepared_items,
             inviter_email=user.email,
             inviter_name=user.display_name or user.email,
@@ -1583,6 +1658,25 @@ def create_subtask(task_id: int):
     if payload.get("assignee_email"):
         email = payload.get("assignee_email").strip().lower()
         account_user = find_user_by_email(email)
+        existing_assignment = _existing_assignment_for_target(
+            subtask_id=subtask.id,
+            account_user_id=account_user.id if account_user else None,
+            email=email,
+        )
+        if existing_assignment:
+            return {
+                "id": subtask.id,
+                "title": subtask.title,
+                "assignment": {
+                    "id": existing_assignment.id,
+                    "user_id": existing_assignment.user_id,
+                    "email": existing_assignment.email,
+                    "status": existing_assignment.status,
+                    "display_name": account_user.display_name if account_user else None,
+                    "display_email": account_user.email if account_user else existing_assignment.email,
+                },
+                "info": _info_payload_for(subtask),
+            }, 200
         assignment = Assignment(
             subtask_id=subtask.id,
             user_id=account_user.id if account_user else None,

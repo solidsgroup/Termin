@@ -57,6 +57,53 @@
       justify-content: flex-end;
     }
 
+    .collab-settings-form {
+      margin-top: 12px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .collab-settings-row {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      gap: 14px;
+      align-items: center;
+    }
+
+    .collab-settings-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .collab-settings-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      font-size: 14px;
+      min-height: 36px;
+      width: 100%;
+    }
+
+    .collab-settings-toggle input[type="checkbox"] {
+      width: auto;
+      height: auto;
+      margin: 0;
+      flex: 0 0 auto;
+    }
+
+    .collab-settings-toggle span {
+      min-width: 0;
+    }
+
+    @media (max-width: 720px) {
+      .collab-settings-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+    }
+
     .choice-btn {
       border: 1px solid var(--border);
       background: transparent;
@@ -69,8 +116,10 @@
     }
 
     .choice-btn.accept.is-selected {
-      background: rgba(110, 231, 183, 0.16);
-      box-shadow: inset 0 0 0 1px rgba(110, 231, 183, 0.24);
+      background: #15803d;
+      border-color: #15803d;
+      color: #f8fafc;
+      box-shadow: 0 6px 14px rgba(21, 128, 61, 0.22);
     }
 
     .choice-btn.decline {
@@ -79,8 +128,10 @@
     }
 
     .choice-btn.decline.is-selected {
-      background: rgba(248, 113, 113, 0.16);
-      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.24);
+      background: #dc2626;
+      border-color: #dc2626;
+      color: #f8fafc;
+      box-shadow: 0 6px 14px rgba(220, 38, 38, 0.18);
     }
 
     .choice-btn.complete {
@@ -106,10 +157,27 @@
       color: #8e98a7;
     }
 
+    .calendar-btn.is-selected {
+      border-color: rgba(110, 231, 183, 0.45);
+      background: rgba(21, 128, 61, 0.12);
+      color: #7dd3a7;
+    }
+
     .calendar-btn:hover {
       border-color: rgba(255, 255, 255, 0.14);
       background: rgba(255, 255, 255, 0.06);
       color: #c6ccd5;
+    }
+
+    .calendar-btn.is-selected:hover {
+      border-color: rgba(110, 231, 183, 0.58);
+      background: rgba(21, 128, 61, 0.18);
+      color: #d8fbea;
+    }
+
+    .calendar-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
 
     .calendar-btn svg {
@@ -201,10 +269,14 @@
             <button class="btn choice-btn accept{% if entry.status == 'accepted' %} is-selected{% endif %}" type="submit" name="action" value="accept">Accept</button>
             <button class="btn choice-btn decline{% if entry.status in ['declined', 'denied'] %} is-selected{% endif %}" type="submit" name="action" value="decline">Decline</button>
             <button class="btn choice-btn complete{% if entry.is_complete %} is-selected{% endif %}" type="submit" name="action" value="{% if entry.is_complete %}uncomplete{% else %}complete{% endif %}">{% if entry.is_complete %}Undo complete{% else %}Mark complete{% endif %}</button>
-            <button class="btn secondary calendar-btn" type="submit" name="action" value="calendar" title="Send calendar invitation" aria-label="Send calendar invitation">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm11 8H6v10h12V10ZM6 8h12V6H6v2Zm2 4h3v3H8v-3Z"></path>
-              </svg>
+            <button class="btn secondary calendar-btn{% if entry.calendar_opt_in %} is-selected{% endif %}" type="submit" name="action" value="calendar" title="{% if entry.calendar_available %}{% if entry.calendar_invite_sent_at %}Resend calendar invitation{% else %}Send calendar invitation{% endif %}{% else %}Add a due date before sending a calendar invitation{% endif %}" aria-label="{% if entry.calendar_available %}{% if entry.calendar_invite_sent_at %}Resend calendar invitation{% else %}Send calendar invitation{% endif %}{% else %}Add a due date before sending a calendar invitation{% endif %}" {% if not entry.calendar_available %}disabled{% endif %}>
+              {% if entry.calendar_opt_in %}
+                <i class="fa-solid fa-check" aria-hidden="true"></i>
+              {% else %}
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm11 8H6v10h12V10ZM6 8h12V6H6v2Zm2 4h3v3H8v-3Z"></path>
+                </svg>
+              {% endif %}
             </button>
           </form>
         </div>
@@ -216,12 +288,29 @@
 
     <div class="panel">
       <h2>Collaborator Settings</h2>
-      <p class="footer-note">Use this page to manage your invite decisions without creating an account.</p>
-      <form method="post" action="{{ url_for('ui.update_collaborator_settings', token=collaborator.access_token) }}" style="margin-top: 14px;">
-        <label for="collaborator-display-name">Display name</label>
-        <input id="collaborator-display-name" name="display_name" value="{{ collaborator.display_name or '' }}" placeholder="Your name" />
-        <div style="margin-top: 12px;">
-          <button class="btn" type="submit">Save settings</button>
+      <form method="post" action="{{ url_for('ui.update_collaborator_settings', token=collaborator.access_token) }}" class="collab-settings-form" id="collab-settings-form">
+        <div class="collab-settings-row">
+          <label class="collab-settings-label" for="collaborator-email">Email</label>
+          <input id="collaborator-email" value="{{ collaborator.email }}" disabled />
+        </div>
+        <div class="collab-settings-row">
+          <label class="collab-settings-label" for="collaborator-display-name">Full name</label>
+          <input id="collaborator-display-name" name="display_name" value="{{ collaborator.display_name or '' }}" placeholder="Your name" />
+        </div>
+        <div class="collab-settings-row">
+          <label class="collab-settings-label" for="collaborator-notification-preference">Notifications</label>
+          <select id="collaborator-notification-preference" name="notification_preference">
+            <option value="email"{% if collaborator.new_task_notification_preference == "email" %} selected{% endif %}>Notify by email</option>
+            <option value="calendar"{% if collaborator.new_task_notification_preference == "calendar" %} selected{% endif %}>Notify by calendar invitation</option>
+            <option value="none"{% if collaborator.new_task_notification_preference == "none" %} selected{% endif %}>Do not notify</option>
+          </select>
+        </div>
+        <div class="collab-settings-row">
+          <span class="collab-settings-label">Follow-up updates</span>
+          <label class="collab-settings-toggle" for="collaborator-follow-up-updates">
+            <input id="collaborator-follow-up-updates" type="checkbox" name="follow_up_updates"{% if collaborator.update_notification_preference != "none" %} checked{% endif %} />
+            <span>Notify me again when things change</span>
+          </label>
         </div>
       </form>
     </div>
@@ -382,6 +471,33 @@
           );
         });
       });
+
+      const settingsForm = document.getElementById("collab-settings-form");
+      const settingsName = document.getElementById("collaborator-display-name");
+      const settingsPreferences = [
+        document.getElementById("collaborator-notification-preference"),
+        document.getElementById("collaborator-follow-up-updates"),
+      ].filter(Boolean);
+      let settingsSubmitting = false;
+
+      function submitCollaboratorSettings() {
+        if (!settingsForm || settingsSubmitting) return;
+        settingsSubmitting = true;
+        settingsForm.requestSubmit();
+      }
+
+      settingsPreferences.forEach((selectEl) => {
+        selectEl.addEventListener("change", submitCollaboratorSettings);
+      });
+
+      if (settingsName) {
+        settingsName.addEventListener("blur", submitCollaboratorSettings);
+        settingsName.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          settingsName.blur();
+        });
+      }
 
       closeEls.forEach((button) => button.addEventListener("click", () => drawer.classList.remove("open")));
       sendEl.addEventListener("click", submitComment);

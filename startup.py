@@ -174,6 +174,9 @@ def _run_upgrade() -> None:
 
 def _mail_status() -> dict:
     return {
+        "provider": (app.config.get("MAIL_PROVIDER") or "smtp"),
+        "google_service_account_file": app.config.get("GOOGLE_SERVICE_ACCOUNT_FILE"),
+        "google_workspace_sender": app.config.get("GOOGLE_WORKSPACE_SENDER"),
         "host": app.config.get("SMTP_HOST"),
         "port": int(app.config.get("SMTP_PORT") or 587),
         "use_tls": bool(app.config.get("SMTP_USE_TLS")),
@@ -199,15 +202,20 @@ def ensure_mail(interactive: bool | None = None) -> None:
         interactive = sys.stdin.isatty()
 
     status = _mail_status()
-    print(
-        "Mail: "
-        + (
-            f"{status['host']}:{status['port']} "
-            f"(tls={'on' if status['use_tls'] else 'off'}, ssl={'on' if status['use_ssl'] else 'off'})"
-            if status["host"]
-            else "not configured"
+    provider = str(status["provider"] or "smtp")
+    if provider == "gmail_api":
+        sender = status["google_workspace_sender"] or "not configured"
+        print(f"Mail: gmail_api ({sender})")
+    else:
+        print(
+            "Mail: "
+            + (
+                f"{status['host']}:{status['port']} "
+                f"(tls={'on' if status['use_tls'] else 'off'}, ssl={'on' if status['use_ssl'] else 'off'})"
+                if status["host"]
+                else "not configured"
+            )
         )
-    )
     print("Sender headers: inviter display name/email, with app fallback if needed.")
     print(f"Magic-link base URL: {status['public_base_url']}")
     if status["dev_mailbox_enabled"]:
@@ -216,6 +224,25 @@ def ensure_mail(interactive: bool | None = None) -> None:
 
     if status["dev_mailbox_capture_only"]:
         print("Mail capture mode is enabled. Outbound emails will be stored in the in-app dev mailbox only.")
+        return
+
+    if provider == "gmail_api":
+        service_account_file = str(status["google_service_account_file"] or "")
+        sender = str(status["google_workspace_sender"] or "")
+        if not service_account_file or not sender:
+            print("Gmail API delivery is not configured yet.")
+            print("Set GOOGLE_SERVICE_ACCOUNT_FILE and GOOGLE_WORKSPACE_SENDER.")
+            if interactive:
+                raise SystemExit(1)
+            print("Continuing without working mail delivery.")
+            return
+        if not Path(service_account_file).exists():
+            print(f"Gmail service account file not found: {service_account_file}")
+            if interactive:
+                raise SystemExit(1)
+            print("Continuing without working mail delivery.")
+            return
+        print("Gmail API mail configuration looks present.")
         return
 
     if not status["host"]:

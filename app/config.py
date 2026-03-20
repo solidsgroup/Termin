@@ -38,7 +38,10 @@ class Config:
         f"https://{_render_hostname}" if _render_hostname else "http://localhost:5000",
     )
 
-    # SMTP for magic-link delivery
+    # Mail delivery
+    MAIL_PROVIDER = _env("MAIL_PROVIDER", "smtp")
+    GOOGLE_SERVICE_ACCOUNT_FILE = _env("GOOGLE_SERVICE_ACCOUNT_FILE")
+    GOOGLE_WORKSPACE_SENDER = _env("GOOGLE_WORKSPACE_SENDER")
     SMTP_HOST = _env("SMTP_HOST")
     SMTP_PORT = int(_env("SMTP_PORT", "587"))
     SMTP_USERNAME = _env("SMTP_USERNAME")
@@ -46,7 +49,7 @@ class Config:
     SMTP_USE_TLS = _env_bool("SMTP_USE_TLS", True)
     SMTP_USE_SSL = _env_bool("SMTP_USE_SSL", False)
     SMTP_TIMEOUT = int(_env("SMTP_TIMEOUT", "20"))
-    MAIL_FROM_EMAIL = _env("MAIL_FROM_EMAIL")
+    MAIL_FROM_EMAIL = _env("MAIL_FROM_EMAIL") or GOOGLE_WORKSPACE_SENDER
     MAIL_FROM_NAME = _env("MAIL_FROM_NAME", "Termin")
     DEV_MAILBOX_ENABLED = _env_bool("DEV_MAILBOX_ENABLED", True)
     DEV_MAILBOX_CAPTURE_ONLY = _env_bool("DEV_MAILBOX_CAPTURE_ONLY", True)

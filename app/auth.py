@@ -21,12 +21,24 @@ from app.oauth import oauth
 
 
 auth_bp = Blueprint("auth", __name__)
+OWNER_BOOTSTRAP_EMAIL = "brunnels@solids.group"
+
+
+def _can_self_bootstrap_account(email: str | None) -> bool:
+    return normalize_email(email) == OWNER_BOOTSTRAP_EMAIL
+
+
+def _provider_login_error(message: str):
+    session["auth_error"] = message
+    return redirect(url_for("auth.login"))
 
 
 def _get_or_create_user(email: str, display_name: str | None, avatar_url: str | None):
     normalized_email = normalize_email(email)
     user = find_user_by_email(normalized_email)
     if not user:
+        if not _can_self_bootstrap_account(normalized_email):
+            raise ValueError("No account is available for that email yet. Use your invitation email link to claim access first.")
         user = User(email=normalized_email, display_name=display_name, avatar_url=avatar_url)
         db.session.add(user)
     else:
@@ -255,7 +267,7 @@ def login_required(fn):
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    error = None
+    error = session.pop("auth_error", None)
     if request.method == "POST":
         email = request.form.get("email")
         password = request.form.get("password") or ""
@@ -347,7 +359,7 @@ def google_callback():
             avatar_url=userinfo.get("picture"),
         )
     except ValueError as exc:
-        return str(exc), 400
+        return _provider_login_error(str(exc))
 
     _upsert_calendar_account(
         user_id=user.id,
@@ -424,7 +436,7 @@ def github_callback():
             expires_in=token.get("expires_in"),
         )
     except ValueError as exc:
-        return str(exc), 400
+        return _provider_login_error(str(exc))
 
     return redirect(url_for("ui.dashboard"))
 

@@ -178,6 +178,7 @@ class Invite(db.Model):
     token = db.Column(db.String(64), unique=True, nullable=False)
     status = db.Column(db.String(50), default="sent", nullable=False)
     calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
+    calendar_invite_sent_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -189,6 +190,9 @@ class CollaboratorProfile(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     display_name = db.Column(db.String(255))
     default_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
+    notification_preference = db.Column(db.String(24), nullable=False, default="email")
+    new_task_notification_preference = db.Column(db.String(24), nullable=False, default="email")
+    update_notification_preference = db.Column(db.String(24), nullable=False, default="email")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
