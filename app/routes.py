@@ -310,6 +310,12 @@ def _existing_assignment_for_target(
     return None
 
 
+def _reset_existing_assignment(existing: Assignment) -> Assignment:
+    existing.status = "assigned" if existing.user_id else "draft"
+    Invite.query.filter_by(assignment_id=existing.id).delete(synchronize_session=False)
+    return existing
+
+
 @api_bp.post("/tasks")
 @login_required
 def create_task():
@@ -367,6 +373,8 @@ def create_task():
             email=email,
         )
         if existing_assignment:
+            _reset_existing_assignment(existing_assignment)
+            db.session.commit()
             return {
                 "id": task.id,
                 "title": task.title,
@@ -1399,6 +1407,8 @@ def create_assignment():
         email=email,
     )
     if existing_assignment:
+        _reset_existing_assignment(existing_assignment)
+        db.session.commit()
         return {
             "id": existing_assignment.id,
             "user_id": existing_assignment.user_id,
@@ -1664,6 +1674,8 @@ def create_subtask(task_id: int):
             email=email,
         )
         if existing_assignment:
+            _reset_existing_assignment(existing_assignment)
+            db.session.commit()
             return {
                 "id": subtask.id,
                 "title": subtask.title,
