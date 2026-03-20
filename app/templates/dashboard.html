@@ -2,7 +2,7 @@
 {% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
   {% set project_color = color or '#2a3442' %}
-  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ project_color }}; border-color: {{ project_color }}; border-left-color: {{ project_color }}; box-shadow: inset 0 0 0 1px color-mix(in srgb, {{ project_color }} 88%, transparent), 0 0 0 1px color-mix(in srgb, {{ project_color }} 62%, transparent), 0 8px 18px rgba(0, 0, 0, 0.14);" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}"{% if can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
+  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}"{% if can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
     {% set viewers = project_viewers.get(project.id, []) %}
     {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
     <div class="project-item-top">
@@ -126,6 +126,10 @@
               <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
             {% endif %}
             <button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="{{ task.id }}" data-info-payload="{{ task_info|tojson|forceescape }}" onclick="return window.__openInfoModal('task', '{{ task.id }}');">Info</button>
+            <button class="comment-button{% if task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project.name|e if selected_project else '' }}" onclick='return window.__openDiscussion({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project.name if selected_project else "")|tojson }});'>
+              <i class="fa-regular fa-comments" aria-hidden="true"></i>
+              <span data-comment-count="{{ task.id }}">{{ comment_counts.get(task.id, 0) }}</span>
+            </button>
           </div>
         </td>
         <td>
@@ -172,9 +176,9 @@
               <span class="assign-action">
                 {% if assignments_by_task.get(task.id, [])|length == 0 %}
                   <button class="assign-add-btn" type="button" title="Assign">+</button>
-                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                 {% else %}
-                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" />
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                   <button class="assign-add-btn" type="button" title="Assign">+</button>
                 {% endif %}
               </span>
@@ -233,9 +237,9 @@
               <span class="assign-action">
                 {% if assignments_by_subtask.get(subtask.id, [])|length == 0 %}
                   <button class="assign-add-btn" type="button" title="Assign">+</button>
-                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" />
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                 {% else %}
-                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" />
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="subtask" data-target-id="{{ subtask.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                   <button class="assign-add-btn" type="button" title="Assign">+</button>
                 {% endif %}
               </span>
@@ -246,7 +250,7 @@
       <tr class="subtasks-row" data-subtasks-for="{{ task.id }}" style="display: none;">
         <td></td>
         <td class="tree-cell">
-          <input placeholder="New subtask..." data-subtask-new="title" data-task-id="{{ task.id }}" />
+          <input placeholder="New subtask..." data-subtask-new="title" data-task-id="{{ task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
         </td>
         <td>
           <input class="due-input" type="date" data-subtask-new="due_at" data-task-id="{{ task.id }}" />
@@ -255,7 +259,7 @@
           <span class="tag">open</span>
         </td>
         <td>
-          <input placeholder="assignee@email" data-subtask-new="assignee_email" data-task-id="{{ task.id }}" data-col="4" />
+          <input placeholder="assignee@email" data-subtask-new="assignee_email" data-task-id="{{ task.id }}" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
         </td>
       </tr>
       {% endif %}
@@ -341,6 +345,10 @@
                     {% else %}
                       <div class="editable todo-item-title" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="title" data-col="1">{{ item.task.title }}</div>
                     {% endif %}
+                    <button class="comment-button{% if item.task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ item.project.name|e if item.project else '' }}" onclick='return window.__openDiscussion({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (item.project.name if item.project else "")|tojson }});'>
+                      <i class="fa-regular fa-comments" aria-hidden="true"></i>
+                      <span data-comment-count="{{ item.task.id }}">{{ comment_counts.get(item.task.id, 0) }}</span>
+                    </button>
                   </div>
                   <div class="due-cell todo-due-cell" data-due-cell onclick="return window.__openDueInput(this);">
                     <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
@@ -379,7 +387,7 @@
                         </span>
                       {% endfor %}
                       <span class="assign-action">
-                        <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" />
+                        <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                         <button class="assign-add-btn" type="button" title="Assign">+</button>
                       </span>
                     </div>
@@ -478,7 +486,7 @@
                 <tr class="new-row">
                     <td></td>
                     <td>
-                      <input placeholder="New task..." data-new-task="title" data-col="1" />
+                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                     </td>
                     <td>
                       <input class="due-input" type="date" data-new-task="due_at" data-col="2" />
@@ -488,7 +496,7 @@
                     </td>
                     <td>
                       <div class="cell-controls">
-                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" />
+                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                       </div>
                     </td>
                 </tr>
@@ -534,7 +542,7 @@
                 <tr class="new-row">
                     <td></td>
                     <td>
-                      <input placeholder="New task..." data-new-task="title" data-col="1" />
+                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                     </td>
                     <td>
                       <input class="due-input" type="date" data-new-task="due_at" data-col="2" />
@@ -544,7 +552,7 @@
                     </td>
                     <td>
                       <div class="cell-controls">
-                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" />
+                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                       </div>
                     </td>
                 </tr>
@@ -562,6 +570,26 @@
   </section>
 </div>
 
+<aside class="discussion-drawer{% if request.args.get('open_discussion_task_id') %} open{% endif %}" id="discussion-drawer" data-open-task-id="{{ request.args.get('open_discussion_task_id', '') }}">
+  <div class="discussion-header">
+    <div>
+      <div class="discussion-title" id="discussion-title">Discussion</div>
+      <div class="discussion-subtitle" id="discussion-subtitle">Task comments and decisions</div>
+    </div>
+    <button class="icon-button" type="button" id="discussion-close" title="Close discussion">×</button>
+  </div>
+  <div class="discussion-list" id="discussion-list">
+    <div class="footer-note">Select a task to view discussion.</div>
+  </div>
+  <div class="discussion-compose">
+    <textarea id="discussion-input" placeholder="Write a comment..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+    <div style="display: flex; justify-content: flex-end; gap: 10px;">
+      <button class="btn secondary" type="button" id="discussion-cancel">Close</button>
+      <button class="btn" type="button" id="discussion-send">Comment</button>
+    </div>
+  </div>
+</aside>
+
 <div id="context-menu" class="context-menu">
   <button data-action="rename">Rename</button>
   <button data-action="move">Move</button>
@@ -570,18 +598,20 @@
     <div id="division-color-submenu" class="context-submenu-panel">
       <div class="color-menu-title">Division Color</div>
       <div class="color-preset-grid">
-        <button type="button" class="color-preset" data-color-value="#4cc9f0" style="--swatch:#4cc9f0;" aria-label="Choose cyan"></button>
-        <button type="button" class="color-preset" data-color-value="#f59e0b" style="--swatch:#f59e0b;" aria-label="Choose amber"></button>
-        <button type="button" class="color-preset" data-color-value="#34d399" style="--swatch:#34d399;" aria-label="Choose green"></button>
-        <button type="button" class="color-preset" data-color-value="#f472b6" style="--swatch:#f472b6;" aria-label="Choose pink"></button>
-        <button type="button" class="color-preset" data-color-value="#a78bfa" style="--swatch:#a78bfa;" aria-label="Choose violet"></button>
-        <button type="button" class="color-preset" data-color-value="#f87171" style="--swatch:#f87171;" aria-label="Choose red"></button>
-        <button type="button" class="color-preset" data-color-value="#38bdf8" style="--swatch:#38bdf8;" aria-label="Choose sky"></button>
-        <button type="button" class="color-preset" data-color-value="#facc15" style="--swatch:#facc15;" aria-label="Choose yellow"></button>
+        <button type="button" class="color-preset" data-color-value="#1f77b4" style="--swatch:#1f77b4;" aria-label="Choose blue"></button>
+        <button type="button" class="color-preset" data-color-value="#ff7f0e" style="--swatch:#ff7f0e;" aria-label="Choose orange"></button>
+        <button type="button" class="color-preset" data-color-value="#2ca02c" style="--swatch:#2ca02c;" aria-label="Choose green"></button>
+        <button type="button" class="color-preset" data-color-value="#d62728" style="--swatch:#d62728;" aria-label="Choose red"></button>
+        <button type="button" class="color-preset" data-color-value="#9467bd" style="--swatch:#9467bd;" aria-label="Choose purple"></button>
+        <button type="button" class="color-preset" data-color-value="#8c564b" style="--swatch:#8c564b;" aria-label="Choose brown"></button>
+        <button type="button" class="color-preset" data-color-value="#e377c2" style="--swatch:#e377c2;" aria-label="Choose pink"></button>
+        <button type="button" class="color-preset" data-color-value="#7f7f7f" style="--swatch:#7f7f7f;" aria-label="Choose gray"></button>
+        <button type="button" class="color-preset" data-color-value="#bcbd22" style="--swatch:#bcbd22;" aria-label="Choose olive"></button>
+        <button type="button" class="color-preset" data-color-value="#17becf" style="--swatch:#17becf;" aria-label="Choose teal"></button>
       </div>
       <label class="color-custom-row" for="division-color-input">
         <span>Custom</span>
-        <input id="division-color-input" type="color" value="#4cc9f0" />
+        <input id="division-color-input" type="color" value="#1f77b4" />
       </label>
       <div class="color-menu-actions">
         <button type="button" class="btn secondary" id="division-color-clear">Clear</button>
@@ -599,7 +629,7 @@
   <button type="button" data-status-option="complete"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Complete</span></button>
   <div class="status-menu-custom">
     <label for="status-menu-input">Custom</label>
-    <input id="status-menu-input" type="text" placeholder="Custom status" />
+    <input id="status-menu-input" type="text" placeholder="Custom status" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
     <button type="button" class="btn secondary" id="status-menu-apply">Apply</button>
   </div>
 </div>
@@ -608,7 +638,7 @@
   <div class="panel">
     <h3 id="share-title">Share</h3>
     <label for="share-input">Add user</label>
-    <input id="share-input" placeholder="Type a name or email" />
+    <input id="share-input" placeholder="Type a name or email" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
     <div id="share-suggest" class="suggest-list"></div>
     <div id="share-status" class="footer-note" style="margin-top: 8px;"></div>
     <div id="share-list" class="share-list"></div>
@@ -1031,6 +1061,7 @@
           '<div class="task-cell' + (hasInfo ? " has-info" : "") + '">' +
             '<div class="editable" contenteditable="true" data-task-id="' + taskId + '" data-field="title" data-col="1">' + escapeHtml(title) + '</div>' +
             '<button class="btn link info-btn" type="button" data-info-edit="task" data-task-id="' + taskId + '" data-info-payload="' + escapeHtml(JSON.stringify(info)) + '" onclick="return window.__openInfoModal(\'task\', \'' + taskId + '\');">Info</button>' +
+            "<button class=\"comment-button\" type=\"button\" data-open-discussion=\"" + taskId + "\" data-task-title=\"" + escapeHtml(title) + "\" data-project-name=\"\" onclick='return window.__openDiscussion(" + JSON.stringify(String(taskId)) + ", " + JSON.stringify(title) + ", \"\");'><i class=\"fa-regular fa-comments\" aria-hidden=\"true\"></i><span data-comment-count=\"" + taskId + "\">0</span></button>" +
           '</div>' +
         '</td>' +
         '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" /></div></td>' +
@@ -1039,7 +1070,7 @@
           '<div class="assignments">' +
             '<span class="assign-action">' +
               '<button class="assign-add-btn" type="button" title="Assign">+</button>' +
-              '<input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + taskId + '" />' +
+              '<input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + taskId + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />' +
             '</span>' +
             '<span class="assign-spacer"></span>' +
             '<button class="icon-button" type="button" data-delete-task="' + taskId + '" title="Delete task">×</button>' +
@@ -1859,9 +1890,18 @@
       }, Promise.resolve());
     }
 
+    function disableBrowserSuggestions(input) {
+      if (!input) return;
+      input.setAttribute("autocomplete", "off");
+      input.setAttribute("autocorrect", "off");
+      input.setAttribute("autocapitalize", "off");
+      input.setAttribute("spellcheck", "false");
+    }
+
     function bindAssignInput(input) {
       if (!input || input.dataset.assignFallbackBound === "1") return;
       input.dataset.assignFallbackBound = "1";
+      disableBrowserSuggestions(input);
       input.addEventListener("input", function () {
         var value = input.value.trim();
         hideAssignSuggest(input);
@@ -1938,6 +1978,7 @@
     function initAssignFallback() {
       document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
       document.querySelectorAll("[data-new-task='assignee_email']").forEach(bindAssignInput);
+      document.querySelectorAll("[data-new-task='title'], [data-subtask-new='title'], #status-menu-input, #share-input").forEach(disableBrowserSuggestions);
 
       document.querySelectorAll(".tasks-table").forEach(function (table) {
         var newRow = table.querySelector(".new-row");
@@ -2590,6 +2631,10 @@
     const bindAssignInput = (input) => {
       if (!input || input.dataset.boundAssign === "1") return;
       input.dataset.boundAssign = "1";
+      input.setAttribute("autocomplete", "off");
+      input.setAttribute("autocorrect", "off");
+      input.setAttribute("autocapitalize", "off");
+      input.setAttribute("spellcheck", "false");
       input.addEventListener("input", (event) => {
         const value = input.value.trim();
         if (value.length < 1) {
@@ -2666,7 +2711,7 @@
           <div class="assignments">
             ${data.assignment ? renderAssignmentBadge(data.assignment) : ""}
             <span class="assign-action">
-              <input class="assign-input" placeholder="assignee@email" data-assign-input="subtask" data-target-id="${data.id}" />
+              <input class="assign-input" placeholder="assignee@email" data-assign-input="subtask" data-target-id="${data.id}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
             </span>
           </div>
         </td>
@@ -2729,7 +2774,7 @@
           <div class="assignments">
             ${assignment ? renderAssignmentBadge(assignment) : ""}
             <span class="assign-action">
-              <input class="assign-input" placeholder="assignee@email" data-assign-input="task" data-target-id="${id}" />
+              <input class="assign-input" placeholder="assignee@email" data-assign-input="task" data-target-id="${id}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
             </span>
             <span class="assign-spacer"></span>
             <button class="icon-button" type="button" data-delete-task="${id}" title="Delete task">×</button>
@@ -4427,6 +4472,304 @@
     } else {
       initGithubBackgroundSync();
     }
+  })();
+</script>
+
+<script>
+  (function () {
+    var drawer = document.getElementById("discussion-drawer");
+    if (!drawer) return;
+    var listEl = document.getElementById("discussion-list");
+    var inputEl = document.getElementById("discussion-input");
+    var sendEl = document.getElementById("discussion-send");
+    var closeEls = [document.getElementById("discussion-close"), document.getElementById("discussion-cancel")].filter(Boolean);
+    var titleEl = document.getElementById("discussion-title");
+    var subtitleEl = document.getElementById("discussion-subtitle");
+    var currentTaskId = null;
+    var currentTaskTitle = "";
+    var currentProjectName = "";
+    var commentSnapshot = "";
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderCommentBody(value) {
+      return escapeHtml(value).replace(
+        /(https?:\/\/[^\s<]+)/g,
+        function (url) {
+          return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + "</a>";
+        }
+      );
+    }
+
+    function relativeTime(value) {
+      var date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      var diff = Math.max(0, Date.now() - date.getTime());
+      var minutes = Math.floor(diff / 60000);
+      if (minutes < 1) return "Just now";
+      if (minutes < 60) return minutes + "m ago";
+      var hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + "h ago";
+      var days = Math.floor(hours / 24);
+      if (days < 7) return days + "d ago";
+      return date.toISOString().slice(0, 10);
+    }
+
+    function setCommentCount(taskId, count) {
+      document.querySelectorAll('[data-comment-count="' + taskId + '"]').forEach(function (el) {
+        el.textContent = String(count);
+        var button = el.closest(".comment-button");
+        if (button) {
+          button.classList.toggle("has-unread", count > 0);
+        }
+      });
+    }
+
+    function setNotificationCount(count) {
+      var badge = document.querySelector(".notifications-count");
+      if (count > 0) {
+        if (!badge) {
+          var trigger = document.querySelector(".notifications-trigger");
+          if (!trigger) return;
+          badge = document.createElement("span");
+          badge.className = "notifications-count";
+          trigger.appendChild(badge);
+        }
+        badge.textContent = String(count);
+      } else if (badge) {
+        badge.remove();
+      }
+    }
+
+    function notificationHref(item) {
+      var params = new URLSearchParams(window.location.search);
+      if (item.project_id) {
+        params.set("project_id", String(item.project_id));
+      }
+      params.set("view", "project");
+      params.set("open_discussion_task_id", String(item.task_id));
+      if (!params.has("show_completed")) {
+        params.set("show_completed", "1");
+      }
+      return "/?" + params.toString();
+    }
+
+    function renderNotificationMenu(items) {
+      var menu = document.querySelector(".notifications-menu");
+      if (!menu) return;
+      if (!items || !items.length) {
+        menu.innerHTML = '<div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread notifications.</div>';
+        return;
+      }
+      menu.innerHTML = items.map(function (item) {
+        var project = item.project_name ? escapeHtml(item.project_name) + " · " : "";
+        var preview = item.comment_preview ? escapeHtml(item.comment_preview) : "New activity";
+        return (
+          '<a class="notifications-item" href="' + escapeHtml(notificationHref(item)) + '">' +
+            '<div class="notifications-title">' + escapeHtml(item.task_title || "Task") + '</div>' +
+            '<div class="notifications-copy">' + project + preview + '</div>' +
+          '</a>'
+        );
+      }).join("");
+    }
+
+    function setTaskUnread(taskId, unread) {
+      document.querySelectorAll('[data-open-discussion="' + taskId + '"]').forEach(function (button) {
+        button.classList.toggle("has-unread", !!unread);
+      });
+    }
+
+    function renderComment(comment) {
+      var author = comment.author || {};
+      var name = author.display_name || author.email || "User";
+      var avatar = author.avatar_url
+        ? '<img src="' + escapeHtml(author.avatar_url) + '" alt="avatar" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(name.charAt(0).toUpperCase()) + '; this.remove();" />'
+        : escapeHtml(name.charAt(0).toUpperCase());
+      return (
+        '<div class="discussion-comment">' +
+          '<div class="discussion-comment-header">' +
+            '<div class="discussion-comment-avatar">' + avatar + '</div>' +
+            '<div class="discussion-comment-meta">' +
+              '<div class="discussion-comment-author">' + escapeHtml(name) + '</div>' +
+              '<div class="discussion-comment-time">' + escapeHtml(relativeTime(comment.created_at)) + '</div>' +
+            '</div>' +
+            '<button class="discussion-comment-unread" type="button" data-comment-unread="' + escapeHtml(comment.id) + '" title="Mark unread from here" aria-label="Mark unread from here"><i class="fa-regular fa-envelope" aria-hidden="true"></i></button>' +
+          '</div>' +
+          '<div class="discussion-comment-body">' + renderCommentBody(comment.body) + '</div>' +
+        '</div>'
+      );
+    }
+
+    function closeDrawer() {
+      drawer.classList.remove("open");
+    }
+
+    function markRead(taskId) {
+      fetch("/api/tasks/" + taskId + "/notifications/read", {
+        method: "POST",
+        credentials: "same-origin",
+      })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          setNotificationCount(Number(data.unread_total || 0));
+        })
+        .catch(function () {});
+    }
+
+    function loadComments(taskId, taskTitle, projectName) {
+      currentTaskId = taskId;
+      currentTaskTitle = taskTitle || "";
+      currentProjectName = projectName || "";
+      titleEl.textContent = taskTitle || "Discussion";
+      subtitleEl.textContent = projectName ? projectName + " · Task discussion" : "Task discussion";
+      listEl.innerHTML = '<div class="footer-note">Loading…</div>';
+      drawer.classList.add("open");
+      fetch("/api/tasks/" + taskId + "/comments", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          var comments = data.comments || [];
+          commentSnapshot = JSON.stringify(comments);
+          if (!comments.length) {
+            listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
+          } else {
+            listEl.innerHTML = comments.map(renderComment).join("");
+          }
+          setCommentCount(taskId, comments.length);
+          setTaskUnread(taskId, false);
+          markRead(taskId);
+        })
+        .catch(function () {
+          listEl.innerHTML = '<div class="footer-note">Could not load comments.</div>';
+        });
+    }
+
+    function submitComment() {
+      var body = (inputEl.value || "").trim();
+      if (!currentTaskId || !body) return;
+      sendEl.disabled = true;
+      fetch("/api/tasks/" + currentTaskId + "/comments", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: body }),
+      })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          if (!data.comment) return;
+          var empty = listEl.querySelector(".footer-note");
+          if (empty) listEl.innerHTML = "";
+          listEl.insertAdjacentHTML("beforeend", renderComment(data.comment));
+          inputEl.value = "";
+          var countEls = document.querySelectorAll('[data-comment-count="' + currentTaskId + '"]');
+          var current = countEls.length ? Number(countEls[0].textContent || "0") : 0;
+          setCommentCount(currentTaskId, current + 1);
+          listEl.scrollTop = listEl.scrollHeight;
+        })
+        .finally(function () {
+          sendEl.disabled = false;
+        });
+    }
+
+    window.__openDiscussion = function (taskId, taskTitle, projectName) {
+      loadComments(taskId, taskTitle, projectName);
+      return false;
+    };
+
+    document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        loadComments(
+          button.getAttribute("data-open-discussion"),
+          button.getAttribute("data-task-title"),
+          button.getAttribute("data-project-name")
+        );
+      });
+    });
+
+    closeEls.forEach(function (button) {
+      button.addEventListener("click", closeDrawer);
+    });
+    sendEl.addEventListener("click", submitComment);
+    listEl.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-comment-unread]");
+      if (!button || !currentTaskId) return;
+      fetch("/api/tasks/" + currentTaskId + "/notifications/unread", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment_id: button.getAttribute("data-comment-unread") }),
+      })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          setNotificationCount(Number(data.unread_total || 0));
+          setTaskUnread(currentTaskId, true);
+        })
+        .catch(function () {});
+    });
+    inputEl.addEventListener("keydown", function (event) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        submitComment();
+      }
+    });
+
+    var openTaskId = drawer.getAttribute("data-open-task-id");
+    if (openTaskId) {
+      var button = document.querySelector('[data-open-discussion="' + openTaskId + '"]');
+      if (button) {
+        loadComments(
+          openTaskId,
+          button.getAttribute("data-task-title"),
+          button.getAttribute("data-project-name")
+        );
+      }
+    }
+
+    function pollNotificationState() {
+      fetch("/api/notifications", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          setNotificationCount(Number(data.unread_total || 0));
+          renderNotificationMenu(data.notifications || []);
+          var unreadTaskIds = new Set((data.unread_task_ids || []).map(function (id) { return String(id); }));
+          document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
+            var taskId = String(button.getAttribute("data-open-discussion"));
+            button.classList.toggle("has-unread", unreadTaskIds.has(taskId));
+          });
+        })
+        .catch(function () {});
+    }
+
+    function pollOpenDiscussion() {
+      if (!currentTaskId || !drawer.classList.contains("open")) return;
+      fetch("/api/tasks/" + currentTaskId + "/comments", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          var comments = data.comments || [];
+          var nextSnapshot = JSON.stringify(comments);
+          if (nextSnapshot === commentSnapshot) return;
+          commentSnapshot = nextSnapshot;
+          if (!comments.length) {
+            listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
+          } else {
+            listEl.innerHTML = comments.map(renderComment).join("");
+          }
+          setCommentCount(currentTaskId, comments.length);
+          setTaskUnread(currentTaskId, false);
+          markRead(currentTaskId);
+          listEl.scrollTop = listEl.scrollHeight;
+        })
+        .catch(function () {});
+    }
+
+    window.setInterval(pollNotificationState, 15000);
+    window.setInterval(pollOpenDiscussion, 10000);
   })();
 </script>
 {% endblock %}

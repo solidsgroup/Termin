@@ -25,7 +25,7 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CollaboratorProfile, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember
+from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -56,10 +56,21 @@ def _task_ordering(query):
 
 
 def _division_palette() -> list[str]:
-    return ["#4cc9f0", "#f59e0b", "#34d399", "#f472b6", "#a78bfa", "#f87171", "#38bdf8", "#facc15"]
+    return [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf",
+    ]
 
 
-def _render_account_page(user: User, *, error: str | None = None, message: str | None = None):
+def _render_account_page(user: User, *, section: str = "emails", error: str | None = None, message: str | None = None):
     emails = list_user_emails(user.id)
     identities = list_external_identities(user.id)
     pending = EmailVerification.query.filter(
@@ -76,7 +87,8 @@ def _render_account_page(user: User, *, error: str | None = None, message: str |
         pending_verifications=pending,
         github_identity=github_identity,
         github_sync_state=github_sync_state,
-        title="Account",
+        title="Settings",
+        account_section=section,
         error=error,
         merge_message=message,
     )
@@ -252,6 +264,11 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     return entries
 
 
+def _collaborator_task_ids(collaborator: CollaboratorProfile) -> set[int]:
+    entries = _build_collaborator_entries(collaborator)
+    return {entry["task"].id for entry in entries if entry.get("task")}
+
+
 def _work_item_status(task: Task | None, subtask: Subtask | None) -> str:
     return (subtask.status if subtask else (task.status if task else "open")) or "open"
 
@@ -265,6 +282,45 @@ def _mark_work_item_complete(task: Task | None, subtask: Subtask | None) -> None
         subtask.status = "complete"
     elif task:
         task.status = "complete"
+
+
+def _mark_work_item_open(task: Task | None, subtask: Subtask | None) -> None:
+    if subtask:
+        subtask.status = "open"
+    elif task:
+        task.status = "open"
+
+
+def _serialize_portal_comment(comment: TaskComment, users: dict[int, User], collaborators: dict[int, CollaboratorProfile]) -> dict:
+    collaborator = collaborators.get(comment.collaborator_id) if comment.collaborator_id else None
+    user = users.get(comment.user_id) if comment.user_id else None
+    if collaborator:
+        author = {
+            "id": collaborator.id,
+            "display_name": collaborator.display_name or collaborator.email,
+            "email": collaborator.email,
+            "avatar_url": None,
+            "kind": "collaborator",
+        }
+    else:
+        label = (user.display_name or user.email) if user else "Unknown user"
+        author = {
+            "id": user.id if user else None,
+            "display_name": label,
+            "email": user.email if user else None,
+            "avatar_url": user.avatar_url if user else None,
+            "kind": "user",
+        }
+    return {
+        "id": comment.id,
+        "task_id": comment.task_id,
+        "user_id": comment.user_id,
+        "collaborator_id": comment.collaborator_id,
+        "body": comment.body,
+        "created_at": comment.created_at.isoformat(),
+        "updated_at": comment.updated_at.isoformat(),
+        "author": author,
+    }
 
 
 def _apply_invite_response(invite: Invite, action: str, calendar_opt_in: bool) -> None:
@@ -594,6 +650,61 @@ def dashboard():
         [task.id for task in todo_tasks + tasks],
         user_map,
     )
+    visible_dashboard_task_ids = {task.id for task in todo_tasks + tasks}
+    comment_counts = {}
+    if visible_dashboard_task_ids:
+        comment_counts = {
+            task_id: count
+            for task_id, count in (
+                db.session.query(TaskComment.task_id, db.func.count(TaskComment.id))
+                .filter(TaskComment.task_id.in_(visible_dashboard_task_ids))
+                .group_by(TaskComment.task_id)
+                .all()
+            )
+        }
+    notification_rows = (
+        TaskNotification.query.filter_by(user_id=user.id)
+        .filter(TaskNotification.read_at.is_(None))
+        .order_by(TaskNotification.created_at.desc(), TaskNotification.id.desc())
+        .limit(12)
+        .all()
+    )
+    unread_task_ids = {
+        task_id
+        for (task_id,) in (
+            db.session.query(TaskNotification.task_id)
+            .filter(TaskNotification.user_id == user.id, TaskNotification.read_at.is_(None))
+            .distinct()
+            .all()
+        )
+        if task_id
+    }
+    notification_comment_ids = [row.comment_id for row in notification_rows if row.comment_id]
+    notification_task_ids = [row.task_id for row in notification_rows]
+    notification_comments = {
+        row.id: row
+        for row in TaskComment.query.filter(TaskComment.id.in_(notification_comment_ids)).all()
+    } if notification_comment_ids else {}
+    notification_tasks = {
+        row.id: row
+        for row in Task.query.filter(Task.id.in_(notification_task_ids)).all()
+    } if notification_task_ids else {}
+    task_notifications = []
+    for row in notification_rows:
+        task = notification_tasks.get(row.task_id)
+        comment = notification_comments.get(row.comment_id)
+        project = project_map.get(task.project_id) if task else None
+        task_notifications.append(
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "task_title": task.title if task else "Task",
+                "project_id": project.id if project else None,
+                "project_name": project.name if project else None,
+                "comment_preview": ((comment.body[:120] + "…") if comment and len(comment.body) > 120 else (comment.body if comment else "")),
+                "created_at": row.created_at,
+            }
+        )
     todo_groups_by_date = []
     for item in todo_items:
         if not todo_groups_by_date or todo_groups_by_date[-1]["key"] != item["date_key"]:
@@ -632,6 +743,9 @@ def dashboard():
         github_task_meta=github_task_meta,
         github_project_id=github_project_id,
         github_auto_sync_needed=github_auto_sync_needed,
+        comment_counts=comment_counts,
+        unread_task_ids=unread_task_ids,
+        task_notifications=task_notifications,
     )
 
 
@@ -648,7 +762,22 @@ def dev_mailbox():
 @login_required
 def account():
     user = current_user()
-    return _render_account_page(user)
+    section = (request.args.get("section") or "emails").strip().lower()
+    if section not in {"emails", "experience"}:
+        section = "emails"
+    return _render_account_page(user, section=section)
+
+
+@ui_bp.post("/account/experience")
+@login_required
+def update_account_experience():
+    user = current_user()
+    theme_mode = (request.form.get("theme_mode") or "dark").strip().lower()
+    if theme_mode not in {"dark", "light"}:
+        return _render_account_page(user, section="experience", error="Invalid theme selection.")
+    user.theme_mode = theme_mode
+    db.session.commit()
+    return _render_account_page(user, section="experience", message="Theme updated.")
 
 
 @ui_bp.get("/admin")
@@ -667,7 +796,15 @@ def admin_users():
         ExternalIdentity.provider.asc(),
         ExternalIdentity.created_at.asc(),
     ).all()
-    collaborators = CollaboratorProfile.query.order_by(CollaboratorProfile.updated_at.desc(), CollaboratorProfile.id.desc()).all()
+    linked_user_emails = {email.email.strip().lower() for email in emails if email.email}
+    collaborators = [
+        collaborator
+        for collaborator in CollaboratorProfile.query.order_by(
+            CollaboratorProfile.updated_at.desc(), CollaboratorProfile.id.desc()
+        ).all()
+        if not collaborator.user_id
+        and (collaborator.email or "").strip().lower() not in linked_user_emails
+    ]
 
     emails_by_user: dict[int, list[UserEmail]] = {}
     for email in emails:
@@ -687,6 +824,18 @@ def admin_users():
     )
 
 
+def _collaborator_delete_summary(collaborator: CollaboratorProfile) -> dict:
+    normalized_email = (collaborator.email or "").strip().lower()
+    return {
+        "assignments": Assignment.query.filter(
+            Assignment.user_id.is_(None),
+            db.func.lower(Assignment.email) == normalized_email,
+        ).count(),
+        "invites": Invite.query.filter(db.func.lower(Invite.email) == normalized_email).count(),
+        "messages": DevMailboxMessage.query.filter(db.func.lower(DevMailboxMessage.to_email) == normalized_email).count(),
+    }
+
+
 @ui_bp.get("/admin/collaborators/<int:collaborator_id>")
 @admin_required
 def admin_collaborator(collaborator_id: int):
@@ -700,6 +849,7 @@ def admin_collaborator(collaborator_id: int):
     open_entries = [entry for entry in entries if entry["status"] in {"sent", "draft", "assigned", "link_sent"}]
     history_entries = [entry for entry in entries if entry["status"] in {"accepted", "declined", "denied"}]
     todo_entries = [entry for entry in entries if not entry["is_complete"]]
+    delete_summary = _collaborator_delete_summary(collaborator)
 
     return _render_admin_page(
         "admin_collaborator.html",
@@ -711,7 +861,29 @@ def admin_collaborator(collaborator_id: int):
         todo_entries=todo_entries,
         sent_messages=sent_messages,
         collaborator_portal_url=url_for("ui.collaborator_portal", token=collaborator.access_token),
+        delete_summary=delete_summary,
     )
+
+
+@ui_bp.post("/admin/collaborators/<int:collaborator_id>/delete")
+@admin_required
+def delete_admin_collaborator(collaborator_id: int):
+    collaborator = CollaboratorProfile.query.get_or_404(collaborator_id)
+    if collaborator.user_id or UserEmail.query.filter(db.func.lower(UserEmail.email) == collaborator.email.lower()).first():
+        return redirect(url_for("ui.admin_collaborator", collaborator_id=collaborator.id))
+
+    normalized_email = collaborator.email.lower()
+    Invite.query.filter(db.func.lower(Invite.email) == normalized_email).delete(synchronize_session=False)
+    Assignment.query.filter(
+        Assignment.user_id.is_(None),
+        db.func.lower(Assignment.email) == normalized_email,
+    ).delete(synchronize_session=False)
+    DevMailboxMessage.query.filter(db.func.lower(DevMailboxMessage.to_email) == normalized_email).delete(
+        synchronize_session=False
+    )
+    db.session.delete(collaborator)
+    db.session.commit()
+    return redirect(url_for("ui.admin_users"))
 
 
 @ui_bp.post("/account/emails")
@@ -919,7 +1091,7 @@ def create_project():
     )
     db.session.commit()
     max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
-    palette = ["#4cc9f0", "#7dd3fc", "#f59e0b", "#34d399", "#f472b6", "#a78bfa", "#f87171", "#38bdf8"]
+    palette = _division_palette()
     group = Group(
         project_id=project.id,
         name="General",
@@ -977,7 +1149,7 @@ def create_group():
         return redirect(url_for("ui.dashboard"))
 
     max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
-    palette = ["#4cc9f0", "#7dd3fc", "#f59e0b", "#34d399", "#f472b6", "#a78bfa", "#f87171", "#38bdf8"]
+    palette = _division_palette()
     group = Group(
         project_id=project.id,
         name=name,
@@ -1112,13 +1284,53 @@ def collaborator_portal(token: str):
     if not collaborator:
         return render_template("collaborator_portal.html", status="invalid", collaborator=None, entries=[])
     entries = _build_collaborator_entries(collaborator)
+    task_ids = sorted({entry["task"].id for entry in entries if entry.get("task")})
+    task_comment_counts = {
+        task_id: count
+        for task_id, count in (
+            db.session.query(TaskComment.task_id, db.func.count(TaskComment.id))
+            .filter(TaskComment.task_id.in_(task_ids))
+            .group_by(TaskComment.task_id)
+            .all()
+        )
+    } if task_ids else {}
+    latest_comment_rows = (
+        db.session.query(TaskComment.task_id, db.func.max(TaskComment.created_at))
+        .filter(TaskComment.task_id.in_(task_ids))
+        .group_by(TaskComment.task_id)
+        .all()
+        if task_ids
+        else []
+    )
+    read_rows = {
+        row.task_id: row.last_read_at
+        for row in CollaboratorTaskRead.query.filter(
+            CollaboratorTaskRead.collaborator_id == collaborator.id,
+            CollaboratorTaskRead.task_id.in_(task_ids),
+        ).all()
+    } if task_ids else {}
+    unread_task_ids = {
+        task_id
+        for task_id, latest_comment_at in latest_comment_rows
+        if latest_comment_at and latest_comment_at > (read_rows.get(task_id) or datetime.min)
+    }
 
     return render_template(
         "collaborator_portal.html",
         status="ok",
         collaborator=collaborator,
         entries=entries,
+        task_comment_counts=task_comment_counts,
+        unread_task_ids=unread_task_ids,
     )
+
+
+@ui_bp.get("/collaborators/<token>/convert")
+def collaborator_convert(token: str):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return render_template("collaborator_claim.html", status="invalid", collaborator=None)
+    return render_template("collaborator_claim.html", status="ok", collaborator=collaborator)
 
 
 @ui_bp.post("/collaborators/<token>/claim/password")
@@ -1198,6 +1410,9 @@ def update_collaborator_invite(token: str, invite_id: int):
     elif action == "complete":
         task, subtask = _resolve_work_item(invite.task_id, invite.subtask_id)
         _mark_work_item_complete(task, subtask)
+    elif action == "uncomplete":
+        task, subtask = _resolve_work_item(invite.task_id, invite.subtask_id)
+        _mark_work_item_open(task, subtask)
     db.session.commit()
 
     task, _subtask = _resolve_work_item(invite.task_id, invite.subtask_id)
@@ -1228,6 +1443,9 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     elif action == "complete":
         task, subtask = _resolve_work_item(assignment.task_id, assignment.subtask_id)
         _mark_work_item_complete(task, subtask)
+    elif action == "uncomplete":
+        task, subtask = _resolve_work_item(assignment.task_id, assignment.subtask_id)
+        _mark_work_item_open(task, subtask)
     db.session.commit()
 
     task, _subtask = _resolve_work_item(assignment.task_id, assignment.subtask_id)
@@ -1236,3 +1454,52 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     elif invite.status == "accepted" and invite.calendar_opt_in and task:
         _safe_ensure_task_event(task.id, invite.email)
     return redirect(url_for("ui.collaborator_portal", token=token))
+
+
+@ui_bp.get("/collaborators/<token>/tasks/<int:task_id>/comments")
+def collaborator_task_comments(token: str, task_id: int):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return {"error": "invalid collaborator"}, 404
+    if task_id not in _collaborator_task_ids(collaborator):
+        return {"error": "unauthorized"}, 403
+    comments = TaskComment.query.filter_by(task_id=task_id).order_by(TaskComment.created_at.asc(), TaskComment.id.asc()).all()
+    user_ids = {comment.user_id for comment in comments if comment.user_id}
+    collaborator_ids = {comment.collaborator_id for comment in comments if comment.collaborator_id}
+    users = {row.id: row for row in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    collaborators = {row.id: row for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(collaborator_ids)).all()} if collaborator_ids else {}
+    return {"comments": [_serialize_portal_comment(comment, users, collaborators) for comment in comments]}
+
+
+@ui_bp.post("/collaborators/<token>/tasks/<int:task_id>/comments")
+def collaborator_post_task_comment(token: str, task_id: int):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return {"error": "invalid collaborator"}, 404
+    if task_id not in _collaborator_task_ids(collaborator):
+        return {"error": "unauthorized"}, 403
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return {"error": "body is required"}, 400
+    comment = TaskComment(task_id=task_id, collaborator_id=collaborator.id, body=body)
+    db.session.add(comment)
+    db.session.commit()
+    return {"comment": _serialize_portal_comment(comment, {}, {collaborator.id: collaborator})}, 201
+
+
+@ui_bp.post("/collaborators/<token>/tasks/<int:task_id>/comments/read")
+def collaborator_mark_task_comments_read(token: str, task_id: int):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return {"error": "invalid collaborator"}, 404
+    if task_id not in _collaborator_task_ids(collaborator):
+        return {"error": "unauthorized"}, 403
+    row = CollaboratorTaskRead.query.filter_by(collaborator_id=collaborator.id, task_id=task_id).first()
+    if not row:
+        row = CollaboratorTaskRead(collaborator_id=collaborator.id, task_id=task_id, last_read_at=datetime.utcnow())
+        db.session.add(row)
+    else:
+        row.last_read_at = datetime.utcnow()
+    db.session.commit()
+    return {"status": "ok"}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth-page">
+  <div class="auth-card">
+    <div class="auth-card-header">
+      <div class="auth-eyebrow">Termin</div>
+      {% if status == "invalid" %}
+        <h2>Link not found</h2>
+        <p class="footer-note">This collaborator access link is invalid or expired.</p>
+      {% else %}
+        <h2>Convert To Full Account</h2>
+        <p class="footer-note">Your email is already verified. Set a password or link Google to turn this collaborator identity into a full account.</p>
+      {% endif %}
+    </div>
+    {% if status != "invalid" %}
+      {% if collaborator.user_id %}
+        <div class="auth-error" role="status">This collaborator email is already linked to an account. You can sign in normally or link Google if needed.</div>
+      {% endif %}
+      <form method="post" action="{{ url_for('ui.claim_collaborator_password', token=collaborator.access_token) }}" class="auth-form">
+        <div class="auth-field">
+          <label for="claim-password">Set password</label>
+          <input id="claim-password" name="password" type="password" autocomplete="new-password" />
+        </div>
+        <div class="auth-field">
+          <label for="claim-password-confirm">Confirm password</label>
+          <input id="claim-password-confirm" name="password_confirm" type="password" autocomplete="new-password" />
+        </div>
+        <button class="btn auth-submit" type="submit">Create account with password</button>
+      </form>
+      <div class="auth-divider" aria-hidden="true">
+        <span>or</span>
+      </div>
+      <div class="auth-provider-list">
+        <a class="auth-provider-btn google" href="{{ url_for('ui.claim_collaborator_provider', token=collaborator.access_token, provider='google') }}">
+          <span class="auth-provider-icon"><i class="fa-brands fa-google"></i></span>
+          <span>Continue with Google</span>
+        </a>
+        <a class="auth-provider-btn github" href="{{ url_for('ui.claim_collaborator_provider', token=collaborator.access_token, provider='github') }}">
+          <span class="auth-provider-icon"><i class="fa-brands fa-github"></i></span>
+          <span>Continue with GitHub</span>
+        </a>
+      </div>
+      <div style="margin-top: 16px;">
+        <a class="btn secondary" href="{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}">Back to collaborator page</a>
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

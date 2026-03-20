@@ -7,6 +7,7 @@
       <div class="footer-note" style="margin-top: 4px;">{{ collaborator.email }} · collaborator #{{ collaborator.id }}</div>
     </div>
     <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+      <button class="btn danger" type="button" data-open-delete-collaborator>Delete collaborator</button>
       <a class="btn secondary" href="{{ collaborator_portal_url }}">Open collaborator portal</a>
       <a class="btn secondary" href="{{ url_for('ui.admin_users') }}">Back to users</a>
     </div>
@@ -110,4 +111,66 @@
     {% endfor %}
   </div>
 </div>
+
+<div class="modal" id="delete-collaborator-modal" aria-hidden="true">
+  <div class="panel modal-wide">
+    <h3 style="margin-top: 0;">Delete collaborator?</h3>
+    <p class="footer-note" style="margin-top: 0;">
+      This removes the collaborator-only identity for <strong>{{ collaborator.email }}</strong>.
+      Tasks and projects will remain, but collaborator-specific records will be deleted.
+    </p>
+    <div class="admin-collaborator-list" style="margin: 14px 0;">
+      <div class="admin-collaborator-entry">
+        <div>Collaborator profile</div>
+        <div class="footer-note">1 record</div>
+      </div>
+      <div class="admin-collaborator-entry">
+        <div>Email assignments</div>
+        <div class="footer-note">{{ delete_summary.assignments }} record{{ '' if delete_summary.assignments == 1 else 's' }}</div>
+      </div>
+      <div class="admin-collaborator-entry">
+        <div>Magic-link invites</div>
+        <div class="footer-note">{{ delete_summary.invites }} record{{ '' if delete_summary.invites == 1 else 's' }}</div>
+      </div>
+      <div class="admin-collaborator-entry">
+        <div>Captured dev-mail messages</div>
+        <div class="footer-note">{{ delete_summary.messages }} record{{ '' if delete_summary.messages == 1 else 's' }}</div>
+      </div>
+    </div>
+    <p class="footer-note" style="margin-bottom: 16px;">This action cannot be undone.</p>
+    <div style="display: flex; justify-content: flex-end; gap: 10px;">
+      <button class="btn secondary" type="button" data-close-delete-collaborator>Cancel</button>
+      <form method="post" action="{{ url_for('ui.delete_admin_collaborator', collaborator_id=collaborator.id) }}">
+        <button class="btn danger" type="submit">Delete collaborator</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const modal = document.getElementById("delete-collaborator-modal");
+    const openButton = document.querySelector("[data-open-delete-collaborator]");
+    const closeButton = document.querySelector("[data-close-delete-collaborator]");
+    if (!modal || !openButton || !closeButton) return;
+
+    function closeModal() {
+      modal.classList.remove("open");
+      modal.setAttribute("aria-hidden", "true");
+    }
+
+    openButton.addEventListener("click", function () {
+      modal.classList.add("open");
+      modal.setAttribute("aria-hidden", "false");
+    });
+
+    closeButton.addEventListener("click", closeModal);
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) closeModal();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") closeModal();
+    });
+  })();
+</script>
 {% endblock %}

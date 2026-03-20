@@ -21,7 +21,7 @@ from app.sidebar_layout import (
 )
 import secrets
 
-from app.models import Division, Task, Project, ProjectSidebarPreference, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember
+from app.models import Division, Task, Project, ProjectSidebarPreference, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, CollaboratorProfile
 from app.utils import current_user
 
 
@@ -33,6 +33,13 @@ api_bp = Blueprint("api", __name__)
 def me():
     user = current_user()
     return {"user": {"id": user.id, "email": user.email, "display_name": user.display_name}}
+
+
+@api_bp.get("/notifications")
+@login_required
+def notifications_feed():
+    user = current_user()
+    return _notification_payload_for_user(user.id)
 
 
 @api_bp.post("/github/sync")
@@ -71,6 +78,101 @@ def _can_access_subtask(user, subtask: Subtask) -> bool:
         return True
     task = Task.query.get(subtask.task_id)
     return _can_access_task(user, task)
+
+
+def _task_notification_user_ids(task: Task) -> set[int]:
+    project = Project.query.get(task.project_id)
+    user_ids = {project.owner_id} if project else set()
+    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=task.project_id).all())
+    if task.group_id:
+        user_ids.update(row.user_id for row in GroupMember.query.filter_by(group_id=task.group_id).all())
+    user_ids.update(
+        row.user_id
+        for row in Assignment.query.filter_by(task_id=task.id).all()
+        if row.user_id
+    )
+    return {user_id for user_id in user_ids if user_id}
+
+
+def _serialize_task_comment(comment: TaskComment, author: User | None, collaborator: CollaboratorProfile | None = None) -> dict:
+    if collaborator:
+        label = collaborator.display_name or collaborator.email
+        author_payload = {
+            "id": collaborator.id,
+            "display_name": label,
+            "email": collaborator.email,
+            "avatar_url": None,
+            "kind": "collaborator",
+        }
+    else:
+        label = (author.display_name or author.email) if author else "Unknown user"
+        author_payload = {
+            "id": author.id if author else None,
+            "display_name": label,
+            "email": author.email if author else None,
+            "avatar_url": author.avatar_url if author else None,
+            "kind": "user",
+        }
+    return {
+        "id": comment.id,
+        "task_id": comment.task_id,
+        "user_id": comment.user_id,
+        "collaborator_id": comment.collaborator_id,
+        "body": comment.body,
+        "created_at": comment.created_at.isoformat(),
+        "updated_at": comment.updated_at.isoformat(),
+        "author": author_payload,
+    }
+
+
+def _notification_payload_for_user(user_id: int) -> dict:
+    notification_rows = (
+        TaskNotification.query.filter_by(user_id=user_id)
+        .filter(TaskNotification.read_at.is_(None))
+        .order_by(TaskNotification.created_at.desc(), TaskNotification.id.desc())
+        .limit(12)
+        .all()
+    )
+    unread_task_ids = sorted({row.task_id for row in notification_rows if row.task_id})
+    comment_ids = [row.comment_id for row in notification_rows if row.comment_id]
+    task_ids = [row.task_id for row in notification_rows if row.task_id]
+    comments = {
+        row.id: row
+        for row in TaskComment.query.filter(TaskComment.id.in_(comment_ids)).all()
+    } if comment_ids else {}
+    tasks = {
+        row.id: row
+        for row in Task.query.filter(Task.id.in_(task_ids)).all()
+    } if task_ids else {}
+    project_ids = {task.project_id for task in tasks.values()}
+    projects = {
+        row.id: row
+        for row in Project.query.filter(Project.id.in_(project_ids)).all()
+    } if project_ids else {}
+    notifications = []
+    for row in notification_rows:
+        task = tasks.get(row.task_id)
+        comment = comments.get(row.comment_id)
+        project = projects.get(task.project_id) if task else None
+        preview = ""
+        if comment and comment.body:
+            preview = comment.body[:120] + ("…" if len(comment.body) > 120 else "")
+        notifications.append(
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "task_title": task.title if task else "Task",
+                "project_id": project.id if project else None,
+                "project_name": project.name if project else None,
+                "comment_preview": preview,
+                "created_at": row.created_at.isoformat(),
+            }
+        )
+    return {
+        "unread_total": len(notification_rows),
+        "unread_task_ids": unread_task_ids,
+        "notifications": notifications,
+    }
 
 
 def _can_manage_project(user, project_id: int) -> bool:
@@ -286,6 +388,125 @@ def update_task(task_id: int):
                 return {"error": "Invalid due_at format"}, 400
     db.session.commit()
     return {"id": task.id, "title": task.title, "status": task.status, "info": _info_payload_for(task)}, 200
+
+
+@api_bp.get("/tasks/<int:task_id>/comments")
+@login_required
+def list_task_comments(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    comments = TaskComment.query.filter_by(task_id=task.id).order_by(TaskComment.created_at.asc(), TaskComment.id.asc()).all()
+    user_ids = {comment.user_id for comment in comments}
+    collaborator_ids = {comment.collaborator_id for comment in comments if comment.collaborator_id}
+    users = {row.id: row for row in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    collaborators = {row.id: row for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(collaborator_ids)).all()} if collaborator_ids else {}
+    unread_count = TaskNotification.query.filter_by(user_id=user.id, task_id=task.id).filter(TaskNotification.read_at.is_(None)).count()
+    return {
+        "comments": [_serialize_task_comment(comment, users.get(comment.user_id), collaborators.get(comment.collaborator_id)) for comment in comments],
+        "unread_count": unread_count,
+    }
+
+
+@api_bp.post("/tasks/<int:task_id>/comments")
+@login_required
+def create_task_comment(task_id: int):
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return {"error": "body is required"}, 400
+
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    comment = TaskComment(task_id=task.id, user_id=user.id, body=body)
+    db.session.add(comment)
+    db.session.flush()
+
+    for recipient_id in _task_notification_user_ids(task):
+        if recipient_id == user.id:
+            continue
+        db.session.add(
+            TaskNotification(
+                user_id=recipient_id,
+                task_id=task.id,
+                comment_id=comment.id,
+                kind="comment",
+            )
+        )
+
+    db.session.commit()
+    return {"comment": _serialize_task_comment(comment, user)}, 201
+
+
+@api_bp.post("/tasks/<int:task_id>/notifications/read")
+@login_required
+def mark_task_notifications_read(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    now = datetime.utcnow()
+    TaskNotification.query.filter_by(user_id=user.id, task_id=task.id).filter(TaskNotification.read_at.is_(None)).update(
+        {"read_at": now},
+        synchronize_session=False,
+    )
+    db.session.commit()
+    unread_total = TaskNotification.query.filter_by(user_id=user.id).filter(TaskNotification.read_at.is_(None)).count()
+    return {"status": "ok", "unread_total": unread_total}
+
+
+@api_bp.post("/tasks/<int:task_id>/notifications/unread")
+@login_required
+def mark_task_notifications_unread(task_id: int):
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    comment_id = payload.get("comment_id")
+    comment = None
+    if comment_id not in (None, "", 0, "0"):
+        try:
+            comment_id = int(comment_id)
+        except (TypeError, ValueError):
+            return {"error": "invalid comment_id"}, 400
+        comment = TaskComment.query.filter_by(id=comment_id, task_id=task.id).first()
+        if not comment:
+            return {"error": "comment not found"}, 404
+
+    existing = TaskNotification.query.filter_by(user_id=user.id, task_id=task.id).filter(TaskNotification.read_at.is_(None)).first()
+    if not existing:
+        latest_comment = comment or (
+            TaskComment.query.filter_by(task_id=task.id)
+            .order_by(TaskComment.created_at.desc(), TaskComment.id.desc())
+            .first()
+        )
+        db.session.add(
+            TaskNotification(
+                user_id=user.id,
+                task_id=task.id,
+                comment_id=latest_comment.id if latest_comment else None,
+                kind="comment",
+            )
+        )
+        db.session.commit()
+
+    unread_total = TaskNotification.query.filter_by(user_id=user.id).filter(TaskNotification.read_at.is_(None)).count()
+    return {"status": "ok", "unread_total": unread_total}
 
 
 @api_bp.post("/tasks/<int:task_id>/move")

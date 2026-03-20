@@ -9,6 +9,7 @@ class User(db.Model):
     display_name = db.Column(db.String(255))
     avatar_url = db.Column(db.String(1024))
     password_hash = db.Column(db.String(255))
+    theme_mode = db.Column(db.String(16), nullable=False, default="dark")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -132,6 +133,17 @@ class Task(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class TaskComment(db.Model):
+    __tablename__ = "task_comments"
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    collaborator_id = db.Column(db.Integer, db.ForeignKey("collaborator_profiles.id"))
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Subtask(db.Model):
     __tablename__ = "subtasks"
     id = db.Column(db.Integer, primary_key=True)
@@ -181,6 +193,19 @@ class CollaboratorProfile(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class CollaboratorTaskRead(db.Model):
+    __tablename__ = "collaborator_task_reads"
+    id = db.Column(db.Integer, primary_key=True)
+    collaborator_id = db.Column(db.Integer, db.ForeignKey("collaborator_profiles.id"), nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    last_read_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("collaborator_id", "task_id", name="uq_collaborator_task_reads_collaborator_task"),
+    )
+
+
 class DevMailboxMessage(db.Model):
     __tablename__ = "dev_mailbox_messages"
     id = db.Column(db.Integer, primary_key=True)
@@ -192,6 +217,17 @@ class DevMailboxMessage(db.Model):
     text_body = db.Column(db.Text, nullable=False)
     html_body = db.Column(db.Text)
     delivery_mode = db.Column(db.String(32), nullable=False, default="captured")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TaskNotification(db.Model):
+    __tablename__ = "task_notifications"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    comment_id = db.Column(db.Integer, db.ForeignKey("task_comments.id"))
+    kind = db.Column(db.String(32), nullable=False, default="comment")
+    read_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 

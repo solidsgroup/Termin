@@ -1,5 +1,6 @@
+{% set active_theme = user.theme_mode if user and user.theme_mode else 'dark' %}
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{ active_theme }}" style="background-color: {{ '#eef3f8' if active_theme == 'light' else '#0b0d12' }}; color-scheme: {{ active_theme }};">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,7 +8,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <style>
       :root {
-        color-scheme: light;
         --bg: #0b0d12;
         --panel: #151a22;
         --panel-alt: #10141b;
@@ -20,10 +20,43 @@
         --grid: rgba(255, 255, 255, 0.06);
       }
 
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #0b0d12;
+        --panel: #151a22;
+        --panel-alt: #10141b;
+        --ink: #e6edf3;
+        --muted: #9aa3ad;
+        --accent: #4cc9f0;
+        --accent-strong: #00b4d8;
+        --border: #232a36;
+        --success: #6ee7b7;
+        --grid: rgba(255, 255, 255, 0.06);
+      }
+
+      body[data-theme="light"] {
+        color-scheme: light;
+        --bg: #eef3f8;
+        --panel: #ffffff;
+        --panel-alt: #f7fafc;
+        --ink: #17202b;
+        --muted: #5f6b7a;
+        --accent: #1677c8;
+        --accent-strong: #0b5ea4;
+        --border: #d7e0ea;
+        --success: #15803d;
+        --grid: rgba(23, 32, 43, 0.08);
+      }
+
       * { box-sizing: border-box; }
 
       .hidden {
         display: none !important;
+      }
+
+      html,
+      body {
+        background-color: var(--bg);
       }
 
       body {
@@ -33,6 +66,11 @@
         color: var(--ink);
       }
 
+      body[data-theme="light"] {
+        background: radial-gradient(circle at top, #ffffff 0%, #f5f8fc 42%, var(--bg) 100%);
+      }
+
+
       header {
         padding: 0 20px;
         display: grid;
@@ -40,14 +78,21 @@
         align-items: end;
         gap: 16px;
         border-bottom: 1px solid var(--border);
-        background: rgba(10, 13, 18, 0.9);
+        background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
         backdrop-filter: blur(8px);
+        position: relative;
+        z-index: 80;
       }
 
       .header-brand {
         min-height: 54px;
         display: flex;
         align-items: center;
+      }
+
+      .header-brand a {
+        color: inherit;
+        text-decoration: none;
       }
 
       .header-center {
@@ -61,6 +106,7 @@
         min-height: 54px;
         display: flex;
         align-items: center;
+        gap: 10px;
       }
 
       header h1 {
@@ -74,6 +120,96 @@
         position: relative;
         display: inline-flex;
         align-items: center;
+        z-index: 90;
+      }
+
+      .notifications-shell {
+        position: relative;
+        z-index: 90;
+      }
+
+      .notifications-trigger {
+        position: relative;
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--panel) 80%, transparent);
+        color: var(--ink);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .notifications-trigger:hover {
+        border-color: rgba(76, 201, 240, 0.35);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+
+      .notifications-count {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: #ef4444;
+        color: white;
+        font-size: 10px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .notifications-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 10px);
+        width: 320px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: rgba(17, 21, 28, 0.96);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+        padding: 10px;
+        display: none;
+        z-index: 40;
+        backdrop-filter: blur(10px);
+      }
+
+      .notifications-shell.is-open .notifications-menu {
+        display: block;
+      }
+
+      .notifications-item {
+        display: block;
+        text-decoration: none;
+        color: var(--ink);
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid transparent;
+      }
+
+      .notifications-item:hover {
+        background: rgba(76, 201, 240, 0.08);
+        border-color: rgba(76, 201, 240, 0.2);
+      }
+
+      .notifications-item + .notifications-item {
+        margin-top: 4px;
+      }
+
+      .notifications-title {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .notifications-copy {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
       }
 
       .account-trigger {
@@ -95,6 +231,16 @@
         transform: translateY(-1px);
       }
 
+      body[data-theme="light"] .account-trigger {
+        background: color-mix(in srgb, white 92%, var(--panel-alt) 8%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+      }
+
+      body[data-theme="light"] .account-trigger:hover {
+        border-color: color-mix(in srgb, var(--accent) 26%, white 74%);
+        background: color-mix(in srgb, var(--accent) 10%, white 90%);
+      }
+
       .account-trigger:focus-visible {
         outline: 2px solid rgba(76, 201, 240, 0.45);
         outline-offset: 2px;
@@ -113,6 +259,11 @@
         font-size: 12px;
         font-weight: 700;
         overflow: hidden;
+      }
+
+      body[data-theme="light"] .account-avatar {
+        border-color: color-mix(in srgb, var(--accent) 26%, white 74%);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, white 84%), color-mix(in srgb, var(--panel-alt) 88%, white 12%));
       }
 
       .account-avatar img {
@@ -137,6 +288,10 @@
         border-bottom: 1px solid var(--grid);
       }
 
+      body[data-theme="light"] .account-email-row {
+        border-bottom-color: color-mix(in srgb, var(--border) 84%, white 16%);
+      }
+
       .account-email-card {
         display: inline-flex;
         align-items: center;
@@ -158,6 +313,11 @@
         font-weight: 700;
         overflow: hidden;
         flex: 0 0 auto;
+      }
+
+      body[data-theme="light"] .account-email-avatar {
+        border-color: color-mix(in srgb, var(--accent) 24%, white 76%);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, white 86%), color-mix(in srgb, var(--panel-alt) 90%, white 10%));
       }
 
       .account-email-avatar img {
@@ -191,10 +351,21 @@
         flex: 0 0 auto;
       }
 
+      body[data-theme="light"] .account-provider-badge {
+        border-color: color-mix(in srgb, var(--border) 82%, white 18%);
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+      }
+
       .account-provider-badge.github {
         color: #f8fafc;
         background: rgba(148, 163, 184, 0.12);
         border-color: rgba(148, 163, 184, 0.28);
+      }
+
+      body[data-theme="light"] .account-provider-badge.github {
+        color: #111827;
+        background: color-mix(in srgb, #94a3b8 14%, white 86%);
+        border-color: color-mix(in srgb, #64748b 30%, white 70%);
       }
 
       .account-provider-badge.google {
@@ -203,11 +374,21 @@
         border-color: rgba(66, 133, 244, 0.28);
       }
 
+      body[data-theme="light"] .account-provider-badge.google {
+        color: #2563eb;
+        background: color-mix(in srgb, #4285f4 12%, white 88%);
+        border-color: color-mix(in srgb, #4285f4 28%, white 72%);
+      }
+
       .account-provider-name {
         display: inline-flex;
         align-items: center;
         gap: 8px;
         text-transform: capitalize;
+      }
+
+      body[data-theme="light"] .account-provider-name {
+        color: color-mix(in srgb, var(--ink) 90%, #334155 10%);
       }
 
       .account-email-actions {
@@ -267,6 +448,11 @@
         backdrop-filter: blur(10px);
       }
 
+      body[data-theme="light"] .account-menu {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.14);
+      }
+
       .account-shell.is-open .account-menu {
         display: block;
       }
@@ -304,6 +490,11 @@
       .account-menu-link:hover {
         background: rgba(76, 201, 240, 0.08);
         border-color: rgba(76, 201, 240, 0.2);
+      }
+
+      body[data-theme="light"] .account-menu-link:hover {
+        background: color-mix(in srgb, var(--accent) 10%, white 90%);
+        border-color: color-mix(in srgb, var(--accent) 22%, white 78%);
       }
 
       .account-menu-link + .account-menu-link {
@@ -706,6 +897,217 @@
         gap: 14px;
       }
 
+      .comment-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+        padding: 4px 8px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .comment-button:hover,
+      .comment-button.has-unread {
+        color: var(--ink);
+        border-color: rgba(76, 201, 240, 0.3);
+        background: rgba(76, 201, 240, 0.1);
+      }
+
+      body[data-theme="light"] .comment-button {
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+        color: color-mix(in srgb, var(--muted) 92%, #475569 8%);
+      }
+
+      body[data-theme="light"] .comment-button:hover,
+      body[data-theme="light"] .comment-button.has-unread {
+        color: var(--ink);
+        border-color: color-mix(in srgb, var(--accent) 30%, white 70%);
+        background: color-mix(in srgb, var(--accent) 10%, white 90%);
+      }
+
+      .discussion-drawer {
+        position: fixed;
+        top: 55px;
+        right: 0;
+        bottom: 0;
+        width: min(420px, calc(100vw - 24px));
+        transform: translateX(100%);
+        transition: transform 180ms ease;
+        border-left: 1px solid var(--border);
+        background: rgba(12, 16, 23, 0.98);
+        z-index: 120;
+        display: flex;
+        flex-direction: column;
+        box-shadow: -16px 0 30px rgba(0, 0, 0, 0.24);
+      }
+
+      body[data-theme="light"] .discussion-drawer {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        box-shadow: -16px 0 30px rgba(15, 23, 42, 0.12);
+      }
+
+      .discussion-drawer.open {
+        transform: translateX(0);
+      }
+
+      .discussion-header {
+        padding: 16px 18px 12px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .discussion-title {
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .discussion-subtitle {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      .discussion-list {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 14px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .discussion-comment {
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      body[data-theme="light"] .discussion-comment {
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
+      }
+
+      .discussion-comment-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .discussion-comment-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 1px solid rgba(76, 201, 240, 0.24);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        font-size: 11px;
+        font-weight: 700;
+        flex: 0 0 auto;
+      }
+
+      .discussion-comment-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .discussion-comment-meta {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .discussion-comment-author {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .discussion-comment-time {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .discussion-comment-unread {
+        margin-left: auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.22);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 140ms ease, color 140ms ease, background 140ms ease, border-color 140ms ease;
+      }
+
+      .discussion-comment:hover .discussion-comment-unread,
+      .discussion-comment-unread:focus-visible {
+        opacity: 1;
+      }
+
+      .discussion-comment-unread:hover,
+      .discussion-comment-unread:focus-visible {
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.08);
+        outline: none;
+      }
+
+      body[data-theme="light"] .discussion-comment-unread {
+        color: rgba(71, 85, 105, 0.32);
+      }
+
+      body[data-theme="light"] .discussion-comment-unread:hover,
+      body[data-theme="light"] .discussion-comment-unread:focus-visible {
+        color: var(--muted);
+        background: color-mix(in srgb, var(--panel-alt) 72%, white 28%);
+        border-color: color-mix(in srgb, var(--border) 82%, white 18%);
+      }
+
+      .discussion-comment-body {
+        white-space: pre-wrap;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .discussion-comment-body a {
+        color: var(--accent);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      .discussion-compose {
+        border-top: 1px solid var(--border);
+        padding: 14px 18px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      body[data-theme="light"] .discussion-compose {
+        background: color-mix(in srgb, white 95%, var(--panel-alt) 5%);
+      }
+
+      .discussion-compose textarea {
+        min-height: 92px;
+        resize: vertical;
+      }
+
       .todo-date-group {
         padding-top: 14px;
       }
@@ -737,15 +1139,30 @@
         background: rgba(16, 20, 27, 0.82);
       }
 
+      body[data-theme="light"] .todo-item {
+        border-color: color-mix(in srgb, var(--todo-color, var(--border)) 26%, var(--border) 74%);
+        background: color-mix(in srgb, white 94%, var(--todo-color, var(--panel-alt)) 6%);
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+      }
+
       .todo-item-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         min-width: 0;
       }
 
       .todo-item-title {
+        flex: 1 1 auto;
         font-size: 14px;
         font-weight: 500;
         color: var(--ink);
         min-width: 0;
+      }
+
+      .todo-item-main .comment-button {
+        flex: 0 0 auto;
+        margin-left: 0;
       }
 
       .github-task-link {
@@ -764,9 +1181,18 @@
         flex: 0 0 auto;
       }
 
+      body[data-theme="light"] .github-task-link i {
+        color: color-mix(in srgb, var(--ink) 74%, var(--muted) 26%);
+      }
+
       .github-task-link .fa-code-pull-request,
       .github-task-link .fa-code-merge {
         color: #8ab4f8;
+      }
+
+      body[data-theme="light"] .github-task-link .fa-code-pull-request,
+      body[data-theme="light"] .github-task-link .fa-code-merge {
+        color: color-mix(in srgb, var(--accent) 82%, #1d4ed8 18%);
       }
 
       .github-task-link span {
@@ -990,6 +1416,13 @@
           0 18px 40px rgba(0, 0, 0, 0.2);
       }
 
+      body[data-theme="light"] .panel.group {
+        border-color: color-mix(in srgb, var(--group-color, var(--border)) 88%, white 12%);
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 54%, transparent),
+          0 8px 18px rgba(15, 23, 42, 0.06);
+      }
+
       .group-title {
         display: inline-flex;
         align-items: center;
@@ -1011,6 +1444,11 @@
         top: -18px;
         line-height: 1.1;
         text-shadow: 0 0 18px color-mix(in srgb, var(--group-color, transparent) 18%, transparent);
+      }
+
+      body[data-theme="light"] .group-title {
+        color: color-mix(in srgb, var(--group-color, var(--accent)) 98%, #243447 2%);
+        text-shadow: none;
       }
 
 
@@ -1105,9 +1543,19 @@
         color: var(--accent);
       }
 
+      .btn.danger {
+        border-color: rgba(239, 68, 68, 0.5);
+        background: rgba(239, 68, 68, 0.14);
+        color: #fecaca;
+      }
+
+      .btn.danger:hover {
+        background: rgba(239, 68, 68, 0.22);
+      }
+
       .context-menu {
         position: fixed;
-        background: #0f141c;
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
         border: 1px solid var(--border);
         border-radius: 8px;
         min-width: 160px;
@@ -1134,6 +1582,16 @@
         background: rgba(76, 201, 240, 0.08);
       }
 
+      body[data-theme="light"] .context-menu {
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+      }
+
+      body[data-theme="light"] .context-menu > button:hover,
+      body[data-theme="light"] .context-menu > .context-menu-submenu > button:hover {
+        background: color-mix(in srgb, var(--accent) 10%, white 90%);
+      }
+
       .modal {
         position: fixed;
         inset: 0;
@@ -1154,6 +1612,10 @@
         position: relative;
         z-index: 2;
         pointer-events: auto;
+      }
+
+      .modal .panel.modal-wide {
+        width: min(460px, calc(100vw - 32px));
       }
 
       .modal .suggest-list {
@@ -1375,6 +1837,34 @@
         background: rgba(16, 20, 27, 0.56);
       }
 
+      body[data-theme="light"] .task-row[data-status-state="complete"] td,
+      body[data-theme="light"] .subtasks-row[data-status-state="complete"] td {
+        background: color-mix(in srgb, var(--success) 10%, white 90%);
+      }
+
+      body[data-theme="light"] .task-row[data-status-state="complete"],
+      body[data-theme="light"] .subtasks-row[data-status-state="complete"] {
+        opacity: 0.82;
+      }
+
+      body[data-theme="light"] .task-row[data-status-state="complete"] td:first-child,
+      body[data-theme="light"] .subtasks-row[data-status-state="complete"] td:first-child {
+        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--success) 80%, #14532d 20%);
+      }
+
+      body[data-theme="light"] .task-row[data-status-state="complete"] .editable[data-field="title"],
+      body[data-theme="light"] .subtasks-row[data-status-state="complete"] .editable[data-field="title"],
+      body[data-theme="light"] .todo-item[data-status-state="complete"] .todo-item-title,
+      body[data-theme="light"] .task-row[data-status-state="complete"] .github-task-link,
+      body[data-theme="light"] .todo-item[data-status-state="complete"] .github-task-link {
+        color: color-mix(in srgb, var(--muted) 82%, #4b5563 18%);
+      }
+
+      body[data-theme="light"] .todo-item[data-status-state="complete"] {
+        opacity: 0.82;
+        background: color-mix(in srgb, var(--success) 12%, white 88%);
+      }
+
       .status-editable {
         position: relative;
         min-height: 18px;
@@ -1422,6 +1912,16 @@
       .status-editable[data-status-state="complete"]::before {
         content: "\f058";
         color: var(--success);
+      }
+
+      body[data-theme="light"] .status-editable[data-status-state="complete"] {
+        color: color-mix(in srgb, var(--success) 82%, #14532d 18%);
+        border-color: color-mix(in srgb, var(--success) 38%, white 62%);
+        background: color-mix(in srgb, var(--success) 12%, white 88%);
+      }
+
+      body[data-theme="light"] .status-editable[data-status-state="complete"]::before {
+        color: color-mix(in srgb, var(--success) 82%, #14532d 18%);
       }
 
       .status-menu > button {
@@ -1630,11 +2130,17 @@
       .table .task-cell .editable {
         flex: 1 1 auto;
         min-width: 0;
+        width: auto;
       }
 
       .table .task-cell .info-btn {
-        margin-left: auto;
+        flex: 0 0 auto;
         white-space: nowrap;
+      }
+
+      .table .task-cell .comment-button {
+        flex: 0 0 auto;
+        margin-left: 0;
       }
 
       .table .task-cell.has-info .info-btn {
@@ -2160,6 +2666,63 @@
         opacity: 1;
       }
 
+      body[data-theme="light"] .project-list .project-item,
+      body[data-theme="light"] .sidebar-stack > .sidebar-stack-item > .project-item {
+        background:
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, white 76%, var(--project-color, var(--border)) 24%),
+            color-mix(in srgb, #eef5fb 72%, var(--project-color, var(--border)) 28%)
+          );
+        border-color: color-mix(in srgb, var(--project-color, var(--border)) 84%, white 16%);
+        border-left-color: var(--project-color, var(--border));
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 58%, transparent),
+          inset 0 1px 0 rgba(255, 255, 255, 0.9),
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 34%, transparent),
+          0 2px 4px rgba(15, 23, 42, 0.05);
+        color: color-mix(in srgb, var(--ink) 86%, var(--project-color, var(--muted)) 14%);
+        opacity: 0.94;
+        filter: none;
+      }
+
+      body[data-theme="light"] .project-list .project-item:hover,
+      body[data-theme="light"] .sidebar-stack > .sidebar-stack-item > .project-item:hover {
+        opacity: 1;
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 72%, transparent),
+          inset 0 1px 0 rgba(255, 255, 255, 0.95),
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 42%, transparent),
+          0 6px 14px rgba(15, 23, 42, 0.08);
+      }
+
+      body[data-theme="light"] .project-list .project-item .avatar-stack,
+      body[data-theme="light"] .sidebar-stack > .sidebar-stack-item > .project-item .avatar-stack {
+        opacity: 0.82;
+      }
+
+      body[data-theme="light"] .project-list .project-item.active,
+      body[data-theme="light"] .sidebar-stack > .sidebar-stack-item > .project-item.active {
+        background:
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, white 62%, var(--project-color, var(--accent)) 38%),
+            color-mix(in srgb, #e3eef8 58%, var(--project-color, var(--accent)) 42%)
+          );
+        border-color: color-mix(in srgb, var(--project-color, var(--accent)) 92%, white 8%);
+        border-left-color: var(--project-color, var(--accent));
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 84%, transparent),
+          0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 70%, transparent),
+          0 0 0 4px color-mix(in srgb, var(--project-color, var(--accent)) 28%, transparent),
+          0 10px 22px rgba(15, 23, 42, 0.08);
+        color: var(--ink);
+      }
+
+      body[data-theme="light"] .project-item-top strong {
+        color: color-mix(in srgb, var(--ink) 82%, var(--project-color, var(--muted)) 18%);
+      }
+
       .sidebar-division {
         margin-top: 0;
         padding: 0;
@@ -2184,6 +2747,11 @@
         color: var(--division-color, var(--muted));
         line-height: 1;
         text-shadow: 0 0 16px color-mix(in srgb, var(--division-color, transparent) 18%, transparent);
+      }
+
+      body[data-theme="light"] .sidebar-division-title {
+        color: color-mix(in srgb, var(--division-color, var(--muted)) 98%, #243447 2%);
+        text-shadow: none;
       }
 
       .sidebar-section-add {
@@ -2219,6 +2787,10 @@
         flex: 1 1 auto;
         height: 1px;
         background: color-mix(in srgb, var(--division-color, var(--border)) 55%, transparent);
+      }
+
+      body[data-theme="light"] .sidebar-division-rule {
+        background: color-mix(in srgb, var(--division-color, var(--border)) 88%, white 12%);
       }
 
       .sidebar-insert-row {
@@ -2347,8 +2919,13 @@
         padding: 12px;
         border: 1px solid var(--border);
         border-radius: 14px;
-        background: rgba(12, 16, 23, 0.98);
+        background: color-mix(in srgb, var(--panel) 98%, var(--panel-alt) 2%);
         box-shadow: 0 18px 30px rgba(0, 0, 0, 0.28);
+      }
+
+      body[data-theme="light"] .context-submenu-panel {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        box-shadow: 0 16px 28px rgba(15, 23, 42, 0.12);
       }
 
       .context-menu-submenu.is-open .context-submenu-panel {
@@ -2407,6 +2984,10 @@
         border-radius: 8px;
         background: transparent;
         cursor: pointer;
+      }
+
+      body[data-theme="light"] .color-custom-row input[type="color"] {
+        background: var(--panel);
       }
 
       .color-menu-actions {
@@ -2495,10 +3076,10 @@
       }
     </style>
   </head>
-  <body>
+  <body data-theme="{{ active_theme }}">
     <header>
       <div class="header-brand">
-        <h1>Termin</h1>
+        <a href="{{ url_for('ui.dashboard') }}"><h1>Termin</h1></a>
       </div>
       <div class="header-center">
         {% if current_view is defined %}
@@ -2510,6 +3091,34 @@
       </div>
       <div class="header-actions">
         {% if user %}
+          {% if task_notifications is defined %}
+            <div class="notifications-shell" data-notifications-menu>
+              <button class="notifications-trigger" type="button" aria-haspopup="menu" aria-expanded="false" data-notifications-trigger title="Notifications">
+                <i class="fa-regular fa-bell" aria-hidden="true"></i>
+                {% if task_notifications %}
+                  <span class="notifications-count">{{ task_notifications|length }}</span>
+                {% endif %}
+              </button>
+              <div class="notifications-menu" role="menu">
+                {% if task_notifications %}
+                  {% for item in task_notifications %}
+                    <a
+                      class="notifications-item"
+                      href="{{ url_for('ui.dashboard', project_id=item.project_id, view='project', open_discussion_task_id=item.task_id, show_completed=1 if show_completed else 0) if item.project_id else url_for('ui.dashboard', open_discussion_task_id=item.task_id, show_completed=1 if show_completed else 0) }}"
+                    >
+                      <div class="notifications-title">{{ item.task_title }}</div>
+                      <div class="notifications-copy">
+                        {% if item.project_name %}{{ item.project_name }} · {% endif %}
+                        {{ item.comment_preview or 'New activity' }}
+                      </div>
+                    </a>
+                  {% endfor %}
+                {% else %}
+                  <div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread notifications.</div>
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
           <div class="account-shell" data-account-menu>
             <button class="account-trigger" type="button" aria-haspopup="menu" aria-expanded="false" data-account-trigger>
               <span class="account-avatar">
@@ -2533,8 +3142,8 @@
                 <div class="account-menu-email">{{ user.email }}</div>
               </div>
               <a class="account-menu-link" href="{{ url_for('ui.account') }}" role="menuitem">
-                <span>Account</span>
-                <span class="footer-note">Manage profile</span>
+                <span>Settings</span>
+                <span class="footer-note">Preferences and accounts</span>
               </a>
               {% if is_admin_user %}
                 <a class="account-menu-link" href="{{ url_for('ui.admin_users') }}" role="menuitem">
@@ -2570,6 +3179,8 @@
 
         const accountShell = document.querySelector("[data-account-menu]");
         const accountTrigger = document.querySelector("[data-account-trigger]");
+        const notificationsShell = document.querySelector("[data-notifications-menu]");
+        const notificationsTrigger = document.querySelector("[data-notifications-trigger]");
         if (accountShell && accountTrigger) {
           const closeMenu = () => {
             accountShell.classList.remove("is-open");
@@ -2596,6 +3207,36 @@
           document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") {
               closeMenu();
+            }
+          });
+        }
+        if (notificationsShell && notificationsTrigger) {
+          const closeNotifications = () => {
+            notificationsShell.classList.remove("is-open");
+            notificationsTrigger.setAttribute("aria-expanded", "false");
+          };
+
+          notificationsTrigger.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const nextOpen = !notificationsShell.classList.contains("is-open");
+            if (nextOpen) {
+              notificationsShell.classList.add("is-open");
+              notificationsTrigger.setAttribute("aria-expanded", "true");
+            } else {
+              closeNotifications();
+            }
+          });
+
+          document.addEventListener("click", (event) => {
+            if (!notificationsShell.contains(event.target)) {
+              closeNotifications();
+            }
+          });
+
+          document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              closeNotifications();
             }
           });
         }

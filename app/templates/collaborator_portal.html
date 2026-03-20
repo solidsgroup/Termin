@@ -27,7 +27,17 @@
     }
 
     .collab-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       font-weight: 600;
+    }
+
+    .collab-due {
+      margin-top: 4px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
     }
 
     .collab-meta {
@@ -84,74 +94,64 @@
     }
 
     .calendar-btn {
-      width: 34px;
-      height: 34px;
-      padding: 0;
+      height: 24px;
+      min-width: 24px;
+      padding: 0 6px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border-radius: 10px;
+      border-radius: 999px;
+      border-color: rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: #8e98a7;
+    }
+
+    .calendar-btn:hover {
+      border-color: rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: #c6ccd5;
     }
 
     .calendar-btn svg {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       fill: currentColor;
     }
+
+    .collab-chat-btn {
+      height: 24px;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      gap: 6px;
+      border-color: rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: #a8b0bc;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .collab-chat-btn:hover {
+      border-color: rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
+    }
+
+    .collab-chat-btn.has-comments {
+      color: #c6ccd5;
+    }
+
+    .collab-chat-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #ef4444;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+    }
   </style>
-  <div class="panel">
-    {% if status == "invalid" %}
-      <h2>Collaborator link not found</h2>
-      <p class="footer-note">This collaborator access link is invalid or expired.</p>
-    {% else %}
-      <h2>Collaborator Settings</h2>
-      <p class="footer-note">Use this page to manage your invite decisions without creating an account.</p>
-      <form method="post" action="{{ url_for('ui.update_collaborator_settings', token=collaborator.access_token) }}" style="margin-top: 14px;">
-        <label for="collaborator-display-name">Display name</label>
-        <input id="collaborator-display-name" name="display_name" value="{{ collaborator.display_name or '' }}" placeholder="Your name" />
-        <label style="margin-top: 10px; display: block;">
-          <input type="checkbox" name="default_calendar_opt_in" {% if collaborator.default_calendar_opt_in %}checked{% endif %} />
-          Default to calendar invites for new requests
-        </label>
-        <div style="margin-top: 12px;">
-          <button class="btn" type="submit">Save settings</button>
-        </div>
-      </form>
-    {% endif %}
-  </div>
-
   {% if status != "invalid" %}
-    <div class="panel">
-      <h3>Convert To Full Account</h3>
-      {% if claim_error %}
-        <p class="footer-note" style="color: #f87171;">{{ claim_error }}</p>
-      {% endif %}
-      {% if collaborator.user_id %}
-        <p class="footer-note">This collaborator email is already linked to an account. You can sign in with a password or a linked provider account.</p>
-      {% else %}
-        <p class="footer-note">This magic link already proves your email. To convert this collaborator identity into a full account, either set a password or link a provider account.</p>
-      {% endif %}
-      <form method="post" action="{{ url_for('ui.claim_collaborator_password', token=collaborator.access_token) }}" style="margin-top: 14px;">
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 220px; flex: 1 1 220px;">
-            <label for="claim-password">Set password</label>
-            <input id="claim-password" name="password" type="password" autocomplete="new-password" />
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 220px; flex: 1 1 220px;">
-            <label for="claim-password-confirm">Confirm password</label>
-            <input id="claim-password-confirm" name="password_confirm" type="password" autocomplete="new-password" />
-          </div>
-          <div style="display: flex; align-items: flex-end;">
-            <button class="btn" type="submit">Set password</button>
-          </div>
-        </div>
-      </form>
-      <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;">
-        <a class="btn secondary" href="{{ url_for('ui.claim_collaborator_provider', token=collaborator.access_token, provider='google') }}">Link Google</a>
-        <a class="btn secondary" href="{{ url_for('ui.claim_collaborator_provider', token=collaborator.access_token, provider='github') }}">Link GitHub</a>
-      </div>
-    </div>
-
     <div class="panel">
       <h3>Assignments And Decisions</h3>
       <div class="collab-list">
@@ -163,7 +163,27 @@
         {% set project = entry.project %}
         <div class="collab-row{% if entry.is_complete %} complete{% endif %}">
           <div>
-            <div class="collab-title">{{ subtask.title if subtask else (task.title if task else 'Unknown task') }}</div>
+            <div class="collab-title">
+              <span>{{ subtask.title if subtask else (task.title if task else 'Unknown task') }}</span>
+              {% if task %}
+                <button class="btn secondary collab-chat-btn{% if task.id in unread_task_ids %} has-comments{% endif %}" type="button" data-open-collab-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ project.name|e if project else '' }}" title="Open discussion" aria-label="Open discussion">
+                  <i class="fa-regular fa-comments" aria-hidden="true"></i>
+                  <span>{{ (task_comment_counts|default({})).get(task.id, 0) }}</span>
+                  {% if task.id in unread_task_ids %}
+                    <span class="collab-chat-dot" aria-hidden="true"></span>
+                  {% endif %}
+                </button>
+              {% endif %}
+            </div>
+            <div class="collab-due">
+              {% if subtask and subtask.due_at %}
+                Due {{ subtask.due_at.strftime('%Y-%m-%d') }}
+              {% elif task and task.due_at %}
+                Due {{ task.due_at.strftime('%Y-%m-%d') }}
+              {% elif task %}
+                Created {{ task.created_at.strftime('%Y-%m-%d') }}
+              {% endif %}
+            </div>
             <div class="collab-meta">
               {% if subtask and task %}Subtask of {{ task.title }} · {% endif %}
               {% if project %}{{ project.name }} · {% endif %}
@@ -180,15 +200,12 @@
             <input type="hidden" name="calendar_opt_in" value="{% if entry.calendar_opt_in %}on{% endif %}" />
             <button class="btn choice-btn accept{% if entry.status == 'accepted' %} is-selected{% endif %}" type="submit" name="action" value="accept">Accept</button>
             <button class="btn choice-btn decline{% if entry.status in ['declined', 'denied'] %} is-selected{% endif %}" type="submit" name="action" value="decline">Decline</button>
-            <button class="btn choice-btn complete{% if entry.is_complete %} is-selected{% endif %}" type="submit" name="action" value="complete">Mark complete</button>
+            <button class="btn choice-btn complete{% if entry.is_complete %} is-selected{% endif %}" type="submit" name="action" value="{% if entry.is_complete %}uncomplete{% else %}complete{% endif %}">{% if entry.is_complete %}Undo complete{% else %}Mark complete{% endif %}</button>
             <button class="btn secondary calendar-btn" type="submit" name="action" value="calendar" title="Send calendar invitation" aria-label="Send calendar invitation">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm11 8H6v10h12V10ZM6 8h12V6H6v2Zm2 4h3v3H8v-3Z"></path>
               </svg>
             </button>
-            {% if invite %}
-              <a class="btn secondary" href="{{ url_for('ui.accept_invite', token=invite.token) }}">Open</a>
-            {% endif %}
           </form>
         </div>
       {% else %}
@@ -196,6 +213,185 @@
       {% endfor %}
       </div>
     </div>
+
+    <div class="panel">
+      <h2>Collaborator Settings</h2>
+      <p class="footer-note">Use this page to manage your invite decisions without creating an account.</p>
+      <form method="post" action="{{ url_for('ui.update_collaborator_settings', token=collaborator.access_token) }}" style="margin-top: 14px;">
+        <label for="collaborator-display-name">Display name</label>
+        <input id="collaborator-display-name" name="display_name" value="{{ collaborator.display_name or '' }}" placeholder="Your name" />
+        <div style="margin-top: 12px;">
+          <button class="btn" type="submit">Save settings</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h3>Convert To Full Account</h3>
+      {% if collaborator.user_id %}
+        <p class="footer-note">This collaborator email is already linked to an account. You can still open the account-conversion page to manage password or Google sign-in for it.</p>
+      {% else %}
+        <p class="footer-note">This magic link already proves your email. Continue to a dedicated account-conversion page to set a password or link Google.</p>
+      {% endif %}
+      <div style="margin-top: 14px;">
+        <a class="btn" href="{{ url_for('ui.collaborator_convert', token=collaborator.access_token) }}">Convert to full account</a>
+      </div>
+    </div>
+  {% else %}
+    <div class="panel">
+      <h2>Collaborator link not found</h2>
+      <p class="footer-note">This collaborator access link is invalid or expired.</p>
+    </div>
   {% endif %}
 </div>
+{% if status != "invalid" %}
+  <aside class="discussion-drawer" id="collab-discussion-drawer">
+    <div class="discussion-header">
+      <div>
+        <div class="discussion-title" id="collab-discussion-title">Discussion</div>
+        <div class="discussion-subtitle" id="collab-discussion-subtitle">Task comments</div>
+      </div>
+      <button class="icon-button" type="button" id="collab-discussion-close" title="Close discussion">×</button>
+    </div>
+    <div class="discussion-list" id="collab-discussion-list">
+      <div class="footer-note">Select a task to view discussion.</div>
+    </div>
+    <div class="discussion-compose">
+      <textarea id="collab-discussion-input" placeholder="Write a comment..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn secondary" type="button" id="collab-discussion-cancel">Close</button>
+        <button class="btn" type="button" id="collab-discussion-send">Comment</button>
+      </div>
+    </div>
+  </aside>
+  <script>
+    (function () {
+      const drawer = document.getElementById("collab-discussion-drawer");
+      const listEl = document.getElementById("collab-discussion-list");
+      const inputEl = document.getElementById("collab-discussion-input");
+      const sendEl = document.getElementById("collab-discussion-send");
+      const titleEl = document.getElementById("collab-discussion-title");
+      const subtitleEl = document.getElementById("collab-discussion-subtitle");
+      const closeEls = [document.getElementById("collab-discussion-close"), document.getElementById("collab-discussion-cancel")].filter(Boolean);
+      let currentTaskId = null;
+
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function renderCommentBody(value) {
+        return escapeHtml(value).replace(/(https?:\/\/[^\s<]+)/g, function (url) {
+          return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + "</a>";
+        });
+      }
+
+      function relativeTime(value) {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        const diff = Math.max(0, Date.now() - date.getTime());
+        const minutes = Math.floor(diff / 60000);
+        if (minutes < 1) return "Just now";
+        if (minutes < 60) return minutes + "m ago";
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + "h ago";
+        const days = Math.floor(hours / 24);
+        if (days < 7) return days + "d ago";
+        return date.toISOString().slice(0, 10);
+      }
+
+      function renderComment(comment) {
+        const author = comment.author || {};
+        const name = author.display_name || author.email || "User";
+        const avatar = author.avatar_url
+          ? '<img src="' + escapeHtml(author.avatar_url) + '" alt="avatar" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(name.charAt(0).toUpperCase()) + '; this.remove();" />'
+          : escapeHtml(name.charAt(0).toUpperCase());
+        return (
+          '<div class="discussion-comment">' +
+            '<div class="discussion-comment-header">' +
+              '<div class="discussion-comment-avatar">' + avatar + '</div>' +
+              '<div class="discussion-comment-meta">' +
+                '<div class="discussion-comment-author">' + escapeHtml(name) + '</div>' +
+                '<div class="discussion-comment-time">' + escapeHtml(relativeTime(comment.created_at)) + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="discussion-comment-body">' + renderCommentBody(comment.body) + '</div>' +
+          '</div>'
+        );
+      }
+
+      function loadComments(taskId, taskTitle, projectName) {
+        currentTaskId = taskId;
+        titleEl.textContent = taskTitle || "Discussion";
+        subtitleEl.textContent = projectName ? projectName + " · Task discussion" : "Task discussion";
+        listEl.innerHTML = '<div class="footer-note">Loading…</div>';
+        drawer.classList.add("open");
+        fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/" + taskId + "/comments/read", {
+          method: "POST",
+        }).catch(() => {});
+        document.querySelectorAll('[data-open-collab-discussion="' + taskId + '"]').forEach((button) => {
+          button.classList.remove("has-comments");
+          const dot = button.querySelector(".collab-chat-dot");
+          if (dot) dot.remove();
+        });
+        fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/" + taskId + "/comments")
+          .then((res) => res.json().catch(() => ({})))
+          .then((data) => {
+            const comments = data.comments || [];
+            listEl.innerHTML = comments.length ? comments.map(renderComment).join("") : '<div class="footer-note">No comments yet. Start the thread.</div>';
+            listEl.scrollTop = listEl.scrollHeight;
+          })
+          .catch(() => {
+            listEl.innerHTML = '<div class="footer-note">Could not load comments.</div>';
+          });
+      }
+
+      function submitComment() {
+        const body = (inputEl.value || "").trim();
+        if (!currentTaskId || !body) return;
+        sendEl.disabled = true;
+        fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/" + currentTaskId + "/comments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: body }),
+        })
+          .then((res) => res.json().catch(() => ({})))
+          .then((data) => {
+            if (!data.comment) return;
+            const empty = listEl.querySelector(".footer-note");
+            if (empty) listEl.innerHTML = "";
+            listEl.insertAdjacentHTML("beforeend", renderComment(data.comment));
+            inputEl.value = "";
+            listEl.scrollTop = listEl.scrollHeight;
+          })
+          .finally(() => {
+            sendEl.disabled = false;
+          });
+      }
+
+      document.querySelectorAll("[data-open-collab-discussion]").forEach((button) => {
+        button.addEventListener("click", () => {
+          loadComments(
+            button.getAttribute("data-open-collab-discussion"),
+            button.getAttribute("data-task-title"),
+            button.getAttribute("data-project-name")
+          );
+        });
+      });
+
+      closeEls.forEach((button) => button.addEventListener("click", () => drawer.classList.remove("open")));
+      sendEl.addEventListener("click", submitComment);
+      inputEl.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          submitComment();
+        }
+      });
+    })();
+  </script>
+{% endif %}
 {% endblock %}

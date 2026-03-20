@@ -1,167 +1,260 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="content" style="max-width: 900px; margin: 0 auto;">
-  <div class="panel">
-    <h2>Account</h2>
-    <p class="footer-note">Manage your primary email, add secondary emails, and merge another account into this one. New emails and merges require email verification.</p>
-    {% if error %}
-      <p class="footer-note" style="color: #f87171; margin-top: 10px;">{{ error }}</p>
-    {% endif %}
-    {% if merge_message %}
-      <p class="footer-note" style="color: var(--success); margin-top: 10px;">{{ merge_message }}</p>
-    {% endif %}
-  </div>
-
-  <div class="panel">
-    <h3>Connected Accounts</h3>
-    <p class="footer-note">Link provider accounts you want to use for sign-in.</p>
-    <div class="account-email-list">
-      {% for identity in identities %}
-        <div class="account-email-row">
-          <div class="account-email-card">
-            <span class="account-provider-badge {{ identity.provider }}">
-              {% if identity.provider == "github" %}
-                <i class="fa-brands fa-github" aria-hidden="true"></i>
-              {% elif identity.provider == "google" %}
-                <i class="fa-brands fa-google" aria-hidden="true"></i>
-              {% else %}
-                <i class="fa-solid fa-link" aria-hidden="true"></i>
-              {% endif %}
-            </span>
-            <span class="account-email-avatar">
-              {% if identity.avatar_url %}
-                <img src="{{ identity.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.account-email-avatar').textContent='{{ identity.provider[0]|upper }}'; this.remove();" />
-              {% else %}
-                {{ identity.provider[0]|upper }}
-              {% endif %}
-            </span>
-            <div class="account-email-copy">
-              <div class="account-provider-name">{{ identity.provider }}</div>
-              <div class="footer-note">{{ identity.display_name or identity.email or identity.provider_user_id }}</div>
-            </div>
-          </div>
-          <div class="account-email-actions">
-            <form method="post" action="{{ url_for('auth.unlink_external_account', identity_id=identity.id) }}">
-              <button class="btn secondary" type="submit">Unlink</button>
-            </form>
-          </div>
-        </div>
-      {% else %}
-        <p class="footer-note">No provider accounts linked yet.</p>
-      {% endfor %}
+<div class="layout admin-layout">
+  <aside class="sidebar admin-sidebar">
+    <div class="sidebar-heading-row">
+      <h3 style="margin: 0;">Settings</h3>
     </div>
-    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px;">
-      <a class="btn" href="{{ url_for('auth.connect_google') }}">Link Google</a>
-      <a class="btn secondary" href="{{ url_for('auth.connect_github') }}">Link GitHub</a>
-    </div>
-  </div>
-
-  <div class="panel">
-    <h3>GitHub Sync</h3>
-    <p class="footer-note">Import GitHub issues assigned to you into a dedicated uncategorized <strong>GitHub</strong> project.</p>
-    {% if github_identity %}
-      <div style="display: flex; flex-direction: column; gap: 8px;">
-        <div class="footer-note">
-          Connected as {{ github_identity.display_name or github_identity.email or github_identity.provider_user_id }}.
-          {% if github_sync_state and github_sync_state.last_synced_at %}
-            Last synced {{ github_sync_state.last_synced_at.strftime('%Y-%m-%d %H:%M') }}.
-          {% else %}
-            No sync has run yet.
-          {% endif %}
-        </div>
-        {% if github_identity.access_token %}
-          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <form method="post" action="{{ url_for('ui.sync_github_account') }}">
-              <button class="btn" type="submit">Sync assigned issues</button>
-            </form>
-            {% if github_sync_state %}
-              <a class="btn secondary" href="{{ url_for('ui.dashboard', project_id=github_sync_state.project_id) }}">Open GitHub Project</a>
-            {% endif %}
-            <a class="btn secondary" href="{{ url_for('auth.connect_github') }}">Reconnect GitHub</a>
-          </div>
-        {% else %}
-          <div class="footer-note">Reconnect GitHub once to grant repository access for issue sync.</div>
-          <div>
-            <a class="btn" href="{{ url_for('auth.connect_github') }}">Reconnect GitHub</a>
-          </div>
+    <nav class="admin-nav">
+      <a class="admin-nav-link{% if account_section == 'emails' %} active{% endif %}" href="{{ url_for('ui.account', section='emails') }}">
+        <i class="fa-solid fa-id-card" aria-hidden="true"></i>
+        <span>Accounts</span>
+      </a>
+      <a class="admin-nav-link{% if account_section == 'experience' %} active{% endif %}" href="{{ url_for('ui.account', section='experience') }}">
+        <i class="fa-solid fa-palette" aria-hidden="true"></i>
+        <span>Experience</span>
+      </a>
+    </nav>
+  </aside>
+  <section class="content admin-content">
+    {% if account_section == "emails" %}
+      <div class="panel">
+        <h2>Accounts</h2>
+        <p class="footer-note">Manage your sign-in providers, primary email, secondary emails, and account merges. New emails and merges require verification.</p>
+        {% if error %}
+          <p class="footer-note" style="color: #f87171; margin-top: 10px;">{{ error }}</p>
+        {% endif %}
+        {% if merge_message %}
+          <p class="footer-note" style="color: var(--success); margin-top: 10px;">{{ merge_message }}</p>
         {% endif %}
       </div>
-    {% else %}
-      <div class="footer-note">Link GitHub first, then sync your assigned issues into Termin.</div>
-    {% endif %}
-  </div>
 
-  <div class="panel">
-    <h3>Email Addresses</h3>
-    <div class="account-email-list">
-      {% for email in emails %}
-        <div class="account-email-row">
-          <div class="account-email-card">
-            <span class="account-email-avatar">
-              {% if email.avatar_url %}
-                <img src="{{ email.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.account-email-avatar').textContent='{{ email.email[0]|upper }}'; this.remove();" />
-              {% else %}
-                {{ email.email[0]|upper }}
-              {% endif %}
-            </span>
-            <div class="account-email-copy">
-              <div>{{ email.email }}</div>
-              <div class="footer-note">{% if email.is_primary %}Primary email{% else %}Secondary email{% endif %}</div>
-            </div>
-          </div>
-          <div class="account-email-actions">
-            {% if not email.is_primary %}
-              <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
-                <form method="post" action="{{ url_for('ui.set_account_primary_email', email_id=email.id) }}">
-                  <button class="btn secondary" type="submit">Make primary</button>
-                </form>
-                <form method="post" action="{{ url_for('ui.unlink_account_email', email_id=email.id) }}">
+      <div class="panel">
+        <h3>Connected Accounts</h3>
+        <p class="footer-note">Link provider accounts you want to use for sign-in.</p>
+        <div class="account-email-list">
+          {% for identity in identities %}
+            <div class="account-email-row">
+              <div class="account-email-card">
+                <span class="account-provider-badge {{ identity.provider }}">
+                  {% if identity.provider == "github" %}
+                    <i class="fa-brands fa-github" aria-hidden="true"></i>
+                  {% elif identity.provider == "google" %}
+                    <i class="fa-brands fa-google" aria-hidden="true"></i>
+                  {% else %}
+                    <i class="fa-solid fa-link" aria-hidden="true"></i>
+                  {% endif %}
+                </span>
+                <span class="account-email-avatar">
+                  {% if identity.avatar_url %}
+                    <img src="{{ identity.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.account-email-avatar').textContent='{{ identity.provider[0]|upper }}'; this.remove();" />
+                  {% else %}
+                    {{ identity.provider[0]|upper }}
+                  {% endif %}
+                </span>
+                <div class="account-email-copy">
+                  <div class="account-provider-name">{{ identity.provider }}</div>
+                  <div class="footer-note">{{ identity.display_name or identity.email or identity.provider_user_id }}</div>
+                </div>
+              </div>
+              <div class="account-email-actions">
+                <form method="post" action="{{ url_for('auth.unlink_external_account', identity_id=identity.id) }}">
                   <button class="btn secondary" type="submit">Unlink</button>
                 </form>
               </div>
+            </div>
+          {% else %}
+            <p class="footer-note">No provider accounts linked yet.</p>
+          {% endfor %}
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px;">
+          <a class="btn" href="{{ url_for('auth.connect_google') }}">Link Google</a>
+          <a class="btn secondary" href="{{ url_for('auth.connect_github') }}">Link GitHub</a>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>GitHub Sync</h3>
+        <p class="footer-note">Import GitHub issues assigned to you into a dedicated uncategorized <strong>GitHub</strong> project.</p>
+        {% if github_identity %}
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="footer-note">
+              Connected as {{ github_identity.display_name or github_identity.email or github_identity.provider_user_id }}.
+              {% if github_sync_state and github_sync_state.last_synced_at %}
+                Last synced {{ github_sync_state.last_synced_at.strftime('%Y-%m-%d %H:%M') }}.
+              {% else %}
+                No sync has run yet.
+              {% endif %}
+            </div>
+            {% if github_identity.access_token %}
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <form method="post" action="{{ url_for('ui.sync_github_account') }}">
+                  <button class="btn" type="submit">Sync assigned issues</button>
+                </form>
+                {% if github_sync_state %}
+                  <a class="btn secondary" href="{{ url_for('ui.dashboard', project_id=github_sync_state.project_id) }}">Open GitHub Project</a>
+                {% endif %}
+                <a class="btn secondary" href="{{ url_for('auth.connect_github') }}">Reconnect GitHub</a>
+              </div>
             {% else %}
-              <span class="tag">primary</span>
+              <div class="footer-note">Reconnect GitHub once to grant repository access for issue sync.</div>
+              <div>
+                <a class="btn" href="{{ url_for('auth.connect_github') }}">Reconnect GitHub</a>
+              </div>
             {% endif %}
           </div>
-        </div>
-      {% else %}
-        <p class="footer-note">No emails found on this account yet.</p>
-      {% endfor %}
-    </div>
-    <form method="post" action="{{ url_for('ui.add_account_email') }}" style="margin-top: 14px;">
-      <label for="account-email">Add email</label>
-      <div style="display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
-        <input id="account-email" name="email" placeholder="name@example.com" style="flex: 1 1 260px;" />
-        <button class="btn" type="submit">Send verification</button>
+        {% else %}
+          <div class="footer-note">Link GitHub first, then sync your assigned issues into Termin.</div>
+        {% endif %}
       </div>
-    </form>
-  </div>
 
-  <div class="panel">
-    <h3>Pending Verification</h3>
-    {% for verification in pending_verifications %}
-      <div style="padding: 10px 0; border-bottom: 1px solid var(--grid);">
-        <div>{{ verification.email }}</div>
-        <div class="footer-note">
-          {% if verification.purpose == "merge_account" %}Pending merge approval{% else %}Pending email addition{% endif %}
-          · requested {{ verification.created_at.strftime('%Y-%m-%d %H:%M') }}
+      <div class="panel">
+        <h3>Email Addresses</h3>
+        <div class="account-email-list">
+          {% for email in emails %}
+            <div class="account-email-row">
+              <div class="account-email-card">
+                <span class="account-email-avatar">
+                  {% if email.avatar_url %}
+                    <img src="{{ email.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.account-email-avatar').textContent='{{ email.email[0]|upper }}'; this.remove();" />
+                  {% else %}
+                    {{ email.email[0]|upper }}
+                  {% endif %}
+                </span>
+                <div class="account-email-copy">
+                  <div>{{ email.email }}</div>
+                  <div class="footer-note">{% if email.is_primary %}Primary email{% else %}Secondary email{% endif %}</div>
+                </div>
+              </div>
+              <div class="account-email-actions">
+                {% if not email.is_primary %}
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                    <form method="post" action="{{ url_for('ui.set_account_primary_email', email_id=email.id) }}">
+                      <button class="btn secondary" type="submit">Make primary</button>
+                    </form>
+                    <form method="post" action="{{ url_for('ui.unlink_account_email', email_id=email.id) }}">
+                      <button class="btn secondary" type="submit">Unlink</button>
+                    </form>
+                  </div>
+                {% else %}
+                  <span class="tag">primary</span>
+                {% endif %}
+              </div>
+            </div>
+          {% else %}
+            <p class="footer-note">No emails found on this account yet.</p>
+          {% endfor %}
         </div>
+        <form method="post" action="{{ url_for('ui.add_account_email') }}" style="margin-top: 14px;">
+          <label for="account-email">Add email</label>
+          <div style="display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
+            <input id="account-email" name="email" placeholder="name@example.com" style="flex: 1 1 260px;" />
+            <button class="btn" type="submit">Send verification</button>
+          </div>
+        </form>
       </div>
-    {% else %}
-      <p class="footer-note">No pending verification requests.</p>
-    {% endfor %}
-  </div>
 
-  <div class="panel">
-    <h3>Merge Account</h3>
-    <p class="footer-note">Merge another existing account into this one by email. A verification message will be sent to that account email before the merge is allowed.</p>
-    <form method="post" action="{{ url_for('ui.merge_account') }}" style="margin-top: 14px;">
-      <label for="merge-email">Account email to merge</label>
-      <div style="display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
-        <input id="merge-email" name="email" placeholder="other-account@example.com" style="flex: 1 1 260px;" />
-        <button class="btn secondary" type="submit">Send merge verification</button>
+      <div class="panel">
+        <h3>Pending Verification</h3>
+        {% for verification in pending_verifications %}
+          <div style="padding: 10px 0; border-bottom: 1px solid var(--grid);">
+            <div>{{ verification.email }}</div>
+            <div class="footer-note">
+              {% if verification.purpose == "merge_account" %}Pending merge approval{% else %}Pending email addition{% endif %}
+              · requested {{ verification.created_at.strftime('%Y-%m-%d %H:%M') }}
+            </div>
+          </div>
+        {% else %}
+          <p class="footer-note">No pending verification requests.</p>
+        {% endfor %}
       </div>
-    </form>
-  </div>
+
+      <div class="panel">
+        <h3>Merge Account</h3>
+        <p class="footer-note">Merge another existing account into this one by email. A verification message will be sent to that account email before the merge is allowed.</p>
+        <form method="post" action="{{ url_for('ui.merge_account') }}" style="margin-top: 14px;">
+          <label for="merge-email">Account email to merge</label>
+          <div style="display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
+            <input id="merge-email" name="email" placeholder="other-account@example.com" style="flex: 1 1 260px;" />
+            <button class="btn secondary" type="submit">Send merge verification</button>
+          </div>
+        </form>
+      </div>
+    {% elif account_section == "experience" %}
+      <style>
+        .theme-toggle {
+          display: inline-grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 4px;
+          width: fit-content;
+          justify-self: start;
+          padding: 4px;
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
+        }
+
+        .theme-toggle input {
+          position: absolute;
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        .theme-toggle-option {
+          min-width: 120px;
+          padding: 9px 14px;
+          border-radius: 999px;
+          color: var(--muted);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+        }
+
+        .theme-toggle input:checked + .theme-toggle-option {
+          color: var(--ink);
+          background: color-mix(in srgb, var(--accent) 16%, rgba(255, 255, 255, 0.02));
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+        }
+      </style>
+      <div class="panel">
+        <h2>Experience</h2>
+        <p class="footer-note">Choose how the interface should look for your account.</p>
+      </div>
+      <div class="panel">
+        <h3>Theme</h3>
+        <form method="post" action="{{ url_for('ui.update_account_experience') }}" id="theme-form" style="display: grid; gap: 12px;">
+          <div class="theme-toggle" role="radiogroup" aria-label="Theme mode">
+            <label>
+              <input type="radio" name="theme_mode" value="dark" {% if (user.theme_mode or 'dark') == 'dark' %}checked{% endif %} />
+              <span class="theme-toggle-option"><i class="fa-solid fa-moon" aria-hidden="true"></i><span>Dark</span></span>
+            </label>
+            <label>
+              <input type="radio" name="theme_mode" value="light" {% if user.theme_mode == 'light' %}checked{% endif %} />
+              <span class="theme-toggle-option"><i class="fa-solid fa-sun" aria-hidden="true"></i><span>Light</span></span>
+            </label>
+          </div>
+        </form>
+        <script>
+          (function () {
+            const form = document.getElementById("theme-form");
+            if (!form) return;
+            form.querySelectorAll('input[name="theme_mode"]').forEach((input) => {
+              input.addEventListener("change", () => {
+                document.body.setAttribute("data-theme", input.value);
+                form.requestSubmit();
+              });
+            });
+          })();
+        </script>
+      </div>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}
