@@ -144,24 +144,10 @@ class TaskComment(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
-class Subtask(db.Model):
-    __tablename__ = "subtasks"
-    id = db.Column(db.Integer, primary_key=True)
-    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
-    title = db.Column(db.String(255), nullable=False)
-    info = db.Column(db.Text)
-    link = db.Column(db.String(1024))
-    due_at = db.Column(db.DateTime)
-    assignee_email = db.Column(db.String(255))
-    status = db.Column(db.String(50), default="open", nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-
 class Assignment(db.Model):
     __tablename__ = "assignments"
     id = db.Column(db.Integer, primary_key=True)
     task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"))
-    subtask_id = db.Column(db.Integer, db.ForeignKey("subtasks.id"))
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="assigned", nullable=False)
@@ -172,7 +158,6 @@ class Invite(db.Model):
     __tablename__ = "invites"
     id = db.Column(db.Integer, primary_key=True)
     task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"))
-    subtask_id = db.Column(db.Integer, db.ForeignKey("subtasks.id"))
     assignment_id = db.Column(db.Integer, db.ForeignKey("assignments.id"))
     email = db.Column(db.String(255), nullable=False)
     token = db.Column(db.String(64), unique=True, nullable=False)

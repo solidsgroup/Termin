@@ -70,6 +70,20 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
         payload = {"html": payload, "attachments": []}
 
     html = sanitize_info_html((payload or {}).get("html"))
+    links = []
+    for item in (payload or {}).get("links", []):
+        if not item:
+            continue
+        link = str(item).strip()
+        parsed = urlparse(link)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if link not in links:
+            links.append(link)
+    if not links and legacy_link:
+        parsed_legacy = urlparse(legacy_link)
+        if parsed_legacy.scheme in {"http", "https"}:
+            links.append(legacy_link)
     attachments = []
     for item in (payload or {}).get("attachments", []):
         if not isinstance(item, dict):
@@ -90,10 +104,10 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
             }
         )
 
-    if not html and not attachments:
+    if not html and not attachments and not links:
         return None
 
-    return json.dumps({"html": html, "attachments": attachments}, separators=(",", ":"))
+    return json.dumps({"html": html, "attachments": attachments, "links": links}, separators=(",", ":"))
 
 
 def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> dict:
@@ -103,11 +117,26 @@ def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> 
         except json.JSONDecodeError:
             data = {"html": sanitize_info_html(raw_value), "attachments": []}
     elif legacy_link:
-        data = {"html": f'<p><a href="{escape(legacy_link, quote=True)}">{escape(legacy_link)}</a></p>', "attachments": []}
+        data = {"html": f'<p><a href="{escape(legacy_link, quote=True)}">{escape(legacy_link)}</a></p>', "attachments": [], "links": [legacy_link]}
     else:
-        data = {"html": "", "attachments": []}
+        data = {"html": "", "attachments": [], "links": []}
     data["html"] = sanitize_info_html(data.get("html"))
     data["attachments"] = [item for item in data.get("attachments", []) if isinstance(item, dict)]
+    links = []
+    for item in data.get("links", []):
+        if not item:
+            continue
+        link = str(item).strip()
+        parsed = urlparse(link)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if link not in links:
+            links.append(link)
+    if not links and legacy_link:
+        parsed_legacy = urlparse(legacy_link)
+        if parsed_legacy.scheme in {"http", "https"}:
+            links.append(legacy_link)
+    data["links"] = links
     return data
 
 

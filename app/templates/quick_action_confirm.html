@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel" style="max-width: 640px; margin: 48px auto;">
+  <h2>{{ title }}</h2>
+  <p class="footer-note">{{ subtitle }}</p>
+  <div class="panel" style="margin-top: 16px; background: var(--panel-alt);">
+    <div style="font-weight: 700; color: var(--ink);">{{ summary }}</div>
+    {% if detail %}
+      <div class="footer-note" style="margin-top: 6px;">{{ detail }}</div>
+    {% endif %}
+  </div>
+  <form method="post" style="margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button class="btn{% if confirm_tone == 'secondary' %} secondary{% endif %}" type="submit">{{ confirm_label }}</button>
+    <a class="btn secondary" href="{{ cancel_href }}">Cancel</a>
+  </form>
+</div>
+{% endblock %}

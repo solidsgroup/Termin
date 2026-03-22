@@ -7,7 +7,8 @@ from flask_socketio import emit, join_room, leave_room
 
 from app.extensions import db, socketio
 
-from app.models import Assignment, Group, GroupMember, Project, ProjectMember, Task, TaskComment, TaskNotification, Subtask
+from app.info_utils import load_info_payload
+from app.models import Assignment, Group, GroupMember, Project, ProjectMember, Task, TaskComment, TaskNotification
 from app.utils import current_user
 
 _handlers_registered = False
@@ -65,11 +66,14 @@ def _task_notification_user_ids(task: Task) -> set[int]:
 def _task_summary(task: Task | None) -> dict | None:
     if not task:
         return None
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     return {
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
         "title": task.title,
+        "link": task.link,
+        "links": info_payload.get("links", []),
         "status": task.status,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
@@ -103,7 +107,6 @@ def project_access_map(project_id: int) -> dict[int, dict]:
                 "partial": False,
                 "group_member": False,
                 "task_assignee": False,
-                "subtask_assignee": False,
             }
             access[user_id] = row
         return row
@@ -133,14 +136,6 @@ def project_access_map(project_id: int) -> dict[int, dict]:
                 if member:
                     member["partial"] = True
                     member["task_assignee"] = True
-
-            subtask_ids = [subtask_id for (subtask_id,) in db.session.query(Subtask.id).filter(Subtask.task_id.in_(task_ids)).all()]
-            if subtask_ids:
-                for row in Assignment.query.filter(Assignment.subtask_id.in_(subtask_ids), Assignment.user_id.isnot(None)).all():
-                    member = ensure(row.user_id)
-                    if member:
-                        member["partial"] = True
-                        member["subtask_assignee"] = True
 
     return access
 
@@ -186,8 +181,6 @@ def notification_payload_for_user(user_id: int) -> dict:
                 preview = comment.body[:120] + ("..." if len(comment.body) > 120 else "")
             else:
                 preview = "New comment"
-        elif row.kind == "subtask_update":
-            preview = "Subtask updated"
         elif row.kind == "task_moved":
             preview = "Task moved"
         elif row.kind == "task_created":
@@ -270,7 +263,6 @@ def _serialize_assignment_payload(assignment: Assignment) -> dict:
     return {
         "id": assignment.id,
         "task_id": assignment.task_id,
-        "subtask_id": assignment.subtask_id,
         "user_id": assignment.user_id,
         "email": assignment.email,
         "status": assignment.status,
@@ -397,6 +389,7 @@ def emit_task_comment_deleted(task_id: int, comment_id: int) -> None:
 
 
 def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_id: int | None = None, old_group_id: int | None = None, actor_user_id: int | None = None) -> dict:
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     return {
         "action": action,
         "actor_user_id": actor_user_id,
@@ -405,32 +398,14 @@ def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_
             "project_id": task.project_id,
             "group_id": task.group_id,
             "title": task.title,
+            "link": task.link,
+            "links": info_payload.get("links", []),
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "status": task.status,
             "created_at": task.created_at.isoformat() if task.created_at else None,
         },
         "old_project_id": old_project_id,
         "old_group_id": old_group_id,
-    }
-
-
-def _serialize_subtask_payload(task: Task, subtask: Subtask, *, action: str = "updated", actor_user_id: int | None = None) -> dict:
-    return {
-        "action": action,
-        "actor_user_id": actor_user_id,
-        "task": {
-            "id": task.id,
-            "project_id": task.project_id,
-            "group_id": task.group_id,
-        },
-        "subtask": {
-            "id": subtask.id,
-            "task_id": subtask.task_id,
-            "title": subtask.title,
-            "due_at": subtask.due_at.isoformat() if subtask.due_at else None,
-            "status": subtask.status,
-            "created_at": subtask.created_at.isoformat() if subtask.created_at else None,
-        },
     }
 
 
@@ -441,14 +416,6 @@ def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: in
         socketio.emit("task_updated", payload, room=project_room(old_project_id))
     for recipient_id in _task_notification_user_ids(task):
         socketio.emit("task_updated", payload, room=user_room(recipient_id))
-
-
-def emit_subtask_updated(task: Task, subtask: Subtask, *, action: str = "updated", actor_user_id: int | None = None) -> None:
-    payload = _serialize_subtask_payload(task, subtask, action=action, actor_user_id=actor_user_id)
-    socketio.emit("subtask_updated", payload, room=project_room(task.project_id))
-    for recipient_id in _task_notification_user_ids(task):
-        socketio.emit("subtask_updated", payload, room=user_room(recipient_id))
-
 
 def queue_task_notifications(task: Task, *, exclude_user_id: int | None = None, kind: str = "task_update") -> None:
     now = datetime.utcnow()
@@ -553,11 +520,6 @@ def register_socket_handlers() -> None:
             .first()
             or db.session.query(Task.id)
             .join(Assignment, Assignment.task_id == Task.id)
-            .filter(Task.project_id == project_id, Assignment.user_id == user.id)
-            .first()
-            or db.session.query(Subtask.id)
-            .join(Task, Task.id == Subtask.task_id)
-            .join(Assignment, Assignment.subtask_id == Subtask.id)
             .filter(Task.project_id == project_id, Assignment.user_id == user.id)
             .first()
         ):

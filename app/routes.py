@@ -18,7 +18,6 @@ from app.realtime import (
     is_user_viewing_project,
     is_user_viewing_task,
     project_access_map,
-    emit_subtask_updated,
     emit_task_comment_created,
     emit_task_comment_deleted,
     emit_task_comment_updated,
@@ -38,7 +37,7 @@ from app.sidebar_layout import (
 )
 import secrets
 
-from app.models import Division, Task, Project, ProjectSidebarPreference, Subtask, Assignment, Invite, User, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, CollaboratorProfile
+from app.models import Division, Task, Project, ProjectSidebarPreference, Assignment, Invite, User, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, CollaboratorProfile
 from app.utils import current_user
 
 
@@ -128,15 +127,6 @@ def _can_access_task(user, task: Task) -> bool:
     return Assignment.query.filter_by(task_id=task.id, user_id=user.id).first() is not None
 
 
-def _can_access_subtask(user, subtask: Subtask) -> bool:
-    if not subtask:
-        return False
-    if Assignment.query.filter_by(subtask_id=subtask.id, user_id=user.id).first():
-        return True
-    task = Task.query.get(subtask.task_id)
-    return _can_access_task(user, task)
-
-
 def _task_notification_user_ids(task: Task) -> set[int]:
     project = Project.query.get(task.project_id)
     user_ids = {project.owner_id} if project else set()
@@ -182,6 +172,39 @@ def _serialize_task_comment(comment: TaskComment, author: User | None, collabora
     }
 
 
+def _serialize_assignment_row(assignment: Assignment) -> dict:
+    account_user = User.query.get(assignment.user_id) if assignment.user_id else None
+    return {
+        "id": assignment.id,
+        "task_id": assignment.task_id,
+        "user_id": assignment.user_id,
+        "email": assignment.email,
+        "status": assignment.status,
+        "display_name": account_user.display_name if account_user else None,
+        "display_email": account_user.email if account_user else assignment.email,
+        "avatar_url": account_user.avatar_url if account_user else None,
+    }
+
+
+def _serialize_task_row(task: Task) -> dict:
+    info = load_info_payload(task.info)
+    assignments = (
+        Assignment.query.filter_by(task_id=task.id)
+        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
+        .all()
+    )
+    return {
+        "id": task.id,
+        "project_id": task.project_id,
+        "group_id": task.group_id,
+        "title": task.title,
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "status": task.status,
+        "info": info,
+        "assignments": [_serialize_assignment_row(row) for row in assignments],
+    }
+
+
 def _can_manage_project(user, project_id: int) -> bool:
     return Project.query.filter_by(id=project_id, owner_id=user.id).first() is not None or (
         ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first() is not None
@@ -209,14 +232,7 @@ def _can_access_project(user, project_id: int) -> bool:
         is not None
     ):
         return True
-    return (
-        db.session.query(Subtask.id)
-        .join(Assignment, Assignment.subtask_id == Subtask.id)
-        .join(Task, Task.id == Subtask.task_id)
-        .filter(Task.project_id == project_id, Assignment.user_id == user.id)
-        .first()
-        is not None
-    )
+    return False
 
 
 def _accessible_projects_for_user(user) -> list[Project]:
@@ -236,20 +252,11 @@ def _accessible_projects_for_user(user) -> list[Project]:
         .filter(Assignment.user_id == user.id)
         .all()
     ]
-    assigned_subtask_project_ids = [
-        row.project_id
-        for row in db.session.query(Task.project_id)
-        .join(Subtask, Subtask.task_id == Task.id)
-        .join(Assignment, Assignment.subtask_id == Subtask.id)
-        .filter(Assignment.user_id == user.id)
-        .all()
-    ]
     accessible_project_ids = list(
         {project.id for project in owned_projects}
         .union(member_project_ids)
         .union(member_group_project_ids)
         .union(assigned_task_project_ids)
-        .union(assigned_subtask_project_ids)
     )
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
 
@@ -293,7 +300,6 @@ def _upload_root() -> Path:
 def _existing_assignment_for_target(
     *,
     task_id: int | None = None,
-    subtask_id: int | None = None,
     account_user_id: int | None = None,
     email: str | None = None,
 ) -> Assignment | None:
@@ -302,11 +308,6 @@ def _existing_assignment_for_target(
         query = query.filter(Assignment.task_id.is_(None))
     else:
         query = query.filter_by(task_id=task_id)
-    if subtask_id is None:
-        query = query.filter(Assignment.subtask_id.is_(None))
-    else:
-        query = query.filter_by(subtask_id=subtask_id)
-
     normalized_email = (email or "").strip().lower()
     if account_user_id:
         existing = query.filter_by(user_id=account_user_id).first()
@@ -321,6 +322,37 @@ def _reset_existing_assignment(existing: Assignment) -> Assignment:
     existing.status = "assigned" if existing.user_id else "draft"
     Invite.query.filter_by(assignment_id=existing.id).delete(synchronize_session=False)
     return existing
+
+
+def _matching_assignments_for_target(
+    *,
+    task_id: int,
+    account_user_id: int | None = None,
+    email: str | None = None,
+) -> list[Assignment]:
+    query = Assignment.query.filter_by(task_id=task_id)
+    normalized_email = (email or "").strip().lower()
+    if account_user_id:
+        return query.filter_by(user_id=account_user_id).order_by(Assignment.id.asc()).all()
+    if normalized_email:
+        return query.filter(db.func.lower(Assignment.email) == normalized_email).order_by(Assignment.id.asc()).all()
+    return []
+
+
+def _collapse_duplicate_task_assignments(
+    *,
+    task_id: int,
+    account_user_id: int | None = None,
+    email: str | None = None,
+) -> Assignment | None:
+    matches = _matching_assignments_for_target(task_id=task_id, account_user_id=account_user_id, email=email)
+    if not matches:
+        return None
+    primary = matches[0]
+    for duplicate in matches[1:]:
+        Invite.query.filter_by(assignment_id=duplicate.id).delete(synchronize_session=False)
+        db.session.delete(duplicate)
+    return primary
 
 
 @api_bp.post("/tasks")
@@ -433,16 +465,32 @@ def update_task(task_id: int):
         return {"error": "unauthorized"}, 403
 
     title = payload.get("title")
+    link = payload.get("link")
+    links = payload.get("links")
     status = payload.get("status")
     due_at = payload.get("due_at")
     info = payload.get("info")
 
     if title is not None:
         task.title = title.strip()
+    info_payload = _info_payload_for(task)
+    if links is None and link is not None:
+        stripped_link = link.strip()
+        links = [stripped_link] if stripped_link else []
+    if links is not None:
+        info_payload["links"] = links
+        task.link = (info_payload.get("links") or [None])[0]
     if status is not None:
         task.status = status.strip() or task.status
     if info is not None:
-        task.info = normalize_info_payload(info, task.link)
+        if isinstance(info, dict):
+            info_payload["html"] = info.get("html")
+            info_payload["attachments"] = info.get("attachments", info_payload.get("attachments", []))
+        else:
+            info_payload["html"] = info
+        task.info = normalize_info_payload(info_payload, task.link)
+    elif links is not None:
+        task.info = normalize_info_payload(info_payload, task.link)
     if due_at is not None:
         if due_at == "":
             task.due_at = None
@@ -468,12 +516,16 @@ def get_task(task_id: int):
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+    assignments = Assignment.query.filter_by(task_id=task.id).all()
     return {
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
         "title": task.title,
+        "link": task.link,
+        "links": _info_payload_for(task).get("links", []),
         "status": task.status,
+        "assignments": [_serialize_assignment_row(row) for row in assignments],
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
     }, 200
@@ -974,12 +1026,8 @@ def delete_project(project_id: int):
 
     group_ids = [g.id for g in Group.query.filter_by(project_id=project.id).all()]
     task_ids = [t.id for t in Task.query.filter_by(project_id=project.id).all()]
-    subtask_ids = [s.id for s in Subtask.query.filter(Subtask.task_id.in_(task_ids)).all()] if task_ids else []
     Assignment.query.filter(Assignment.task_id.in_(task_ids)).delete(synchronize_session=False)
-    Assignment.query.filter(Assignment.subtask_id.in_(subtask_ids)).delete(synchronize_session=False)
     Invite.query.filter(Invite.task_id.in_(task_ids)).delete(synchronize_session=False)
-    Invite.query.filter(Invite.subtask_id.in_(subtask_ids)).delete(synchronize_session=False)
-    Subtask.query.filter(Subtask.task_id.in_(task_ids)).delete(synchronize_session=False)
     Task.query.filter(Task.project_id == project.id).delete(synchronize_session=False)
     GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).delete(synchronize_session=False)
     ProjectMember.query.filter(ProjectMember.project_id == project.id).delete(synchronize_session=False)
@@ -1078,17 +1126,13 @@ def duplicate_project(project_id: int):
         db.session.flush()
         task_map[task.id] = new_task.id
 
-    for subtask in Subtask.query.filter(Subtask.task_id.in_(task_map.keys())).all():
-        new_subtask = Subtask(
-            task_id=task_map.get(subtask.task_id),
-            title=subtask.title,
-            due_at=subtask.due_at,
-            status=subtask.status,
-        )
-        db.session.add(new_subtask)
-
     db.session.commit()
-    return {"id": copy.id, "name": copy.name}, 201
+    copy_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=copy.id).first()
+    return {
+        "id": copy.id,
+        "name": copy.name,
+        "division_id": copy_pref.division_id if copy_pref else None,
+    }, 201
 
 
 @api_bp.delete("/groups/<int:group_id>")
@@ -1102,12 +1146,8 @@ def delete_group(group_id: int):
         return {"error": "unauthorized"}, 403
 
     task_ids = [t.id for t in Task.query.filter_by(group_id=group.id).all()]
-    subtask_ids = [s.id for s in Subtask.query.filter(Subtask.task_id.in_(task_ids)).all()] if task_ids else []
     Assignment.query.filter(Assignment.task_id.in_(task_ids)).delete(synchronize_session=False)
-    Assignment.query.filter(Assignment.subtask_id.in_(subtask_ids)).delete(synchronize_session=False)
     Invite.query.filter(Invite.task_id.in_(task_ids)).delete(synchronize_session=False)
-    Invite.query.filter(Invite.subtask_id.in_(subtask_ids)).delete(synchronize_session=False)
-    Subtask.query.filter(Subtask.task_id.in_(task_ids)).delete(synchronize_session=False)
     Task.query.filter(Task.group_id == group.id).delete(synchronize_session=False)
     GroupMember.query.filter(GroupMember.group_id == group.id).delete(synchronize_session=False)
     db.session.delete(group)
@@ -1151,17 +1191,15 @@ def duplicate_group(group_id: int):
         db.session.flush()
         task_map[task.id] = new_task.id
 
-    for subtask in Subtask.query.filter(Subtask.task_id.in_(task_map.keys())).all():
-        new_subtask = Subtask(
-            task_id=task_map.get(subtask.task_id),
-            title=subtask.title,
-            due_at=subtask.due_at,
-            status=subtask.status,
-        )
-        db.session.add(new_subtask)
-
     db.session.commit()
-    return {"id": new_group.id, "name": new_group.name}, 201
+    tasks = Task.query.filter_by(group_id=new_group.id).order_by(Task.position.asc(), Task.id.asc()).all()
+    return {
+        "id": new_group.id,
+        "name": new_group.name,
+        "project_id": new_group.project_id,
+        "color": new_group.color,
+        "tasks": [_serialize_task_row(task) for task in tasks],
+    }, 201
 
 
 @api_bp.get("/users")
@@ -1451,24 +1489,18 @@ def delete_task(task_id: int):
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
 
-    subtask_ids = [s.id for s in Subtask.query.filter_by(task_id=task.id).all()]
-    subtask_count = len(subtask_ids)
-    invite_query = Invite.query.filter(
-        (Invite.task_id == task.id) | (Invite.subtask_id.in_(subtask_ids))
-    )
+    invite_query = Invite.query.filter(Invite.task_id == task.id)
     invite_count = invite_query.filter(Invite.status != "draft").count()
 
-    requires_confirm = subtask_count > 0 or invite_count > 0
+    requires_confirm = invite_count > 0
     if request.args.get("confirm") != "1":
         if requires_confirm:
             return {
                 "requires_confirm": True,
-                "subtask_count": subtask_count,
                 "invite_count": invite_count,
             }, 200
         # No confirm needed; proceed with delete
 
-    Subtask.query.filter_by(task_id=task.id).delete()
     Assignment.query.filter_by(task_id=task.id).delete()
     Invite.query.filter_by(task_id=task.id).delete()
     db.session.delete(task)
@@ -1485,28 +1517,16 @@ def create_assignment():
     target_id = payload.get("target_id")
     email = (payload.get("email") or "").strip().lower()
 
-    if target_type not in {"task", "subtask"} or not target_id or not email:
+    if target_type != "task" or not target_id or not email:
         return {"error": "target_type, target_id, and email are required"}, 400
     if "@" not in email:
         return {"error": "invalid email"}, 400
 
-    task = None
-    subtask = None
-    if target_type == "task":
-        task = Task.query.get(target_id)
-        if not task:
-            return {"error": "task not found"}, 404
-        if not _can_access_task(user, task):
-            return {"error": "unauthorized"}, 403
-    else:
-        subtask = Subtask.query.get(target_id)
-        if not subtask:
-            return {"error": "subtask not found"}, 404
-        task = Task.query.get(subtask.task_id)
-        if not task:
-            return {"error": "task not found"}, 404
-        if not _can_access_subtask(user, subtask):
-            return {"error": "unauthorized"}, 403
+    task = Task.query.get(target_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
 
     account_user = find_user_by_email(email)
     if not account_user:
@@ -1516,12 +1536,16 @@ def create_assignment():
             default_calendar_opt_in=project.default_invitee_calendar_opt_in if project else False,
         )
     existing_assignment = _existing_assignment_for_target(
-        task_id=task.id if target_type == "task" else None,
-        subtask_id=subtask.id if target_type == "subtask" else None,
+        task_id=task.id,
         account_user_id=account_user.id if account_user else None,
         email=email,
     )
     if existing_assignment:
+        existing_assignment = _collapse_duplicate_task_assignments(
+            task_id=task.id,
+            account_user_id=account_user.id if account_user else None,
+            email=email,
+        ) or existing_assignment
         _reset_existing_assignment(existing_assignment)
         db.session.commit()
         emit_assignment_updated(task, existing_assignment, actor_user_id=user.id)
@@ -1535,13 +1559,18 @@ def create_assignment():
             "avatar_url": account_user.avatar_url if account_user else None,
         }, 200
     assignment = Assignment(
-        task_id=task.id if target_type == "task" else None,
-        subtask_id=subtask.id if target_type == "subtask" else None,
+        task_id=task.id,
         user_id=account_user.id if account_user else None,
         email=email if not account_user else None,
         status="assigned" if account_user else "draft",
     )
     db.session.add(assignment)
+    db.session.commit()
+    assignment = _collapse_duplicate_task_assignments(
+        task_id=task.id,
+        account_user_id=account_user.id if account_user else None,
+        email=email,
+    ) or assignment
     db.session.commit()
     emit_assignment_updated(task, assignment, action="created", actor_user_id=user.id)
 
@@ -1565,9 +1594,6 @@ def send_assignment_link(assignment_id: int):
         return {"error": "assignment not found"}, 404
 
     task = Task.query.get(assignment.task_id) if assignment.task_id else None
-    if assignment.subtask_id:
-        subtask = Subtask.query.get(assignment.subtask_id)
-        task = Task.query.get(subtask.task_id) if subtask else task
     if not task:
         return {"error": "task not found"}, 404
 
@@ -1578,7 +1604,6 @@ def send_assignment_link(assignment_id: int):
     if not email:
         return {"error": "assignment has no email"}, 400
 
-    subtask = Subtask.query.get(assignment.subtask_id) if assignment.subtask_id else None
     project = Project.query.get(task.project_id) if task.project_id else None
     collaborator = get_or_create_collaborator_profile(
         email=email,
@@ -1590,7 +1615,6 @@ def send_assignment_link(assignment_id: int):
         token = secrets.token_hex(24)
         invite = Invite(
             task_id=assignment.task_id,
-            subtask_id=assignment.subtask_id,
             assignment_id=assignment.id,
             email=email,
             token=token,
@@ -1612,7 +1636,6 @@ def send_assignment_link(assignment_id: int):
             decline_url=decline_url,
             project_name=project.name if project else None,
             task_title=task.title if task else None,
-            subtask_title=subtask.title if subtask else None,
             inviter_email=user.email,
             inviter_name=user.display_name or user.email,
         )
@@ -1651,9 +1674,6 @@ def send_assignment_links_bulk():
 
     for assignment in assignments:
         task = Task.query.get(assignment.task_id) if assignment.task_id else None
-        subtask = Subtask.query.get(assignment.subtask_id) if assignment.subtask_id else None
-        if subtask and not task:
-            task = Task.query.get(subtask.task_id)
         if not task:
             return {"error": f"task not found for assignment {assignment.id}"}, 404
         if not _can_access_task(user, task):
@@ -1676,7 +1696,6 @@ def send_assignment_links_bulk():
         if not invite:
             invite = Invite(
                 task_id=assignment.task_id,
-                subtask_id=assignment.subtask_id,
                 assignment_id=assignment.id,
                 email=email,
                 token=secrets.token_hex(24),
@@ -1692,7 +1711,6 @@ def send_assignment_links_bulk():
             {
                 "project_name": project.name if project else None,
                 "task_title": task.title if task else None,
-                "subtask_title": subtask.title if subtask else None,
                 "invite_url": manage_url,
                 "portal_url": manage_url,
                 "accept_url": f"{base_url}/invites/{invite.token}/quick/accept",
@@ -1724,9 +1742,6 @@ def send_assignment_links_bulk():
     db.session.commit()
     for assignment, _invite in prepared_assignments:
         task = Task.query.get(assignment.task_id) if assignment.task_id else None
-        if assignment.subtask_id and not task:
-            subtask = Subtask.query.get(assignment.subtask_id)
-            task = Task.query.get(subtask.task_id) if subtask else None
         if task:
             emit_assignment_updated(task, assignment, actor_user_id=user.id)
     return {"status": "link_sent", "assignment_ids": [assignment.id for assignment, _ in prepared_assignments]}, 200
@@ -1741,9 +1756,6 @@ def delete_assignment(assignment_id: int):
         return {"error": "assignment not found"}, 404
 
     task = Task.query.get(assignment.task_id) if assignment.task_id else None
-    if assignment.subtask_id:
-        subtask = Subtask.query.get(assignment.subtask_id)
-        task = Task.query.get(subtask.task_id) if subtask else task
     if not task:
         return {"error": "task not found"}, 404
 
@@ -1755,132 +1767,6 @@ def delete_assignment(assignment_id: int):
     db.session.commit()
     emit_assignment_updated(task, assignment, action="deleted", actor_user_id=user.id)
     return {"status": "deleted"}, 200
-
-
-@api_bp.post("/tasks/<int:task_id>/subtasks")
-@login_required
-def create_subtask(task_id: int):
-    payload = request.get_json(silent=True) or {}
-    user = current_user()
-
-    task = Task.query.get(task_id)
-    if not task:
-        return {"error": "task not found"}, 404
-
-    if not _can_access_task(user, task):
-        return {"error": "unauthorized"}, 403
-
-    title = (payload.get("title") or "").strip()
-    if not title:
-        return {"error": "title is required"}, 400
-
-    due_at = None
-    due_raw = payload.get("due_at")
-    if due_raw:
-        try:
-            due_at = datetime.fromisoformat(due_raw)
-        except ValueError:
-            return {"error": "Invalid due_at format"}, 400
-
-    subtask = Subtask(
-        task_id=task.id,
-        title=title,
-        info=normalize_info_payload(payload.get("info"), payload.get("link")),
-        due_at=due_at,
-    )
-    db.session.add(subtask)
-    db.session.commit()
-    emit_subtask_updated(task, subtask, action="created", actor_user_id=user.id)
-    assignment_payload = None
-    if payload.get("assignee_email"):
-        email = payload.get("assignee_email").strip().lower()
-        account_user = find_user_by_email(email)
-        existing_assignment = _existing_assignment_for_target(
-            subtask_id=subtask.id,
-            account_user_id=account_user.id if account_user else None,
-            email=email,
-        )
-        if existing_assignment:
-            _reset_existing_assignment(existing_assignment)
-            db.session.commit()
-            return {
-                "id": subtask.id,
-                "title": subtask.title,
-                "assignment": {
-                    "id": existing_assignment.id,
-                    "user_id": existing_assignment.user_id,
-                    "email": existing_assignment.email,
-                    "status": existing_assignment.status,
-                    "display_name": account_user.display_name if account_user else None,
-                    "display_email": account_user.email if account_user else existing_assignment.email,
-                },
-                "info": _info_payload_for(subtask),
-            }, 200
-        assignment = Assignment(
-            subtask_id=subtask.id,
-            user_id=account_user.id if account_user else None,
-            email=email if not account_user else None,
-            status="assigned" if account_user else "draft",
-        )
-        db.session.add(assignment)
-        db.session.commit()
-        assignment_payload = {
-            "id": assignment.id,
-            "user_id": assignment.user_id,
-            "email": assignment.email,
-            "status": assignment.status,
-            "display_name": account_user.display_name if account_user else None,
-            "display_email": account_user.email if account_user else assignment.email,
-            "avatar_url": account_user.avatar_url if account_user else None,
-        }
-    queue_task_notifications(task, exclude_user_id=user.id, kind="subtask_update")
-    db.session.commit()
-    emit_task_notification_updates(task, exclude_user_id=user.id)
-    return {"id": subtask.id, "title": subtask.title, "assignment": assignment_payload, "info": _info_payload_for(subtask)}, 201
-
-
-@api_bp.patch("/subtasks/<int:subtask_id>")
-@login_required
-def update_subtask(subtask_id: int):
-    payload = request.get_json(silent=True) or {}
-    user = current_user()
-
-    subtask = Subtask.query.get(subtask_id)
-    if not subtask:
-        return {"error": "subtask not found"}, 404
-
-    task = Task.query.get(subtask.task_id)
-    if not task:
-        return {"error": "task not found"}, 404
-
-    if not _can_access_subtask(user, subtask):
-        return {"error": "unauthorized"}, 403
-
-    title = payload.get("title")
-    status = payload.get("status")
-    due_at = payload.get("due_at")
-    info = payload.get("info")
-
-    if title is not None:
-        subtask.title = title.strip()
-    if status is not None:
-        subtask.status = status.strip() or subtask.status
-    if info is not None:
-        subtask.info = normalize_info_payload(info, subtask.link)
-    if due_at is not None:
-        if due_at == "":
-            subtask.due_at = None
-        else:
-            try:
-                subtask.due_at = datetime.fromisoformat(due_at)
-            except ValueError:
-                return {"error": "Invalid due_at format"}, 400
-    db.session.commit()
-    queue_task_notifications(task, exclude_user_id=user.id, kind="subtask_update")
-    db.session.commit()
-    emit_subtask_updated(task, subtask, actor_user_id=user.id)
-    emit_task_notification_updates(task, exclude_user_id=user.id)
-    return {"id": subtask.id, "title": subtask.title, "status": subtask.status, "info": _info_payload_for(subtask)}, 200
 
 
 @api_bp.post("/tasks/<int:task_id>/info/attachments")
@@ -1899,26 +1785,6 @@ def upload_task_attachment(task_id: int):
     info = _info_payload_for(task)
     info.setdefault("attachments", []).append(attachment)
     task.info = normalize_info_payload(info, task.link)
-    db.session.commit()
-    return {"attachment": attachment, "info": info}, 201
-
-
-@api_bp.post("/subtasks/<int:subtask_id>/info/attachments")
-@login_required
-def upload_subtask_attachment(subtask_id: int):
-    user = current_user()
-    subtask = Subtask.query.get(subtask_id)
-    if not subtask:
-        return {"error": "subtask not found"}, 404
-    if not _can_access_subtask(user, subtask):
-        return {"error": "unauthorized"}, 403
-    upload = request.files.get("file")
-    if not upload or not upload.filename:
-        return {"error": "file is required"}, 400
-    attachment = save_uploaded_file(upload, _upload_root(), "subtask", subtask.id)
-    info = _info_payload_for(subtask)
-    info.setdefault("attachments", []).append(attachment)
-    subtask.info = normalize_info_payload(info, subtask.link)
     db.session.commit()
     return {"attachment": attachment, "info": info}, 201
 
@@ -1952,35 +1818,6 @@ def delete_task_attachment(task_id: int, attachment_id: str):
     return {"status": "deleted", "info": info}, 200
 
 
-@api_bp.delete("/subtasks/<int:subtask_id>/info/attachments/<attachment_id>")
-@login_required
-def delete_subtask_attachment(subtask_id: int, attachment_id: str):
-    user = current_user()
-    subtask = Subtask.query.get(subtask_id)
-    if not subtask:
-        return {"error": "subtask not found"}, 404
-    if not _can_access_subtask(user, subtask):
-        return {"error": "unauthorized"}, 403
-    info = _info_payload_for(subtask)
-    remaining = []
-    deleted = None
-    for item in info.get("attachments", []):
-        if item.get("id") == attachment_id and deleted is None:
-            deleted = item
-        else:
-            remaining.append(item)
-    if not deleted:
-        return {"error": "attachment not found"}, 404
-    if deleted.get("path"):
-        file_path = Path(current_app.instance_path) / deleted["path"]
-        if file_path.exists():
-            file_path.unlink()
-    info["attachments"] = remaining
-    subtask.info = normalize_info_payload(info, subtask.link)
-    db.session.commit()
-    return {"status": "deleted", "info": info}, 200
-
-
 @api_bp.get("/uploads/<item_type>/<int:item_id>/<filename>")
 @login_required
 def serve_upload(item_type: str, item_id: int, filename: str):
@@ -1989,10 +1826,6 @@ def serve_upload(item_type: str, item_id: int, filename: str):
     if item_type == "task":
         item = Task.query.get(item_id)
         if not item or not _can_access_task(user, item):
-            return {"error": "not found"}, 404
-    elif item_type == "subtask":
-        item = Subtask.query.get(item_id)
-        if not item or not _can_access_subtask(user, item):
             return {"error": "not found"}, 404
     else:
         return {"error": "not found"}, 404
@@ -2022,19 +1855,7 @@ def list_assignees():
     assigned_task_ids = [
         a.task_id for a in Assignment.query.filter_by(user_id=user.id).filter(Assignment.task_id.isnot(None)).all()
     ]
-    assigned_subtask_ids = [
-        a.subtask_id
-        for a in Assignment.query.filter_by(user_id=user.id).filter(Assignment.subtask_id.isnot(None)).all()
-    ]
-    parent_task_ids = (
-        [s.task_id for s in Subtask.query.filter(Subtask.id.in_(assigned_subtask_ids)).all()]
-        if assigned_subtask_ids
-        else []
-    )
-    task_ids = list(set(owned_task_ids + assigned_task_ids + parent_task_ids))
-    subtask_ids = (
-        [s.id for s in Subtask.query.filter(Subtask.task_id.in_(task_ids)).all()] if task_ids else []
-    )
+    task_ids = list(set(owned_task_ids + assigned_task_ids))
 
     # Users by email/display_name
     users = search_users_by_identity(q, limit=10)
@@ -2045,14 +1866,8 @@ def list_assignees():
         for row in Assignment.query.filter(Assignment.task_id.in_(task_ids)).all():
             if row.email:
                 emails.add(row.email)
-    if subtask_ids:
-        for row in Assignment.query.filter(Assignment.subtask_id.in_(subtask_ids)).all():
-            if row.email:
-                emails.add(row.email)
-    if task_ids or subtask_ids:
-        invite_rows = Invite.query.filter(
-            (Invite.task_id.in_(task_ids)) | (Invite.subtask_id.in_(subtask_ids))
-        ).all()
+    if task_ids:
+        invite_rows = Invite.query.filter(Invite.task_id.in_(task_ids)).all()
         for row in invite_rows:
             if row.email:
                 emails.add(row.email)
@@ -2061,10 +1876,10 @@ def list_assignees():
 
     # Count accepts per email
     accept_counts = {}
-    if task_ids or subtask_ids:
+    if task_ids:
         invite_rows = Invite.query.filter(
-            ((Invite.task_id.in_(task_ids)) | (Invite.subtask_id.in_(subtask_ids)))
-            & (Invite.status == "accepted")
+            Invite.task_id.in_(task_ids),
+            Invite.status == "accepted",
         ).all()
         for row in invite_rows:
             accept_counts[row.email] = accept_counts.get(row.email, 0) + 1

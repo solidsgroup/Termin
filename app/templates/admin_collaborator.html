@@ -20,7 +20,7 @@
     {% for entry in todo_entries %}
       <div class="admin-collaborator-entry">
         <div>
-          <div>{{ entry.subtask.title if entry.subtask else (entry.task.title if entry.task else 'Unknown task') }}</div>
+          <div>{{ entry.task.title if entry.task else 'Unknown task' }}</div>
           <div class="footer-note">
             {% if entry.project %}{{ entry.project.name }} · {% endif %}
             {{ entry.status }}
@@ -43,7 +43,7 @@
     {% for entry in open_entries %}
       <div class="admin-collaborator-entry">
         <div>
-          <div>{{ entry.subtask.title if entry.subtask else (entry.task.title if entry.task else 'Unknown task') }}</div>
+          <div>{{ entry.task.title if entry.task else 'Unknown task' }}</div>
           <div class="footer-note">
             {% if entry.project %}{{ entry.project.name }} · {% endif %}
             {{ entry.status }} · {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}
@@ -65,7 +65,7 @@
     {% for entry in history_entries %}
       <div class="admin-collaborator-entry">
         <div>
-          <div>{{ entry.subtask.title if entry.subtask else (entry.task.title if entry.task else 'Unknown task') }}</div>
+          <div>{{ entry.task.title if entry.task else 'Unknown task' }}</div>
           <div class="footer-note">
             {% if entry.project %}{{ entry.project.name }} · {% endif %}
             {{ entry.status }} · {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}

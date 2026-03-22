@@ -6,12 +6,7 @@
     <p class="footer-note">This invite link is invalid or expired.</p>
   {% else %}
     <h2>Task invite</h2>
-    {% if subtask %}
-      <p><strong>{{ subtask.title }}</strong></p>
-      <p class="footer-note">Subtask of: {{ task.title if task else "Unknown task" }}</p>
-    {% else %}
-      <p><strong>{{ task.title if task else "Unknown task" }}</strong></p>
-    {% endif %}
+    <p><strong>{{ task.title if task else "Unknown task" }}</strong></p>
     {% if status == "accepted" %}
       <p class="footer-note" style="color: var(--success);">You already accepted this invite.</p>
     {% elif status == "declined" %}

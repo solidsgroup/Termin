@@ -227,12 +227,11 @@
         {% set invite = entry.invite %}
         {% set assignment = entry.assignment %}
         {% set task = entry.task %}
-        {% set subtask = entry.subtask %}
         {% set project = entry.project %}
         <div class="collab-row{% if entry.is_complete %} complete{% endif %}">
           <div>
             <div class="collab-title">
-              <span>{{ subtask.title if subtask else (task.title if task else 'Unknown task') }}</span>
+              <span>{{ task.title if task else 'Unknown task' }}</span>
               {% if task %}
                 <button class="btn secondary collab-chat-btn{% if task.id in unread_task_ids %} has-comments{% endif %}" type="button" data-open-collab-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ project.name|e if project else '' }}" title="Open discussion" aria-label="Open discussion">
                   <i class="fa-regular fa-comments" aria-hidden="true"></i>
@@ -244,16 +243,13 @@
               {% endif %}
             </div>
             <div class="collab-due">
-              {% if subtask and subtask.due_at %}
-                Due {{ subtask.due_at.strftime('%Y-%m-%d') }}
-              {% elif task and task.due_at %}
+              {% if task and task.due_at %}
                 Due {{ task.due_at.strftime('%Y-%m-%d') }}
               {% elif task %}
                 Created {{ task.created_at.strftime('%Y-%m-%d') }}
               {% endif %}
             </div>
             <div class="collab-meta">
-              {% if subtask and task %}Subtask of {{ task.title }} · {% endif %}
               {% if project %}{{ project.name }} · {% endif %}
               {{ entry.status }}
               {% if entry.is_complete %} · complete{% endif %}

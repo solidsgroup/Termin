@@ -25,7 +25,7 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
+from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
 from app.realtime import emit_assignment_updated, emit_task_comment_created, emit_task_notification_updates, is_user_viewing_task, project_access_map, _task_notification_user_ids
 from app.sidebar_layout import (
     ensure_sidebar_preference,
@@ -183,8 +183,8 @@ def _safe_ensure_task_event(task_id: int, invitee_email: str | None = None) -> N
         current_app.logger.warning("Calendar sync skipped for task %s: %s", task_id, exc)
 
 
-def _calendar_window(task: Task | None, subtask: Subtask | None) -> tuple[datetime, datetime] | tuple[None, None]:
-    start_at = subtask.due_at if subtask and subtask.due_at else (task.due_at if task else None)
+def _calendar_window(task: Task | None) -> tuple[datetime, datetime] | tuple[None, None]:
+    start_at = task.due_at if task else None
     if not start_at:
         return None, None
     return start_at, start_at + timedelta(hours=1)
@@ -194,20 +194,17 @@ def _send_collaborator_calendar_invite(
     collaborator: CollaboratorProfile,
     invite: Invite,
     task: Task | None,
-    subtask: Subtask | None,
     project: Project | None,
 ) -> bool:
-    start_at, end_at = _calendar_window(task, subtask)
+    start_at, end_at = _calendar_window(task)
     if not start_at or not end_at:
         return False
 
-    title = subtask.title if subtask else (task.title if task else "Task")
+    title = task.title if task else "Task"
     summary = title
     context_parts: list[str] = []
     if project:
         context_parts.append(project.name)
-    if subtask and task:
-        context_parts.append(f"Parent task: {task.title}")
     description_lines = [title]
     if context_parts:
         description_lines.append(" | ".join(context_parts))
@@ -230,12 +227,8 @@ def _send_collaborator_calendar_invite(
     return True
 
 
-def _resolve_work_item(task_id: int | None, subtask_id: int | None) -> tuple[Task | None, Subtask | None]:
-    task = Task.query.get(task_id) if task_id else None
-    subtask = Subtask.query.get(subtask_id) if subtask_id else None
-    if subtask and not task:
-        task = Task.query.get(subtask.task_id)
-    return task, subtask
+def _resolve_work_item(task_id: int | None) -> Task | None:
+    return Task.query.get(task_id) if task_id else None
 
 
 def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]:
@@ -244,22 +237,14 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     invite_by_assignment_id = {invite.assignment_id: invite for invite in invites if invite.assignment_id}
     task_ids = {invite.task_id for invite in invites if invite.task_id}
     task_ids.update({assignment.task_id for assignment in assignments if assignment.task_id})
-    subtask_ids = {invite.subtask_id for invite in invites if invite.subtask_id}
-    subtask_ids.update({assignment.subtask_id for assignment in assignments if assignment.subtask_id})
     tasks = {task.id: task for task in Task.query.filter(Task.id.in_(task_ids)).all()} if task_ids else {}
-    subtasks = {subtask.id: subtask for subtask in Subtask.query.filter(Subtask.id.in_(subtask_ids)).all()} if subtask_ids else {}
     project_ids = {task.project_id for task in tasks.values() if task and task.project_id}
     projects = {project.id: project for project in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
     entries: list[dict] = []
     default_calendar_opt_in = collaborator.new_task_notification_preference == "calendar"
 
-    def resolve_context(task_id: int | None, subtask_id: int | None) -> tuple[Task | None, Subtask | None, Project | None]:
+    def resolve_context(task_id: int | None) -> tuple[Task | None, Project | None]:
         task = tasks.get(task_id) if task_id else None
-        subtask = subtasks.get(subtask_id) if subtask_id else None
-        if subtask and not task:
-            task = tasks.get(subtask.task_id) or Task.query.get(subtask.task_id)
-            if task:
-                tasks[task.id] = task
         project = None
         if task and task.project_id:
             project = projects.get(task.project_id)
@@ -267,26 +252,25 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                 project = Project.query.get(task.project_id)
                 if project:
                     projects[project.id] = project
-        return task, subtask, project
+        return task, project
 
     for assignment in assignments:
         invite = invite_by_assignment_id.get(assignment.id)
-        task, subtask, project = resolve_context(assignment.task_id, assignment.subtask_id)
+        task, project = resolve_context(assignment.task_id)
         entries.append(
             {
                 "kind": "assignment",
                 "assignment": assignment,
                 "invite": invite,
                 "task": task,
-                "subtask": subtask,
                 "project": project,
                 "status": invite.status if invite else assignment.status,
                 "calendar_opt_in": invite.calendar_opt_in if invite else default_calendar_opt_in,
-                "calendar_available": bool((subtask.due_at if subtask and subtask.due_at else (task.due_at if task else None))),
+                "calendar_available": bool(task and task.due_at),
                 "calendar_invite_sent_at": invite.calendar_invite_sent_at if invite else None,
                 "created_at": (invite.created_at if invite else assignment.created_at),
-                "work_status": _work_item_status(task, subtask),
-                "is_complete": _is_complete_status(_work_item_status(task, subtask)),
+                "work_status": _work_item_status(task),
+                "is_complete": _is_complete_status(_work_item_status(task)),
             }
         )
 
@@ -294,30 +278,27 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     for invite in invites:
         if invite.id in assigned_invite_ids:
             continue
-        task, subtask, project = resolve_context(invite.task_id, invite.subtask_id)
+        task, project = resolve_context(invite.task_id)
         entries.append(
             {
                 "kind": "invite",
                 "assignment": None,
                 "invite": invite,
                 "task": task,
-                "subtask": subtask,
                 "project": project,
                 "status": invite.status,
                 "calendar_opt_in": invite.calendar_opt_in,
-                "calendar_available": bool((subtask.due_at if subtask and subtask.due_at else (task.due_at if task else None))),
+                "calendar_available": bool(task and task.due_at),
                 "calendar_invite_sent_at": invite.calendar_invite_sent_at,
                 "created_at": invite.created_at,
-                "work_status": _work_item_status(task, subtask),
-                "is_complete": _is_complete_status(_work_item_status(task, subtask)),
+                "work_status": _work_item_status(task),
+                "is_complete": _is_complete_status(_work_item_status(task)),
             }
         )
 
     deduped: dict[tuple[str, int], dict] = {}
     for entry in entries:
-        if entry.get("subtask"):
-            key = ("subtask", entry["subtask"].id)
-        elif entry.get("task"):
+        if entry.get("task"):
             key = ("task", entry["task"].id)
         elif entry.get("invite"):
             invite = entry["invite"]
@@ -355,25 +336,21 @@ def _collaborator_task_ids(collaborator: CollaboratorProfile) -> set[int]:
     return {entry["task"].id for entry in entries if entry.get("task")}
 
 
-def _work_item_status(task: Task | None, subtask: Subtask | None) -> str:
-    return (subtask.status if subtask else (task.status if task else "open")) or "open"
+def _work_item_status(task: Task | None) -> str:
+    return (task.status if task else "open") or "open"
 
 
 def _is_complete_status(status: str | None) -> bool:
     return (status or "").strip().lower() in {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
 
 
-def _mark_work_item_complete(task: Task | None, subtask: Subtask | None) -> None:
-    if subtask:
-        subtask.status = "complete"
-    elif task:
+def _mark_work_item_complete(task: Task | None) -> None:
+    if task:
         task.status = "complete"
 
 
-def _mark_work_item_open(task: Task | None, subtask: Subtask | None) -> None:
-    if subtask:
-        subtask.status = "open"
-    elif task:
+def _mark_work_item_open(task: Task | None) -> None:
+    if task:
         task.status = "open"
 
 
@@ -429,7 +406,6 @@ def _ensure_assignment_invite(assignment: Assignment, calendar_opt_in: bool = Fa
         return invite
     invite = Invite(
         task_id=assignment.task_id,
-        subtask_id=assignment.subtask_id,
         assignment_id=assignment.id,
         email=assignment.email,
         token=secrets.token_hex(24),
@@ -468,15 +444,6 @@ def dashboard():
     assigned_task_ids = [
         a.task_id for a in Assignment.query.filter_by(user_id=user.id).filter(Assignment.task_id.isnot(None)).all()
     ]
-    assigned_subtask_ids = [
-        a.subtask_id
-        for a in Assignment.query.filter_by(user_id=user.id).filter(Assignment.subtask_id.isnot(None)).all()
-    ]
-    assigned_subtasks = (
-        Subtask.query.filter(Subtask.id.in_(assigned_subtask_ids)).all() if assigned_subtask_ids else []
-    )
-    parent_task_ids = [s.task_id for s in assigned_subtasks]
-    assigned_task_ids = list(set(assigned_task_ids + parent_task_ids))
     assigned_tasks = Task.query.filter(Task.id.in_(assigned_task_ids)).all() if assigned_task_ids else []
     assigned_project_ids = [t.project_id for t in assigned_tasks]
     accessible_project_ids = list(
@@ -588,37 +555,15 @@ def dashboard():
                 ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
     project_ids = [p.id for p in projects]
     all_task_ids = [t.id for t in _task_ordering(Task.query.filter(Task.project_id.in_(project_ids))).all()] if project_ids else []
-    all_subtask_ids = (
-        [s.id for s in Subtask.query.filter(Subtask.task_id.in_(all_task_ids)).all()] if all_task_ids else []
-    )
     invites = []
     if owned_projects:
-        invites = Invite.query.filter(
-            (Invite.task_id.in_(all_task_ids)) | (Invite.subtask_id.in_(all_subtask_ids))
-        ).all()
-    subtasks_by_task = {}
+        invites = Invite.query.filter(Invite.task_id.in_(all_task_ids)).all()
     assignments_by_task = {}
-    assignments_by_subtask = {}
     info_by_task = {}
-    info_by_subtask = {}
     if tasks:
-        if is_owner or is_project_member:
-            subtask_rows = Subtask.query.filter(Subtask.task_id.in_([t.id for t in tasks])).all()
-        else:
-            subtask_rows = [s for s in assigned_subtasks if s.task_id in [t.id for t in tasks]]
-        if not show_completed:
-            subtask_rows = [sub for sub in subtask_rows if not _is_complete_status(sub.status)]
-        for sub in subtask_rows:
-            subtasks_by_task.setdefault(sub.task_id, []).append(sub)
-            info_by_subtask[sub.id] = load_info_payload(sub.info, sub.link)
         assignment_rows = Assignment.query.filter(Assignment.task_id.in_([t.id for t in tasks])).all()
         for assignment in assignment_rows:
             assignments_by_task.setdefault(assignment.task_id, []).append(assignment)
-
-        if subtask_rows:
-            assignment_rows = Assignment.query.filter(Assignment.subtask_id.in_([s.id for s in subtask_rows])).all()
-            for assignment in assignment_rows:
-                assignments_by_subtask.setdefault(assignment.subtask_id, []).append(assignment)
         for task in tasks:
             info_by_task[task.id] = load_info_payload(task.info, task.link)
 
@@ -661,7 +606,6 @@ def dashboard():
             row.id for row in Task.query.filter(Task.group_id.in_(visible_group_ids)).all()
         )
     visible_task_ids.update(task_id for task_id in assigned_task_ids if task_id)
-    visible_task_ids.update(parent_task_ids)
     todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
     if not show_completed:
         todo_tasks = [task for task in todo_tasks if not _is_complete_status(task.status)]
@@ -813,11 +757,8 @@ def dashboard():
         tasks=tasks,
         invites=invites,
         selected_project=selected_project,
-        subtasks_by_task=subtasks_by_task,
         assignments_by_task=assignments_by_task,
-        assignments_by_subtask=assignments_by_subtask,
         info_by_task=info_by_task,
-        info_by_subtask=info_by_subtask,
         user_map=user_map,
         groups=groups,
         tasks_by_group=tasks_by_group,
@@ -1331,13 +1272,11 @@ def accept_invite(token: str):
         return render_template("invite.html", status="invalid")
 
     task = Task.query.get(invite.task_id) if invite.task_id else None
-    subtask = Subtask.query.get(invite.subtask_id) if invite.subtask_id else None
     return render_template(
         "invite.html",
         status=invite.status,
         invite=invite,
         task=task,
-        subtask=subtask,
         collaborator=CollaboratorProfile.query.filter_by(email=invite.email).first(),
     )
 
@@ -1354,7 +1293,6 @@ def respond_invite(token: str):
 
     db.session.commit()
     task = Task.query.get(invite.task_id) if invite.task_id else None
-    subtask = Subtask.query.get(invite.subtask_id) if invite.subtask_id else None
     if invite.status == "accepted" and invite.calendar_opt_in and task:
         _safe_ensure_task_event(task.id, invite.email)
     if invite.assignment_id and task:
@@ -1366,18 +1304,29 @@ def respond_invite(token: str):
         status=invite.status,
         invite=invite,
         task=task,
-        subtask=subtask,
         collaborator=CollaboratorProfile.query.filter_by(email=invite.email).first(),
     )
 
 
-@ui_bp.get("/invites/<token>/quick/<action>")
+@ui_bp.route("/invites/<token>/quick/<action>", methods=["GET", "POST"])
 def quick_respond_invite(token: str, action: str):
     invite = Invite.query.filter_by(token=token).first()
     if not invite:
         return render_template("invite.html", status="invalid")
     if action not in {"accept", "decline"}:
         return render_template("invite.html", status="invalid")
+    if request.method == "GET":
+        task = Task.query.get(invite.task_id) if invite.task_id else None
+        return render_template(
+            "quick_action_confirm.html",
+            title="Confirm response",
+            subtitle="Email links require confirmation before they change task status.",
+            summary=task.title if task else "Task",
+            detail=None,
+            confirm_label="Accept" if action == "accept" else "Decline",
+            confirm_tone="primary" if action == "accept" else "secondary",
+            cancel_href=url_for("ui.view_invite", token=token),
+        )
 
     _apply_invite_response(invite, action, False)
     db.session.commit()
@@ -1386,13 +1335,11 @@ def quick_respond_invite(token: str, action: str):
     collaborator = CollaboratorProfile.query.filter_by(email=invite.email).first()
     if collaborator:
         return redirect(url_for("ui.collaborator_portal", token=collaborator.access_token))
-    subtask = Subtask.query.get(invite.subtask_id) if invite.subtask_id else None
     return render_template(
         "invite.html",
         status=invite.status,
         invite=invite,
         task=task,
-        subtask=subtask,
         collaborator=None,
     )
 
@@ -1444,7 +1391,7 @@ def collaborator_portal(token: str):
     )
 
 
-@ui_bp.get("/collaborators/<token>/invites/<int:invite_id>/quick/<action>")
+@ui_bp.route("/collaborators/<token>/invites/<int:invite_id>/quick/<action>", methods=["GET", "POST"])
 def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
     collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
     if not collaborator:
@@ -1454,11 +1401,22 @@ def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
     if not invite:
         return redirect(url_for("ui.collaborator_portal", token=token))
 
-    task, subtask = _resolve_work_item(invite.task_id, invite.subtask_id)
+    task = _resolve_work_item(invite.task_id)
+    if request.method == "GET":
+        return render_template(
+            "quick_action_confirm.html",
+            title="Confirm action",
+            subtitle="Email links require confirmation before they change task status.",
+            summary=task.title if task else "Task",
+            detail=None,
+            confirm_label="Mark complete" if action == "complete" else ("Accept" if action == "accept" else "Decline"),
+            confirm_tone="primary" if action in {"accept", "complete"} else "secondary",
+            cancel_href=url_for("ui.collaborator_portal", token=token),
+        )
     if action in {"accept", "decline"}:
         _apply_invite_response(invite, action, invite.calendar_opt_in)
     elif action == "complete":
-        _mark_work_item_complete(task, subtask)
+        _mark_work_item_complete(task)
     else:
         return redirect(url_for("ui.collaborator_portal", token=token))
 
@@ -1469,7 +1427,7 @@ def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
     return redirect(url_for("ui.collaborator_portal", token=token))
 
 
-@ui_bp.get("/collaborators/<token>/quick/<action>")
+@ui_bp.route("/collaborators/<token>/quick/<action>", methods=["GET", "POST"])
 def quick_collaborator_bulk_action(token: str, action: str):
     collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
     if not collaborator:
@@ -1489,6 +1447,17 @@ def quick_collaborator_bulk_action(token: str, action: str):
             continue
     if not invite_ids:
         return redirect(url_for("ui.collaborator_portal", token=token))
+    if request.method == "GET":
+        return render_template(
+            "quick_action_confirm.html",
+            title="Confirm bulk action",
+            subtitle="Email links require confirmation before they change task status.",
+            summary=f"{len(invite_ids)} invite{'s' if len(invite_ids) != 1 else ''}",
+            detail="Apply this action to the linked tasks in your collaborator portal.",
+            confirm_label="Accept all" if action == "accept" else "Decline all",
+            confirm_tone="primary" if action == "accept" else "secondary",
+            cancel_href=url_for("ui.collaborator_portal", token=token),
+        )
 
     invites = Invite.query.filter(
         Invite.id.in_(invite_ids),
@@ -1585,22 +1554,22 @@ def update_collaborator_invite(token: str, invite_id: int):
 
     action = request.form.get("action")
     calendar_opt_in = request.form.get("calendar_opt_in") == "on"
-    task, subtask = _resolve_work_item(invite.task_id, invite.subtask_id)
+    task = _resolve_work_item(invite.task_id)
     project = Project.query.get(task.project_id) if task and task.project_id else None
     if action in {"accept", "decline"}:
         _apply_invite_response(invite, action, calendar_opt_in)
     elif action == "calendar":
         invite.calendar_opt_in = True
     elif action == "complete":
-        _mark_work_item_complete(task, subtask)
+        _mark_work_item_complete(task)
     elif action == "uncomplete":
-        _mark_work_item_open(task, subtask)
+        _mark_work_item_open(task)
 
     sent_calendar_invite = False
     if action == "calendar":
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, subtask, project)
+        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
     elif invite.status == "accepted" and invite.calendar_opt_in and not invite.calendar_invite_sent_at:
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, subtask, project)
+        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
 
     db.session.commit()
 
@@ -1626,22 +1595,22 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     calendar_opt_in = request.form.get("calendar_opt_in") == "on"
     invite = _ensure_assignment_invite(assignment, calendar_opt_in=calendar_opt_in)
     action = request.form.get("action")
-    task, subtask = _resolve_work_item(assignment.task_id, assignment.subtask_id)
+    task = _resolve_work_item(assignment.task_id)
     project = Project.query.get(task.project_id) if task and task.project_id else None
     if action in {"accept", "decline"}:
         _apply_invite_response(invite, action, calendar_opt_in)
     elif action == "calendar":
         invite.calendar_opt_in = True
     elif action == "complete":
-        _mark_work_item_complete(task, subtask)
+        _mark_work_item_complete(task)
     elif action == "uncomplete":
-        _mark_work_item_open(task, subtask)
+        _mark_work_item_open(task)
 
     sent_calendar_invite = False
     if action == "calendar":
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, subtask, project)
+        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
     elif invite.status == "accepted" and invite.calendar_opt_in and not invite.calendar_invite_sent_at:
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, subtask, project)
+        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
 
     db.session.commit()
 
