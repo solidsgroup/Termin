@@ -231,6 +231,7 @@ class TaskNotification(db.Model):
     task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
     comment_id = db.Column(db.Integer, db.ForeignKey("task_comments.id"))
     kind = db.Column(db.String(32), nullable=False, default="comment")
+    pinned = db.Column(db.Boolean, nullable=False, default=False)
     read_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 

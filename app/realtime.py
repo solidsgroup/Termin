@@ -1,5 +1,6 @@
 from datetime import datetime
 from collections import defaultdict
+from sqlalchemy import or_
 
 from flask import request
 from flask_socketio import emit, join_room, leave_room
@@ -12,7 +13,11 @@ from app.utils import current_user
 _handlers_registered = False
 _sid_user = {}
 _sid_projects = defaultdict(set)
+_sid_tasks = defaultdict(set)
 _project_user_counts = defaultdict(lambda: defaultdict(int))
+_task_user_counts = defaultdict(lambda: defaultdict(int))
+_user_socket_counts = defaultdict(int)
+_user_active_projects = defaultdict(set)
 
 
 def user_room(user_id: int) -> str:
@@ -25,6 +30,14 @@ def task_room(task_id: int) -> str:
 
 def project_room(project_id: int) -> str:
     return f"project:{project_id}"
+
+
+def is_user_viewing_project(user_id: int, project_id: int) -> bool:
+    return _project_user_counts.get(project_id, {}).get(user_id, 0) > 0
+
+
+def is_user_viewing_task(user_id: int, task_id: int) -> bool:
+    return _task_user_counts.get(task_id, {}).get(user_id, 0) > 0
 
 
 def _can_access_task(user, task: Task) -> bool:
@@ -49,16 +62,102 @@ def _task_notification_user_ids(task: Task) -> set[int]:
     return {user_id for user_id in user_ids if user_id}
 
 
+def _task_summary(task: Task | None) -> dict | None:
+    if not task:
+        return None
+    return {
+        "id": task.id,
+        "project_id": task.project_id,
+        "group_id": task.group_id,
+        "title": task.title,
+        "status": task.status,
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+    }
+
+
+def project_access_map(project_id: int) -> dict[int, dict]:
+    from app.models import User
+
+    project = Project.query.get(project_id)
+    if not project:
+        return {}
+
+    access: dict[int, dict] = {}
+
+    def ensure(user_id: int | None):
+        if not user_id:
+            return None
+        row = access.get(user_id)
+        if row is None:
+            user = User.query.get(user_id)
+            if not user:
+                return None
+            row = {
+                "id": user.id,
+                "email": user.email,
+                "display_name": user.display_name,
+                "avatar_url": user.avatar_url,
+                "owner": False,
+                "project_member": False,
+                "partial": False,
+                "group_member": False,
+                "task_assignee": False,
+                "subtask_assignee": False,
+            }
+            access[user_id] = row
+        return row
+
+    owner = ensure(project.owner_id)
+    if owner:
+        owner["owner"] = True
+        owner["project_member"] = True
+
+    for row in ProjectMember.query.filter_by(project_id=project_id).all():
+        member = ensure(row.user_id)
+        if member:
+            member["project_member"] = True
+
+    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
+    if group_ids:
+        for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all():
+            member = ensure(row.user_id)
+            if member:
+                member["partial"] = True
+                member["group_member"] = True
+
+        task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.project_id == project_id).all()]
+        if task_ids:
+            for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all():
+                member = ensure(row.user_id)
+                if member:
+                    member["partial"] = True
+                    member["task_assignee"] = True
+
+            subtask_ids = [subtask_id for (subtask_id,) in db.session.query(Subtask.id).filter(Subtask.task_id.in_(task_ids)).all()]
+            if subtask_ids:
+                for row in Assignment.query.filter(Assignment.subtask_id.in_(subtask_ids), Assignment.user_id.isnot(None)).all():
+                    member = ensure(row.user_id)
+                    if member:
+                        member["partial"] = True
+                        member["subtask_assignee"] = True
+
+    return access
+
+
 def notification_payload_for_user(user_id: int) -> dict:
     notification_rows = (
         TaskNotification.query.filter_by(user_id=user_id)
-        .filter(TaskNotification.read_at.is_(None))
-        .order_by(TaskNotification.created_at.desc(), TaskNotification.id.desc())
-        .limit(12)
+        .filter(or_(TaskNotification.read_at.is_(None), TaskNotification.pinned.is_(True)))
+        .order_by(TaskNotification.pinned.desc(), TaskNotification.created_at.desc(), TaskNotification.id.desc())
+        .limit(24)
         .all()
     )
-    unread_task_ids = sorted({row.task_id for row in notification_rows if row.task_id})
-    unread_comment_task_ids = sorted({row.task_id for row in notification_rows if row.task_id and row.kind == "comment"})
+    unread_rows = [row for row in notification_rows if row.read_at is None]
+    unread_regular_rows = [row for row in unread_rows if row.kind != "comment"]
+    unread_message_rows = [row for row in unread_rows if row.kind == "comment"]
+    unread_task_ids = sorted({row.task_id for row in unread_rows if row.task_id})
+    unread_comment_task_ids = sorted({row.task_id for row in unread_message_rows if row.task_id})
     comment_ids = [row.comment_id for row in notification_rows if row.comment_id]
     task_ids = [row.task_id for row in notification_rows if row.task_id]
     comments = {
@@ -75,6 +174,8 @@ def notification_payload_for_user(user_id: int) -> dict:
         for row in Project.query.filter(Project.id.in_(project_ids)).all()
     } if project_ids else {}
     notifications = []
+    regular_notifications = []
+    message_notifications = []
     for row in notification_rows:
         task = tasks.get(row.task_id)
         comment = comments.get(row.comment_id)
@@ -93,29 +194,59 @@ def notification_payload_for_user(user_id: int) -> dict:
             preview = "Task created"
         else:
             preview = "Task updated"
-        notifications.append(
-            {
-                "id": row.id,
-                "task_id": row.task_id,
-                "task_title": task.title if task else "Task",
-                "project_id": project.id if project else None,
-                "project_name": project.name if project else None,
-                "kind": row.kind,
-                "preview": preview,
-                "comment_preview": preview,
-                "created_at": row.created_at.isoformat(),
-            }
-        )
+        payload = {
+            "id": row.id,
+            "task_id": row.task_id,
+            "task_title": task.title if task else "Task",
+            "task_data": _task_summary(task),
+            "project_id": project.id if project else None,
+            "project_name": project.name if project else None,
+            "kind": row.kind,
+            "pinned": bool(row.pinned),
+            "read": row.read_at is not None,
+            "preview": preview,
+            "comment_preview": preview,
+            "created_at": row.created_at.isoformat(),
+        }
+        notifications.append(payload)
+        if row.kind == "comment":
+            message_notifications.append(payload)
+        else:
+            regular_notifications.append(payload)
     return {
-        "unread_total": len(notification_rows),
+        "unread_total": len(unread_rows),
+        "unread_regular_total": len(unread_regular_rows),
+        "unread_message_total": len(unread_message_rows),
         "unread_task_ids": unread_task_ids,
         "unread_comment_task_ids": unread_comment_task_ids,
         "notifications": notifications,
+        "regular_notifications": regular_notifications,
+        "message_notifications": message_notifications,
     }
 
 
 def emit_notification_state(user_id: int) -> None:
     socketio.emit("notification_state", notification_payload_for_user(user_id), room=user_room(user_id))
+
+
+def _recompute_user_active_projects(user_id: int) -> None:
+    active_projects = set()
+    for project_id, counts in _project_user_counts.items():
+        if counts.get(user_id, 0) > 0:
+            active_projects.add(project_id)
+    if active_projects:
+        _user_active_projects[user_id] = active_projects
+    else:
+        _user_active_projects.pop(user_id, None)
+
+
+def emit_global_presence() -> None:
+    user_projects = {
+        str(user_id): sorted(project_ids)
+        for user_id, project_ids in _user_active_projects.items()
+        if project_ids
+    }
+    socketio.emit("global_presence", {"user_projects": user_projects})
 
 
 def emit_project_presence(project_id: int) -> None:
@@ -174,21 +305,9 @@ def _serialize_members(users) -> list[dict]:
 
 
 def project_members_payload(project_id: int) -> dict:
-    from app.models import User
-    project = Project.query.get(project_id)
-    if not project:
-        return {"project_id": project_id, "members": []}
-    member_rows = ProjectMember.query.filter_by(project_id=project_id).all()
-    users = [User.query.get(project.owner_id)]
-    users.extend(User.query.get(row.user_id) for row in member_rows)
-    deduped = []
-    seen = set()
-    for user in users:
-        if not user or user.id in seen:
-            continue
-        seen.add(user.id)
-        deduped.append(user)
-    return {"project_id": project_id, "members": _serialize_members(deduped)}
+    members = list(project_access_map(project_id).values())
+    members.sort(key=lambda item: (0 if item.get("owner") else 1, 0 if item.get("project_member") else 1, (item.get("display_name") or item.get("email") or "").lower()))
+    return {"project_id": project_id, "members": members}
 
 
 def group_members_payload(group_id: int) -> dict:
@@ -209,6 +328,21 @@ def group_members_payload(group_id: int) -> dict:
         seen.add(user.id)
         deduped.append(user)
     return {"group_id": group_id, "project_id": group.project_id, "members": _serialize_members(deduped)}
+
+
+def task_presence_payload(task_id: int) -> dict:
+    from app.models import User
+
+    counts = _task_user_counts.get(task_id, {})
+    user_ids = [user_id for user_id, count in counts.items() if count > 0]
+    users = [User.query.get(user_id) for user_id in user_ids]
+    members = _serialize_members([user for user in users if user])
+    members.sort(key=lambda item: (item.get("display_name") or item.get("email") or "").lower())
+    return {"task_id": task_id, "members": members}
+
+
+def emit_task_presence(task_id: int) -> None:
+    socketio.emit("task_presence", task_presence_payload(task_id), room=task_room(task_id))
 
 
 def emit_project_members_updated(project_id: int, *, actor_user_id: int | None = None) -> None:
@@ -232,6 +366,30 @@ def emit_task_comment_created(task_id: int, comment_payload: dict) -> None:
         {
             "task_id": task_id,
             "comment": comment_payload,
+            "comment_count": comment_count,
+        },
+        room=task_room(task_id),
+    )
+
+
+def emit_task_comment_updated(task_id: int, comment_payload: dict) -> None:
+    socketio.emit(
+        "task_comment_updated",
+        {
+            "task_id": task_id,
+            "comment": comment_payload,
+        },
+        room=task_room(task_id),
+    )
+
+
+def emit_task_comment_deleted(task_id: int, comment_id: int) -> None:
+    comment_count = TaskComment.query.filter_by(task_id=task_id).count()
+    socketio.emit(
+        "task_comment_deleted",
+        {
+            "task_id": task_id,
+            "comment_id": comment_id,
             "comment_count": comment_count,
         },
         room=task_room(task_id),
@@ -297,6 +455,8 @@ def queue_task_notifications(task: Task, *, exclude_user_id: int | None = None, 
     for recipient_id in _task_notification_user_ids(task):
         if exclude_user_id and recipient_id == exclude_user_id:
             continue
+        if is_user_viewing_project(recipient_id, task.project_id):
+            continue
         existing = (
             TaskNotification.query.filter_by(user_id=recipient_id, task_id=task.id, kind=kind)
             .filter(TaskNotification.read_at.is_(None))
@@ -337,6 +497,7 @@ def register_socket_handlers() -> None:
         if not user:
             return False
         _sid_user[request.sid] = user.id
+        _user_socket_counts[user.id] += 1
         join_room(user_room(user.id))
         emit("socket_ready", {"user_id": user.id})
 
@@ -352,8 +513,24 @@ def register_socket_handlers() -> None:
         task = Task.query.get(task_id)
         if not _can_access_task(user, task):
             return
+        sid = request.sid
+        user_id = _sid_user.get(sid)
+        if user_id is None:
+            return
         join_room(task_room(task_id))
+        if task_id not in _sid_tasks[sid]:
+            _sid_tasks[sid].add(task_id)
+            _task_user_counts[task_id][user_id] += 1
+        now = datetime.utcnow()
+        (
+            TaskNotification.query.filter_by(user_id=user_id, task_id=task_id, kind="comment", pinned=False)
+            .filter(TaskNotification.read_at.is_(None))
+            .update({"read_at": now}, synchronize_session=False)
+        )
+        db.session.commit()
+        emit_notification_state(user_id)
         emit("task_room_joined", {"task_id": task_id})
+        emit_task_presence(task_id)
 
     @socketio.on("join_project")
     def handle_join_project(data):
@@ -393,6 +570,19 @@ def register_socket_handlers() -> None:
         if project_id not in _sid_projects[sid]:
             _sid_projects[sid].add(project_id)
             _project_user_counts[project_id][user_id] += 1
+            _recompute_user_active_projects(user_id)
+            emit_global_presence()
+        now = datetime.utcnow()
+        task_ids = db.session.query(Task.id).filter(Task.project_id == project_id)
+        (
+            TaskNotification.query.filter_by(user_id=user_id, pinned=False)
+            .filter(TaskNotification.kind != "comment")
+            .filter(TaskNotification.task_id.in_(task_ids))
+            .filter(TaskNotification.read_at.is_(None))
+            .update({"read_at": now}, synchronize_session=False)
+        )
+        db.session.commit()
+        emit_notification_state(user_id)
         emit("project_room_joined", {"project_id": project_id})
         emit_project_presence(project_id)
 
@@ -405,7 +595,21 @@ def register_socket_handlers() -> None:
             task_id = int((data or {}).get("task_id"))
         except (TypeError, ValueError):
             return
+        sid = request.sid
+        user_id = _sid_user.get(sid)
         leave_room(task_room(task_id))
+        if user_id is not None and task_id in _sid_tasks.get(sid, set()):
+            _sid_tasks[sid].discard(task_id)
+            counts = _task_user_counts.get(task_id)
+            if counts:
+                next_count = max(0, counts.get(user_id, 0) - 1)
+                if next_count:
+                    counts[user_id] = next_count
+                else:
+                    counts.pop(user_id, None)
+                if not counts:
+                    _task_user_counts.pop(task_id, None)
+            emit_task_presence(task_id)
         emit("task_room_left", {"task_id": task_id})
 
     @socketio.on("disconnect")
@@ -413,8 +617,27 @@ def register_socket_handlers() -> None:
         sid = request.sid
         user_id = _sid_user.pop(sid, None)
         project_ids = list(_sid_projects.pop(sid, set()))
+        task_ids = list(_sid_tasks.pop(sid, set()))
         if user_id is None:
             return
+        next_socket_count = max(0, _user_socket_counts.get(user_id, 0) - 1)
+        if next_socket_count:
+            _user_socket_counts[user_id] = next_socket_count
+        else:
+            _user_socket_counts.pop(user_id, None)
+        emit_global_presence()
+        for task_id in task_ids:
+            counts = _task_user_counts.get(task_id)
+            if not counts:
+                continue
+            next_count = max(0, counts.get(user_id, 0) - 1)
+            if next_count:
+                counts[user_id] = next_count
+            else:
+                counts.pop(user_id, None)
+            if not counts:
+                _task_user_counts.pop(task_id, None)
+            emit_task_presence(task_id)
         for project_id in project_ids:
             counts = _project_user_counts.get(project_id)
             if not counts:
@@ -426,4 +649,6 @@ def register_socket_handlers() -> None:
                 counts.pop(user_id, None)
             if not counts:
                 _project_user_counts.pop(project_id, None)
+            _recompute_user_active_projects(user_id)
             emit_project_presence(project_id)
+        emit_global_presence()

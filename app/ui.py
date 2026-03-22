@@ -26,7 +26,7 @@ from app.identity import (
 )
 from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
-from app.realtime import emit_assignment_updated, emit_task_comment_created, emit_task_notification_updates
+from app.realtime import emit_assignment_updated, emit_task_comment_created, emit_task_notification_updates, is_user_viewing_task, project_access_map, _task_notification_user_ids
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -630,13 +630,10 @@ def dashboard():
     group_viewers = {}
     if projects:
         project_ids = [p.id for p in projects]
-        project_member_rows = ProjectMember.query.filter(ProjectMember.project_id.in_(project_ids)).all()
         for project in projects:
-            viewers = {project.owner_id}
-            for row in project_member_rows:
-                if row.project_id == project.id:
-                    viewers.add(row.user_id)
-            project_viewers[project.id] = [user_map.get(uid) for uid in viewers if user_map.get(uid)]
+            viewers = list(project_access_map(project.id).values())
+            viewers.sort(key=lambda item: (0 if item.get("owner") else 1, 0 if item.get("project_member") else 1, (item.get("display_name") or item.get("email") or "").lower()))
+            project_viewers[project.id] = [user_map.get(item["id"]) for item in viewers if user_map.get(item["id"])]
 
         group_ids = [g.id for g in Group.query.filter(Group.project_id.in_(project_ids)).all()]
         group_member_rows = GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all() if group_ids else []
@@ -778,21 +775,26 @@ def dashboard():
         for row in Task.query.filter(Task.id.in_(notification_task_ids)).all()
     } if notification_task_ids else {}
     task_notifications = []
+    message_notifications = []
     for row in notification_rows:
         task = notification_tasks.get(row.task_id)
         comment = notification_comments.get(row.comment_id)
         project = project_map.get(task.project_id) if task else None
-        task_notifications.append(
-            {
-                "id": row.id,
-                "task_id": row.task_id,
-                "task_title": task.title if task else "Task",
-                "project_id": project.id if project else None,
-                "project_name": project.name if project else None,
-                "comment_preview": ((comment.body[:120] + "…") if comment and len(comment.body) > 120 else (comment.body if comment else "")),
-                "created_at": row.created_at,
-            }
-        )
+        item = {
+            "id": row.id,
+            "task_id": row.task_id,
+            "task_title": task.title if task else "Task",
+            "project_id": project.id if project else None,
+            "project_name": project.name if project else None,
+            "comment_preview": ((comment.body[:120] + "…") if comment and len(comment.body) > 120 else (comment.body if comment else "")),
+            "created_at": row.created_at,
+            "pinned": bool(getattr(row, "pinned", False)),
+            "kind": row.kind,
+        }
+        if row.kind == "comment":
+            message_notifications.append(item)
+        else:
+            task_notifications.append(item)
     todo_groups_by_date = []
     for item in todo_items:
         if not todo_groups_by_date or todo_groups_by_date[-1]["key"] != item["date_key"]:
@@ -834,6 +836,7 @@ def dashboard():
         comment_counts=comment_counts,
         unread_task_ids=unread_task_ids,
         task_notifications=task_notifications,
+        message_notifications=message_notifications,
     )
 
 
@@ -1679,8 +1682,21 @@ def collaborator_post_task_comment(token: str, task_id: int):
         return {"error": "body is required"}, 400
     comment = TaskComment(task_id=task_id, collaborator_id=collaborator.id, body=body)
     db.session.add(comment)
-    db.session.commit()
+    db.session.flush()
     task = Task.query.get(task_id)
+    if task:
+        for recipient_id in _task_notification_user_ids(task):
+            if is_user_viewing_task(recipient_id, task.id):
+                continue
+            db.session.add(
+                TaskNotification(
+                    user_id=recipient_id,
+                    task_id=task.id,
+                    comment_id=comment.id,
+                    kind="comment",
+                )
+            )
+    db.session.commit()
     if task:
         emit_task_comment_created(task_id, _serialize_portal_comment(comment, {}, {collaborator.id: collaborator}))
         emit_task_notification_updates(task)

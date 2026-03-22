@@ -185,9 +185,9 @@
       }
 
       .notifications-item {
-        display: block;
-        text-decoration: none;
-        color: var(--ink);
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
         padding: 10px 12px;
         border-radius: 12px;
         border: 1px solid transparent;
@@ -198,8 +198,72 @@
         border-color: rgba(76, 201, 240, 0.2);
       }
 
+      .notifications-item.is-pinned {
+        border-color: rgba(255, 196, 61, 0.28);
+      }
+
       .notifications-item + .notifications-item {
         margin-top: 4px;
+      }
+
+      .notifications-open {
+        flex: 1 1 auto;
+        min-width: 0;
+        background: none;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        text-align: left;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .notifications-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex: 0 0 auto;
+      }
+
+      .notifications-action {
+        padding: 0;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .notifications-action.icon {
+        width: 22px;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+        opacity: 0.78;
+      }
+
+      .notifications-action.icon:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ink);
+        opacity: 1;
+      }
+
+      body[data-theme="light"] .notifications-action.icon:hover {
+        background: rgba(15, 23, 42, 0.06);
+      }
+
+      .notifications-action.icon.is-active {
+        color: #f5c451;
+        opacity: 1;
+      }
+
+      .notifications-action.icon i {
+        font-size: 12px;
+        line-height: 1;
       }
 
       .notifications-title {
@@ -977,6 +1041,48 @@
         margin-top: 4px;
       }
 
+      .discussion-presence {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        min-height: 30px;
+        padding: 5px 18px 6px;
+        border-top: 1px solid rgba(255, 255, 255, 0.04);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        background: rgba(6, 10, 18, 0.42);
+        backdrop-filter: blur(10px);
+      }
+
+      .discussion-presence-stack {
+        display: flex;
+        align-items: center;
+      }
+
+      .discussion-presence .avatar-chip {
+        width: 20px;
+        height: 20px;
+        font-size: 9px;
+        border-width: 1px;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .discussion-presence .avatar-chip + .avatar-chip {
+        margin-left: -6px;
+      }
+
+      .discussion-presence .avatar-chip img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      body[data-theme="light"] .discussion-presence {
+        border-top-color: rgba(15, 23, 42, 0.05);
+        border-bottom-color: rgba(15, 23, 42, 0.08);
+        background: rgba(226, 232, 240, 0.42);
+      }
+
       .discussion-list {
         flex: 1 1 auto;
         overflow: auto;
@@ -1040,50 +1146,95 @@
         color: var(--muted);
       }
 
-      .discussion-comment-unread {
+      .discussion-comment-actions {
         margin-left: auto;
-        width: 28px;
-        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .discussion-comment-action {
+        width: 22px;
+        height: 22px;
         border-radius: 999px;
         border: 1px solid transparent;
         background: transparent;
-        color: rgba(255, 255, 255, 0.22);
+        color: rgba(255, 255, 255, 0.18);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         opacity: 0;
-        transition: opacity 140ms ease, color 140ms ease, background 140ms ease, border-color 140ms ease;
+        transition: opacity 120ms ease, color 120ms ease, background 120ms ease, border-color 120ms ease;
       }
 
-      .discussion-comment:hover .discussion-comment-unread,
-      .discussion-comment-unread:focus-visible {
+      .discussion-comment:hover .discussion-comment-action,
+      .discussion-comment-action:focus-visible {
         opacity: 1;
       }
 
-      .discussion-comment-unread:hover,
-      .discussion-comment-unread:focus-visible {
-        color: var(--muted);
-        background: rgba(255, 255, 255, 0.05);
-        border-color: rgba(255, 255, 255, 0.08);
+      .discussion-comment-action:hover,
+      .discussion-comment-action:focus-visible {
+        color: rgba(255, 255, 255, 0.62);
+        background: rgba(255, 255, 255, 0.035);
+        border-color: rgba(255, 255, 255, 0.04);
         outline: none;
       }
 
-      body[data-theme="light"] .discussion-comment-unread {
-        color: rgba(71, 85, 105, 0.32);
+      body[data-theme="light"] .discussion-comment-action {
+        color: rgba(71, 85, 105, 0.28);
       }
 
-      body[data-theme="light"] .discussion-comment-unread:hover,
-      body[data-theme="light"] .discussion-comment-unread:focus-visible {
-        color: var(--muted);
-        background: color-mix(in srgb, var(--panel-alt) 72%, white 28%);
-        border-color: color-mix(in srgb, var(--border) 82%, white 18%);
+      body[data-theme="light"] .discussion-comment-action:hover,
+      body[data-theme="light"] .discussion-comment-action:focus-visible {
+        color: rgba(71, 85, 105, 0.7);
+        background: rgba(148, 163, 184, 0.08);
+        border-color: rgba(148, 163, 184, 0.1);
       }
 
       .discussion-comment-body {
         white-space: pre-wrap;
         font-size: 13px;
         line-height: 1.45;
+      }
+
+      .discussion-comment-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .discussion-comment-editor textarea {
+        width: 100%;
+        min-height: 82px;
+        resize: vertical;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        padding: 10px 12px;
+        font: inherit;
+        line-height: 1.45;
+      }
+
+      .discussion-comment-editor-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .discussion-comment-editor-btn {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+      }
+
+      .discussion-comment-editor-btn.primary {
+        color: var(--ink);
+        border-color: rgba(76, 201, 240, 0.3);
       }
 
       .discussion-comment-body a {
@@ -1349,6 +1500,7 @@
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 80%, transparent);
         border-color: color-mix(in srgb, var(--success) 90%, transparent);
       }
+
 
       .share-avatars .avatar-chip {
         width: 18px;
@@ -1665,6 +1817,13 @@
         align-items: center;
         justify-content: space-between;
         gap: 10px;
+      }
+
+      .share-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        flex: 0 0 auto;
       }
 
       .share-item .meta {
@@ -3099,7 +3258,7 @@
       <div class="header-actions">
         {% if user %}
           {% if task_notifications is defined %}
-            <div class="notifications-shell" data-notifications-menu>
+            <div class="notifications-shell" data-notifications-menu data-notification-kind="regular">
               <button class="notifications-trigger" type="button" aria-haspopup="menu" aria-expanded="false" data-notifications-trigger title="Notifications">
                 <i class="fa-regular fa-bell" aria-hidden="true"></i>
                 {% if task_notifications %}
@@ -3109,19 +3268,69 @@
               <div class="notifications-menu" role="menu">
                 {% if task_notifications %}
                   {% for item in task_notifications %}
-                    <a
-                      class="notifications-item"
-                      href="{{ url_for('ui.dashboard', project_id=item.project_id, view='project', open_discussion_task_id=item.task_id, show_completed=1 if show_completed else 0) if item.project_id else url_for('ui.dashboard', open_discussion_task_id=item.task_id, show_completed=1 if show_completed else 0) }}"
-                    >
-                      <div class="notifications-title">{{ item.task_title }}</div>
-                      <div class="notifications-copy">
-                        {% if item.project_name %}{{ item.project_name }} · {% endif %}
-                        {{ item.comment_preview or 'New activity' }}
+                    <div class="notifications-item{% if item.pinned %} is-pinned{% endif %}" data-notification-id="{{ item.id }}">
+                      <button
+                        class="notifications-open"
+                        type="button"
+                        data-notification-open='{{ {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id}|tojson|forceescape }}'
+                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='project', show_completed=1 if show_completed else 0) if item.project_id else url_for('ui.dashboard', show_completed=1 if show_completed else 0) }}"
+                      >
+                        <div class="notifications-title">{{ item.task_title }}</div>
+                        <div class="notifications-copy">
+                          {% if item.project_name %}{{ item.project_name }} · {% endif %}
+                          {{ item.comment_preview or 'New activity' }}
+                        </div>
+                      </button>
+                      <div class="notifications-actions">
+                        <button class="notifications-action icon{% if item.pinned %} is-active{% endif %}" type="button" data-notification-pin="{{ item.id }}" title="{% if item.pinned %}Unpin{% else %}Pin{% endif %}" aria-label="{% if item.pinned %}Unpin{% else %}Pin{% endif %}">
+                          <i class="fa-solid fa-thumbtack" aria-hidden="true"></i>
+                        </button>
+                        <button class="notifications-action icon" type="button" data-notification-dismiss="{{ item.id }}" title="Dismiss" aria-label="Dismiss">
+                          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                        </button>
                       </div>
-                    </a>
+                    </div>
                   {% endfor %}
                 {% else %}
                   <div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread notifications.</div>
+                {% endif %}
+              </div>
+            </div>
+            <div class="notifications-shell" data-notifications-menu data-notification-kind="message">
+              <button class="notifications-trigger" type="button" aria-haspopup="menu" aria-expanded="false" data-notifications-trigger title="Messages">
+                <i class="fa-regular fa-message" aria-hidden="true"></i>
+                {% if message_notifications %}
+                  <span class="notifications-count">{{ message_notifications|length }}</span>
+                {% endif %}
+              </button>
+              <div class="notifications-menu" role="menu">
+                {% if message_notifications %}
+                  {% for item in message_notifications %}
+                    <div class="notifications-item{% if item.pinned %} is-pinned{% endif %}" data-notification-id="{{ item.id }}">
+                      <button
+                        class="notifications-open"
+                        type="button"
+                        data-notification-open='{{ {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id, "kind": item.kind}|tojson|forceescape }}'
+                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='project', show_completed=1 if show_completed else 0) if item.project_id else url_for('ui.dashboard', show_completed=1 if show_completed else 0) }}"
+                      >
+                        <div class="notifications-title">{{ item.task_title }}</div>
+                        <div class="notifications-copy">
+                          {% if item.project_name %}{{ item.project_name }} · {% endif %}
+                          {{ item.comment_preview or 'New message' }}
+                        </div>
+                      </button>
+                      <div class="notifications-actions">
+                        <button class="notifications-action icon{% if item.pinned %} is-active{% endif %}" type="button" data-notification-pin="{{ item.id }}" title="{% if item.pinned %}Unpin{% else %}Pin{% endif %}" aria-label="{% if item.pinned %}Unpin{% else %}Pin{% endif %}">
+                          <i class="fa-solid fa-thumbtack" aria-hidden="true"></i>
+                        </button>
+                        <button class="notifications-action icon" type="button" data-notification-dismiss="{{ item.id }}" title="Dismiss" aria-label="Dismiss">
+                          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                        </button>
+                      </div>
+                    </div>
+                  {% endfor %}
+                {% else %}
+                  <div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread messages.</div>
                 {% endif %}
               </div>
             </div>
@@ -3186,8 +3395,7 @@
 
         const accountShell = document.querySelector("[data-account-menu]");
         const accountTrigger = document.querySelector("[data-account-trigger]");
-        const notificationsShell = document.querySelector("[data-notifications-menu]");
-        const notificationsTrigger = document.querySelector("[data-notifications-trigger]");
+        const notificationShells = Array.from(document.querySelectorAll("[data-notifications-menu]"));
         if (accountShell && accountTrigger) {
           const closeMenu = () => {
             accountShell.classList.remove("is-open");
@@ -3217,7 +3425,9 @@
             }
           });
         }
-        if (notificationsShell && notificationsTrigger) {
+        notificationShells.forEach((notificationsShell) => {
+          const notificationsTrigger = notificationsShell.querySelector("[data-notifications-trigger]");
+          if (!notificationsTrigger) return;
           const closeNotifications = () => {
             notificationsShell.classList.remove("is-open");
             notificationsTrigger.setAttribute("aria-expanded", "false");
@@ -3227,6 +3437,13 @@
             event.preventDefault();
             event.stopPropagation();
             const nextOpen = !notificationsShell.classList.contains("is-open");
+            notificationShells.forEach((shell) => {
+              if (shell !== notificationsShell) {
+                shell.classList.remove("is-open");
+                const trigger = shell.querySelector("[data-notifications-trigger]");
+                if (trigger) trigger.setAttribute("aria-expanded", "false");
+              }
+            });
             if (nextOpen) {
               notificationsShell.classList.add("is-open");
               notificationsTrigger.setAttribute("aria-expanded", "true");
@@ -3246,7 +3463,7 @@
               closeNotifications();
             }
           });
-        }
+        });
       });
     </script>
   </body>

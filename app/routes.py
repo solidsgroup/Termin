@@ -15,8 +15,13 @@ from app.realtime import (
     emit_group_members_updated,
     emit_notification_state,
     emit_project_members_updated,
+    is_user_viewing_project,
+    is_user_viewing_task,
+    project_access_map,
     emit_subtask_updated,
     emit_task_comment_created,
+    emit_task_comment_deleted,
+    emit_task_comment_updated,
     emit_task_notification_updates,
     emit_task_updated,
     notification_payload_for_user,
@@ -52,6 +57,46 @@ def me():
 def notifications_feed():
     user = current_user()
     return notification_payload_for_user(user.id)
+
+
+@api_bp.post("/notifications/<int:notification_id>/dismiss")
+@login_required
+def dismiss_notification(notification_id: int):
+    user = current_user()
+    notification = TaskNotification.query.filter_by(id=notification_id, user_id=user.id).first()
+    if not notification:
+        return {"error": "notification not found"}, 404
+    notification.read_at = datetime.utcnow()
+    notification.pinned = False
+    db.session.commit()
+    emit_notification_state(user.id)
+    return {"status": "ok"}, 200
+
+
+@api_bp.post("/notifications/<int:notification_id>/pin")
+@login_required
+def pin_notification(notification_id: int):
+    user = current_user()
+    notification = TaskNotification.query.filter_by(id=notification_id, user_id=user.id).first()
+    if not notification:
+        return {"error": "notification not found"}, 404
+    notification.pinned = True
+    db.session.commit()
+    emit_notification_state(user.id)
+    return {"status": "ok"}, 200
+
+
+@api_bp.post("/notifications/<int:notification_id>/unpin")
+@login_required
+def unpin_notification(notification_id: int):
+    user = current_user()
+    notification = TaskNotification.query.filter_by(id=notification_id, user_id=user.id).first()
+    if not notification:
+        return {"error": "notification not found"}, 404
+    notification.pinned = False
+    db.session.commit()
+    emit_notification_state(user.id)
+    return {"status": "ok"}, 200
 
 
 @api_bp.post("/github/sync")
@@ -414,6 +459,26 @@ def update_task(task_id: int):
     return {"id": task.id, "title": task.title, "status": task.status, "info": _info_payload_for(task)}, 200
 
 
+@api_bp.get("/tasks/<int:task_id>")
+@login_required
+def get_task(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    return {
+        "id": task.id,
+        "project_id": task.project_id,
+        "group_id": task.group_id,
+        "title": task.title,
+        "status": task.status,
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+    }, 200
+
+
 @api_bp.get("/tasks/<int:task_id>/comments")
 @login_required
 def list_task_comments(task_id: int):
@@ -458,6 +523,8 @@ def create_task_comment(task_id: int):
     for recipient_id in _task_notification_user_ids(task):
         if recipient_id == user.id:
             continue
+        if is_user_viewing_task(recipient_id, task.id):
+            continue
         db.session.add(
             TaskNotification(
                 user_id=recipient_id,
@@ -474,6 +541,52 @@ def create_task_comment(task_id: int):
     return {"comment": _serialize_task_comment(comment, user), "comment_count": comment_count}, 201
 
 
+@api_bp.patch("/tasks/<int:task_id>/comments/<int:comment_id>")
+@login_required
+def update_task_comment(task_id: int, comment_id: int):
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return {"error": "body is required"}, 400
+
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    comment = TaskComment.query.filter_by(id=comment_id, task_id=task.id, user_id=user.id).first()
+    if not comment:
+        return {"error": "comment not found"}, 404
+
+    comment.body = body
+    db.session.commit()
+    payload = _serialize_task_comment(comment, user)
+    emit_task_comment_updated(task.id, payload)
+    return {"comment": payload}, 200
+
+
+@api_bp.delete("/tasks/<int:task_id>/comments/<int:comment_id>")
+@login_required
+def delete_task_comment(task_id: int, comment_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    comment = TaskComment.query.filter_by(id=comment_id, task_id=task.id, user_id=user.id).first()
+    if not comment:
+        return {"error": "comment not found"}, 404
+
+    db.session.delete(comment)
+    db.session.commit()
+    emit_task_comment_deleted(task.id, comment_id)
+    return {"status": "ok", "comment_id": comment_id}, 200
+
+
 @api_bp.post("/tasks/<int:task_id>/notifications/read")
 @login_required
 def mark_task_notifications_read(task_id: int):
@@ -484,14 +597,15 @@ def mark_task_notifications_read(task_id: int):
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
     now = datetime.utcnow()
-    TaskNotification.query.filter_by(user_id=user.id, task_id=task.id).filter(TaskNotification.read_at.is_(None)).update(
+    TaskNotification.query.filter_by(user_id=user.id, task_id=task.id, kind="comment").filter(TaskNotification.read_at.is_(None)).update(
         {"read_at": now},
         synchronize_session=False,
     )
     db.session.commit()
-    unread_total = TaskNotification.query.filter_by(user_id=user.id).filter(TaskNotification.read_at.is_(None)).count()
+    payload = notification_payload_for_user(user.id)
     emit_notification_state(user.id)
-    return {"status": "ok", "unread_total": unread_total}
+    payload["status"] = "ok"
+    return payload
 
 
 @api_bp.post("/tasks/<int:task_id>/notifications/unread")
@@ -516,7 +630,7 @@ def mark_task_notifications_unread(task_id: int):
         if not comment:
             return {"error": "comment not found"}, 404
 
-    existing = TaskNotification.query.filter_by(user_id=user.id, task_id=task.id).filter(TaskNotification.read_at.is_(None)).first()
+    existing = TaskNotification.query.filter_by(user_id=user.id, task_id=task.id, kind="comment").filter(TaskNotification.read_at.is_(None)).first()
     if not existing:
         latest_comment = comment or (
             TaskComment.query.filter_by(task_id=task.id)
@@ -533,9 +647,10 @@ def mark_task_notifications_unread(task_id: int):
         )
         db.session.commit()
 
-    unread_total = TaskNotification.query.filter_by(user_id=user.id).filter(TaskNotification.read_at.is_(None)).count()
+    payload = notification_payload_for_user(user.id)
     emit_notification_state(user.id)
-    return {"status": "ok", "unread_total": unread_total}
+    payload["status"] = "ok"
+    return payload
 
 
 @api_bp.post("/tasks/<int:task_id>/move")
@@ -1127,31 +1242,17 @@ def list_project_members(project_id: int):
     project = Project.query.get(project_id)
     if not project:
         return {"error": "project not found"}, 404
-    member_rows = ProjectMember.query.filter_by(project_id=project_id).all()
-    members = []
-    for row in member_rows:
-        member_user = User.query.get(row.user_id)
-        if member_user:
-            members.append(
-                {
-                    "id": member_user.id,
-                    "email": member_user.email,
-                    "display_name": member_user.display_name,
-                    "avatar_url": member_user.avatar_url,
-                }
-            )
-    owner = User.query.get(project.owner_id)
-    if owner:
-        members.insert(
-            0,
-            {
-                "id": owner.id,
-                "email": owner.email,
-                "display_name": owner.display_name,
-                "avatar_url": owner.avatar_url,
-                "owner": True,
-            },
-        )
+    members = list(project_access_map(project_id).values())
+    for member in members:
+        if member.get("owner"):
+            member["access_label"] = "Owner"
+        elif member.get("project_member"):
+            member["access_label"] = "Full"
+        else:
+            member["access_label"] = "Partial"
+        member["can_promote"] = (not member.get("owner")) and (not member.get("project_member"))
+        member["can_demote"] = (not member.get("owner")) and bool(member.get("project_member")) and bool(member.get("partial"))
+    members.sort(key=lambda item: (0 if item.get("owner") else 1, 0 if item.get("project_member") else 1, (item.get("display_name") or item.get("email") or "").lower()))
     return {"members": members}, 200
 
 
@@ -1226,6 +1327,35 @@ def remove_project_member(project_id: int, user_id: int):
     db.session.commit()
     emit_project_members_updated(project_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
+
+
+@api_bp.post("/projects/<int:project_id>/members/<int:user_id>/scope")
+@login_required
+def update_project_member_scope(project_id: int, user_id: int):
+    user = current_user()
+    if not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if user_id == project.owner_id:
+        return {"error": "cannot change owner scope"}, 400
+
+    payload = request.get_json(silent=True) or {}
+    scope = (payload.get("scope") or "").strip().lower()
+    if scope not in {"full", "partial"}:
+        return {"error": "invalid scope"}, 400
+
+    existing = ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).first()
+    if scope == "full":
+        if not existing:
+            db.session.add(ProjectMember(project_id=project_id, user_id=user_id))
+    else:
+        if existing:
+            db.session.delete(existing)
+    db.session.commit()
+    emit_project_members_updated(project_id, actor_user_id=user.id)
+    return {"status": "ok"}, 200
 
 
 @api_bp.delete("/groups/<int:group_id>/members/<int:user_id>")
