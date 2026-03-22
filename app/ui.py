@@ -223,8 +223,6 @@ def _send_collaborator_calendar_invite(
         start_at=start_at,
         end_at=end_at,
         uid=f"invite-{invite.token}@termin.solids.group",
-        from_email=current_user().email if current_user() else None,
-        from_name=current_user().display_name if current_user() else None,
         reply_to=current_user().email if current_user() else None,
     )
     invite.calendar_invite_sent_at = datetime.utcnow()

@@ -564,8 +564,6 @@ def send_magic_link_email(
         subject=subject,
         text_body=text_body,
         html_body=html_body,
-        from_email=inviter_email,
-        from_name=inviter_name,
         reply_to=inviter_email,
     )
 
@@ -641,8 +639,6 @@ def send_magic_link_digest_email(
         subject=subject,
         text_body="\n".join(text_lines),
         html_body=html_body,
-        from_email=inviter_email,
-        from_name=inviter_name,
         reply_to=inviter_email,
     )
 
@@ -674,8 +670,6 @@ def send_account_verification_email(
         subject=subject,
         text_body=text_body,
         html_body=html_body,
-        from_email=inviter_email,
-        from_name=inviter_name,
         reply_to=inviter_email,
     )
 
