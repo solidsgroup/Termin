@@ -26,7 +26,7 @@ from app.identity import (
 )
 from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
-from app.realtime import emit_task_comment_created, emit_task_notification_updates
+from app.realtime import emit_assignment_updated, emit_task_comment_created, emit_task_notification_updates
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -1356,6 +1356,10 @@ def respond_invite(token: str):
     subtask = Subtask.query.get(invite.subtask_id) if invite.subtask_id else None
     if invite.status == "accepted" and invite.calendar_opt_in and task:
         _safe_ensure_task_event(task.id, invite.email)
+    if invite.assignment_id and task:
+        assignment = Assignment.query.get(invite.assignment_id)
+        if assignment:
+            emit_assignment_updated(task, assignment)
     return render_template(
         "invite.html",
         status=invite.status,
@@ -1601,6 +1605,10 @@ def update_collaborator_invite(token: str, invite_id: int):
 
     if task and (sent_calendar_invite or (invite.status == "accepted" and invite.calendar_opt_in)):
         _safe_ensure_task_event(task.id, invite.email)
+    if invite.assignment_id and task:
+        assignment = Assignment.query.get(invite.assignment_id)
+        if assignment:
+            emit_assignment_updated(task, assignment)
     return redirect(url_for("ui.collaborator_portal", token=token))
 
 
@@ -1638,6 +1646,8 @@ def update_collaborator_assignment(token: str, assignment_id: int):
 
     if task and (sent_calendar_invite or (invite.status == "accepted" and invite.calendar_opt_in)):
         _safe_ensure_task_event(task.id, invite.email)
+    if task:
+        emit_assignment_updated(task, assignment)
     return redirect(url_for("ui.collaborator_portal", token=token))
 
 

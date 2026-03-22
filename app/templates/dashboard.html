@@ -10,7 +10,7 @@
         <strong>{{ project.name }}</strong>
       </a>
       {% if shared_viewers %}
-        <div class="avatar-stack" data-presence-project-id="{{ project.id }}">
+        <div class="avatar-stack" data-presence-project-id="{{ project.id }}" data-project-members="{{ project.id }}">
           {% for u in shared_viewers[:4] %}
             <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
               {% if u.avatar_url %}
@@ -327,7 +327,7 @@
               {% for item in date_group["items"] %}
                 {% set todo_status_state = status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
-                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-status-state="{{ todo_status_state }}">
+                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-status-state="{{ todo_status_state }}">
                   <div class="todo-project-meta">
                     <span class="todo-project-name">{{ item.project.name }}</span>
                     {% if item.group %}<span class="todo-group-name">{{ item.group.name }}</span>{% endif %}
@@ -413,7 +413,7 @@
           {% set viewers = project_viewers.get(selected_project.id, []) %}
           {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
           {% if shared_viewers %}
-            <div class="share-avatars" data-presence-project-id="{{ selected_project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+            <div class="share-avatars" data-presence-project-id="{{ selected_project.id }}" data-project-members="{{ selected_project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
               {% for u in shared_viewers[:6] %}
                 <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
                   {% if u.avatar_url %}
@@ -446,7 +446,7 @@
               {% set viewers = group_viewers.get(group.id, []) %}
               {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
               {% if shared_viewers %}
-                <div class="share-avatars" data-presence-project-id="{{ group.project_id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                <div class="share-avatars" data-presence-project-id="{{ group.project_id }}" data-group-members="{{ group.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
                   {% for u in shared_viewers[:6] %}
                     <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
                       {% if u.avatar_url %}
@@ -2566,6 +2566,7 @@
         </span>
       `;
     };
+    window.__renderAssignmentBadge = renderAssignmentBadge;
 
     const insertAssignmentBadge = (container, assignment) => {
       if (!container) return;
@@ -2578,6 +2579,7 @@
         container.appendChild(wrapper.firstElementChild);
       }
     };
+    window.__insertAssignmentBadge = insertAssignmentBadge;
 
     const createAssignment = (targetType, targetId, email, container) => {
       return fetch("/api/assignments", {
@@ -4527,13 +4529,25 @@
     }
 
     function setCommentCount(taskId, count) {
+      document.querySelectorAll('[data-open-discussion="' + taskId + '"]').forEach(function (button) {
+        var span = button.querySelector('[data-comment-count="' + taskId + '"]');
+        if (!span) {
+          span = document.createElement("span");
+          span.setAttribute("data-comment-count", String(taskId));
+          button.appendChild(span);
+        }
+        span.textContent = String(count);
+      });
       document.querySelectorAll('[data-comment-count="' + taskId + '"]').forEach(function (el) {
         el.textContent = String(count);
-        var button = el.closest(".comment-button");
-        if (button) {
-          button.classList.toggle("has-unread", count > 0);
-        }
       });
+    }
+
+    function getDisplayedCommentCount(taskId) {
+      var el = document.querySelector('[data-comment-count="' + taskId + '"]');
+      if (!el) return 0;
+      var value = Number(el.textContent || 0);
+      return Number.isFinite(value) ? value : 0;
     }
 
     function setNotificationCount(count) {
@@ -4587,7 +4601,7 @@
     function applyNotificationState(data) {
       setNotificationCount(Number(data.unread_total || 0));
       renderNotificationMenu(data.notifications || []);
-      var unreadTaskIds = new Set((data.unread_task_ids || []).map(function (id) { return String(id); }));
+      var unreadTaskIds = new Set((data.unread_comment_task_ids || []).map(function (id) { return String(id); }));
       document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
         var taskId = String(button.getAttribute("data-open-discussion"));
         button.classList.toggle("has-unread", unreadTaskIds.has(taskId));
@@ -4625,6 +4639,7 @@
     var socketConnected = false;
     var joinedTaskId = null;
     var joinedProjectIds = new Set();
+    var currentUserId = {{ user.id|tojson }};
 
     function visibleProjectIds() {
       var ids = new Set();
@@ -4644,6 +4659,55 @@
       });
     }
 
+    function renderAvatarChip(member) {
+      var label = member.display_name || member.email || "User";
+      var initial = label.trim().slice(0, 1).toUpperCase();
+      if (member.avatar_url) {
+        return '<span class="avatar-chip" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '"><img src="' + escapeHtml(member.avatar_url) + '" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" /></span>';
+      }
+      return '<span class="avatar-chip" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '">' + escapeHtml(initial) + '</span>';
+    }
+
+    function updateMemberAvatars(selector, members, limit) {
+      document.querySelectorAll(selector).forEach(function (container) {
+        var visible = (members || []).slice(0, limit || 6);
+        var extra = Math.max(0, (members || []).length - visible.length);
+        container.innerHTML = visible.map(renderAvatarChip).join("") + (extra ? '<span class="avatar-chip">+' + extra + "</span>" : "");
+      });
+    }
+
+    function applyAssignmentUpdate(payload) {
+      if (!payload || !payload.assignment) return;
+      var assignment = payload.assignment;
+      var updated = false;
+      var selector = assignment.task_id
+        ? '.assignments [data-assign-input="task"][data-target-id="' + assignment.task_id + '"]'
+        : '.assignments [data-assign-input="subtask"][data-target-id="' + assignment.subtask_id + '"]';
+      document.querySelectorAll(selector).forEach(function (input) {
+        var container = input.closest(".assignments");
+        if (!container) return;
+        var existing = container.querySelector('[data-assignment-id="' + assignment.id + '"]');
+        if (payload.action === "deleted") {
+          if (existing) {
+            existing.remove();
+            updated = true;
+          }
+          return;
+        }
+        if (typeof window.__renderAssignmentBadge !== "function") return;
+        var wrapper = document.createElement("span");
+        wrapper.innerHTML = window.__renderAssignmentBadge(assignment);
+        if (existing) {
+          existing.replaceWith(wrapper.firstElementChild);
+          updated = true;
+        } else if (typeof window.__insertAssignmentBadge === "function") {
+          window.__insertAssignmentBadge(container, assignment);
+          updated = true;
+        }
+      });
+      return updated;
+    }
+
     function syncProjectRooms() {
       if (!socket || !socketConnected) return;
       visibleProjectIds().forEach(function (projectId) {
@@ -4655,26 +4719,58 @@
 
     function applyTaskRowUpdate(task) {
       if (!task || !task.id) return;
+      var normalizedTitle = task.title || "";
+      var normalizedStatus = task.status || "";
+      var normalizedDue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+
+      document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
+        if (task.status && typeof row.setAttribute === "function") {
+          row.setAttribute("data-status-state", getStatusState(task.status));
+        }
+      });
       document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="title"]').forEach(function (cell) {
-        cell.textContent = task.title || "";
+        cell.textContent = normalizedTitle;
+        cell.dataset.originalValue = normalizedTitle;
+      });
+      document.querySelectorAll('.todo-item-title[data-task-id="' + task.id + '"]').forEach(function (cell) {
+        if (cell.matches(".editable")) {
+          cell.textContent = normalizedTitle;
+          cell.dataset.originalValue = normalizedTitle;
+          return;
+        }
+        var titleSpan = cell.querySelector("span");
+        if (titleSpan) {
+          titleSpan.textContent = normalizedTitle;
+        } else {
+          cell.textContent = normalizedTitle;
+        }
       });
       document.querySelectorAll('[data-open-discussion="' + task.id + '"]').forEach(function (button) {
-        button.setAttribute("data-task-title", task.title || "");
+        button.setAttribute("data-task-title", normalizedTitle);
       });
       if (String(currentTaskId || "") === String(task.id)) {
-        currentTaskTitle = task.title || "";
+        currentTaskTitle = normalizedTitle;
         titleEl.textContent = currentTaskTitle || "Discussion";
       }
       document.querySelectorAll('.due-input[data-task-id="' + task.id + '"]').forEach(function (input) {
-        input.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        input.value = normalizedDue;
+        input.dataset.originalValue = normalizedDue;
         if (typeof window.__updateDueDisplay === "function") {
           window.__updateDueDisplay(input);
         }
       });
       document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="status"]').forEach(function (cell) {
-        cell.textContent = task.status || "";
+        cell.textContent = normalizedStatus;
+        cell.dataset.originalValue = normalizedStatus;
         if (typeof window.__applyStatusState === "function") {
-          window.__applyStatusState(cell, task.status || "");
+          window.__applyStatusState(cell, normalizedStatus);
+        }
+      });
+      document.querySelectorAll('.todo-status-cell[data-task-id="' + task.id + '"]').forEach(function (cell) {
+        cell.textContent = normalizedStatus;
+        cell.dataset.originalValue = normalizedStatus;
+        if (typeof window.__applyStatusState === "function") {
+          window.__applyStatusState(cell, normalizedStatus);
         }
       });
     }
@@ -4719,6 +4815,12 @@
       if (empty) listEl.innerHTML = "";
       listEl.insertAdjacentHTML("beforeend", renderComment(comment));
       return true;
+    }
+
+    function syncCommentCount(taskId) {
+      if (!taskId) return;
+      var count = listEl ? listEl.querySelectorAll("[data-comment-id]").length : 0;
+      setCommentCount(taskId, count);
     }
 
     function syncTaskRoom(taskId) {
@@ -4785,6 +4887,8 @@
     function submitComment() {
       var body = (inputEl.value || "").trim();
       if (!currentTaskId || !body) return;
+      var previousCount = getDisplayedCommentCount(currentTaskId);
+      setCommentCount(currentTaskId, previousCount + 1);
       sendEl.disabled = true;
       fetch("/api/tasks/" + currentTaskId + "/comments", {
         method: "POST",
@@ -4794,10 +4898,19 @@
       })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
-          if (!data.comment) return;
+          if (!data.comment) {
+            setCommentCount(currentTaskId, previousCount);
+            return;
+          }
           upsertComment(data.comment);
           inputEl.value = "";
+          var domCount = listEl ? listEl.querySelectorAll("[data-comment-id]").length : 0;
+          var serverCount = typeof data.comment_count === "number" ? data.comment_count : 0;
+          setCommentCount(currentTaskId, Math.max(previousCount + 1, domCount, serverCount));
           listEl.scrollTop = listEl.scrollHeight;
+        })
+        .catch(function () {
+          setCommentCount(currentTaskId, previousCount);
         })
         .finally(function () {
           sendEl.disabled = false;
@@ -4865,12 +4978,14 @@
 
       socket.on("connect", function () {
         socketConnected = true;
+        joinedProjectIds = new Set();
         syncProjectRooms();
         syncTaskRoom(currentTaskId);
       });
 
       socket.on("disconnect", function () {
         socketConnected = false;
+        joinedProjectIds = new Set();
       });
 
       socket.on("notification_state", function (data) {
@@ -4882,6 +4997,24 @@
         applyProjectPresence(String(data.project_id), data.online_user_ids || []);
       });
 
+      socket.on("assignment_updated", function (data) {
+        var updated = applyAssignmentUpdate(data || {});
+        var isOwnEvent = data && data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
+        if (!updated && !isOwnEvent) {
+          window.location.reload();
+        }
+      });
+
+      socket.on("project_members_updated", function (data) {
+        if (!data || !data.project_id) return;
+        updateMemberAvatars('[data-project-members="' + data.project_id + '"]', data.members || [], 6);
+      });
+
+      socket.on("group_members_updated", function (data) {
+        if (!data || !data.group_id) return;
+        updateMemberAvatars('[data-group-members="' + data.group_id + '"]', data.members || [], 6);
+      });
+
       socket.on("task_comment_created", function (data) {
         if (!data || !data.task_id || !data.comment) return;
         setCommentCount(data.task_id, Number(data.comment_count || 0));
@@ -4891,6 +5024,7 @@
           return el.getAttribute("data-comment-id");
         });
         commentSnapshot = JSON.stringify(comments);
+        syncCommentCount(data.task_id);
         if (inserted) {
           listEl.scrollTop = listEl.scrollHeight;
         }
@@ -4900,6 +5034,11 @@
 
       socket.on("task_updated", function (data) {
         if (!data || !data.task) return;
+        var isOwnEvent = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
+        if (!isOwnEvent) {
+          window.location.reload();
+          return;
+        }
         var task = data.task;
         var currentProjects = visibleProjectIds();
         if (data.action === "moved" && data.old_project_id && currentProjects.has(String(data.old_project_id)) && !currentProjects.has(String(task.project_id))) {
@@ -4911,6 +5050,11 @@
 
       socket.on("subtask_updated", function (data) {
         if (!data || !data.subtask) return;
+        var isOwnEvent = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
+        if (!isOwnEvent) {
+          window.location.reload();
+          return;
+        }
         applySubtaskRowUpdate(data.subtask);
       });
     }

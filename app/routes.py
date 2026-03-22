@@ -11,7 +11,10 @@ from app.github_sync import GitHubSyncError, github_identity_for_user, should_sy
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 from app.realtime import (
+    emit_assignment_updated,
+    emit_group_members_updated,
     emit_notification_state,
+    emit_project_members_updated,
     emit_subtask_updated,
     emit_task_comment_created,
     emit_task_notification_updates,
@@ -322,7 +325,7 @@ def create_task():
     )
     db.session.add(task)
     db.session.commit()
-    emit_task_updated(task, action="created")
+    emit_task_updated(task, action="created", actor_user_id=user.id)
     assignment_payload = None
     if assignee_email:
         email = assignee_email.strip().lower()
@@ -406,7 +409,7 @@ def update_task(task_id: int):
     db.session.commit()
     queue_task_notifications(task, exclude_user_id=user.id, kind="task_update")
     db.session.commit()
-    emit_task_updated(task)
+    emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"id": task.id, "title": task.title, "status": task.status, "info": _info_payload_for(task)}, 200
 
@@ -465,9 +468,10 @@ def create_task_comment(task_id: int):
         )
 
     db.session.commit()
+    comment_count = TaskComment.query.filter_by(task_id=task.id).count()
     emit_task_comment_created(task.id, _serialize_task_comment(comment, user))
     emit_task_notification_updates(task, exclude_user_id=user.id)
-    return {"comment": _serialize_task_comment(comment, user)}, 201
+    return {"comment": _serialize_task_comment(comment, user), "comment_count": comment_count}, 201
 
 
 @api_bp.post("/tasks/<int:task_id>/notifications/read")
@@ -600,7 +604,7 @@ def move_task(task_id: int):
     db.session.commit()
     queue_task_notifications(task, exclude_user_id=user.id, kind="task_moved")
     db.session.commit()
-    emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=source_group_id)
+    emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=source_group_id, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {
         "status": "ok",
@@ -1084,6 +1088,7 @@ def add_project_member(project_id: int):
         return {"status": "ok"}, 200
     db.session.add(ProjectMember(project_id=project_id, user_id=user_id))
     db.session.commit()
+    emit_project_members_updated(project_id, actor_user_id=user.id)
     return {"status": "ok"}, 201
 
 
@@ -1108,6 +1113,8 @@ def add_group_member(group_id: int):
         return {"status": "ok"}, 200
     db.session.add(GroupMember(group_id=group_id, user_id=user_id))
     db.session.commit()
+    emit_group_members_updated(group_id, actor_user_id=user.id)
+    emit_project_members_updated(group.project_id, actor_user_id=user.id)
     return {"status": "ok"}, 201
 
 
@@ -1217,6 +1224,7 @@ def remove_project_member(project_id: int, user_id: int):
         return {"error": "unauthorized"}, 403
     ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).delete()
     db.session.commit()
+    emit_project_members_updated(project_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -1231,6 +1239,8 @@ def remove_group_member(group_id: int, user_id: int):
         return {"error": "unauthorized"}, 403
     GroupMember.query.filter_by(group_id=group_id, user_id=user_id).delete()
     db.session.commit()
+    emit_group_members_updated(group_id, actor_user_id=user.id)
+    emit_project_members_updated(group.project_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -1384,6 +1394,7 @@ def create_assignment():
     if existing_assignment:
         _reset_existing_assignment(existing_assignment)
         db.session.commit()
+        emit_assignment_updated(task, existing_assignment, actor_user_id=user.id)
         return {
             "id": existing_assignment.id,
             "user_id": existing_assignment.user_id,
@@ -1402,6 +1413,7 @@ def create_assignment():
     )
     db.session.add(assignment)
     db.session.commit()
+    emit_assignment_updated(task, assignment, action="created", actor_user_id=user.id)
 
     return {
         "id": assignment.id,
@@ -1481,6 +1493,7 @@ def send_assignment_link(assignment_id: int):
     invite.status = "sent"
     assignment.status = "link_sent"
     db.session.commit()
+    emit_assignment_updated(task, assignment, actor_user_id=user.id)
 
     return {"status": "link_sent", "invite_url": manage_url}, 200
 
@@ -1579,6 +1592,13 @@ def send_assignment_links_bulk():
         invite.status = "sent"
         assignment.status = "link_sent"
     db.session.commit()
+    for assignment, _invite in prepared_assignments:
+        task = Task.query.get(assignment.task_id) if assignment.task_id else None
+        if assignment.subtask_id and not task:
+            subtask = Subtask.query.get(assignment.subtask_id)
+            task = Task.query.get(subtask.task_id) if subtask else None
+        if task:
+            emit_assignment_updated(task, assignment, actor_user_id=user.id)
     return {"status": "link_sent", "assignment_ids": [assignment.id for assignment, _ in prepared_assignments]}, 200
 
 
@@ -1603,6 +1623,7 @@ def delete_assignment(assignment_id: int):
     Invite.query.filter_by(assignment_id=assignment.id).delete()
     db.session.delete(assignment)
     db.session.commit()
+    emit_assignment_updated(task, assignment, action="deleted", actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -1639,7 +1660,7 @@ def create_subtask(task_id: int):
     )
     db.session.add(subtask)
     db.session.commit()
-    emit_subtask_updated(task, subtask, action="created")
+    emit_subtask_updated(task, subtask, action="created", actor_user_id=user.id)
     assignment_payload = None
     if payload.get("assignee_email"):
         email = payload.get("assignee_email").strip().lower()
@@ -1727,7 +1748,7 @@ def update_subtask(subtask_id: int):
     db.session.commit()
     queue_task_notifications(task, exclude_user_id=user.id, kind="subtask_update")
     db.session.commit()
-    emit_subtask_updated(task, subtask)
+    emit_subtask_updated(task, subtask, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"id": subtask.id, "title": subtask.title, "status": subtask.status, "info": _info_payload_for(subtask)}, 200
 
