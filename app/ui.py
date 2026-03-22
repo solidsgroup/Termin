@@ -26,6 +26,7 @@ from app.identity import (
 )
 from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Subtask, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
+from app.realtime import emit_task_comment_created, emit_task_notification_updates
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -1669,6 +1670,10 @@ def collaborator_post_task_comment(token: str, task_id: int):
     comment = TaskComment(task_id=task_id, collaborator_id=collaborator.id, body=body)
     db.session.add(comment)
     db.session.commit()
+    task = Task.query.get(task_id)
+    if task:
+        emit_task_comment_created(task_id, _serialize_portal_comment(comment, {}, {collaborator.id: collaborator}))
+        emit_task_notification_updates(task)
     return {"comment": _serialize_portal_comment(comment, {}, {collaborator.id: collaborator})}, 201
 
 

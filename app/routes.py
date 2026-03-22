@@ -10,6 +10,15 @@ from app.extensions import db
 from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
+from app.realtime import (
+    emit_notification_state,
+    emit_subtask_updated,
+    emit_task_comment_created,
+    emit_task_notification_updates,
+    emit_task_updated,
+    notification_payload_for_user,
+    queue_task_notifications,
+)
 from app.sidebar_layout import (
     apply_top_level_project_order,
     ensure_sidebar_preference,
@@ -39,7 +48,7 @@ def me():
 @login_required
 def notifications_feed():
     user = current_user()
-    return _notification_payload_for_user(user.id)
+    return notification_payload_for_user(user.id)
 
 
 @api_bp.post("/github/sync")
@@ -122,56 +131,6 @@ def _serialize_task_comment(comment: TaskComment, author: User | None, collabora
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat(),
         "author": author_payload,
-    }
-
-
-def _notification_payload_for_user(user_id: int) -> dict:
-    notification_rows = (
-        TaskNotification.query.filter_by(user_id=user_id)
-        .filter(TaskNotification.read_at.is_(None))
-        .order_by(TaskNotification.created_at.desc(), TaskNotification.id.desc())
-        .limit(12)
-        .all()
-    )
-    unread_task_ids = sorted({row.task_id for row in notification_rows if row.task_id})
-    comment_ids = [row.comment_id for row in notification_rows if row.comment_id]
-    task_ids = [row.task_id for row in notification_rows if row.task_id]
-    comments = {
-        row.id: row
-        for row in TaskComment.query.filter(TaskComment.id.in_(comment_ids)).all()
-    } if comment_ids else {}
-    tasks = {
-        row.id: row
-        for row in Task.query.filter(Task.id.in_(task_ids)).all()
-    } if task_ids else {}
-    project_ids = {task.project_id for task in tasks.values()}
-    projects = {
-        row.id: row
-        for row in Project.query.filter(Project.id.in_(project_ids)).all()
-    } if project_ids else {}
-    notifications = []
-    for row in notification_rows:
-        task = tasks.get(row.task_id)
-        comment = comments.get(row.comment_id)
-        project = projects.get(task.project_id) if task else None
-        preview = ""
-        if comment and comment.body:
-            preview = comment.body[:120] + ("…" if len(comment.body) > 120 else "")
-        notifications.append(
-            {
-                "id": row.id,
-                "task_id": row.task_id,
-                "task_title": task.title if task else "Task",
-                "project_id": project.id if project else None,
-                "project_name": project.name if project else None,
-                "comment_preview": preview,
-                "created_at": row.created_at.isoformat(),
-            }
-        )
-    return {
-        "unread_total": len(notification_rows),
-        "unread_task_ids": unread_task_ids,
-        "notifications": notifications,
     }
 
 
@@ -363,6 +322,7 @@ def create_task():
     )
     db.session.add(task)
     db.session.commit()
+    emit_task_updated(task, action="created")
     assignment_payload = None
     if assignee_email:
         email = assignee_email.strip().lower()
@@ -405,6 +365,9 @@ def create_task():
             "display_email": account_user.email if account_user else assignment.email,
         }
 
+    queue_task_notifications(task, exclude_user_id=user.id, kind="task_created")
+    db.session.commit()
+    emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"id": task.id, "title": task.title, "assignment": assignment_payload, "info": _info_payload_for(task)}, 201
 
 
@@ -441,6 +404,10 @@ def update_task(task_id: int):
             except ValueError:
                 return {"error": "Invalid due_at format"}, 400
     db.session.commit()
+    queue_task_notifications(task, exclude_user_id=user.id, kind="task_update")
+    db.session.commit()
+    emit_task_updated(task)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"id": task.id, "title": task.title, "status": task.status, "info": _info_payload_for(task)}, 200
 
 
@@ -498,6 +465,8 @@ def create_task_comment(task_id: int):
         )
 
     db.session.commit()
+    emit_task_comment_created(task.id, _serialize_task_comment(comment, user))
+    emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"comment": _serialize_task_comment(comment, user)}, 201
 
 
@@ -517,6 +486,7 @@ def mark_task_notifications_read(task_id: int):
     )
     db.session.commit()
     unread_total = TaskNotification.query.filter_by(user_id=user.id).filter(TaskNotification.read_at.is_(None)).count()
+    emit_notification_state(user.id)
     return {"status": "ok", "unread_total": unread_total}
 
 
@@ -560,6 +530,7 @@ def mark_task_notifications_unread(task_id: int):
         db.session.commit()
 
     unread_total = TaskNotification.query.filter_by(user_id=user.id).filter(TaskNotification.read_at.is_(None)).count()
+    emit_notification_state(user.id)
     return {"status": "ok", "unread_total": unread_total}
 
 
@@ -627,6 +598,10 @@ def move_task(task_id: int):
         _resequence_tasks(source_project_id, source_group_id, exclude_task_id=task.id)
 
     db.session.commit()
+    queue_task_notifications(task, exclude_user_id=user.id, kind="task_moved")
+    db.session.commit()
+    emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=source_group_id)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
     return {
         "status": "ok",
         "task_id": task.id,
@@ -1664,6 +1639,7 @@ def create_subtask(task_id: int):
     )
     db.session.add(subtask)
     db.session.commit()
+    emit_subtask_updated(task, subtask, action="created")
     assignment_payload = None
     if payload.get("assignee_email"):
         email = payload.get("assignee_email").strip().lower()
@@ -1706,6 +1682,9 @@ def create_subtask(task_id: int):
             "display_email": account_user.email if account_user else assignment.email,
             "avatar_url": account_user.avatar_url if account_user else None,
         }
+    queue_task_notifications(task, exclude_user_id=user.id, kind="subtask_update")
+    db.session.commit()
+    emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"id": subtask.id, "title": subtask.title, "assignment": assignment_payload, "info": _info_payload_for(subtask)}, 201
 
 
@@ -1746,6 +1725,10 @@ def update_subtask(subtask_id: int):
             except ValueError:
                 return {"error": "Invalid due_at format"}, 400
     db.session.commit()
+    queue_task_notifications(task, exclude_user_id=user.id, kind="subtask_update")
+    db.session.commit()
+    emit_subtask_updated(task, subtask)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"id": subtask.id, "title": subtask.title, "status": subtask.status, "info": _info_payload_for(subtask)}, 200
 
 

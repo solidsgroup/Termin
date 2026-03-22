@@ -1,6 +1,6 @@
-from startup import app, prepare_runtime
+from startup import app, prepare_runtime, socketio
 
 
 if __name__ == "__main__":
     prepare_runtime()
-    app.run(debug=True)
+    socketio.run(app, debug=True)

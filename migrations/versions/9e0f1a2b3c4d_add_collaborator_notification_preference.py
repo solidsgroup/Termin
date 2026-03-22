@@ -20,7 +20,9 @@ def upgrade():
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     column_names = {column["name"] for column in inspector.get_columns("collaborator_profiles")}
+    added_column = False
     if "notification_preference" not in column_names:
+        added_column = True
         op.add_column(
             "collaborator_profiles",
             sa.Column("notification_preference", sa.String(length=24), nullable=False, server_default="email"),
@@ -31,8 +33,9 @@ def upgrade():
         "WHEN default_calendar_opt_in = 1 THEN 'calendar' "
         "ELSE 'email' END"
     )
-    if "notification_preference" not in column_names:
-        op.alter_column("collaborator_profiles", "notification_preference", server_default=None)
+    if added_column:
+        with op.batch_alter_table("collaborator_profiles") as batch_op:
+            batch_op.alter_column("notification_preference", server_default=None)
 
 
 def downgrade():

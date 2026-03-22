@@ -7,7 +7,8 @@ from startup import prepare_runtime
 def main() -> None:
     prepare_runtime(interactive=False)
     bind = f"0.0.0.0:{os.getenv('PORT', '10000')}"
-    workers = os.getenv("WEB_CONCURRENCY", "2")
+    workers = os.getenv("WEB_CONCURRENCY", "1")
+    threads = os.getenv("GUNICORN_THREADS", "8")
     timeout = os.getenv("GUNICORN_TIMEOUT", "120")
     os.execvp(
         "gunicorn",
@@ -15,8 +16,12 @@ def main() -> None:
             "gunicorn",
             "--bind",
             bind,
+            "--worker-class",
+            "gthread",
             "--workers",
             workers,
+            "--threads",
+            threads,
             "--timeout",
             timeout,
             "wsgi:app",

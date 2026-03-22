@@ -2,7 +2,8 @@ import os
 
 from flask import Flask
 from app.config import Config
-from app.extensions import db, migrate
+from app.extensions import db, migrate, socketio
+from app.realtime import register_socket_handlers
 from app.routes import api_bp
 from app.auth import auth_bp
 from app.ui import ui_bp
@@ -19,7 +20,9 @@ def create_app() -> Flask:
 
     db.init_app(app)
     migrate.init_app(app, db)
+    socketio.init_app(app)
     init_oauth(app)
+    register_socket_handlers()
 
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(auth_bp)

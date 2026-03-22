@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title or "Termin" }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <style>
       :root {
         --bg: #0b0d12;
@@ -1341,6 +1342,12 @@
         height: 100%;
         object-fit: cover;
         display: block;
+      }
+
+      .avatar-stack .avatar-chip.is-online,
+      .share-avatars .avatar-chip.is-online {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 80%, transparent);
+        border-color: color-mix(in srgb, var(--success) 90%, transparent);
       }
 
       .share-avatars .avatar-chip {

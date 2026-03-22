@@ -10,9 +10,9 @@
         <strong>{{ project.name }}</strong>
       </a>
       {% if shared_viewers %}
-        <div class="avatar-stack">
+        <div class="avatar-stack" data-presence-project-id="{{ project.id }}">
           {% for u in shared_viewers[:4] %}
-            <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+            <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
               {% if u.avatar_url %}
                 <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
               {% else %}
@@ -413,9 +413,9 @@
           {% set viewers = project_viewers.get(selected_project.id, []) %}
           {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
           {% if shared_viewers %}
-            <div class="share-avatars" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+            <div class="share-avatars" data-presence-project-id="{{ selected_project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
               {% for u in shared_viewers[:6] %}
-                <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+                <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
                   {% if u.avatar_url %}
                     <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
                   {% else %}
@@ -446,9 +446,9 @@
               {% set viewers = group_viewers.get(group.id, []) %}
               {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
               {% if shared_viewers %}
-                <div class="share-avatars" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                <div class="share-avatars" data-presence-project-id="{{ group.project_id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
                   {% for u in shared_viewers[:6] %}
-                    <span class="avatar-chip" title="{{ u.display_name or u.email }}">
+                    <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
                       {% if u.avatar_url %}
                         <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
                       {% else %}
@@ -991,6 +991,8 @@
         row.setAttribute("data-status-state", state);
       }
     }
+
+    window.__applyStatusState = applyStatusState;
 
     function saveEditable(cell) {
       if (!cell || cell.dataset.editableSaving === "1") return Promise.resolve();
@@ -2919,6 +2921,8 @@
       summary.classList.toggle("is-fallback", !dueValue);
     };
 
+    window.__updateDueDisplay = updateDueDisplay;
+
     const showDueInput = (input) => {
       if (!input) return;
       const dueCell = input.closest("[data-due-cell]");
@@ -4570,14 +4574,24 @@
       }
       menu.innerHTML = items.map(function (item) {
         var project = item.project_name ? escapeHtml(item.project_name) + " · " : "";
-        var preview = item.comment_preview ? escapeHtml(item.comment_preview) : "New activity";
+        var preview = item.preview || item.comment_preview || "New activity";
         return (
           '<a class="notifications-item" href="' + escapeHtml(notificationHref(item)) + '">' +
             '<div class="notifications-title">' + escapeHtml(item.task_title || "Task") + '</div>' +
-            '<div class="notifications-copy">' + project + preview + '</div>' +
+            '<div class="notifications-copy">' + project + escapeHtml(preview) + '</div>' +
           '</a>'
         );
       }).join("");
+    }
+
+    function applyNotificationState(data) {
+      setNotificationCount(Number(data.unread_total || 0));
+      renderNotificationMenu(data.notifications || []);
+      var unreadTaskIds = new Set((data.unread_task_ids || []).map(function (id) { return String(id); }));
+      document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
+        var taskId = String(button.getAttribute("data-open-discussion"));
+        button.classList.toggle("has-unread", unreadTaskIds.has(taskId));
+      });
     }
 
     function setTaskUnread(taskId, unread) {
@@ -4593,7 +4607,7 @@
         ? '<img src="' + escapeHtml(author.avatar_url) + '" alt="avatar" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(name.charAt(0).toUpperCase()) + '; this.remove();" />'
         : escapeHtml(name.charAt(0).toUpperCase());
       return (
-        '<div class="discussion-comment">' +
+        '<div class="discussion-comment" data-comment-id="' + escapeHtml(comment.id) + '">' +
           '<div class="discussion-comment-header">' +
             '<div class="discussion-comment-avatar">' + avatar + '</div>' +
             '<div class="discussion-comment-meta">' +
@@ -4607,8 +4621,125 @@
       );
     }
 
+    var socket = null;
+    var socketConnected = false;
+    var joinedTaskId = null;
+    var joinedProjectIds = new Set();
+
+    function visibleProjectIds() {
+      var ids = new Set();
+      document.querySelectorAll(".tasks-table[data-project-id]").forEach(function (table) {
+        var projectId = table.getAttribute("data-project-id");
+        if (projectId) ids.add(String(projectId));
+      });
+      return ids;
+    }
+
+    function applyProjectPresence(projectId, onlineUserIds) {
+      if (!projectId) return;
+      var online = new Set((onlineUserIds || []).map(function (id) { return String(id); }));
+      document.querySelectorAll('[data-presence-project-id="' + projectId + '"] .avatar-chip[data-user-id]').forEach(function (chip) {
+        var userId = chip.getAttribute("data-user-id");
+        chip.classList.toggle("is-online", online.has(String(userId)));
+      });
+    }
+
+    function syncProjectRooms() {
+      if (!socket || !socketConnected) return;
+      visibleProjectIds().forEach(function (projectId) {
+        if (joinedProjectIds.has(projectId)) return;
+        joinedProjectIds.add(projectId);
+        socket.emit("join_project", { project_id: projectId });
+      });
+    }
+
+    function applyTaskRowUpdate(task) {
+      if (!task || !task.id) return;
+      document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="title"]').forEach(function (cell) {
+        cell.textContent = task.title || "";
+      });
+      document.querySelectorAll('[data-open-discussion="' + task.id + '"]').forEach(function (button) {
+        button.setAttribute("data-task-title", task.title || "");
+      });
+      if (String(currentTaskId || "") === String(task.id)) {
+        currentTaskTitle = task.title || "";
+        titleEl.textContent = currentTaskTitle || "Discussion";
+      }
+      document.querySelectorAll('.due-input[data-task-id="' + task.id + '"]').forEach(function (input) {
+        input.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        if (typeof window.__updateDueDisplay === "function") {
+          window.__updateDueDisplay(input);
+        }
+      });
+      document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="status"]').forEach(function (cell) {
+        cell.textContent = task.status || "";
+        if (typeof window.__applyStatusState === "function") {
+          window.__applyStatusState(cell, task.status || "");
+        }
+      });
+    }
+
+    function applySubtaskRowUpdate(subtask) {
+      if (!subtask || !subtask.id) return;
+      document.querySelectorAll('.editable[data-subtask-id="' + subtask.id + '"][data-field="title"]').forEach(function (cell) {
+        cell.textContent = subtask.title || "";
+      });
+      document.querySelectorAll('.due-input[data-subtask-id="' + subtask.id + '"]').forEach(function (input) {
+        input.value = subtask.due_at ? String(subtask.due_at).slice(0, 10) : "";
+        if (typeof window.__updateDueDisplay === "function") {
+          window.__updateDueDisplay(input);
+        }
+      });
+      document.querySelectorAll('.editable[data-subtask-id="' + subtask.id + '"][data-field="status"]').forEach(function (cell) {
+        cell.textContent = subtask.status || "";
+        if (typeof window.__applyStatusState === "function") {
+          window.__applyStatusState(cell, subtask.status || "");
+        }
+      });
+    }
+
+    function removeTaskRowsLocal(taskId) {
+      var row = document.querySelector('[data-task-row-id="' + taskId + '"]');
+      if (row) {
+        row.remove();
+      }
+      document.querySelectorAll('[data-subtasks-for="' + taskId + '"]').forEach(function (subrow) {
+        subrow.remove();
+      });
+    }
+
+    function upsertComment(comment) {
+      if (!listEl) return;
+      var existing = listEl.querySelector('[data-comment-id="' + comment.id + '"]');
+      if (existing) {
+        existing.outerHTML = renderComment(comment);
+        return false;
+      }
+      var empty = listEl.querySelector(".footer-note");
+      if (empty) listEl.innerHTML = "";
+      listEl.insertAdjacentHTML("beforeend", renderComment(comment));
+      return true;
+    }
+
+    function syncTaskRoom(taskId) {
+      var nextTaskId = taskId ? String(taskId) : null;
+      if (!socket || !socketConnected) {
+        joinedTaskId = nextTaskId;
+        return;
+      }
+      if (joinedTaskId && joinedTaskId !== nextTaskId) {
+        socket.emit("leave_task", { task_id: joinedTaskId });
+      }
+      joinedTaskId = nextTaskId;
+      if (joinedTaskId) {
+        socket.emit("join_task", { task_id: joinedTaskId });
+      }
+    }
+
     function closeDrawer() {
       drawer.classList.remove("open");
+      currentTaskId = null;
+      syncTaskRoom(null);
     }
 
     function markRead(taskId) {
@@ -4631,6 +4762,7 @@
       subtitleEl.textContent = projectName ? projectName + " · Task discussion" : "Task discussion";
       listEl.innerHTML = '<div class="footer-note">Loading…</div>';
       drawer.classList.add("open");
+      syncTaskRoom(taskId);
       fetch("/api/tasks/" + taskId + "/comments", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
@@ -4663,13 +4795,8 @@
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data.comment) return;
-          var empty = listEl.querySelector(".footer-note");
-          if (empty) listEl.innerHTML = "";
-          listEl.insertAdjacentHTML("beforeend", renderComment(data.comment));
+          upsertComment(data.comment);
           inputEl.value = "";
-          var countEls = document.querySelectorAll('[data-comment-count="' + currentTaskId + '"]');
-          var current = countEls.length ? Number(countEls[0].textContent || "0") : 0;
-          setCommentCount(currentTaskId, current + 1);
           listEl.scrollTop = listEl.scrollHeight;
         })
         .finally(function () {
@@ -4731,22 +4858,75 @@
       }
     }
 
+    if (window.io) {
+      socket = window.io({
+        withCredentials: true,
+      });
+
+      socket.on("connect", function () {
+        socketConnected = true;
+        syncProjectRooms();
+        syncTaskRoom(currentTaskId);
+      });
+
+      socket.on("disconnect", function () {
+        socketConnected = false;
+      });
+
+      socket.on("notification_state", function (data) {
+        applyNotificationState(data || {});
+      });
+
+      socket.on("project_presence", function (data) {
+        if (!data || !data.project_id) return;
+        applyProjectPresence(String(data.project_id), data.online_user_ids || []);
+      });
+
+      socket.on("task_comment_created", function (data) {
+        if (!data || !data.task_id || !data.comment) return;
+        setCommentCount(data.task_id, Number(data.comment_count || 0));
+        if (String(currentTaskId || "") !== String(data.task_id)) return;
+        var inserted = upsertComment(data.comment);
+        var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {
+          return el.getAttribute("data-comment-id");
+        });
+        commentSnapshot = JSON.stringify(comments);
+        if (inserted) {
+          listEl.scrollTop = listEl.scrollHeight;
+        }
+        setTaskUnread(data.task_id, false);
+        markRead(data.task_id);
+      });
+
+      socket.on("task_updated", function (data) {
+        if (!data || !data.task) return;
+        var task = data.task;
+        var currentProjects = visibleProjectIds();
+        if (data.action === "moved" && data.old_project_id && currentProjects.has(String(data.old_project_id)) && !currentProjects.has(String(task.project_id))) {
+          removeTaskRowsLocal(task.id);
+          return;
+        }
+        applyTaskRowUpdate(task);
+      });
+
+      socket.on("subtask_updated", function (data) {
+        if (!data || !data.subtask) return;
+        applySubtaskRowUpdate(data.subtask);
+      });
+    }
+
     function pollNotificationState() {
+      if (socketConnected) return;
       fetch("/api/notifications", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
-          setNotificationCount(Number(data.unread_total || 0));
-          renderNotificationMenu(data.notifications || []);
-          var unreadTaskIds = new Set((data.unread_task_ids || []).map(function (id) { return String(id); }));
-          document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
-            var taskId = String(button.getAttribute("data-open-discussion"));
-            button.classList.toggle("has-unread", unreadTaskIds.has(taskId));
-          });
+          applyNotificationState(data || {});
         })
         .catch(function () {});
     }
 
     function pollOpenDiscussion() {
+      if (socketConnected) return;
       if (!currentTaskId || !drawer.classList.contains("open")) return;
       fetch("/api/tasks/" + currentTaskId + "/comments", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })

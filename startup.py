@@ -12,6 +12,7 @@ from flask_migrate import upgrade
 from sqlalchemy import inspect, text
 
 from app import create_app
+from app.extensions import socketio
 
 
 load_dotenv()

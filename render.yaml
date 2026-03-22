@@ -21,7 +21,9 @@ services:
       - key: DEV_MAILBOX_CAPTURE_ONLY
         value: "true"
       - key: WEB_CONCURRENCY
-        value: "2"
+        value: "1"
+      - key: GUNICORN_THREADS
+        value: "8"
       - key: GUNICORN_TIMEOUT
         value: "120"
       - key: GOOGLE_CLIENT_ID
