@@ -1942,45 +1942,10 @@
     }
 
     function bindAssignInput(input) {
-      if (!input || input.dataset.assignFallbackBound === "1") return;
+      if (!input || input.dataset.assignFallbackBound === "1" || input.dataset.boundAssign === "1") return;
       input.dataset.assignFallbackBound = "1";
+      input.dataset.boundAssign = "1";
       disableBrowserSuggestions(input);
-      input.addEventListener("input", function () {
-        var value = input.value.trim();
-        hideAssignSuggest(input);
-        if (!value) return;
-        fetch("/api/assignees?q=" + encodeURIComponent(value))
-          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
-          .then(function (data) {
-            showAssignSuggest(input, data.results || []);
-          });
-      });
-      input.addEventListener("keydown", function (event) {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        var value = input.value.trim();
-        if (!value || value.indexOf("@") === -1) return;
-        var targetType = input.getAttribute("data-assign-input");
-        var targetId = input.getAttribute("data-target-id");
-        var container = input.closest(".assignments");
-        createAssignment(targetType, targetId, value, container).then(function (data) {
-          if (!data || !data.id) return;
-          input.value = "";
-          input.classList.add("hidden");
-          var action = input.closest(".assign-action");
-          if (action && !action.querySelector(".assign-add-btn")) {
-            var btn = document.createElement("button");
-            btn.className = "assign-add-btn";
-            btn.type = "button";
-            btn.title = "Assign";
-            btn.textContent = "+";
-            action.appendChild(btn);
-          }
-        });
-      });
-      input.addEventListener("blur", function () {
-        setTimeout(function () { hideAssignSuggest(input); }, 120);
-      });
     }
 
     function hideAssignSuggest(input) {
@@ -2019,8 +1984,6 @@
     }
 
     function initAssignFallback() {
-      document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
-      document.querySelectorAll("[data-new-task='assignee_email']").forEach(bindAssignInput);
       document.querySelectorAll("[data-new-task='title'], [data-subtask-new='title'], #status-menu-input, #share-input").forEach(disableBrowserSuggestions);
 
       document.querySelectorAll(".tasks-table").forEach(function (table) {
@@ -2916,6 +2879,7 @@
       if (input.dataset.assignSelecting === "1") return;
       const raw = input.value.trim();
       if (!raw) return;
+      if (input.dataset.assignSubmitting === "1") return;
       const emails = raw.split(/[\s,]+/).map((e) => e.trim()).filter(Boolean);
       if (!emails.length) return;
       if (!targetId) return;
@@ -2924,8 +2888,22 @@
       if (!filtered.length) {
         return;
       }
+      const normalizedKey = filtered.map((e) => e.toLowerCase()).sort().join(",");
+      if (input.dataset.lastAssignmentSubmit === normalizedKey) {
+        return;
+      }
+      input.dataset.assignSubmitting = "1";
+      input.dataset.lastAssignmentSubmit = normalizedKey;
       const container = input.closest(".assignments");
-      filtered.forEach((email) => createAssignment(targetType, targetId, email, container));
+      Promise.all(filtered.map((email) => createAssignment(targetType, targetId, email, container)))
+        .finally(() => {
+          input.dataset.assignSubmitting = "0";
+          window.setTimeout(() => {
+            if (input.dataset.lastAssignmentSubmit === normalizedKey) {
+              input.dataset.lastAssignmentSubmit = "";
+            }
+          }, 250);
+        });
       input.value = "";
       hideSuggest(input);
     };
