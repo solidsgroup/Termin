@@ -15,7 +15,10 @@
     <div class="panel">
       <div class="group-header">
         <h3>{{ message.subject }}</h3>
-        <span class="tag">{{ message.delivery_mode }}</span>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span class="tag">{{ message.delivery_mode }}</span>
+          <span class="tag">{{ message.transport_status }}</span>
+        </div>
       </div>
       <p><strong>To:</strong> {{ message.to_email }}</p>
       <p><strong>From:</strong> {{ message.from_name or message.from_email }} &lt;{{ message.from_email }}&gt;</p>
@@ -23,6 +26,18 @@
         <p><strong>Reply-To:</strong> {{ message.reply_to }}</p>
       {% endif %}
       <p><strong>Sent:</strong> {{ message.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+      {% if message.provider_message_id %}
+        <p><strong>Provider Message ID:</strong> <code>{{ message.provider_message_id }}</code></p>
+      {% endif %}
+      {% if message.smtp_host %}
+        <p><strong>SMTP:</strong> {{ message.smtp_host }}{% if message.smtp_port %}:{{ message.smtp_port }}{% endif %}</p>
+      {% endif %}
+      {% if message.transport_details %}
+        <div class="panel" style="margin-top: 12px; background: var(--panel-alt);">
+          <h3 style="margin-top: 0;">Transport Debug</h3>
+          <pre style="white-space: pre-wrap; margin: 0; color: var(--ink);">{{ message.transport_details }}</pre>
+        </div>
+      {% endif %}
       <div class="panel" style="margin-top: 12px; background: var(--panel-alt);">
         <h3 style="margin-top: 0;">Text</h3>
         <pre style="white-space: pre-wrap; margin: 0; color: var(--ink);">{{ message.text_body }}</pre>

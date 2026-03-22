@@ -4,8 +4,10 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from html import escape
 import base64
+import json
 from pathlib import Path
 import smtplib
+import traceback
 
 from flask import current_app
 import requests
@@ -210,19 +212,30 @@ def _store_dev_mailbox_message(
     text_body: str,
     html_body: str | None,
     delivery_mode: str,
+    transport_status: str,
+    provider_message_id: str | None = None,
+    transport_details: str | None = None,
+    smtp_host: str | None = None,
+    smtp_port: int | None = None,
 ) -> None:
-    db.session.add(
-        DevMailboxMessage(
-            to_email=to_email,
-            from_email=from_email,
-            from_name=from_name,
-            reply_to=reply_to,
-            subject=subject,
-            text_body=text_body,
-            html_body=html_body,
-            delivery_mode=delivery_mode,
+    with db.engine.begin() as conn:
+        conn.execute(
+            DevMailboxMessage.__table__.insert().values(
+                to_email=to_email,
+                from_email=from_email,
+                from_name=from_name,
+                reply_to=reply_to,
+                subject=subject,
+                text_body=text_body,
+                html_body=html_body,
+                delivery_mode=delivery_mode,
+                transport_status=transport_status,
+                provider_message_id=provider_message_id,
+                transport_details=transport_details,
+                smtp_host=smtp_host,
+                smtp_port=smtp_port,
+            )
         )
-    )
 
 
 def _send_via_gmail_api(
@@ -237,7 +250,7 @@ def _send_via_gmail_api(
     reply_to: str | None,
     service_account_file: str,
     workspace_sender: str,
-) -> None:
+) -> dict[str, object]:
     try:
         from google.auth.transport.requests import Request as GoogleAuthRequest
         from google.oauth2 import service_account
@@ -279,6 +292,18 @@ def _send_via_gmail_api(
     )
     if response.status_code >= 400:
         raise MailDeliveryError(f"Gmail API send failed: {response.status_code} {response.text}")
+    payload = response.json() if response.content else {}
+    return {
+        "provider_message_id": str(payload.get("id") or "") or None,
+        "transport_details": json.dumps(
+            {
+                "status_code": response.status_code,
+                "response": payload,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+    }
 
 
 def send_email(
@@ -312,6 +337,17 @@ def send_email(
                 text_body=text_body,
                 html_body=html_body,
                 delivery_mode="captured",
+                transport_status="captured",
+                transport_details=json.dumps(
+                    {
+                        "provider": provider,
+                        "capture_only": True,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                smtp_host=str(host) if host else None,
+                smtp_port=int(cfg["port"]) if cfg.get("port") else None,
             )
         return
 
@@ -323,30 +359,59 @@ def send_email(
         if not Path(service_account_file).exists():
             raise MailDeliveryError("Google service account file was not found.")
         resolved_from_email = workspace_sender
-        _send_via_gmail_api(
-            to_email=to_email,
-            subject=subject,
-            text_body=text_body,
-            html_body=html_body,
-            attachments=attachments,
-            from_email=str(resolved_from_email),
-            from_name=str(resolved_from_name),
-            reply_to=reply_to,
-            service_account_file=service_account_file,
-            workspace_sender=workspace_sender,
-        )
-        if cfg["dev_mailbox_enabled"]:
-            _store_dev_mailbox_message(
+        try:
+            send_result = _send_via_gmail_api(
                 to_email=to_email,
-                from_email=str(resolved_from_email),
-                from_name=str(resolved_from_name),
-                reply_to=reply_to,
                 subject=subject,
                 text_body=text_body,
                 html_body=html_body,
-                delivery_mode="gmail_api",
+                attachments=attachments,
+                from_email=str(resolved_from_email),
+                from_name=str(resolved_from_name),
+                reply_to=reply_to,
+                service_account_file=service_account_file,
+                workspace_sender=workspace_sender,
             )
-        return
+            if cfg["dev_mailbox_enabled"]:
+                _store_dev_mailbox_message(
+                    to_email=to_email,
+                    from_email=str(resolved_from_email),
+                    from_name=str(resolved_from_name),
+                    reply_to=reply_to,
+                    subject=subject,
+                    text_body=text_body,
+                    html_body=html_body,
+                    delivery_mode="gmail_api",
+                    transport_status="accepted",
+                    provider_message_id=send_result.get("provider_message_id"),
+                    transport_details=str(send_result.get("transport_details") or ""),
+                )
+            return
+        except Exception as exc:
+            if cfg["dev_mailbox_enabled"]:
+                _store_dev_mailbox_message(
+                    to_email=to_email,
+                    from_email=str(resolved_from_email),
+                    from_name=str(resolved_from_name),
+                    reply_to=reply_to,
+                    subject=subject,
+                    text_body=text_body,
+                    html_body=html_body,
+                    delivery_mode="gmail_api",
+                    transport_status="failed",
+                    transport_details=json.dumps(
+                        {
+                            "provider": "gmail_api",
+                            "error": str(exc),
+                            "traceback": traceback.format_exc(),
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                )
+            if isinstance(exc, MailDeliveryError):
+                raise
+            raise MailDeliveryError(str(exc)) from exc
 
     if not host:
         raise MailDeliveryError("SMTP is not configured. Set SMTP_HOST or enable DEV_MAILBOX_CAPTURE_ONLY.")
@@ -366,13 +431,26 @@ def send_email(
         message.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
 
     smtp_cls = smtplib.SMTP_SSL if cfg["use_ssl"] else smtplib.SMTP
+    smtp_port = int(cfg["port"])
     try:
-        with smtp_cls(str(host), int(cfg["port"]), timeout=int(cfg["timeout"])) as smtp:
+        with smtp_cls(str(host), smtp_port, timeout=int(cfg["timeout"])) as smtp:
+            smtp_debug: list[str] = []
+
+            def _capture(line: str) -> None:
+                smtp_debug.append(line)
+
+            smtp.set_debuglevel(0)
+            try:
+                smtp._print_debug = _capture
+            except Exception:
+                pass
             if not cfg["use_ssl"] and cfg["use_tls"]:
                 smtp.starttls()
             if cfg["username"]:
                 smtp.login(str(cfg["username"]), str(cfg["password"] or ""))
-            smtp.send_message(message)
+            refused = smtp.send_message(message)
+            if refused:
+                raise MailDeliveryError(f"SMTP refused recipients: {refused}")
             if cfg["dev_mailbox_enabled"]:
                 _store_dev_mailbox_message(
                     to_email=to_email,
@@ -383,8 +461,57 @@ def send_email(
                     text_body=text_body,
                     html_body=html_body,
                     delivery_mode="smtp",
+                    transport_status="accepted",
+                    provider_message_id=message.get("Message-ID"),
+                    transport_details=json.dumps(
+                        {
+                            "provider": "smtp",
+                            "host": str(host),
+                            "port": smtp_port,
+                            "username": str(cfg["username"] or ""),
+                            "tls": bool(cfg["use_tls"]),
+                            "ssl": bool(cfg["use_ssl"]),
+                            "refused_recipients": refused,
+                            "message_id": message.get("Message-ID"),
+                            "debug": smtp_debug,
+                        },
+                        indent=2,
+                        sort_keys=True,
+                        default=str,
+                    ),
+                    smtp_host=str(host),
+                    smtp_port=smtp_port,
                 )
     except Exception as exc:
+        if cfg["dev_mailbox_enabled"]:
+            _store_dev_mailbox_message(
+                to_email=to_email,
+                from_email=str(resolved_from_email),
+                from_name=str(resolved_from_name),
+                reply_to=reply_to,
+                subject=subject,
+                text_body=text_body,
+                html_body=html_body,
+                delivery_mode="smtp",
+                transport_status="failed",
+                provider_message_id=message.get("Message-ID"),
+                transport_details=json.dumps(
+                    {
+                        "provider": "smtp",
+                        "host": str(host),
+                        "port": smtp_port,
+                        "username": str(cfg["username"] or ""),
+                        "tls": bool(cfg["use_tls"]),
+                        "ssl": bool(cfg["use_ssl"]),
+                        "error": str(exc),
+                        "traceback": traceback.format_exc(),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                smtp_host=str(host),
+                smtp_port=smtp_port,
+            )
         raise MailDeliveryError(str(exc)) from exc
 
 

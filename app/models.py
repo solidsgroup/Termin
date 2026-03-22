@@ -221,6 +221,11 @@ class DevMailboxMessage(db.Model):
     text_body = db.Column(db.Text, nullable=False)
     html_body = db.Column(db.Text)
     delivery_mode = db.Column(db.String(32), nullable=False, default="captured")
+    transport_status = db.Column(db.String(32), nullable=False, default="captured")
+    provider_message_id = db.Column(db.String(255))
+    transport_details = db.Column(db.Text)
+    smtp_host = db.Column(db.String(255))
+    smtp_port = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
