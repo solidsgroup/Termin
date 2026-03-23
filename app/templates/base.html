@@ -579,7 +579,7 @@
 
       .sidebar {
         border-right: 1px solid var(--border);
-        background: var(--panel-alt);
+        background: color-mix(in srgb, var(--panel-alt) 78%, var(--panel) 22%);
         padding: 16px 14px;
       }
 
@@ -3186,34 +3186,40 @@
 
       .project-list .project-item,
       .sidebar-stack > .sidebar-stack-item > .project-item {
+        position: relative;
         margin-bottom: 0;
-        padding: 7px 10px;
-        border: 1px solid var(--project-color, var(--border));
-        border-left: 6px solid var(--project-color, var(--border));
-        border-radius: 9px;
-        background:
-          linear-gradient(180deg, color-mix(in srgb, var(--project-color, #121821) 3%, rgba(15, 18, 24, 0.86)), color-mix(in srgb, var(--project-color, #10141b) 2%, rgba(10, 13, 18, 0.82)));
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 55%, transparent),
-          inset 0 1px 0 rgba(255, 255, 255, 0.02),
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 18%, transparent),
-          0 4px 10px rgba(0, 0, 0, 0.08);
-        color: color-mix(in srgb, var(--ink) 66%, var(--muted) 34%);
-        opacity: 0.68;
-        filter: saturate(0.72);
-        transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease, opacity 140ms ease, transform 140ms ease;
+        padding: 9px 10px 9px 14px;
+        border: 1px solid transparent;
+        border-left: none;
+        border-radius: 6px;
+        background: transparent;
+        box-shadow: none;
+        color: color-mix(in srgb, var(--ink) 72%, var(--muted) 28%);
+        opacity: 0.74;
+        filter: none;
+        transition: border-color 140ms ease, background 140ms ease, opacity 140ms ease, color 140ms ease;
+      }
+
+      .project-list .project-item::before,
+      .sidebar-stack > .sidebar-stack-item > .project-item::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 5px;
+        bottom: 5px;
+        width: 3px;
+        border-radius: 2px;
+        background: color-mix(in srgb, var(--project-color, var(--accent)) 84%, transparent);
+        opacity: 0.28;
+        transition: opacity 140ms ease, width 140ms ease, background 140ms ease;
       }
 
       .project-list .project-item:hover,
       .sidebar-stack > .sidebar-stack-item > .project-item:hover {
-        opacity: 0.82;
-        filter: saturate(0.84);
-        transform: translateY(-1px);
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 68%, transparent),
-          inset 0 1px 0 rgba(255, 255, 255, 0.03),
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 30%, transparent),
-          0 6px 14px rgba(0, 0, 0, 0.12);
+        opacity: 1;
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        background: color-mix(in srgb, var(--panel) 86%, white 14%);
+        color: var(--ink);
       }
 
       .project-list .project-item a,
@@ -3241,26 +3247,31 @@
 
       .project-list .project-item .avatar-stack,
       .sidebar-stack > .sidebar-stack-item > .project-item .avatar-stack {
-        opacity: 0.62;
+        opacity: 0.72;
         width: auto;
         flex: 0 0 auto;
       }
 
       .project-list .project-item.active,
       .sidebar-stack > .sidebar-stack-item > .project-item.active {
-        border-color: var(--project-color, var(--accent));
-        border-left-color: var(--project-color, var(--accent));
-        background:
-          linear-gradient(180deg, color-mix(in srgb, var(--project-color, #121821) 14%, rgba(21, 26, 34, 0.98)), color-mix(in srgb, var(--project-color, #10141b) 8%, rgba(16, 20, 27, 0.92)));
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 92%, transparent),
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 100%, transparent),
-          0 0 0 5px color-mix(in srgb, var(--project-color, var(--accent)) 32%, transparent),
-          0 12px 26px rgba(0, 0, 0, 0.2);
+        border-color: color-mix(in srgb, white 22%, var(--border) 78%);
+        background: color-mix(in srgb, var(--panel) 92%, white 8%);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
         color: var(--ink);
         opacity: 1;
         filter: none;
-        transform: none;
+      }
+
+      .project-list .project-item.active::before,
+      .sidebar-stack > .sidebar-stack-item > .project-item.active::before {
+        width: 6px;
+        opacity: 1;
+        background: var(--project-color, var(--accent));
+      }
+
+      .project-list .project-item.active .project-item-top strong,
+      .sidebar-stack > .sidebar-stack-item > .project-item.active .project-item-top strong {
+        font-weight: 700;
       }
 
       .project-list .project-item.active .avatar-stack,
@@ -3270,32 +3281,19 @@
 
       body[data-theme="light"] .project-list .project-item,
       body[data-theme="light"] .sidebar-stack > .sidebar-stack-item > .project-item {
-        background:
-          linear-gradient(
-            180deg,
-            color-mix(in srgb, white 76%, var(--project-color, var(--border)) 24%),
-            color-mix(in srgb, #eef5fb 72%, var(--project-color, var(--border)) 28%)
-          );
-        border-color: color-mix(in srgb, var(--project-color, var(--border)) 84%, white 16%);
-        border-left-color: var(--project-color, var(--border));
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 58%, transparent),
-          inset 0 1px 0 rgba(255, 255, 255, 0.9),
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 34%, transparent),
-          0 2px 4px rgba(15, 23, 42, 0.05);
-        color: color-mix(in srgb, var(--ink) 86%, var(--project-color, var(--muted)) 14%);
-        opacity: 0.94;
+        background: transparent;
+        border-color: transparent;
+        box-shadow: none;
+        color: color-mix(in srgb, var(--ink) 84%, var(--project-color, var(--muted)) 16%);
+        opacity: 0.82;
         filter: none;
       }
 
       body[data-theme="light"] .project-list .project-item:hover,
       body[data-theme="light"] .sidebar-stack > .sidebar-stack-item > .project-item:hover {
         opacity: 1;
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 72%, transparent),
-          inset 0 1px 0 rgba(255, 255, 255, 0.95),
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--border)) 42%, transparent),
-          0 6px 14px rgba(15, 23, 42, 0.08);
+        border-color: color-mix(in srgb, var(--border) 90%, white 10%);
+        background: color-mix(in srgb, white 96%, #dbe4ee 4%);
       }
 
       body[data-theme="light"] .project-list .project-item .avatar-stack,
@@ -3305,19 +3303,11 @@
 
       body[data-theme="light"] .project-list .project-item.active,
       body[data-theme="light"] .sidebar-stack > .sidebar-stack-item > .project-item.active {
-        background:
-          linear-gradient(
-            180deg,
-            color-mix(in srgb, white 62%, var(--project-color, var(--accent)) 38%),
-            color-mix(in srgb, #e3eef8 58%, var(--project-color, var(--accent)) 42%)
-          );
-        border-color: color-mix(in srgb, var(--project-color, var(--accent)) 92%, white 8%);
-        border-left-color: var(--project-color, var(--accent));
+        background: white;
+        border-color: color-mix(in srgb, #243447 16%, var(--border) 84%);
         box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 84%, transparent),
-          0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 70%, transparent),
-          0 0 0 4px color-mix(in srgb, var(--project-color, var(--accent)) 28%, transparent),
-          0 10px 22px rgba(15, 23, 42, 0.08);
+          inset 0 0 0 1px rgba(36, 52, 71, 0.06),
+          0 1px 0 rgba(255, 255, 255, 0.92);
         color: var(--ink);
       }
 
@@ -3348,7 +3338,7 @@
         letter-spacing: 1px;
         color: var(--division-color, var(--muted));
         line-height: 1;
-        text-shadow: 0 0 16px color-mix(in srgb, var(--division-color, transparent) 18%, transparent);
+        text-shadow: none;
       }
 
       body[data-theme="light"] .sidebar-division-title {
@@ -3368,21 +3358,25 @@
         gap: 2px;
       }
 
+      .sidebar-stack.is-dragging .sidebar-insert-row {
+        opacity: 0.72;
+      }
+
       .sidebar-stack-item {
         position: relative;
       }
 
       .sidebar-stack-item.dragging {
-        opacity: 0.55;
+        opacity: 0.38;
       }
 
       .sidebar-stack-item.drag-over {
-        box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.35);
-        border-radius: 12px;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+        border-radius: 8px;
       }
 
       .project-item.dragging {
-        opacity: 0.55;
+        opacity: 0.42;
       }
 
       .sidebar-division-rule {
@@ -3417,37 +3411,44 @@
 
       .sidebar-insert-line {
         flex: 1 1 auto;
-        height: 1px;
-        background: rgba(76, 201, 240, 0.28);
+        height: 2px;
+        background: color-mix(in srgb, var(--accent) 42%, var(--border) 58%);
         opacity: 0;
-        transition: opacity 120ms ease;
+        border-radius: 999px;
+        transform: scaleX(0.92);
+        transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
       }
 
       .sidebar-insert-row:hover .sidebar-insert-line,
       .sidebar-insert-row.is-open .sidebar-insert-line,
       .sidebar-insert-row.drag-over .sidebar-insert-line {
         opacity: 1;
+        transform: scaleX(1);
+      }
+
+      .sidebar-stack.is-dragging .sidebar-insert-row.drag-over .sidebar-insert-line {
+        background: var(--accent);
       }
 
       .sidebar-insert-btn {
         width: 22px;
         height: 22px;
         margin: 0 8px;
-        border-radius: 999px;
-        border: 1px solid rgba(76, 201, 240, 0.6);
-        background: #0b1118;
+        border-radius: 6px;
+        border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
+        background: var(--panel);
         color: var(--accent);
         font-size: 14px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        transition: transform 120ms ease, border-color 120ms ease;
+        transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
       }
 
       .sidebar-insert-btn:hover {
-        transform: translateY(-1px);
-        border-color: rgba(76, 201, 240, 0.95);
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--panel) 72%, var(--accent) 28%);
       }
 
       .sidebar-insert-chooser {
@@ -3458,8 +3459,8 @@
         gap: 8px;
         padding: 6px 8px;
         border: 1px solid var(--border);
-        border-radius: 999px;
-        background: rgba(12, 16, 23, 0.94);
+        border-radius: 7px;
+        background: var(--panel);
       }
 
       .sidebar-insert-row.is-open .sidebar-insert-btn {
@@ -3471,8 +3472,8 @@
       }
 
       .sidebar-insert-choice {
-        border: 1px solid rgba(76, 201, 240, 0.22);
-        background: rgba(76, 201, 240, 0.08);
+        border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border) 76%);
+        background: color-mix(in srgb, var(--panel) 82%, var(--accent) 18%);
         color: var(--ink);
         border-radius: 999px;
         padding: 5px 10px;
@@ -3481,7 +3482,7 @@
       }
 
       .sidebar-insert-choice:hover {
-        border-color: rgba(76, 201, 240, 0.45);
+        border-color: color-mix(in srgb, var(--accent) 52%, var(--border) 48%);
       }
 
       .sidebar-insert-close {
@@ -3601,21 +3602,21 @@
       .sidebar-plus-btn {
         width: 22px;
         height: 22px;
-        border-radius: 999px;
-        border: 1px solid rgba(76, 201, 240, 0.6);
-        background: #0b1118;
+        border-radius: 6px;
+        border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
+        background: var(--panel);
         color: var(--accent);
         font-size: 14px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+        transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease;
       }
 
       .sidebar-plus-btn:hover {
-        transform: translateY(-1px);
-        border-color: rgba(76, 201, 240, 0.9);
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--panel) 72%, var(--accent) 28%);
       }
 
       .sidebar .project-list:last-child {
@@ -3628,9 +3629,9 @@
 
       .project-drop-target.drag-over {
         border-color: var(--accent);
-        box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.42), 0 12px 24px rgba(0, 0, 0, 0.18);
-        background: rgba(76, 201, 240, 0.08);
-        transform: translateX(4px);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+        background: color-mix(in srgb, var(--panel) 82%, var(--accent) 18%);
+        transform: translateX(1px);
       }
 
       .project-list small {

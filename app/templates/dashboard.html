@@ -2330,6 +2330,10 @@
     var openInsertRow = null;
     var draggingSidebarToken = null;
     var draggedSidebarProjectId = null;
+    var activeSidebarInsertRow = null;
+    var activeSidebarProjectDrop = null;
+    var activeSidebarDivisionDrop = null;
+    var sidebarStack = document.querySelector("[data-sidebar-stack]");
 
     function clearSidebarDragState() {
       document.querySelectorAll(".sidebar-stack-item.dragging, .sidebar-stack-item.drag-over").forEach(function (item) {
@@ -2343,6 +2347,10 @@
       document.querySelectorAll(".sidebar-insert-row.drag-over").forEach(function (row) {
         row.classList.remove("drag-over");
       });
+      activeSidebarInsertRow = null;
+      activeSidebarProjectDrop = null;
+      activeSidebarDivisionDrop = null;
+      if (sidebarStack) sidebarStack.classList.remove("is-dragging");
     }
 
     function moveSidebarProject(payload) {
@@ -2354,6 +2362,148 @@
         body: JSON.stringify(payload),
       }).catch(function (error) {
         console.error("moveSidebarProject failed", error);
+      });
+    }
+
+    function setActiveSidebarInsertRow(row) {
+      if (activeSidebarInsertRow === row) return;
+      if (activeSidebarInsertRow) activeSidebarInsertRow.classList.remove("drag-over");
+      activeSidebarInsertRow = row || null;
+      if (activeSidebarInsertRow) activeSidebarInsertRow.classList.add("drag-over");
+    }
+
+    function setActiveSidebarProjectDrop(target, placement) {
+      if (activeSidebarProjectDrop && activeSidebarProjectDrop.target !== target) {
+        activeSidebarProjectDrop.target.classList.remove("drag-over");
+      }
+      activeSidebarProjectDrop = target ? { target: target, placement: placement || "before" } : null;
+      if (activeSidebarProjectDrop) activeSidebarProjectDrop.target.classList.add("drag-over");
+    }
+
+    function setActiveSidebarDivisionDrop(target) {
+      if (activeSidebarDivisionDrop === target) return;
+      if (activeSidebarDivisionDrop) activeSidebarDivisionDrop.classList.remove("drag-over");
+      activeSidebarDivisionDrop = target || null;
+      if (activeSidebarDivisionDrop) activeSidebarDivisionDrop.classList.add("drag-over");
+    }
+
+    function clearActiveSidebarDestination() {
+      setActiveSidebarInsertRow(null);
+      setActiveSidebarProjectDrop(null);
+      setActiveSidebarDivisionDrop(null);
+    }
+
+    function getSidebarInsertRowPosition(row) {
+      var button = row ? row.querySelector("[data-sidebar-insert-position]") : null;
+      return button ? button.getAttribute("data-sidebar-insert-position") : "";
+    }
+
+    function getSidebarInsertRowForStackItem(stackItem, clientY) {
+      if (!stackItem) return null;
+      var rect = stackItem.getBoundingClientRect();
+      var before = clientY < rect.top + rect.height / 2;
+      var sibling = before ? stackItem.previousElementSibling : stackItem.nextElementSibling;
+      return sibling && sibling.classList.contains("sidebar-insert-row") ? sibling : null;
+    }
+
+    function findNextSidebarStackItem(row) {
+      var node = row ? row.nextElementSibling : null;
+      while (node) {
+        if (node.classList && node.classList.contains("sidebar-stack-item")) return node;
+        node = node.nextElementSibling;
+      }
+      return null;
+    }
+
+    function ensureTopLevelProjectWrapper(projectId) {
+      var projectItem = document.querySelector('[data-project-context="' + projectId + '"]');
+      if (!projectItem || !sidebarStack) return null;
+      var existingWrapper = projectItem.closest('.sidebar-stack-item[data-sidebar-item="project:' + projectId + '"]');
+      if (existingWrapper) return existingWrapper;
+      projectItem.remove();
+      projectItem.style.setProperty("--project-color", "#2a3442");
+      var wrapper = document.createElement("div");
+      wrapper.className = "sidebar-stack-item";
+      wrapper.setAttribute("data-sidebar-item", "project:" + projectId);
+      wrapper.appendChild(projectItem);
+      return wrapper;
+    }
+
+    function moveSidebarTokenToInsertRowLocal(token, row) {
+      if (!sidebarStack || !row) return false;
+      var item = document.querySelector('.sidebar-stack-item[data-sidebar-item="' + token + '"]');
+      if (!item) return false;
+      var destination = findNextSidebarStackItem(row);
+      if (destination === item) return true;
+      if (destination) {
+        sidebarStack.insertBefore(item, destination);
+      } else {
+        var finalInsertRow = sidebarStack.querySelector(".sidebar-insert-row:last-child");
+        sidebarStack.insertBefore(item, finalInsertRow || null);
+      }
+      return true;
+    }
+
+    function moveProjectToTopLevelInsertRowLocal(projectId, row) {
+      if (!sidebarStack || !row) return false;
+      var wrapper = ensureTopLevelProjectWrapper(projectId);
+      if (!wrapper) return false;
+      var destination = findNextSidebarStackItem(row);
+      if (destination === wrapper) return true;
+      if (destination) {
+        sidebarStack.insertBefore(wrapper, destination);
+      } else {
+        var finalInsertRow = sidebarStack.querySelector(".sidebar-insert-row:last-child");
+        sidebarStack.insertBefore(wrapper, finalInsertRow || null);
+      }
+      return true;
+    }
+
+    function moveProjectRelativeLocal(projectId, targetProjectId, placement) {
+      var projectItem = document.querySelector('[data-project-context="' + projectId + '"]');
+      var targetItem = document.querySelector('[data-project-context="' + targetProjectId + '"]');
+      if (!projectItem || !targetItem || projectItem === targetItem) return false;
+
+      var targetTopLevelWrapper = targetItem.closest('.sidebar-stack-item[data-sidebar-item="project:' + targetProjectId + '"]');
+      if (targetTopLevelWrapper) {
+        var insertRow = placement === "after" ? targetTopLevelWrapper.nextElementSibling : targetTopLevelWrapper.previousElementSibling;
+        if (insertRow && insertRow.classList.contains("sidebar-insert-row")) {
+          return moveProjectToTopLevelInsertRowLocal(projectId, insertRow);
+        }
+        return false;
+      }
+
+      var currentWrapper = projectItem.closest('.sidebar-stack-item[data-sidebar-item="project:' + projectId + '"]');
+      if (currentWrapper) {
+        currentWrapper.remove();
+      } else {
+        projectItem.remove();
+      }
+      var projectList = targetItem.parentElement;
+      if (!projectList) return false;
+      var divisionNode = targetItem.closest("[data-sidebar-division]");
+      var divisionColor = divisionNode ? (divisionNode.getAttribute("data-division-color") || "#4cc9f0") : "#2a3442";
+      projectItem.style.setProperty("--project-color", divisionColor);
+      if (placement === "after") {
+        targetItem.insertAdjacentElement("afterend", projectItem);
+      } else {
+        targetItem.insertAdjacentElement("beforebegin", projectItem);
+      }
+      return true;
+    }
+
+    function submitSidebarOrder() {
+      var order = Array.prototype.map.call(
+        document.querySelectorAll(".sidebar-stack-item[data-sidebar-item]"),
+        function (item) { return item.getAttribute("data-sidebar-item"); }
+      );
+      return fetch("/api/sidebar/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ order: order }),
+      }).catch(function (error) {
+        console.error("sidebar reorder failed", error);
       });
     }
 
@@ -2430,66 +2580,113 @@
         draggingSidebarToken = "project:" + project.getAttribute("data-sidebar-project");
         draggedSidebarProjectId = project.getAttribute("data-sidebar-project");
         project.classList.add("dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", draggingSidebarToken);
+        }
       } else if (division) {
         draggingSidebarToken = "division:" + division.getAttribute("data-sidebar-division");
         draggedSidebarProjectId = null;
         division.closest(".sidebar-stack-item").classList.add("dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", draggingSidebarToken);
+        }
       } else {
         draggingSidebarToken = null;
         draggedSidebarProjectId = null;
       }
+      if (draggingSidebarToken && sidebarStack) sidebarStack.classList.add("is-dragging");
     });
 
     document.addEventListener("dragover", function (event) {
       if (!draggingSidebarToken) return;
-      clearSidebarDragState();
+      var directInsertRow = event.target.closest(".sidebar-insert-row");
+      if (directInsertRow) {
+        event.preventDefault();
+        clearActiveSidebarDestination();
+        setActiveSidebarInsertRow(directInsertRow);
+        return;
+      }
+
       if (draggingSidebarToken.indexOf("project:") === 0) {
         var projectTarget = event.target.closest("[data-sidebar-project]");
         if (projectTarget && projectTarget.getAttribute("data-sidebar-project") !== draggedSidebarProjectId) {
           event.preventDefault();
-          projectTarget.classList.add("drag-over");
+          var targetProjectId = projectTarget.getAttribute("data-sidebar-project");
+          var targetTopLevelWrapper = projectTarget.closest('.sidebar-stack-item[data-sidebar-item="project:' + targetProjectId + '"]');
+          clearActiveSidebarDestination();
+          if (targetTopLevelWrapper) {
+            var topLevelInsertRow = getSidebarInsertRowForStackItem(targetTopLevelWrapper, event.clientY);
+            setActiveSidebarInsertRow(topLevelInsertRow);
+            return;
+          }
+          var projectRect = projectTarget.getBoundingClientRect();
+          var placement = event.clientY > projectRect.top + projectRect.height / 2 ? "after" : "before";
+          setActiveSidebarProjectDrop(projectTarget, placement);
           return;
         }
-        var insertRow = event.target.closest(".sidebar-insert-row");
-        if (insertRow) {
+
+        var divisionDrop = event.target.closest("[data-sidebar-division]");
+        if (divisionDrop) {
           event.preventDefault();
-          insertRow.classList.add("drag-over");
+          var divisionStackItem = divisionDrop.closest(".sidebar-stack-item");
+          var divisionRect = divisionDrop.getBoundingClientRect();
+          var relativeY = event.clientY - divisionRect.top;
+          clearActiveSidebarDestination();
+          if (divisionStackItem && relativeY < divisionRect.height * 0.25) {
+            setActiveSidebarInsertRow(divisionStackItem.previousElementSibling);
+            return;
+          }
+          if (divisionStackItem && relativeY > divisionRect.height * 0.75) {
+            setActiveSidebarInsertRow(divisionStackItem.nextElementSibling);
+            return;
+          }
+          setActiveSidebarDivisionDrop(divisionDrop);
           return;
         }
       }
-      var divisionDrop = event.target.closest("[data-sidebar-division]");
+
       var target = event.target.closest(".sidebar-stack-item");
-      if (draggingSidebarToken.indexOf("project:") === 0 && divisionDrop) {
-        event.preventDefault();
-        var divisionStackItem = divisionDrop.closest(".sidebar-stack-item");
-        if (divisionStackItem) divisionStackItem.classList.add("drag-over");
+      if (!target) {
+        clearActiveSidebarDestination();
         return;
       }
-      if (!target) return;
       event.preventDefault();
-      target.classList.add("drag-over");
+      clearActiveSidebarDestination();
+      setActiveSidebarInsertRow(getSidebarInsertRowForStackItem(target, event.clientY));
     });
 
     document.addEventListener("drop", function (event) {
       if (!draggingSidebarToken) return;
-      if (draggingSidebarToken.indexOf("project:") === 0) {
-        var projectTarget = event.target.closest("[data-sidebar-project]");
-        if (projectTarget && projectTarget.getAttribute("data-sidebar-project") !== draggedSidebarProjectId) {
-          event.preventDefault();
-          var rect = projectTarget.getBoundingClientRect();
-          var placement = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
-          clearSidebarDragState();
-          moveSidebarProject({
-            target_project_id: projectTarget.getAttribute("data-sidebar-project"),
-            placement: placement,
-          });
-          return;
+      event.preventDefault();
+      if (draggingSidebarToken.indexOf("project:") === 0 && activeSidebarProjectDrop) {
+        var targetProjectId = activeSidebarProjectDrop.target.getAttribute("data-sidebar-project");
+        var placement = activeSidebarProjectDrop.placement;
+        moveProjectRelativeLocal(draggedSidebarProjectId, targetProjectId, placement);
+        clearSidebarDragState();
+        moveSidebarProject({
+          target_project_id: targetProjectId,
+          placement: placement,
+        });
+        return;
+      }
+      if (draggingSidebarToken.indexOf("project:") === 0 && activeSidebarDivisionDrop) {
+        var divisionId = activeSidebarDivisionDrop.getAttribute("data-sidebar-division");
+        if (typeof window.__moveProjectSidebarLocal === "function") {
+          window.__moveProjectSidebarLocal(String(draggedSidebarProjectId), divisionId);
         }
-        var insertRow = event.target.closest(".sidebar-insert-row");
-        if (insertRow) {
-          event.preventDefault();
-          var positionSource = insertRow.querySelector("[data-sidebar-insert-position]");
-          var insertPosition = positionSource ? positionSource.getAttribute("data-sidebar-insert-position") : "";
+        clearSidebarDragState();
+        moveSidebarProject({
+          target_division_id: divisionId,
+          placement: "append",
+        });
+        return;
+      }
+      if (activeSidebarInsertRow) {
+        var insertPosition = getSidebarInsertRowPosition(activeSidebarInsertRow);
+        if (draggingSidebarToken.indexOf("project:") === 0) {
+          moveProjectToTopLevelInsertRowLocal(draggedSidebarProjectId, activeSidebarInsertRow);
           clearSidebarDragState();
           moveSidebarProject({
             target_division_id: null,
@@ -2498,41 +2695,12 @@
           });
           return;
         }
-      }
-      var divisionDrop = event.target.closest("[data-sidebar-division]");
-      if (draggingSidebarToken.indexOf("project:") === 0 && divisionDrop) {
-        event.preventDefault();
-        var divisionId = divisionDrop.getAttribute("data-sidebar-division");
+        moveSidebarTokenToInsertRowLocal(draggingSidebarToken, activeSidebarInsertRow);
         clearSidebarDragState();
-        moveSidebarProject({
-          target_division_id: divisionId,
-          placement: "append",
-        });
+        submitSidebarOrder();
         return;
       }
-      var target = event.target.closest(".sidebar-stack-item");
-      if (!target) return;
-      event.preventDefault();
-      var dragged = document.querySelector('.sidebar-stack-item[data-sidebar-item="' + draggingSidebarToken + '"]');
-      if (!dragged || dragged === target) return;
-      var rect = target.getBoundingClientRect();
-      if (event.clientY > rect.top + rect.height / 2) {
-        target.after(dragged);
-      } else {
-        target.before(dragged);
-      }
-      var order = Array.prototype.map.call(
-        document.querySelectorAll(".sidebar-stack-item[data-sidebar-item]"),
-        function (item) { return item.getAttribute("data-sidebar-item"); }
-      );
-      fetch("/api/sidebar/reorder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ order: order }),
-      }).catch(function (error) {
-        console.error("sidebar reorder failed", error);
-      });
+      clearSidebarDragState();
     });
 
     document.addEventListener("dragend", function () {
