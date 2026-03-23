@@ -75,6 +75,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "link": task.link,
         "links": info_payload.get("links", []),
         "status": task.status,
+        "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
     }

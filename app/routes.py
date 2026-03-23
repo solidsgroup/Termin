@@ -197,6 +197,7 @@ def _serialize_task_row(task: Task) -> dict:
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "position": task.position,
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "status": task.status,
@@ -209,6 +210,14 @@ def _can_manage_project(user, project_id: int) -> bool:
     return Project.query.filter_by(id=project_id, owner_id=user.id).first() is not None or (
         ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first() is not None
     )
+
+
+def _can_manage_task_bucket(user, project_id: int, group_id: int | None) -> bool:
+    if _can_manage_project(user, project_id):
+        return True
+    if group_id is None:
+        return False
+    return GroupMember.query.filter_by(group_id=group_id, user_id=user.id).first() is not None
 
 
 def _can_access_project(user, project_id: int) -> bool:
@@ -369,8 +378,6 @@ def create_task():
     if not title or not project_id:
         return {"error": "title and project_id are required"}, 400
 
-    if not _can_manage_project(user, project_id):
-        return {"error": "unauthorized"}, 403
     project = Project.query.get(project_id)
     if not project:
         return {"error": "project not found"}, 404
@@ -382,6 +389,9 @@ def create_task():
             return {"error": "group not found"}, 404
     else:
         group = Group.query.filter_by(project_id=project.id).first()
+
+    if not _can_manage_task_bucket(user, project.id, group.id if group else None):
+        return {"error": "unauthorized"}, 403
 
     due_value = None
     if due_at:
@@ -402,7 +412,6 @@ def create_task():
     )
     db.session.add(task)
     db.session.commit()
-    emit_task_updated(task, action="created", actor_user_id=user.id)
     assignment_payload = None
     if assignee_email:
         email = assignee_email.strip().lower()
@@ -415,7 +424,11 @@ def create_task():
         if existing_assignment:
             _reset_existing_assignment(existing_assignment)
             db.session.commit()
+            task = Task.query.get(task.id) or task
+            task_payload = _serialize_task_row(task)
+            emit_task_updated(task, action="created", actor_user_id=user.id)
             return {
+                "task": task_payload,
                 "id": task.id,
                 "title": task.title,
                 "assignment": {
@@ -447,8 +460,17 @@ def create_task():
 
     queue_task_notifications(task, exclude_user_id=user.id, kind="task_created")
     db.session.commit()
+    task = Task.query.get(task.id) or task
+    task_payload = _serialize_task_row(task)
+    emit_task_updated(task, action="created", actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
-    return {"id": task.id, "title": task.title, "assignment": assignment_payload, "info": _info_payload_for(task)}, 201
+    return {
+        "task": task_payload,
+        "id": task.id,
+        "title": task.title,
+        "assignment": assignment_payload,
+        "info": _info_payload_for(task),
+    }, 201
 
 
 @api_bp.patch("/tasks/<int:task_id>")
@@ -723,9 +745,6 @@ def move_task(task_id: int):
 
     if not target_project_id:
         return {"error": "project_id is required"}, 400
-    if not _can_manage_project(user, source_project_id) or not _can_manage_project(user, target_project_id):
-        return {"error": "unauthorized"}, 403
-
     target_project = Project.query.get(target_project_id)
     if not target_project:
         return {"error": "project not found"}, 404
@@ -735,6 +754,8 @@ def move_task(task_id: int):
         target_group = Group.query.filter_by(id=target_group_id, project_id=target_project.id).first()
         if not target_group:
             return {"error": "group not found"}, 404
+    if not _can_manage_task_bucket(user, source_project_id, source_group_id) or not _can_manage_task_bucket(user, target_project.id, target_group_id):
+        return {"error": "unauthorized"}, 403
 
     before_task = None
     if before_task_id:
@@ -1505,6 +1526,7 @@ def delete_task(task_id: int):
     Invite.query.filter_by(task_id=task.id).delete()
     db.session.delete(task)
     db.session.commit()
+    emit_task_updated(task, action="deleted", old_project_id=task.project_id, old_group_id=task.group_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -1632,8 +1654,6 @@ def send_assignment_link(assignment_id: int):
             to_email=email,
             invite_url=None,
             manage_url=manage_url,
-            accept_url=accept_url,
-            decline_url=decline_url,
             project_name=project.name if project else None,
             task_title=task.title if task else None,
             inviter_email=user.email,
@@ -1721,13 +1741,9 @@ def send_assignment_links_bulk():
         prepared_assignments.append((assignment, invite))
 
     try:
-        invite_id_list = ",".join(str(invite.id) for _assignment, invite in prepared_assignments)
-        bulk_base_url = f"{base_url}/collaborators/{collaborator.access_token}/quick" if collaborator else ""
         send_magic_link_digest_email(
             to_email=first_email,
             manage_url=prepared_items[0].get("manage_url") if prepared_items else None,
-            accept_all_url=f"{bulk_base_url}/accept?invites={invite_id_list}" if bulk_base_url and invite_id_list else None,
-            decline_all_url=f"{bulk_base_url}/decline?invites={invite_id_list}" if bulk_base_url and invite_id_list else None,
             items=prepared_items,
             inviter_email=user.email,
             inviter_name=user.display_name or user.email,

@@ -490,6 +490,7 @@ def dashboard():
     is_owner = False
     is_project_member = False
     can_manage_project = False
+    manageable_group_ids: set[int] = set()
     selected_project_color = "#4cc9f0"
     is_github_project = False
     manageable_project_ids = {project.id for project in owned_projects}.union(member_project_ids)
@@ -519,13 +520,14 @@ def dashboard():
                     grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
                 ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
         else:
-            group_ids = [
+            member_group_ids = [
                 m.group_id
                 for m in GroupMember.query.join(Group).filter(
                     GroupMember.user_id == user.id, Group.project_id == selected_project.id
                 )
             ]
-            group_tasks = _task_ordering(Task.query.filter(Task.group_id.in_(group_ids))).all() if group_ids else []
+            manageable_group_ids = {group_id for group_id in member_group_ids if group_id}
+            group_tasks = _task_ordering(Task.query.filter(Task.group_id.in_(member_group_ids))).all() if member_group_ids else []
             tasks = list(
                 {
                     t.id: t
@@ -535,7 +537,7 @@ def dashboard():
             tasks.sort(key=lambda task: (task.position, task.id))
             if not show_completed:
                 tasks = [task for task in tasks if not _is_complete_status(task.status)]
-            group_ids = [t.group_id for t in tasks if t.group_id]
+            group_ids = sorted({group_id for group_id in member_group_ids if group_id}.union({t.group_id for t in tasks if t.group_id}))
             groups = (
                 Group.query.filter(Group.id.in_(group_ids))
                 .order_by(Group.position.asc(), Group.id.asc())
@@ -781,6 +783,7 @@ def dashboard():
         ungrouped_tasks=ungrouped_tasks,
         is_owner=is_owner,
         can_manage_project=can_manage_project,
+        manageable_group_ids=manageable_group_ids,
         member_project_ids=member_project_ids,
         project_viewers=project_viewers,
         group_viewers=group_viewers,

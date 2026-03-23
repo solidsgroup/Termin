@@ -94,16 +94,17 @@
     </div>
   {% endif %}
 {% endmacro %}
-{% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, info_by_task, github_task_meta) %}
+{% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) %}
   {% if task_list %}
     {% for task in task_list %}
       {% set task_info = info_by_task.get(task.id, {"html": "", "attachments": []}) %}
       {% set task_status_state = status_state(task.status) %}
       {% set github_meta = github_task_meta.get(task.id) %}
-      <tr class="task-row{% if can_manage_project and not github_meta %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-status-state="{{ task_status_state }}">
+      {% set can_manage_task = can_manage_project or (task.group_id and manageable_group_ids and task.group_id in manageable_group_ids) %}
+      <tr class="task-row{% if can_manage_task and not github_meta %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-status-state="{{ task_status_state }}">
         <td>
           <div class="row-controls">
-            {% if can_manage_project and not github_meta %}
+            {% if can_manage_task and not github_meta %}
               <button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="{{ task.id }}" title="Drag task">⋮⋮</button>
             {% endif %}
           </div>
@@ -433,8 +434,8 @@
             </thead>
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
-              {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, info_by_task, github_task_meta) }}
-              {% if can_manage_project and not is_github_project %}
+              {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) }}
+              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project %}
                 <tr class="new-row">
                     <td></td>
                     <td>
@@ -489,7 +490,7 @@
               </tr>
             </thead>
             <tbody data-task-dropzone="1">
-              {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, info_by_task, github_task_meta) }}
+              {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) }}
               {% if can_manage_project and not is_github_project %}
                 <tr class="new-row">
                     <td></td>
@@ -2116,6 +2117,7 @@
             }
             if (!data.assignment_ids) return;
             data.assignment_ids.forEach(updateSendLinkBadge);
+            return refreshCurrentTaskMeta();
           });
       }
       return ids.reduce(function (chain, assignmentId) {
@@ -2300,42 +2302,7 @@
 
 <script>
   (function () {
-    function removeTaskRows(taskId) {
-      var row = document.querySelector('[data-task-row-id="' + taskId + '"]');
-      if (row) {
-        row.remove();
-      }
-    }
-
     document.addEventListener("click", function (event) {
-      var deleteBtn = event.target.closest("[data-delete-task]");
-      if (deleteBtn) {
-        event.preventDefault();
-        var taskId = deleteBtn.getAttribute("data-delete-task");
-        if (!taskId) return;
-        fetch("/api/tasks/" + taskId, { method: "DELETE", credentials: "same-origin" })
-          .then(function (res) { return res.json().catch(function () { return {}; }); })
-          .then(function (data) {
-            if (data.requires_confirm) {
-              var parts = [];
-              if (data.invite_count) parts.push(data.invite_count + " sent links");
-              var message = "This task has " + parts.join(" and ") + ". Delete anyway?";
-              if (!window.confirm(message)) return;
-              return fetch("/api/tasks/" + taskId + "?confirm=1", { method: "DELETE", credentials: "same-origin" })
-                .then(function (res2) { return res2.json().catch(function () { return {}; }); })
-                .then(function (data2) {
-                  if (data2.status === "deleted") {
-                    removeTaskRows(taskId);
-                  }
-                });
-            }
-            if (data.status === "deleted") {
-              removeTaskRows(taskId);
-            }
-          });
-        return;
-      }
-
       var groupInsert = event.target.closest(".group-insert-btn");
       if (groupInsert) {
         if (groupInsert.closest(".sidebar-plus-btn")) return;
@@ -2691,9 +2658,17 @@
 
     const updateSendLinkBadge = (assignmentId) => {
       const badge = document.querySelector(`[data-assignment-id='${assignmentId}']`);
-      if (!badge) return;
-      const button = badge.querySelector("[data-send-link]");
-      if (button) button.textContent = "Resend";
+      if (badge) {
+        const button = badge.querySelector("[data-send-link]");
+        if (button) button.textContent = "Resend";
+      }
+      const settingsRow = taskSettingsAssignmentsEl ? taskSettingsAssignmentsEl.querySelector(`[data-assignment-id='${assignmentId}']`) : null;
+      if (settingsRow && currentTaskData && Array.isArray(currentTaskData.assignments)) {
+        currentTaskData.assignments = currentTaskData.assignments.map((row) =>
+          String(row.id) !== String(assignmentId) ? row : Object.assign({}, row, { status: "link_sent" })
+        );
+        renderTaskSettings();
+      }
     };
 
     const sendAssignmentLinks = (assignmentIds, mode) => {
@@ -2708,6 +2683,7 @@
           .then((data) => {
             if (!data.assignment_ids) return;
             data.assignment_ids.forEach(updateSendLinkBadge);
+            return refreshCurrentTaskMeta();
           });
       }
       return assignmentIds.reduce(
@@ -2783,21 +2759,30 @@
       });
     };
 
+    const manageableGroupIds = new Set({{ (manageable_group_ids | list)|tojson }});
+    const canManageProjectTasks = {{ 'true' if can_manage_project else 'false' }};
+    const canManageTaskBucket = (projectId, groupId) => {
+      if (canManageProjectTasks) return true;
+      if (groupId === null || groupId === undefined || groupId === "") return false;
+      return manageableGroupIds.has(Number(groupId));
+    };
+
     const insertTaskRow = (table, id, title, info, due, assignment) => {
       if (!table) return null;
       infoByTask[String(id)] = info || { html: "", attachments: [], links: [] };
       const safeTitle = escapeHtml(title || "");
       const newRow = table.querySelector(".new-row");
       const tr = document.createElement("tr");
-      tr.className = "task-row{% if can_manage_project %} task-row-draggable{% endif %}";
+      const groupId = table.getAttribute("data-group-id") || "";
+      const showDragHandle = canManageTaskBucket(table.getAttribute("data-project-id"), groupId);
+      tr.className = "task-row" + (showDragHandle ? " task-row-draggable" : "");
       tr.dataset.taskRowId = String(id);
       tr.dataset.taskId = String(id);
+      tr.dataset.taskPosition = String((info && info.position) || "");
       tr.innerHTML = `
         <td>
           <div class="row-controls">
-            {% if can_manage_project %}
-              <button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="${id}" title="Drag task">⋮⋮</button>
-            {% endif %}
+            ${showDragHandle ? '<button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="' + id + '" title="Drag task">⋮⋮</button>' : ""}
           </div>
         </td>
         <td>
@@ -2833,8 +2818,10 @@
       bindInfoButton(tr.querySelector("[data-info-edit]"));
       return tr;
     };
+    window.__insertTaskRow = insertTaskRow;
 
     const emptyInfo = () => ({ html: "", attachments: [], links: [] });
+    window.__emptyTaskInfo = emptyInfo;
 
     const cloneInfo = (value) => ({
       html: (value && value.html) || "",
@@ -2898,12 +2885,16 @@
       })
         .then((res) => res.json().catch(() => ({})))
         .then((data) => {
-          if (!data.id) return null;
-          const row = insertTaskRow(table, data.id, title, data.info, due, data.assignment);
+          const task = data.task || null;
+          if (!data.id || !task) return null;
+          const inserted = typeof window.__upsertTaskRowFromSnapshot === "function"
+            ? window.__upsertTaskRowFromSnapshot(task)
+            : false;
           titleInput.value = "";
           if (dueInput) dueInput.value = "";
           if (assigneeInput) assigneeInput.value = "";
           titleInput.focus();
+          const row = inserted ? document.querySelector(`[data-task-row-id='${data.id}']`) : null;
           return { id: data.id, row };
         });
     };
@@ -2911,7 +2902,7 @@
     const buildGroupBlock = (groupData) => {
       const projectId = {{ selected_project.id|tojson if selected_project else 'null' }};
       const groupColor = {{ (selected_project_color or '#4cc9f0')|tojson }};
-      const canManageGroup = {{ 'true' if can_manage_project and not is_github_project else 'false' }};
+      const canManageGroup = !{{ 'true' if is_github_project else 'false' }} && canManageTaskBucket(projectId, groupData.id);
       if (!projectId || !groupData || !groupData.id) return null;
 
       const block = document.createElement("div");
@@ -5424,6 +5415,7 @@
       });
       return updated;
     }
+    window.__renderTaskAssignments = renderTaskAssignments;
 
     function syncProjectRooms() {
       if (!socket || !socketConnected) return;
@@ -5444,6 +5436,9 @@
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
         matched = true;
         row.setAttribute("data-status-state", getStatusState(normalizedStatus));
+        if (task.position !== undefined && task.position !== null) {
+          row.setAttribute("data-task-position", String(task.position));
+        }
       });
       document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="title"]').forEach(function (cell) {
         matched = true;
@@ -5679,6 +5674,67 @@
         })
         .catch(function () {});
     }
+
+    function removeTaskRowsLocal(taskId) {
+      document.querySelectorAll('[data-task-row-id="' + taskId + '"], .todo-item[data-task-id="' + taskId + '"]').forEach(function (row) {
+        row.remove();
+      });
+    }
+
+    function findTaskTable(projectId, groupId) {
+      var normalizedGroupId = groupId === null || groupId === undefined ? "" : String(groupId);
+      return document.querySelector('.tasks-table[data-project-id="' + projectId + '"][data-group-id="' + normalizedGroupId + '"]');
+    }
+
+    function upsertTaskRowFromSnapshot(task) {
+      if (!task || !task.id) return false;
+      var table = findTaskTable(task.project_id, task.group_id);
+      if (!table) return false;
+      if (typeof window.__insertTaskRow !== "function") return false;
+      removeTaskRowsLocal(task.id);
+      var assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
+      var row = window.__insertTaskRow(
+        table,
+        task.id,
+        task.title || "",
+        Object.assign({}, task.info || (typeof window.__emptyTaskInfo === "function" ? window.__emptyTaskInfo() : {}), { position: task.position }),
+        task.due_at || "",
+        assignment
+      );
+      if (!row) return false;
+      row.setAttribute("data-task-position", String(task.position || ""));
+      var tbody = table.querySelector('tbody[data-task-dropzone="1"]');
+      if (tbody) {
+        var siblingRows = Array.from(tbody.querySelectorAll('tr[data-task-row-id]')).filter(function (item) {
+          return String(item.getAttribute("data-task-row-id")) !== String(task.id);
+        });
+        var next = siblingRows.find(function (item) {
+          return Number(item.getAttribute("data-task-position") || "0") > Number(task.position || 0);
+        });
+        tbody.insertBefore(row, next || tbody.querySelector(".new-row"));
+      }
+      var statusCell = row.querySelector('.editable[data-task-id="' + task.id + '"][data-field="status"]');
+      if (statusCell) {
+        var nextStatus = task.status || "open";
+        statusCell.textContent = nextStatus;
+        statusCell.dataset.originalValue = nextStatus;
+        if (typeof window.__applyStatusState === "function") {
+          window.__applyStatusState(statusCell, nextStatus);
+        }
+      }
+      var dueInput = row.querySelector('.due-input[data-task-id="' + task.id + '"]');
+      if (dueInput) {
+        dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        if (typeof window.__updateDueDisplay === "function") {
+          window.__updateDueDisplay(dueInput);
+        }
+      }
+      if (typeof window.__renderTaskAssignments === "function") {
+        window.__renderTaskAssignments(task.id, task.assignments || []);
+      }
+      return true;
+    }
+    window.__upsertTaskRowFromSnapshot = upsertTaskRowFromSnapshot;
 
     function upsertComment(comment) {
       if (!listEl || !comment || !comment.id) return false;
@@ -6385,6 +6441,10 @@
         var isOwnEvent = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
         var task = data.task;
         var currentProjects = visibleProjectIds();
+        if (data.action === "deleted") {
+          removeTaskRowsLocal(task.id);
+          return;
+        }
         if (data.action === "moved" && data.old_project_id && currentProjects.has(String(data.old_project_id)) && !currentProjects.has(String(task.project_id))) {
           removeTaskRowsLocal(task.id);
           return;
@@ -6392,6 +6452,18 @@
         var updated = applyTaskRowUpdate(task);
         if (updated) {
           pulseTask(task.id);
+        }
+        if ((data.action === "created" && !updated) || (data.action === "moved" && !isOwnEvent)) {
+          fetchTaskSnapshot(task.id).then(function (freshTask) {
+            if (!freshTask) return;
+            if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
+              pulseTask(freshTask.id);
+              return;
+            }
+            applyTaskRowUpdate(freshTask);
+            renderTaskAssignments(freshTask.id, freshTask.assignments || []);
+          });
+          return;
         }
         if (!updated && !isOwnEvent) {
           fetchTaskSnapshot(task.id).then(function (freshTask) {

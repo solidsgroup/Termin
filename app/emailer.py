@@ -119,17 +119,11 @@ def _email_task_row(
     *,
     label_html: str,
     open_url: str | None = None,
-    accept_url: str | None = None,
-    decline_url: str | None = None,
     complete_url: str | None = None,
 ) -> str:
     actions: list[str] = []
-    if accept_url:
-        actions.append(_email_subtle_button(accept_url, "✓ Accept", tone="primary"))
     if complete_url:
         actions.append(_email_subtle_button(complete_url, "✓ Mark complete", tone="primary"))
-    if decline_url:
-        actions.append(_email_subtle_button(decline_url, "Decline", tone="danger"))
     if open_url:
         actions.append(_email_subtle_button(open_url, "Open"))
     return (
@@ -557,8 +551,6 @@ def send_magic_link_email(
     to_email: str,
     invite_url: str | None = None,
     manage_url: str | None = None,
-    accept_url: str | None = None,
-    decline_url: str | None = None,
     project_name: str | None,
     task_title: str | None,
     subtask_title: str | None = None,
@@ -588,8 +580,6 @@ def send_magic_link_email(
     body_html = _email_task_row(
         label_html=label_html,
         open_url=primary_url,
-        accept_url=accept_url,
-        decline_url=decline_url,
     )
     html_body = _render_email_template(
         eyebrow="Termin Task",
@@ -610,8 +600,6 @@ def send_magic_link_digest_email(
     *,
     to_email: str,
     manage_url: str | None,
-    accept_all_url: str | None,
-    decline_all_url: str | None,
     items: list[dict[str, str | None]],
     inviter_email: str | None = None,
     inviter_name: str | None = None,
@@ -625,13 +613,8 @@ def send_magic_link_digest_email(
         "",
     ]
     html_parts = []
-    if accept_all_url or decline_all_url:
-        bulk_actions = []
-        if accept_all_url:
-            bulk_actions.append(_email_subtle_button(accept_all_url, "✓ Accept all", tone="primary"))
-        if decline_all_url:
-            bulk_actions.append(_email_subtle_button(decline_all_url, "Decline all", tone="danger"))
-        html_parts.append('<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' + "".join(bulk_actions) + "</div>")
+    if manage_url:
+        html_parts.append('<div style="margin-top:10px;">' + _email_button(manage_url, "Review assignments") + "</div>")
     html_parts.append('<div style="margin-top:10px;">')
 
     for item in items:
@@ -640,8 +623,6 @@ def send_magic_link_digest_email(
         subtask_title = item.get("subtask_title")
         invite_url = item.get("invite_url") or ""
         item_url = item.get("portal_url") or manage_url or invite_url
-        accept_url = item.get("accept_url") or ""
-        decline_url = item.get("decline_url") or ""
         line = f"- {task_title}"
         if subtask_title:
             line += f" / {subtask_title}"
@@ -658,8 +639,6 @@ def send_magic_link_digest_email(
             _email_task_row(
                 label_html=html_label,
                 open_url=item_url,
-                accept_url=accept_url,
-                decline_url=decline_url,
             )
         )
 
