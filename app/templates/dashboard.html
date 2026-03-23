@@ -14,7 +14,7 @@
           {% for u in shared_viewers[:4] %}
             <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
               {% if u.avatar_url %}
-                <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+                <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
               {% else %}
                 {{ (u.display_name or u.email)[0]|upper }}
               {% endif %}
@@ -63,7 +63,7 @@
         <span class="badge-icon{% if assignee.avatar_url %} has-photo{% endif %}"{% if assignee.profile_url %} data-github-profile-link="{{ assignee.profile_url }}"{% endif %}>
           <span class="badge-initial"><i class="fa-brands fa-github" aria-hidden="true"></i></span>
           {% if assignee.avatar_url %}
-            <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+            <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
           {% endif %}
         </span>
         <span class="badge-label">{{ assignee.label }}{% if assignee.role == 'reviewer' %} · review{% elif assignee.role == 'creator' %} · creator{% endif %}</span>
@@ -126,7 +126,7 @@
             <span class="task-link-badges" data-task-link-badges="{{ task.id }}">
               {% for link in task_info.links or [] %}
                 <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                  <img src="https://www.google.com/s2/favicons?domain={{ link|urlencode }}&sz=32" alt="" referrerpolicy="no-referrer" />
+                  <img src="https://www.google.com/s2/favicons?domain={{ link|urlencode }}&sz=32" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
                 </a>
               {% endfor %}
             </span>
@@ -171,7 +171,7 @@
                   <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
                     <span class="badge-initial">{{ label[0]|upper }}</span>
                     {% if assignee and assignee.avatar_url %}
-                      <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                      <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
                     {% endif %}
                     <span class="badge-x">×</span>
                   </button>
@@ -286,7 +286,7 @@
                     <span class="task-link-badges" data-task-link-badges="{{ item.task.id }}">
                       {% for link in todo_task_info.get("links", []) %}
                         <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                          <img src="https://www.google.com/s2/favicons?domain={{ link|urlencode }}&sz=32" alt="" referrerpolicy="no-referrer" />
+                          <img src="https://www.google.com/s2/favicons?domain={{ link|urlencode }}&sz=32" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
                         </a>
                       {% endfor %}
                     </span>
@@ -325,7 +325,7 @@
                           <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
                             <span class="badge-initial">{{ label[0]|upper }}</span>
                             {% if assignee and assignee.avatar_url %}
-                              <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                              <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
                             {% endif %}
                             <span class="badge-x">×</span>
                           </button>
@@ -385,7 +385,7 @@
                   {% for u in shared_viewers[:6] %}
                     <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
                       {% if u.avatar_url %}
-                        <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
+                        <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
                       {% else %}
                         {{ (u.display_name or u.email)[0]|upper }}
                       {% endif %}
@@ -2021,7 +2021,7 @@
           '<button class="badge-icon' + (avatarUrl ? " has-photo" : "") + '" type="button" data-remove-assignment="' + assignment.id + '" aria-label="Remove assignment for ' + label.replace(/"/g, "&quot;") + '. Status: ' + status + '">' +
             '<span class="badge-initial">' + initial + '</span>' +
             (avatarUrl
-              ? '<img class="badge-photo" src="' + avatarUrl + '" alt="avatar" referrerpolicy="no-referrer" />'
+              ? '<img class="badge-photo" src="' + avatarUrl + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" />'
               : "") +
             '<span class="badge-x">×</span>' +
           '</button>' +
@@ -2770,7 +2770,7 @@
             <span class="badge-initial">${initial}</span>
             ${
               avatarUrl
-                ? `<img class="badge-photo" src="${avatarUrl}" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />`
+                ? `<img class="badge-photo" src="${avatarUrl}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />`
                 : ""
             }
             <span class="badge-x">×</span>
@@ -5228,7 +5228,7 @@
       var initial = label.trim().slice(0, 1).toUpperCase();
       var classes = 'avatar-chip';
       if (member.avatar_url) {
-        return '<span class="' + classes + '" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '"><img src="' + escapeHtml(member.avatar_url) + '" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" /></span>';
+        return '<span class="' + classes + '" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '"><img src="' + escapeHtml(member.avatar_url) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" /></span>';
       }
       return '<span class="' + classes + '" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '">' + escapeHtml(initial) + '</span>';
     }
@@ -5328,7 +5328,7 @@
             '<div class="discussion-assignment-user">' +
               '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-assignment="' + assignment.id + '" aria-label="Remove assignment for ' + escapeHtml(label) + '">' +
                 '<span class="badge-initial">' + escapeHtml(initial) + '</span>' +
-                (avatarUrl ? '<img class="badge-photo" src="' + escapeHtml(avatarUrl) + '" alt="avatar" referrerpolicy="no-referrer" onerror="this.closest(&quot;.discussion-assignment-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
+                (avatarUrl ? '<img class="badge-photo" src="' + escapeHtml(avatarUrl) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.discussion-assignment-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
                 '<span class="badge-x">×</span>' +
               '</button>' +
               '<div class="discussion-assignment-meta">' +
@@ -5735,7 +5735,7 @@
       var author = comment.author || {};
       var name = author.display_name || author.email || "User";
       var avatar = author.avatar_url
-        ? '<img src="' + escapeHtml(author.avatar_url) + '" alt="avatar" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(name.charAt(0).toUpperCase()) + '; this.remove();" />'
+        ? '<img src="' + escapeHtml(author.avatar_url) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(name.charAt(0).toUpperCase()) + '; this.remove();" />'
         : escapeHtml(name.charAt(0).toUpperCase());
       return (
         '<div class="discussion-comment" data-comment-id="' + escapeHtml(comment.id) + '">' +
