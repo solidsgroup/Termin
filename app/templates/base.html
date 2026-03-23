@@ -82,7 +82,7 @@
         background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
         backdrop-filter: blur(8px);
         position: relative;
-        z-index: 80;
+        z-index: 180;
       }
 
       .header-brand {
@@ -121,12 +121,12 @@
         position: relative;
         display: inline-flex;
         align-items: center;
-        z-index: 90;
+        z-index: 160;
       }
 
       .notifications-shell {
         position: relative;
-        z-index: 90;
+        z-index: 160;
       }
 
       .notifications-trigger {
@@ -178,6 +178,11 @@
         display: none;
         z-index: 40;
         backdrop-filter: blur(10px);
+      }
+
+      body[data-theme="light"] .notifications-menu {
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
       }
 
       .notifications-shell.is-open .notifications-menu {
@@ -583,8 +588,166 @@
         padding: 16px 14px;
       }
 
+      .sidebar.todo-tree {
+        padding-bottom: 24px;
+      }
+
+      .todo-tree-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-left: 0;
+        margin-top: 10px;
+      }
+
+      .todo-tree-node {
+        padding-left: 0;
+      }
+
+      .todo-tree-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 20px;
+        width: 100%;
+        margin-left: 0;
+      }
+
+      .todo-tree-label-row {
+        display: grid;
+        grid-template-columns: 14px 1fr 14px;
+        align-items: center;
+        column-gap: 8px;
+        width: 100%;
+        margin-left: 0;
+      }
+
+      .todo-tree-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1 1 auto;
+      }
+
+      .todo-tree-checkbox {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        min-width: 14px;
+        min-height: 14px;
+        border: 1px solid color-mix(in srgb, var(--division-color, var(--border)) 65%, var(--border));
+        border-radius: 3px;
+        background: transparent;
+        margin: 0;
+        display: inline-block;
+        position: relative;
+        cursor: pointer;
+        box-sizing: border-box;
+        line-height: 1;
+        padding: 0;
+        transform: translateY(0);
+      }
+
+      .sidebar.todo-tree .todo-tree-checkbox {
+        appearance: none;
+        -webkit-appearance: none;
+      }
+
+      .todo-tree-checkbox:checked {
+        background-color: var(--division-color, var(--accent));
+        border-color: var(--division-color, var(--accent));
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'><path fill='white' d='M5.5 10.8L2.5 7.8l1.1-1.1 1.9 1.9 4.9-4.9 1.1 1.1z'/></svg>");
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 12px 12px;
+      }
+
+      .todo-tree-checkbox:indeterminate {
+        background-color: color-mix(in srgb, var(--division-color, var(--accent)) 55%, transparent);
+        border-color: var(--division-color, var(--accent));
+        background-image: none;
+        position: relative;
+      }
+
+      .todo-tree-checkbox:indeterminate::after {
+        content: "";
+        position: absolute;
+        left: 2px;
+        right: 2px;
+        top: 50%;
+        height: 2px;
+        background: #fff;
+        transform: translateY(-50%);
+      }
+
+      .todo-tree-toggle {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 11px;
+        line-height: 1;
+        padding: 1px 2px;
+        transform: translateY(-1px);
+        justify-self: end;
+      }
+
+      .todo-tree-toggle.is-hidden {
+        visibility: hidden;
+      }
+
+      .todo-tree-node.is-collapsed > .todo-tree-children {
+        display: none;
+      }
+
+      .todo-tree-children {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin: 4px 0 0 0;
+        padding-left: 12px;
+      }
+
+      .todo-tree-node.is-project {
+        margin-top: 4px;
+      }
+
+      .todo-tree-group-row .todo-tree-label {
+        font-weight: 500;
+      }
+
+      .todo-tree-node.is-project {
+        padding-left: 0;
+      }
+
+      .todo-tree-node.is-project > .todo-tree-row {
+        padding-left: 12px;
+      }
+
+      .todo-tree-group-row {
+        padding-left: 24px;
+      }
+
+      .todo-tree-group-row .todo-tree-label-row {
+        grid-template-columns: 14px 1fr;
+      }
+
+      .todo-tree-empty {
+        font-size: 11px;
+        color: var(--muted);
+        padding: 2px 0 2px 18px;
+      }
+
       .content {
         padding: 16px 18px 32px;
+      }
+
+      body[data-theme="light"] .content {
+        overflow-x: hidden;
       }
 
       .auth-page {
@@ -1040,16 +1203,21 @@
         z-index: 120;
         display: flex;
         flex-direction: column;
-        box-shadow: -16px 0 30px rgba(0, 0, 0, 0.24);
+        box-shadow: none;
       }
 
       body[data-theme="light"] .discussion-drawer {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
-        box-shadow: -16px 0 30px rgba(15, 23, 42, 0.12);
+        box-shadow: none;
       }
 
       .discussion-drawer.open {
         transform: translateX(0);
+        box-shadow: -16px 0 30px rgba(0, 0, 0, 0.24);
+      }
+
+      body[data-theme="light"] .discussion-drawer.open {
+        box-shadow: -16px 0 30px rgba(15, 23, 42, 0.12);
       }
 
       .discussion-header {
@@ -1844,6 +2012,10 @@
         box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
       }
 
+      body[data-theme="light"] .panel {
+        box-shadow: none;
+      }
+
       .panel + .panel {
         margin-top: 16px;
       }
@@ -2347,6 +2519,11 @@
         font-size: 10px;
         letter-spacing: 0.5px;
         background: rgba(10, 14, 20, 0.7);
+      }
+
+      body[data-theme="light"] .table th {
+        color: rgba(71, 85, 105, 0.9);
+        background: rgba(226, 232, 240, 0.7);
       }
 
       .table th:last-child,

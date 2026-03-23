@@ -208,52 +208,133 @@
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
 <div class="layout"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %}>
-  <aside class="sidebar">
-    <div class="sidebar-heading-row">
-      <h3 style="margin: 0;">Projects</h3>
-    </div>
-    <div class="sidebar-stack" data-sidebar-stack>
-      <div class="sidebar-insert-row">
-        <div class="sidebar-insert-line"></div>
-        <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="1" onclick="return window.__openSidebarInsert(this);">+</button>
-        <div class="sidebar-insert-line"></div>
-        <div class="sidebar-insert-chooser" data-sidebar-insert-position="1">
-          <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
-          <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
-          <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
-        </div>
+  <aside class="sidebar{% if current_view == 'todo' %} todo-tree{% endif %}" {% if current_view == 'todo' %}data-todo-tree{% endif %}>
+    {% if current_view == 'todo' %}
+      <div class="sidebar-heading-row">
+        <h3 style="margin: 0;">Filters</h3>
       </div>
-      {% for item in top_level_items %}
-        <div class="sidebar-stack-item" data-sidebar-item="{{ item.type }}:{{ item.id }}">
-          {% if item.type == "project" %}
-            {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, True, None) }}
-          {% else %}
-            <div class="sidebar-division" style="--division-color: {{ item.division.color or '#4cc9f0' }}; color: {{ item.division.color or '#4cc9f0' }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ item.division.color or '#4cc9f0' }}">
-              <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
-                <h3 class="sidebar-division-title" style="color: {{ item.division.color or '#4cc9f0' }};">{{ item.division.name }}</h3>
+      <div class="todo-tree-list">
+        {% for division in divisions %}
+          {% set division_projects = projects_by_division.get(division.id, []) %}
+          {% if division_projects %}
+            <div class="todo-tree-node" data-division-id="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
+              <div class="todo-tree-row">
+                <label class="todo-tree-label-row">
+                  <input type="checkbox" class="todo-tree-checkbox" data-todo-division="{{ division.id }}" checked />
+                  <span class="todo-tree-label" style="color: {{ division.color or '#4cc9f0' }};">{{ division.name }}</span>
+                  <button class="todo-tree-toggle" type="button" data-toggle-division="{{ division.id }}" aria-label="Toggle division">▾</button>
+                </label>
               </div>
-              <div class="project-list">
-                {% for project in projects_by_division.get(item.division.id, []) %}
-                  {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, False, item.division.color) }}
+              <div class="todo-tree-children">
+                {% for project in division_projects %}
+                  <div class="todo-tree-node is-project" data-project-id="{{ project.id }}" data-division-id="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
+                    <div class="todo-tree-row">
+                      <label class="todo-tree-label-row">
+                        <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="{{ division.id }}" checked />
+                        <span class="todo-tree-label">{{ project.name }}</span>
+                        <button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                      </label>
+                    </div>
+                    <div class="todo-tree-children todo-tree-groups">
+                      {% for group in groups_by_project.get(project.id, []) %}
+                        <label class="todo-tree-row todo-tree-group-row">
+                          <input type="checkbox" class="todo-tree-checkbox" data-todo-group="{{ group.id }}" data-project-id="{{ project.id }}" data-division-id="{{ division.id }}" checked />
+                          <span class="todo-tree-label">{{ group.name }}</span>
+                        </label>
+                      {% endfor %}
+                      {% if not groups_by_project.get(project.id) %}
+                        <div class="todo-tree-empty">No groups</div>
+                      {% endif %}
+                    </div>
+                  </div>
                 {% endfor %}
               </div>
             </div>
           {% endif %}
-        </div>
+        {% endfor %}
+        {% if unassigned_projects and current_view == 'todo' %}
+          <div class="todo-tree-node" data-division-id="none" style="--division-color: #2a3442;">
+            <div class="todo-tree-row">
+              <label class="todo-tree-label-row">
+                <input type="checkbox" class="todo-tree-checkbox" data-todo-division="none" checked />
+                <span class="todo-tree-label">Other Projects</span>
+                <button class="todo-tree-toggle" type="button" data-toggle-division="none" aria-label="Toggle division">▾</button>
+              </label>
+            </div>
+            <div class="todo-tree-children">
+              {% for project in unassigned_projects %}
+                <div class="todo-tree-node is-project" data-project-id="{{ project.id }}" data-division-id="none">
+                  <div class="todo-tree-row">
+                    <label class="todo-tree-label-row">
+                      <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="none" checked />
+                      <span class="todo-tree-label">{{ project.name }}</span>
+                      <button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                    </label>
+                  </div>
+                  <div class="todo-tree-children todo-tree-groups">
+                    {% for group in groups_by_project.get(project.id, []) %}
+                      <label class="todo-tree-row todo-tree-group-row">
+                        <input type="checkbox" class="todo-tree-checkbox" data-todo-group="{{ group.id }}" data-project-id="{{ project.id }}" data-division-id="none" checked />
+                        <span class="todo-tree-label">{{ group.name }}</span>
+                      </label>
+                    {% endfor %}
+                    {% if not groups_by_project.get(project.id) %}
+                      <div class="todo-tree-empty">No groups</div>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="sidebar-heading-row">
+        <h3 style="margin: 0;">Projects</h3>
+      </div>
+      <div class="sidebar-stack" data-sidebar-stack>
         <div class="sidebar-insert-row">
           <div class="sidebar-insert-line"></div>
-          <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="{{ loop.index + 1 }}" onclick="return window.__openSidebarInsert(this);">+</button>
+          <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="1" onclick="return window.__openSidebarInsert(this);">+</button>
           <div class="sidebar-insert-line"></div>
-          <div class="sidebar-insert-chooser" data-sidebar-insert-position="{{ loop.index + 1 }}">
+          <div class="sidebar-insert-chooser" data-sidebar-insert-position="1">
             <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
             <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
             <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
           </div>
         </div>
-      {% else %}
-        <div><small>No projects yet.</small></div>
-      {% endfor %}
-    </div>
+        {% for item in top_level_items %}
+          <div class="sidebar-stack-item" data-sidebar-item="{{ item.type }}:{{ item.id }}">
+            {% if item.type == "project" %}
+              {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, True, None) }}
+            {% else %}
+              <div class="sidebar-division" style="--division-color: {{ item.division.color or '#4cc9f0' }}; color: {{ item.division.color or '#4cc9f0' }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ item.division.color or '#4cc9f0' }}">
+                <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
+                  <h3 class="sidebar-division-title" style="color: {{ item.division.color or '#4cc9f0' }};">{{ item.division.name }}</h3>
+                </div>
+                <div class="project-list">
+                  {% for project in projects_by_division.get(item.division.id, []) %}
+                    {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, False, item.division.color) }}
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+          </div>
+          <div class="sidebar-insert-row">
+            <div class="sidebar-insert-line"></div>
+            <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="{{ loop.index + 1 }}" onclick="return window.__openSidebarInsert(this);">+</button>
+            <div class="sidebar-insert-line"></div>
+            <div class="sidebar-insert-chooser" data-sidebar-insert-position="{{ loop.index + 1 }}">
+              <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
+              <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
+              <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
+            </div>
+          </div>
+        {% else %}
+          <div><small>No projects yet.</small></div>
+        {% endfor %}
+      </div>
+    {% endif %}
   </aside>
 
   <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
@@ -267,7 +348,7 @@
                 {% set todo_status_state = status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
                 {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
-                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-status-state="{{ todo_status_state }}">
+                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-status-state="{{ todo_status_state }}">
                   <div class="todo-project-meta">
                     <span class="todo-project-name">{{ item.project.name }}</span>
                     {% if item.group %}<span class="todo-group-name">{{ item.group.name }}</span>{% endif %}
@@ -6920,6 +7001,72 @@
         }
       });
 
+      socket.on("project_comment_created", function (data) {
+        if (!data || !data.project_id || !data.comment) return;
+        setCommentCount("project", data.project_id, Number(data.comment_count || 0));
+        if (currentEntityType !== "project" || String(currentEntityId || "") !== String(data.project_id)) return;
+        var inserted = upsertComment(data.comment);
+        var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {
+          return el.getAttribute("data-comment-id");
+        });
+        commentSnapshot = JSON.stringify(comments);
+        syncCommentCount("project", data.project_id);
+        if (inserted) {
+          listEl.scrollTop = listEl.scrollHeight;
+        }
+      });
+
+      socket.on("project_comment_updated", function (data) {
+        if (!data || !data.project_id || !data.comment) return;
+        if (currentEntityType !== "project" || String(currentEntityId || "") !== String(data.project_id)) return;
+        upsertComment(data.comment);
+      });
+
+      socket.on("project_comment_deleted", function (data) {
+        if (!data || !data.project_id || !data.comment_id) return;
+        setCommentCount("project", data.project_id, Number(data.comment_count || 0));
+        if (currentEntityType !== "project" || String(currentEntityId || "") !== String(data.project_id)) return;
+        var row = listEl.querySelector('[data-comment-id="' + data.comment_id + '"]');
+        if (row) row.remove();
+        syncCommentCount("project", data.project_id);
+        if (!listEl.querySelector('[data-comment-id]')) {
+          listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
+        }
+      });
+
+      socket.on("group_comment_created", function (data) {
+        if (!data || !data.group_id || !data.comment) return;
+        setCommentCount("group", data.group_id, Number(data.comment_count || 0));
+        if (currentEntityType !== "group" || String(currentEntityId || "") !== String(data.group_id)) return;
+        var inserted = upsertComment(data.comment);
+        var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {
+          return el.getAttribute("data-comment-id");
+        });
+        commentSnapshot = JSON.stringify(comments);
+        syncCommentCount("group", data.group_id);
+        if (inserted) {
+          listEl.scrollTop = listEl.scrollHeight;
+        }
+      });
+
+      socket.on("group_comment_updated", function (data) {
+        if (!data || !data.group_id || !data.comment) return;
+        if (currentEntityType !== "group" || String(currentEntityId || "") !== String(data.group_id)) return;
+        upsertComment(data.comment);
+      });
+
+      socket.on("group_comment_deleted", function (data) {
+        if (!data || !data.group_id || !data.comment_id) return;
+        setCommentCount("group", data.group_id, Number(data.comment_count || 0));
+        if (currentEntityType !== "group" || String(currentEntityId || "") !== String(data.group_id)) return;
+        var row = listEl.querySelector('[data-comment-id="' + data.comment_id + '"]');
+        if (row) row.remove();
+        syncCommentCount("group", data.group_id);
+        if (!listEl.querySelector('[data-comment-id]')) {
+          listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
+        }
+      });
+
       socket.on("task_updated", function (data) {
         if (!data || !data.task) return;
         var isOwnEvent = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
@@ -6994,6 +7141,219 @@
         })
         .catch(function () {});
     }
+
+    {% if current_view == 'todo' %}
+    (function () {
+      var todoTree = document.querySelector("[data-todo-tree]");
+      if (!todoTree) return;
+      var storageKey = "termin:todo-tree:v1";
+      var todoItems = Array.from(document.querySelectorAll(".todo-item[data-task-id]"));
+      var todoGroups = Array.from(document.querySelectorAll(".todo-date-group"));
+
+      function loadState() {
+        try {
+          var raw = localStorage.getItem(storageKey);
+          return raw ? JSON.parse(raw) : null;
+        } catch (err) {
+          return null;
+        }
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(snapshotState()));
+        } catch (err) {}
+      }
+
+      function snapshotState() {
+        var state = { divisions: {}, projects: {}, groups: {}, expanded: { divisions: {}, projects: {} } };
+        document.querySelectorAll("[data-todo-division]").forEach(function (cb) {
+          state.divisions[String(cb.getAttribute("data-todo-division"))] = cb.checked;
+        });
+        document.querySelectorAll("[data-todo-project]").forEach(function (cb) {
+          state.projects[String(cb.getAttribute("data-todo-project"))] = cb.checked;
+        });
+        document.querySelectorAll("[data-todo-group]").forEach(function (cb) {
+          state.groups[String(cb.getAttribute("data-todo-group"))] = cb.checked;
+        });
+        document.querySelectorAll(".todo-tree-node[data-division-id]:not(.is-project)").forEach(function (node) {
+          var id = String(node.getAttribute("data-division-id"));
+          state.expanded.divisions[id] = !node.classList.contains("is-collapsed");
+        });
+        document.querySelectorAll(".todo-tree-node.is-project[data-project-id]").forEach(function (node) {
+          var id = String(node.getAttribute("data-project-id"));
+          state.expanded.projects[id] = !node.classList.contains("is-collapsed");
+        });
+        return state;
+      }
+
+      function applyState(state) {
+        var next = state || {};
+        document.querySelectorAll("[data-todo-division]").forEach(function (cb) {
+          var id = String(cb.getAttribute("data-todo-division"));
+          cb.checked = next.divisions && typeof next.divisions[id] === "boolean" ? next.divisions[id] : true;
+        });
+        document.querySelectorAll("[data-todo-project]").forEach(function (cb) {
+          var id = String(cb.getAttribute("data-todo-project"));
+          cb.checked = next.projects && typeof next.projects[id] === "boolean" ? next.projects[id] : true;
+        });
+        document.querySelectorAll("[data-todo-group]").forEach(function (cb) {
+          var id = String(cb.getAttribute("data-todo-group"));
+          cb.checked = next.groups && typeof next.groups[id] === "boolean" ? next.groups[id] : true;
+        });
+        document.querySelectorAll(".todo-tree-node[data-division-id]:not(.is-project)").forEach(function (node) {
+          var id = String(node.getAttribute("data-division-id"));
+          var expanded = next.expanded && next.expanded.divisions && typeof next.expanded.divisions[id] === "boolean"
+            ? next.expanded.divisions[id]
+            : true;
+          node.classList.toggle("is-collapsed", !expanded);
+          var toggle = node.querySelector('[data-toggle-division="' + id + '"]');
+          if (toggle) toggle.textContent = expanded ? "▾" : "▸";
+        });
+        document.querySelectorAll(".todo-tree-node.is-project[data-project-id]").forEach(function (node) {
+          var id = String(node.getAttribute("data-project-id"));
+          var expanded = next.expanded && next.expanded.projects && typeof next.expanded.projects[id] === "boolean"
+            ? next.expanded.projects[id]
+            : false;
+          node.classList.toggle("is-collapsed", !expanded);
+          var toggle = node.querySelector('[data-toggle-project="' + id + '"]');
+          if (toggle) toggle.textContent = expanded ? "▾" : "▸";
+          if (!node.querySelector("[data-todo-group]")) {
+            if (toggle) toggle.classList.add("is-hidden");
+          }
+        });
+      }
+
+      function checkboxState(attrName, id) {
+        var el = document.querySelector('[' + attrName + '="' + id + '"]');
+        return el ? el.checked : true;
+      }
+
+      function applyFilters() {
+        todoItems.forEach(function (item) {
+          var divisionId = String(item.getAttribute("data-division-id") || "none");
+          var projectId = String(item.getAttribute("data-project-id") || "");
+          var groupId = String(item.getAttribute("data-group-id") || "");
+          var divisionOk = checkboxState("data-todo-division", divisionId);
+          var projectOk = projectId ? checkboxState("data-todo-project", projectId) : true;
+          var groupOk = groupId ? checkboxState("data-todo-group", groupId) : true;
+          var visible = divisionOk && projectOk && groupOk;
+          item.classList.toggle("is-filtered", !visible);
+          item.style.display = visible ? "" : "none";
+        });
+        todoGroups.forEach(function (group) {
+          var hasVisible = !!group.querySelector(".todo-item:not(.is-filtered)");
+          group.style.display = hasVisible ? "" : "none";
+        });
+      }
+
+      function updateParentCheckboxStates() {
+        document.querySelectorAll("[data-todo-project]").forEach(function (projectBox) {
+          var projectId = projectBox.getAttribute("data-todo-project");
+          var groupBoxes = document.querySelectorAll('[data-todo-group][data-project-id="' + projectId + '"]');
+          if (!groupBoxes.length) {
+            projectBox.indeterminate = false;
+            return;
+          }
+          var checkedCount = Array.from(groupBoxes).filter(function (cb) { return cb.checked; }).length;
+          if (checkedCount === 0) {
+            projectBox.indeterminate = false;
+            projectBox.checked = false;
+          } else if (checkedCount === groupBoxes.length) {
+            projectBox.indeterminate = false;
+            projectBox.checked = true;
+          } else {
+            projectBox.indeterminate = true;
+            projectBox.checked = true;
+          }
+        });
+
+        document.querySelectorAll("[data-todo-division]").forEach(function (divisionBox) {
+          var divisionId = divisionBox.getAttribute("data-todo-division");
+          var projectBoxes = document.querySelectorAll('[data-todo-project][data-division-id="' + divisionId + '"]');
+          if (!projectBoxes.length) {
+            divisionBox.indeterminate = false;
+            return;
+          }
+          var checkedCount = Array.from(projectBoxes).filter(function (cb) { return cb.checked; }).length;
+          if (checkedCount === 0) {
+            divisionBox.indeterminate = false;
+            divisionBox.checked = false;
+          } else if (checkedCount === projectBoxes.length) {
+            divisionBox.indeterminate = false;
+            divisionBox.checked = true;
+          } else {
+            divisionBox.indeterminate = true;
+            divisionBox.checked = true;
+          }
+        });
+      }
+
+      function cascadeCheckboxes(scope, checked) {
+        if (!scope) return;
+        scope.querySelectorAll("input.todo-tree-checkbox").forEach(function (cb) {
+          cb.checked = checked;
+        });
+      }
+
+      todoTree.addEventListener("click", function (event) {
+        var divisionToggle = event.target.closest("[data-toggle-division]");
+        if (divisionToggle) {
+          var divisionId = divisionToggle.getAttribute("data-toggle-division");
+          var node = divisionToggle.closest(".todo-tree-node");
+          if (!node) return;
+          var nextCollapsed = !node.classList.contains("is-collapsed");
+          node.classList.toggle("is-collapsed", nextCollapsed);
+          divisionToggle.textContent = nextCollapsed ? "▸" : "▾";
+          saveState();
+          return;
+        }
+        var projectToggle = event.target.closest("[data-toggle-project]");
+        if (projectToggle) {
+          var projectId = projectToggle.getAttribute("data-toggle-project");
+          var projectNode = projectToggle.closest(".todo-tree-node.is-project");
+          if (!projectNode) return;
+          var nextProjectCollapsed = !projectNode.classList.contains("is-collapsed");
+          projectNode.classList.toggle("is-collapsed", nextProjectCollapsed);
+          projectToggle.textContent = nextProjectCollapsed ? "▸" : "▾";
+          saveState();
+          return;
+        }
+      });
+
+      todoTree.addEventListener("change", function (event) {
+        var divisionBox = event.target.closest("[data-todo-division]");
+        if (divisionBox) {
+          var divisionNode = divisionBox.closest(".todo-tree-node");
+          cascadeCheckboxes(divisionNode, divisionBox.checked);
+          updateParentCheckboxStates();
+          applyFilters();
+          saveState();
+          return;
+        }
+        var projectBox = event.target.closest("[data-todo-project]");
+        if (projectBox) {
+          var projectNode = projectBox.closest(".todo-tree-node.is-project");
+          cascadeCheckboxes(projectNode, projectBox.checked);
+          updateParentCheckboxStates();
+          applyFilters();
+          saveState();
+          return;
+        }
+        if (event.target.closest("[data-todo-group]")) {
+          updateParentCheckboxStates();
+          applyFilters();
+          saveState();
+        }
+      });
+
+      applyState(loadState());
+      updateParentCheckboxStates();
+      applyFilters();
+      saveState();
+      window.addEventListener("beforeunload", saveState);
+    })();
+    {% endif %}
 
     window.setInterval(pollNotificationState, 15000);
     window.setInterval(pollOpenDiscussion, 10000);

@@ -13,7 +13,13 @@ from app.info_utils import load_info_payload, normalize_info_payload, save_uploa
 from app.realtime import (
     emit_assignment_updated,
     emit_group_members_updated,
+    emit_group_comment_created,
+    emit_group_comment_deleted,
+    emit_group_comment_updated,
     emit_notification_state,
+    emit_project_comment_created,
+    emit_project_comment_deleted,
+    emit_project_comment_updated,
     emit_project_members_updated,
     is_user_viewing_project,
     is_user_viewing_task,
@@ -773,7 +779,9 @@ def create_project_comment(project_id: int):
     db.session.add(comment)
     db.session.commit()
     comment_count = ProjectComment.query.filter_by(project_id=project.id).count()
-    return {"comment": _serialize_simple_comment(comment, user, project_id=project.id), "comment_count": comment_count}, 201
+    payload = _serialize_simple_comment(comment, user, project_id=project.id)
+    emit_project_comment_created(project.id, payload)
+    return {"comment": payload, "comment_count": comment_count}, 201
 
 
 @api_bp.patch("/projects/<int:project_id>/comments/<int:comment_id>")
@@ -798,6 +806,7 @@ def update_project_comment(project_id: int, comment_id: int):
     comment.body = body
     db.session.commit()
     payload = _serialize_simple_comment(comment, user, project_id=project.id)
+    emit_project_comment_updated(project.id, payload)
     return {"comment": payload}, 200
 
 
@@ -817,6 +826,7 @@ def delete_project_comment(project_id: int, comment_id: int):
 
     db.session.delete(comment)
     db.session.commit()
+    emit_project_comment_deleted(project.id, comment_id)
     return {"status": "ok", "comment_id": comment_id}, 200
 
 
@@ -857,7 +867,9 @@ def create_group_comment(group_id: int):
     db.session.add(comment)
     db.session.commit()
     comment_count = GroupComment.query.filter_by(group_id=group.id).count()
-    return {"comment": _serialize_simple_comment(comment, user, group_id=group.id), "comment_count": comment_count}, 201
+    payload = _serialize_simple_comment(comment, user, group_id=group.id)
+    emit_group_comment_created(group.id, payload)
+    return {"comment": payload, "comment_count": comment_count}, 201
 
 
 @api_bp.patch("/groups/<int:group_id>/comments/<int:comment_id>")
@@ -882,6 +894,7 @@ def update_group_comment(group_id: int, comment_id: int):
     comment.body = body
     db.session.commit()
     payload = _serialize_simple_comment(comment, user, group_id=group.id)
+    emit_group_comment_updated(group.id, payload)
     return {"comment": payload}, 200
 
 
@@ -901,6 +914,7 @@ def delete_group_comment(group_id: int, comment_id: int):
 
     db.session.delete(comment)
     db.session.commit()
+    emit_group_comment_deleted(group.id, comment_id)
     return {"status": "ok", "comment_id": comment_id}, 200
 
 

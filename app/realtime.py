@@ -8,7 +8,18 @@ from flask_socketio import emit, join_room, leave_room
 from app.extensions import db, socketio
 
 from app.info_utils import load_info_payload
-from app.models import Assignment, Group, GroupMember, Project, ProjectMember, Task, TaskComment, TaskNotification
+from app.models import (
+    Assignment,
+    Group,
+    GroupComment,
+    GroupMember,
+    Project,
+    ProjectComment,
+    ProjectMember,
+    Task,
+    TaskComment,
+    TaskNotification,
+)
 from app.utils import current_user
 
 _handlers_registered = False
@@ -60,6 +71,39 @@ def _task_notification_user_ids(task: Task) -> set[int]:
     if task.group_id:
         user_ids.update(row.user_id for row in GroupMember.query.filter_by(group_id=task.group_id).all())
     user_ids.update(row.user_id for row in Assignment.query.filter_by(task_id=task.id).all() if row.user_id)
+    return {user_id for user_id in user_ids if user_id}
+
+
+def _project_comment_user_ids(project_id: int) -> set[int]:
+    project = Project.query.get(project_id)
+    user_ids = {project.owner_id} if project else set()
+    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=project_id).all())
+    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
+    if group_ids:
+        user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
+        task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.project_id == project_id).all()]
+        if task_ids:
+            user_ids.update(
+                row.user_id
+                for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
+            )
+    return {user_id for user_id in user_ids if user_id}
+
+
+def _group_comment_user_ids(group_id: int) -> set[int]:
+    group = Group.query.get(group_id)
+    if not group:
+        return set()
+    project = Project.query.get(group.project_id)
+    user_ids = {project.owner_id} if project else set()
+    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=group.project_id).all())
+    user_ids.update(row.user_id for row in GroupMember.query.filter_by(group_id=group_id).all())
+    task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.group_id == group_id).all()]
+    if task_ids:
+        user_ids.update(
+            row.user_id
+            for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
+        )
     return {user_id for user_id in user_ids if user_id}
 
 
@@ -393,6 +437,58 @@ def emit_task_comment_deleted(task_id: int, comment_id: int) -> None:
         },
         room=task_room(task_id),
     )
+
+
+def emit_project_comment_created(project_id: int, comment_payload: dict) -> None:
+    comment_count = ProjectComment.query.filter_by(project_id=project_id).count()
+    payload = {"project_id": project_id, "comment": comment_payload, "comment_count": comment_count}
+    socketio.emit("project_comment_created", payload, room=project_room(project_id))
+    for recipient_id in _project_comment_user_ids(project_id):
+        socketio.emit("project_comment_created", payload, room=user_room(recipient_id))
+
+
+def emit_project_comment_updated(project_id: int, comment_payload: dict) -> None:
+    payload = {"project_id": project_id, "comment": comment_payload}
+    socketio.emit("project_comment_updated", payload, room=project_room(project_id))
+    for recipient_id in _project_comment_user_ids(project_id):
+        socketio.emit("project_comment_updated", payload, room=user_room(recipient_id))
+
+
+def emit_project_comment_deleted(project_id: int, comment_id: int) -> None:
+    comment_count = ProjectComment.query.filter_by(project_id=project_id).count()
+    payload = {"project_id": project_id, "comment_id": comment_id, "comment_count": comment_count}
+    socketio.emit("project_comment_deleted", payload, room=project_room(project_id))
+    for recipient_id in _project_comment_user_ids(project_id):
+        socketio.emit("project_comment_deleted", payload, room=user_room(recipient_id))
+
+
+def emit_group_comment_created(group_id: int, comment_payload: dict) -> None:
+    comment_count = GroupComment.query.filter_by(group_id=group_id).count()
+    payload = {"group_id": group_id, "comment": comment_payload, "comment_count": comment_count}
+    group = Group.query.get(group_id)
+    if group:
+        socketio.emit("group_comment_created", payload, room=project_room(group.project_id))
+    for recipient_id in _group_comment_user_ids(group_id):
+        socketio.emit("group_comment_created", payload, room=user_room(recipient_id))
+
+
+def emit_group_comment_updated(group_id: int, comment_payload: dict) -> None:
+    payload = {"group_id": group_id, "comment": comment_payload}
+    group = Group.query.get(group_id)
+    if group:
+        socketio.emit("group_comment_updated", payload, room=project_room(group.project_id))
+    for recipient_id in _group_comment_user_ids(group_id):
+        socketio.emit("group_comment_updated", payload, room=user_room(recipient_id))
+
+
+def emit_group_comment_deleted(group_id: int, comment_id: int) -> None:
+    comment_count = GroupComment.query.filter_by(group_id=group_id).count()
+    payload = {"group_id": group_id, "comment_id": comment_id, "comment_count": comment_count}
+    group = Group.query.get(group_id)
+    if group:
+        socketio.emit("group_comment_deleted", payload, room=project_room(group.project_id))
+    for recipient_id in _group_comment_user_ids(group_id):
+        socketio.emit("group_comment_deleted", payload, room=user_room(recipient_id))
 
 
 def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_id: int | None = None, old_group_id: int | None = None, actor_user_id: int | None = None) -> dict:

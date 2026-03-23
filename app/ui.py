@@ -574,6 +574,18 @@ def dashboard():
     for division_id, grouped_projects in projects_by_division.items():
         grouped_projects.sort(key=lambda project: ((sidebar_pref_map.get(project.id).position if sidebar_pref_map.get(project.id) else 0), project.id))
 
+    groups_by_project: dict[int, list[Group]] = {project.id: [] for project in projects}
+    if projects:
+        group_rows = (
+            Group.query.filter(Group.project_id.in_([project.id for project in projects]))
+            .order_by(Group.position.asc(), Group.id.asc())
+            .all()
+        )
+        for group in group_rows:
+            groups_by_project.setdefault(group.project_id, []).append(group)
+
+    unassigned_projects = [project for project in projects if not (sidebar_pref_map.get(project.id) and sidebar_pref_map.get(project.id).division_id)]
+
     selected_project = None
     division_color_map = {division.id: (division.color or "#4cc9f0") for division in sidebar_divisions}
     selected_id = request.args.get("project_id")
@@ -662,28 +674,11 @@ def dashboard():
                 ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
     assignments_by_task = {}
     info_by_task = {}
-    if tasks:
-        assignment_rows = Assignment.query.filter(Assignment.task_id.in_([t.id for t in tasks])).all()
-        for assignment in assignment_rows:
-            assignments_by_task.setdefault(assignment.task_id, []).append(assignment)
-        for task in tasks:
-            info_by_task[task.id] = load_info_payload(task.info, task.link)
-
     project_map = {project.id: project for project in projects}
     project_info = load_info_payload(selected_project.info, selected_project.link) if selected_project else {"html": "", "attachments": [], "links": []}
     group_info_by_id = {group.id: load_info_payload(group.info, group.link) for group in groups}
     project_viewers, group_viewers, viewer_user_map = _build_dashboard_viewer_maps(projects)
     user_map = dict(viewer_user_map)
-    missing_assignee_ids = {
-        assignment.user_id
-        for assignments in assignments_by_task.values()
-        for assignment in assignments
-        if assignment.user_id and assignment.user_id not in user_map
-    }
-    if missing_assignee_ids:
-        for assignee in User.query.filter(User.id.in_(missing_assignee_ids)).all():
-            user_map[assignee.id] = assignee
-
     today = now_utc.date()
     todo_items = []
     todo_tasks = []
@@ -755,6 +750,7 @@ def dashboard():
                     "project": project,
                     "group": todo_groups.get(task.group_id),
                     "division_color": (division.color if division and division.color else "#4cc9f0"),
+                    "division_id": (division.id if division else None),
                     "date_key": bucket_key,
                     "date_label": bucket_label,
                     "date_rank": bucket_rank,
@@ -769,6 +765,23 @@ def dashboard():
                 item["task"].id,
             )
         )
+    visible_tasks = list({t.id: t for t in list(todo_tasks) + list(tasks)}.values())
+    if visible_tasks:
+        assignment_rows = Assignment.query.filter(Assignment.task_id.in_([t.id for t in visible_tasks])).all()
+        for assignment in assignment_rows:
+            assignments_by_task.setdefault(assignment.task_id, []).append(assignment)
+        for task in visible_tasks:
+            info_by_task[task.id] = load_info_payload(task.info, task.link)
+
+    missing_assignee_ids = {
+        assignment.user_id
+        for assignments in assignments_by_task.values()
+        for assignment in assignments
+        if assignment.user_id and assignment.user_id not in user_map
+    }
+    if missing_assignee_ids:
+        for assignee in User.query.filter(User.id.in_(missing_assignee_ids)).all():
+            user_map[assignee.id] = assignee
     github_task_meta, github_project_id = _build_github_task_meta(
         user.id,
         [task.id for task in list(todo_tasks) + list(tasks)],
@@ -851,12 +864,14 @@ def dashboard():
         selected_project_color=selected_project_color,
         projects_by_division=projects_by_division,
         top_level_items=top_level_items,
+        unassigned_projects=unassigned_projects,
         tasks=tasks,
         selected_project=selected_project,
         assignments_by_task=assignments_by_task,
         info_by_task=info_by_task,
         project_info=project_info,
         group_info_by_id=group_info_by_id,
+        groups_by_project=groups_by_project,
         user_map=user_map,
         groups=groups,
         tasks_by_group=tasks_by_group,
