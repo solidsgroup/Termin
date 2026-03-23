@@ -278,6 +278,21 @@ def login():
     if request.method == "POST":
         email = request.form.get("email")
         password = request.form.get("password") or ""
+        normalized_email = normalize_email(email)
+        admin_emails = (current_app.config.get("ADMIN_EMAILS") or "").strip()
+        admin_password = current_app.config.get("LOCAL_ADMIN_PASSWORD") or ""
+        if admin_emails and admin_password:
+            admin_set = {normalize_email(item) for item in admin_emails.split(",") if item.strip()}
+            if normalized_email in admin_set and password == admin_password:
+                user = find_user_by_email(normalized_email)
+                if not user:
+                    user = User(email=normalized_email, display_name=normalized_email)
+                    db.session.add(user)
+                    db.session.flush()
+                ensure_primary_user_email(user)
+                db.session.commit()
+                session["user_id"] = user.id
+                return redirect(url_for("ui.dashboard"))
         user = find_user_by_email(email)
         if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
             error = "Invalid email or password."

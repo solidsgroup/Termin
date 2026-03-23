@@ -63,6 +63,8 @@ class Project(db.Model):
     position = db.Column(db.Integer, default=0, nullable=False)
     default_owner_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     default_invitee_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
+    info = db.Column(db.Text)
+    link = db.Column(db.String(1024))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -105,6 +107,8 @@ class Group(db.Model):
     name = db.Column(db.String(255), nullable=False)
     position = db.Column(db.Integer, default=0, nullable=False)
     color = db.Column(db.String(32))
+    info = db.Column(db.Text)
+    link = db.Column(db.String(1024))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -139,6 +143,26 @@ class TaskComment(db.Model):
     task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     collaborator_id = db.Column(db.Integer, db.ForeignKey("collaborator_profiles.id"))
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ProjectComment(db.Model):
+    __tablename__ = "project_comments"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GroupComment(db.Model):
+    __tablename__ = "group_comments"
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     body = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

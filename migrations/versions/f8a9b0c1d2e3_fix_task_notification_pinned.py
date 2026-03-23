@@ -1,18 +1,25 @@
-"""add task notification pins
+"""fix task notification pinned
 
-Revision ID: 1c2d3e4f5a6b
-Revises: 0a1b2c3d4e5f
-Create Date: 2026-03-19 16:20:00.000000
+Revision ID: f8a9b0c1d2e3
+Revises: e6f7a8b9c0d1
+Create Date: 2026-03-26 10:00:00.000000
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = "1c2d3e4f5a6b"
-down_revision = "0a1b2c3d4e5f"
+revision = "f8a9b0c1d2e3"
+down_revision = "e6f7a8b9c0d1"
 branch_labels = None
 depends_on = None
+
+
+def _has_column(inspector, table_name: str, column_name: str) -> bool:
+    try:
+        return column_name in {col["name"] for col in inspector.get_columns(table_name)}
+    except Exception:
+        return False
 
 
 def upgrade():
@@ -20,10 +27,10 @@ def upgrade():
     inspector = sa.inspect(bind)
     if "task_notifications" not in inspector.get_table_names():
         return
-
+    if _has_column(inspector, "task_notifications", "pinned"):
+        return
     with op.batch_alter_table("task_notifications", schema=None) as batch_op:
         batch_op.add_column(sa.Column("pinned", sa.Boolean(), nullable=False, server_default=sa.false()))
-
     with op.batch_alter_table("task_notifications", schema=None) as batch_op:
         batch_op.alter_column("pinned", server_default=None)
 
@@ -33,6 +40,7 @@ def downgrade():
     inspector = sa.inspect(bind)
     if "task_notifications" not in inspector.get_table_names():
         return
-
+    if not _has_column(inspector, "task_notifications", "pinned"):
+        return
     with op.batch_alter_table("task_notifications", schema=None) as batch_op:
         batch_op.drop_column("pinned")

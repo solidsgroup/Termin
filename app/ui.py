@@ -670,6 +670,8 @@ def dashboard():
             info_by_task[task.id] = load_info_payload(task.info, task.link)
 
     project_map = {project.id: project for project in projects}
+    project_info = load_info_payload(selected_project.info, selected_project.link) if selected_project else {"html": "", "attachments": [], "links": []}
+    group_info_by_id = {group.id: load_info_payload(group.info, group.link) for group in groups}
     project_viewers, group_viewers, viewer_user_map = _build_dashboard_viewer_maps(projects)
     user_map = dict(viewer_user_map)
     missing_assignee_ids = {
@@ -853,6 +855,8 @@ def dashboard():
         selected_project=selected_project,
         assignments_by_task=assignments_by_task,
         info_by_task=info_by_task,
+        project_info=project_info,
+        group_info_by_id=group_info_by_id,
         user_map=user_map,
         groups=groups,
         tasks_by_group=tasks_by_group,

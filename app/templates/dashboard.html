@@ -125,8 +125,10 @@
             {% endif %}
             <span class="task-link-badges" data-task-link-badges="{{ task.id }}">
               {% for link in task_info.links or [] %}
+                {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
+                {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                 <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                  <img src="https://www.google.com/s2/favicons?domain={{ link|urlencode }}&sz=32" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+                  <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
                 </a>
               {% endfor %}
             </span>
@@ -285,8 +287,10 @@
                     {% endif %}
                     <span class="task-link-badges" data-task-link-badges="{{ item.task.id }}">
                       {% for link in todo_task_info.get("links", []) %}
+                        {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
+                        {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                         <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                          <img src="https://www.google.com/s2/favicons?domain={{ link|urlencode }}&sz=32" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+                          <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
                         </a>
                       {% endfor %}
                     </span>
@@ -360,7 +364,23 @@
     {% elif selected_project %}
       <div class="panel">
         <div class="group-header">
-          <h3 data-selected-project-title="{{ selected_project.id }}">{{ selected_project.name }}</h3>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h3 data-selected-project-title="{{ selected_project.id }}">{{ selected_project.name }}</h3>
+            <span class="task-link-badges" data-entity-link-badges="project:{{ selected_project.id }}">
+              {% for link in project_info.links or [] %}
+                {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
+                {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
+                <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
+                  <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                </a>
+              {% endfor %}
+            </span>
+            <span class="task-pill" aria-label="Project settings links and messages">
+              <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project.name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+              <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project.name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+              <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project.name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:{{ selected_project.id }}">0</span></button>
+            </span>
+          </div>
           <div style="display: inline-flex; gap: 8px; align-items: center;">
             <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
           </div>
@@ -377,7 +397,23 @@
           </div>
           <div class="panel group" style="--group-color: {{ selected_project_color or '#4cc9f0' }};">
             <div class="group-header" {% if can_manage_project and not is_github_project %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
-              <h3 class="group-title {% if can_manage_project and not is_github_project %}editable{% endif %}" {% if can_manage_project and not is_github_project %}contenteditable="true" data-group-id="{{ group.id }}" data-field="name"{% endif %}>{{ group.name }}</h3>
+              <h3 class="group-title">
+                <span class="group-title-text{% if can_manage_project and not is_github_project %} editable{% endif %}" {% if can_manage_project and not is_github_project %}contenteditable="true"{% endif %} data-group-id="{{ group.id }}" data-field="name">{{ group.name }}</span>
+                <span class="task-link-badges" data-entity-link-badges="group:{{ group.id }}">
+                  {% for link in group_info_by_id.get(group.id, {}).links or [] %}
+                    {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
+                    {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
+                    <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
+                      <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                    </a>
+                  {% endfor %}
+                </span>
+                <span class="task-pill" aria-label="Group settings links and messages" contenteditable="false">
+                  <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ selected_project.name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+                  <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ selected_project.name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+                  <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ selected_project.name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:{{ group.id }}">0</span></button>
+                </span>
+              </h3>
               {% set viewers = group_viewers.get(group.id, []) %}
               {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
               {% if shared_viewers %}
@@ -534,10 +570,10 @@
   <div class="discussion-pane" id="discussion-settings-pane" data-drawer-pane="settings">
     <div class="discussion-settings" id="discussion-settings">
       <label class="discussion-setting-field">
-        <span>Title</span>
+        <span data-settings-title-label>Title</span>
         <input id="task-settings-title" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
       </label>
-      <div class="discussion-settings-grid">
+      <div class="discussion-settings-grid" data-task-only>
         <label class="discussion-setting-field">
           <span>Due</span>
           <input id="task-settings-due" type="date" />
@@ -550,7 +586,7 @@
           </button>
         </label>
       </div>
-      <div class="discussion-setting-group">
+      <div class="discussion-setting-group" data-task-only>
         <div class="discussion-setting-group-header">
           <span>Assign</span>
         </div>
@@ -1373,7 +1409,7 @@
       }
 
       function setGroupNameLocal(groupId, name) {
-        document.querySelectorAll('.group-title[data-group-id="' + groupId + '"]').forEach(function (node) {
+        document.querySelectorAll('.group-title-text[data-group-id="' + groupId + '"]').forEach(function (node) {
           node.textContent = name;
         });
       }
@@ -2741,8 +2777,16 @@
         .map((link) => {
           try {
             const url = new URL(link);
-            const favicon = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=32`;
-            return `<a class="task-link-badge" href="${escapeHtml(link)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(link)}"><img src="${escapeHtml(favicon)}" alt="" referrerpolicy="no-referrer" /></a>`;
+            const host = url.hostname;
+            const primary = `https://www.google.com/s2/favicons?sz=32&domain_url=${encodeURIComponent(url.origin)}`;
+            const fallback = [
+              `${url.origin}/favicon.ico`,
+              `${url.origin}/favicon.png`,
+              `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
+              `https://icon.horse/icon/${encodeURIComponent(host)}`,
+              `https://faviconkit.com/${encodeURIComponent(host)}/32`,
+            ].join("|");
+            return `<a class="task-link-badge" href="${escapeHtml(link)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(link)}"><img src="${escapeHtml(primary)}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="${escapeHtml(fallback)}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" /></a>`;
           } catch (_error) {
             return "";
           }
@@ -3065,6 +3109,7 @@
 
     const buildGroupBlock = (groupData) => {
       const projectId = {{ selected_project.id|tojson if selected_project else 'null' }};
+      const projectName = {{ (selected_project.name if selected_project else "")|tojson }};
       const groupColor = {{ (selected_project_color or '#4cc9f0')|tojson }};
       const canManageGroup = !{{ 'true' if is_github_project else 'false' }} && canManageTaskBucket(projectId, groupData.id);
       if (!projectId || !groupData || !groupData.id) return null;
@@ -3088,7 +3133,15 @@
       panel.style.setProperty("--group-color", groupColor);
       panel.innerHTML = `
         <div class="group-header" ${canManageGroup ? `draggable="true" data-drag-group="${groupData.id}"` : ""} data-group-context="${groupData.id}">
-          <h3 class="group-title${canManageGroup ? " editable" : ""}" ${canManageGroup ? `contenteditable="true" data-group-id="${groupData.id}" data-field="name"` : ""}>${escapeHtml(groupData.name || "Untitled Group")}</h3>
+          <h3 class="group-title">
+            <span class="group-title-text${canManageGroup ? " editable" : ""}" ${canManageGroup ? `contenteditable="true"` : ""} data-group-id="${groupData.id}" data-field="name">${escapeHtml(groupData.name || "Untitled Group")}</span>
+            <span class="task-link-badges" data-entity-link-badges="group:${groupData.id}">${renderInlineTaskLinkBadges((groupData && groupData.links) || (groupData && groupData.link ? [groupData.link] : []))}</span>
+            <span class="task-pill" aria-label="Group settings links and messages" contenteditable="false">
+              <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="group" data-entity-id="${groupData.id}" data-entity-title="${escapeHtml(groupData.name || "Untitled Group")}" data-entity-project="${escapeHtml(projectName || "")}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+              <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="${groupData.id}" data-entity-title="${escapeHtml(groupData.name || "Untitled Group")}" data-entity-project="${escapeHtml(projectName || "")}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+              <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="${groupData.id}" data-entity-title="${escapeHtml(groupData.name || "Untitled Group")}" data-entity-project="${escapeHtml(projectName || "")}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:${groupData.id}">0</span></button>
+            </span>
+          </h3>
         </div>
         <table class="table tasks-table" data-project-id="${projectId}" data-group-id="${groupData.id}">
           <colgroup>
@@ -4005,7 +4058,7 @@
     };
 
     const setGroupNameLocal = (groupId, name) => {
-      document.querySelectorAll(`.group-title[data-group-id="${groupId}"]`).forEach((node) => {
+      document.querySelectorAll(`.group-title-text[data-group-id="${groupId}"]`).forEach((node) => {
         node.textContent = name;
       });
     };
@@ -5017,12 +5070,17 @@
     var taskSettingsAssignmentsEl = document.getElementById("task-settings-assignments");
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
     var taskSettingsMetaEl = document.getElementById("task-settings-meta");
+    var taskOnlyEls = Array.prototype.slice.call(drawer.querySelectorAll("[data-task-only]"));
+    var settingsTitleLabelEl = drawer.querySelector("[data-settings-title-label]");
     var drawerHeaderTabsEl = document.getElementById("drawer-header-tabs");
+    var currentEntityType = "task";
+    var currentEntityId = null;
     var currentTaskId = null;
     var currentTaskTitle = "";
     var currentProjectName = "";
-    var currentTaskLinks = [];
+    var currentEntityLinks = [];
     var currentTaskData = null;
+    var currentEntityData = null;
     var activeDrawerTab = "messages";
     var commentSnapshot = "";
     var onlineUserProjectMap = new Map();
@@ -5113,23 +5171,41 @@
       return date.toISOString().slice(0, 10);
     }
 
-    function setCommentCount(taskId, count) {
-      document.querySelectorAll('[data-open-discussion="' + taskId + '"]').forEach(function (button) {
-        var span = button.querySelector('[data-comment-count="' + taskId + '"]');
-        if (!span) {
-          span = document.createElement("span");
-          span.setAttribute("data-comment-count", String(taskId));
-          button.appendChild(span);
-        }
-        span.textContent = String(count);
-      });
-      document.querySelectorAll('[data-comment-count="' + taskId + '"]').forEach(function (el) {
+    function entityKey(type, id) {
+      return type === "task" ? String(id) : type + ":" + String(id);
+    }
+
+    function setCommentCount(type, id, count) {
+      var key = entityKey(type, id);
+      if (type === "task") {
+        document.querySelectorAll('[data-open-discussion="' + id + '"]').forEach(function (button) {
+          var span = button.querySelector('[data-comment-count="' + key + '"]');
+          if (!span) {
+            span = document.createElement("span");
+            span.setAttribute("data-comment-count", String(key));
+            button.appendChild(span);
+          }
+          span.textContent = String(count);
+        });
+      } else {
+        document.querySelectorAll('[data-open-entity="messages"][data-entity-type="' + type + '"][data-entity-id="' + id + '"]').forEach(function (button) {
+          var span = button.querySelector('[data-comment-count="' + key + '"]');
+          if (!span) {
+            span = document.createElement("span");
+            span.setAttribute("data-comment-count", String(key));
+            button.appendChild(span);
+          }
+          span.textContent = String(count);
+        });
+      }
+      document.querySelectorAll('[data-comment-count="' + key + '"]').forEach(function (el) {
         el.textContent = String(count);
       });
     }
 
-    function getDisplayedCommentCount(taskId) {
-      var el = document.querySelector('[data-comment-count="' + taskId + '"]');
+    function getDisplayedCommentCount(type, id) {
+      var key = entityKey(type, id);
+      var el = document.querySelector('[data-comment-count="' + key + '"]');
       if (!el) return 0;
       var value = Number(el.textContent || 0);
       return Number.isFinite(value) ? value : 0;
@@ -5249,6 +5325,17 @@
         '</div>';
     }
 
+    function setDrawerEntityType(type) {
+      currentEntityType = type || "task";
+      taskOnlyEls.forEach(function (el) {
+        el.style.display = currentEntityType === "task" ? "" : "none";
+      });
+      if (settingsTitleLabelEl) {
+        settingsTitleLabelEl.textContent = currentEntityType === "task" ? "Title" : "Name";
+      }
+      drawer.setAttribute("data-entity-type", currentEntityType);
+    }
+
     function setDrawerTab(tab) {
       activeDrawerTab = (tab === "settings" || tab === "links" || tab === "messages") ? tab : "messages";
       document.querySelectorAll("[data-drawer-tab]").forEach(function (button) {
@@ -5260,17 +5347,39 @@
       if (presenceEl) {
         presenceEl.style.display = activeDrawerTab === "messages" ? "" : "none";
       }
-      syncTaskRoom(drawer.classList.contains("open") && activeDrawerTab === "messages" ? currentTaskId : null);
+      syncTaskRoom(drawer.classList.contains("open") && activeDrawerTab === "messages" && currentEntityType === "task" ? currentTaskId : null);
     }
 
-    function faviconForLink(link) {
+    function faviconCandidates(link) {
       try {
         var url = new URL(link);
-        return "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(url.hostname) + "&sz=32";
+        var host = url.hostname;
+        var origin = url.origin;
+        return [
+          "https://www.google.com/s2/favicons?sz=32&domain_url=" + encodeURIComponent(origin),
+          origin + "/favicon.ico",
+          origin + "/favicon.png",
+          "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico",
+          "https://icon.horse/icon/" + encodeURIComponent(host),
+          "https://faviconkit.com/" + encodeURIComponent(host) + "/32",
+        ];
       } catch (err) {
-        return "";
+        return [];
       }
     }
+
+    window.__fallbackFavicon = function (img) {
+      if (!img) return false;
+      var fallback = img.getAttribute("data-favicon-fallback") || "";
+      if (!fallback) return false;
+      var candidates = fallback.split("|").filter(Boolean);
+      if (!candidates.length) return false;
+      var index = Number(img.getAttribute("data-favicon-index") || "0");
+      if (index >= candidates.length) return false;
+      img.setAttribute("data-favicon-index", String(index + 1));
+      img.src = candidates[index];
+      return true;
+    };
 
     function formatLinkLabel(link) {
       try {
@@ -5294,11 +5403,13 @@
     function renderTaskLinkBadges(links) {
       return (Array.isArray(links) ? links : [])
         .map(function (link) {
-          var favicon = faviconForLink(link);
+          var favicons = faviconCandidates(link);
+          var favicon = favicons[0] || "";
           if (!favicon) return "";
+          var fallback = favicons.slice(1).join("|");
           return (
             '<a class="task-link-badge" href="' + escapeHtml(link) + '" target="_blank" rel="noreferrer noopener" title="' + escapeHtml(link) + '">' +
-              '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" />' +
+              '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="' + escapeHtml(fallback) + '" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />' +
             '</a>'
           );
         })
@@ -5348,7 +5459,16 @@
       });
     }
 
+    function syncEntityLinkBadges(entityType, entityId, links) {
+      if (!entityType || !entityId) return;
+      var key = entityType + ":" + entityId;
+      document.querySelectorAll('[data-entity-link-badges="' + key + '"]').forEach(function (container) {
+        container.innerHTML = renderTaskLinkBadges(links);
+      });
+    }
+
     function renderTaskSettings() {
+      if (currentEntityType !== "task") return;
       if (!taskSettingsTitleEl || !taskSettingsDueEl || !taskSettingsStatusEl || !taskSettingsMetaEl) return;
       var task = currentTaskData || {};
       taskSettingsTitleEl.value = task.title || "";
@@ -5376,6 +5496,35 @@
       taskSettingsMetaEl.textContent = bits.join(" · ");
     }
 
+    function renderEntitySettings() {
+      if (currentEntityType === "task") {
+        renderTaskSettings();
+        return;
+      }
+      if (!taskSettingsTitleEl || !taskSettingsMetaEl) return;
+      var entity = currentEntityData || {};
+      taskSettingsTitleEl.value = entity.name || currentTaskTitle || "";
+      if (taskSettingsDueEl) taskSettingsDueEl.value = "";
+      if (taskSettingsStatusEl) {
+        taskSettingsStatusEl.dataset.statusValue = "";
+        var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
+        if (label) label.textContent = "";
+      }
+      if (taskSettingsAssignmentsEl) {
+        taskSettingsAssignmentsEl.style.display = "none";
+        taskSettingsAssignmentsEl.innerHTML = "";
+      }
+      if (taskSettingsAssigneeEl) {
+        taskSettingsAssigneeEl.value = "";
+        taskSettingsAssigneeEl.setAttribute("data-assign-input", "");
+        taskSettingsAssigneeEl.setAttribute("data-target-id", "");
+      }
+      var bits = [];
+      if (currentEntityType === "group" && currentProjectName) bits.push(currentProjectName);
+      if (entity.created_at) bits.push("Created " + String(entity.created_at).slice(0, 10));
+      taskSettingsMetaEl.textContent = bits.join(" · ");
+    }
+
     function createSettingsAssignment(email) {
       if (!currentTaskId) return Promise.resolve(null);
       return fetch("/api/assignments", {
@@ -5398,10 +5547,10 @@
         .then(function (data) {
           if (!data || !data.id) return null;
           currentTaskData = data;
-          currentTaskLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
+          currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           renderTaskSettings();
-          renderTaskLinkState();
-          syncTaskLinkBadges(data.id, currentTaskLinks);
+          renderEntityLinkState();
+          syncTaskLinkBadges(data.id, currentEntityLinks);
           return data;
         });
     }
@@ -5420,39 +5569,77 @@
         });
     }
 
-    function persistTaskSettings() {
-      if (!currentTaskId) return Promise.resolve();
-      var payload = {
-        title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
-        due_at: taskSettingsDueEl ? taskSettingsDueEl.value : "",
-        status: taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "").trim() : "",
-      };
-      return fetch('/api/tasks/' + currentTaskId, {
+    function persistEntitySettings() {
+      if (!currentEntityId) return Promise.resolve();
+      if (currentEntityType === "task") {
+        var payload = {
+          title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
+          due_at: taskSettingsDueEl ? taskSettingsDueEl.value : "",
+          status: taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "").trim() : "",
+        };
+        return fetch('/api/tasks/' + currentEntityId, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (!data || !data.id) return;
+            currentTaskData = Object.assign({}, currentTaskData || {}, data);
+            applyTaskRowUpdate(currentTaskData);
+            renderTaskSettings();
+          })
+          .catch(function (err) { console.error('persistEntitySettings failed', err); });
+      }
+      var nameValue = taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "";
+      var endpoint = currentEntityType === "project"
+        ? '/api/projects/' + currentEntityId
+        : '/api/groups/' + currentEntityId;
+      return fetch(endpoint, {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ name: nameValue }),
       })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data || !data.id) return;
-          currentTaskData = Object.assign({}, currentTaskData || {}, data);
-          applyTaskRowUpdate(currentTaskData);
-          renderTaskSettings();
+          currentEntityData = Object.assign({}, currentEntityData || {}, data);
+          renderEntitySettings();
+          document.querySelectorAll('[data-open-entity][data-entity-type="' + currentEntityType + '"][data-entity-id="' + currentEntityId + '"]').forEach(function (button) {
+            button.setAttribute("data-entity-title", data.name || "");
+          });
+          if (currentEntityType === "project") {
+            document.querySelectorAll('[data-project-title="' + currentEntityId + '"]').forEach(function (node) {
+              node.textContent = data.name || node.textContent;
+            });
+            document.querySelectorAll('[data-selected-project-title="' + currentEntityId + '"]').forEach(function (node) {
+              node.textContent = data.name || node.textContent;
+            });
+          }
+          if (currentEntityType === "group") {
+            document.querySelectorAll('.group-title-text[data-group-id="' + currentEntityId + '"]').forEach(function (node) {
+              node.textContent = data.name || node.textContent;
+            });
+          }
         })
-        .catch(function (err) { console.error('persistTaskSettings failed', err); });
+        .catch(function (err) { console.error('persistEntitySettings failed', err); });
     }
 
-    function renderTaskLinkState() {
+    function renderEntityLinkState() {
       if (!linksListEl) return;
-      var links = Array.isArray(currentTaskLinks) ? currentTaskLinks : [];
+      var links = Array.isArray(currentEntityLinks) ? currentEntityLinks : [];
       var items = links.map(function (link, index) {
-        var favicon = faviconForLink(link);
+        var favicons = faviconCandidates(link);
+        var favicon = favicons[0] || "";
         var host = linkHostname(link);
         return (
           '<div class="discussion-link-row" data-link-row="' + index + '">' +
             '<div class="discussion-link-favicon">' +
-              (favicon ? '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" />' : '<i class="fa-solid fa-link" aria-hidden="true"></i>') +
+              (favicon
+                ? '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="' + escapeHtml(favicons.slice(1).join("|")) + '" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />'
+                : '<i class="fa-solid fa-link" aria-hidden="true"></i>') +
             '</div>' +
             '<div class="discussion-link-meta">' +
               '<a class="discussion-link-anchor" href="' + escapeHtml(link) + '" target="_blank" rel="noreferrer noopener">' + escapeHtml(formatLinkLabel(link)) + '</a>' +
@@ -5471,21 +5658,38 @@
       linksListEl.innerHTML = items.join('');
     }
 
-    function persistTaskLinks() {
-      if (!currentTaskId) return Promise.resolve();
-      var payload = Array.isArray(currentTaskLinks) ? currentTaskLinks.slice() : [];
-      return fetch('/api/tasks/' + currentTaskId, {
+    function persistEntityLinks() {
+      if (!currentEntityId) return Promise.resolve();
+      var payload = Array.isArray(currentEntityLinks) ? currentEntityLinks.slice() : [];
+      var endpoint = currentEntityType === "task"
+        ? '/api/tasks/' + currentEntityId
+        : currentEntityType === "project"
+          ? '/api/projects/' + currentEntityId
+          : '/api/groups/' + currentEntityId;
+      return fetch(endpoint, {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ links: payload }),
       })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
-        .catch(function (err) { console.error('persistTaskLinks failed', err); });
+        .then(function (data) {
+          if (!data || !data.id) return;
+          currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
+          if (currentEntityType === "task") {
+            syncTaskLinkBadges(data.id, currentEntityLinks);
+          } else {
+            syncEntityLinkBadges(currentEntityType, data.id, currentEntityLinks);
+          }
+        })
+        .catch(function (err) { console.error('persistEntityLinks failed', err); });
     }
 
     function loadTaskMeta(taskId, taskTitle, projectName) {
+      setDrawerEntityType("task");
+      currentEntityId = taskId;
       currentTaskId = taskId;
+      currentEntityData = null;
       drawer.setAttribute("data-open-task-id", String(taskId || ""));
       currentTaskTitle = taskTitle || "";
       currentProjectName = projectName || "";
@@ -5495,15 +5699,58 @@
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           currentTaskData = data || null;
-          currentTaskLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
+          currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           renderTaskSettings();
-          renderTaskLinkState();
+          renderEntityLinkState();
         })
         .catch(function () {
           currentTaskData = null;
-          currentTaskLinks = [];
+          currentEntityLinks = [];
           renderTaskSettings();
-          renderTaskLinkState();
+          renderEntityLinkState();
+        });
+    }
+
+    function loadEntityMeta(entityType, entityId, entityTitle, projectName) {
+      setDrawerEntityType(entityType);
+      currentEntityId = entityId;
+      currentTaskId = entityType === "task" ? entityId : null;
+      if (entityType !== "task") {
+        drawer.setAttribute("data-open-task-id", "");
+      }
+      currentTaskTitle = entityTitle || "";
+      currentProjectName = projectName || "";
+      currentEntityData = null;
+      currentTaskData = null;
+      var titleFallback = entityType === "project" ? "Project" : "Group";
+      titleEl.textContent = currentTaskTitle || titleFallback;
+      if (entityType === "project") {
+        subtitleEl.textContent = "Project details";
+      } else if (entityType === "group") {
+        subtitleEl.textContent = projectName ? projectName + " · Group details" : "Group details";
+      } else {
+        subtitleEl.textContent = "Task details";
+      }
+      if (entityType === "task") {
+        loadTaskMeta(entityId, entityTitle, projectName);
+        return;
+      }
+      var endpoint = entityType === "project"
+        ? "/api/projects/" + entityId
+        : "/api/groups/" + entityId;
+      fetch(endpoint, { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          currentEntityData = data || null;
+          currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
+          renderEntitySettings();
+          renderEntityLinkState();
+        })
+        .catch(function () {
+          currentEntityData = null;
+          currentEntityLinks = [];
+          renderEntitySettings();
+          renderEntityLinkState();
         });
     }
 
@@ -5631,9 +5878,9 @@
         currentTaskTitle = normalizedTitle;
         titleEl.textContent = currentTaskTitle || "Discussion";
         currentTaskData = Object.assign({}, currentTaskData || {}, task);
-        currentTaskLinks = task.links || (task.link ? [task.link] : []);
+        currentEntityLinks = task.links || (task.link ? [task.link] : []);
         renderTaskSettings();
-        renderTaskLinkState();
+        renderEntityLinkState();
       }
       syncTaskLinkBadges(task.id, task.links || (task.link ? [task.link] : []));
       document.querySelectorAll('.due-input[data-task-id="' + task.id + '"]').forEach(function (input) {
@@ -5759,7 +6006,7 @@
     }
 
     function beginInlineCommentEdit(commentId) {
-      if (!currentTaskId) return;
+      if (!currentEntityId) return;
       var comment = listEl.querySelector('[data-comment-id="' + commentId + '"]');
       if (!comment || comment.querySelector('.discussion-comment-editor')) return;
       var bodyEl = comment.querySelector('.discussion-comment-body');
@@ -5789,7 +6036,7 @@
     }
 
     function saveInlineCommentEdit(commentId) {
-      if (!currentTaskId) return;
+      if (!currentEntityId) return;
       var bodyEl = listEl.querySelector('[data-comment-id="' + commentId + '"] .discussion-comment-body');
       var input = bodyEl ? bodyEl.querySelector('[data-comment-edit-input="' + commentId + '"]') : null;
       if (!bodyEl || !input) return;
@@ -5803,7 +6050,7 @@
         cancelInlineCommentEdit(commentId);
         return;
       }
-      fetch('/api/tasks/' + currentTaskId + '/comments/' + commentId, {
+      fetch(commentBaseUrl(currentEntityType, currentEntityId) + '/comments/' + commentId, {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -5915,10 +6162,10 @@
       return true;
     }
 
-    function syncCommentCount(taskId) {
-      if (!taskId) return;
+    function syncCommentCount(entityType, entityId) {
+      if (!entityId) return;
       var count = listEl ? listEl.querySelectorAll("[data-comment-id]").length : 0;
-      setCommentCount(taskId, count);
+      setCommentCount(entityType, entityId, count);
     }
 
     function syncTaskRoom(taskId) {
@@ -5939,16 +6186,21 @@
     function closeDrawer() {
       drawer.classList.remove("open");
       currentTaskId = null;
+      currentEntityId = null;
+      currentEntityType = "task";
       drawer.setAttribute("data-open-task-id", "");
       currentTaskData = null;
-      currentTaskLinks = [];
+      currentEntityData = null;
+      currentEntityLinks = [];
+      setDrawerEntityType("task");
       renderTaskSettings();
-      renderTaskLinkState();
+      renderEntityLinkState();
       renderDiscussionPresence([]);
       syncTaskRoom(null);
     }
 
     function openSettingsStatusMenu() {
+      if (currentEntityType !== "task") return;
       var statusMenu = document.getElementById("status-menu");
       var statusMenuInput = document.getElementById("status-menu-input");
       if (!statusMenu || !taskSettingsStatusEl) return;
@@ -6048,12 +6300,22 @@
         .catch(function () {});
     }
 
-    function loadComments(taskId, taskTitle, projectName) {
-      loadTaskMeta(taskId, taskTitle, projectName);
+    function commentBaseUrl(type, id) {
+      if (type === "task") return "/api/tasks/" + id;
+      if (type === "project") return "/api/projects/" + id;
+      return "/api/groups/" + id;
+    }
+
+    function loadEntityComments(entityType, entityId, entityTitle, projectName) {
+      if (entityType === "task") {
+        loadTaskMeta(entityId, entityTitle, projectName);
+      } else {
+        loadEntityMeta(entityType, entityId, entityTitle, projectName);
+      }
       listEl.innerHTML = '<div class="footer-note">Loading…</div>';
       drawer.classList.add("open");
       setDrawerTab("messages");
-      fetch("/api/tasks/" + taskId + "/comments", { credentials: "same-origin" })
+      fetch(commentBaseUrl(entityType, entityId) + "/comments", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           var comments = data.comments || [];
@@ -6063,9 +6325,11 @@
           } else {
             listEl.innerHTML = comments.map(renderComment).join("");
           }
-          setCommentCount(taskId, comments.length);
-          setTaskUnread(taskId, false);
-          markRead(taskId);
+          setCommentCount(entityType, entityId, comments.length);
+          if (entityType === "task") {
+            setTaskUnread(entityId, false);
+            markRead(entityId);
+          }
         })
         .catch(function (err) {
           console.error("loadComments failed", err);
@@ -6089,13 +6353,37 @@
       setDrawerTab("settings");
     }
 
+    function openEntity(kind, entityType, entityId, entityTitle, projectName) {
+      if (entityType === "task") {
+        if (kind === "messages") {
+          loadEntityComments("task", entityId, entityTitle, projectName);
+        } else if (kind === "links") {
+          openLinks(entityId, entityTitle, projectName);
+        } else {
+          openSettings(entityId, entityTitle, projectName);
+        }
+        return;
+      }
+      if (kind === "messages") {
+        loadEntityComments(entityType, entityId, entityTitle, projectName);
+        return;
+      }
+      if (taskSettingsAssigneeEl) {
+        taskSettingsAssigneeEl.value = "";
+        taskSettingsAssigneeEl.dataset.assignSelecting = "0";
+      }
+      loadEntityMeta(entityType, entityId, entityTitle, projectName);
+      drawer.classList.add("open");
+      setDrawerTab(kind);
+    }
+
     function submitComment() {
       var body = (inputEl.value || "").trim();
-      if (!currentTaskId || !body) return;
-      var previousCount = getDisplayedCommentCount(currentTaskId);
-      setCommentCount(currentTaskId, previousCount + 1);
+      if (!currentEntityId || !body) return;
+      var previousCount = getDisplayedCommentCount(currentEntityType, currentEntityId);
+      setCommentCount(currentEntityType, currentEntityId, previousCount + 1);
       sendEl.disabled = true;
-      fetch("/api/tasks/" + currentTaskId + "/comments", {
+      fetch(commentBaseUrl(currentEntityType, currentEntityId) + "/comments", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -6104,19 +6392,19 @@
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data.comment) {
-            setCommentCount(currentTaskId, previousCount);
+            setCommentCount(currentEntityType, currentEntityId, previousCount);
             return;
           }
           upsertComment(data.comment);
           inputEl.value = "";
           var domCount = listEl ? listEl.querySelectorAll("[data-comment-id]").length : 0;
           var serverCount = typeof data.comment_count === "number" ? data.comment_count : 0;
-          setCommentCount(currentTaskId, Math.max(previousCount + 1, domCount, serverCount));
+          setCommentCount(currentEntityType, currentEntityId, Math.max(previousCount + 1, domCount, serverCount));
           listEl.scrollTop = listEl.scrollHeight;
         })
         .catch(function (err) {
           console.error("submitComment failed", err);
-          setCommentCount(currentTaskId, previousCount);
+          setCommentCount(currentEntityType, currentEntityId, previousCount);
         })
         .finally(function () {
           sendEl.disabled = false;
@@ -6124,7 +6412,7 @@
     }
 
     window.__openDiscussion = function (taskId, taskTitle, projectName) {
-      loadComments(taskId, taskTitle, projectName);
+      loadEntityComments("task", taskId, taskTitle, projectName);
       return false;
     };
     window.__openLinks = function (taskId, taskTitle, projectName) {
@@ -6135,10 +6423,15 @@
       openSettings(taskId, taskTitle, projectName);
       return false;
     };
+    window.__openEntity = function (kind, entityType, entityId, entityTitle, projectName) {
+      openEntity(kind, entityType, entityId, entityTitle, projectName);
+      return false;
+    };
 
     document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
       button.addEventListener("click", function () {
-        loadComments(
+        loadEntityComments(
+          "task",
           button.getAttribute("data-open-discussion"),
           button.getAttribute("data-task-title"),
           button.getAttribute("data-project-name")
@@ -6163,11 +6456,23 @@
         );
       });
     });
+    document.querySelectorAll("[data-open-entity]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        openEntity(
+          button.getAttribute("data-open-entity"),
+          button.getAttribute("data-entity-type"),
+          button.getAttribute("data-entity-id"),
+          button.getAttribute("data-entity-title"),
+          button.getAttribute("data-entity-project")
+        );
+      });
+    });
     document.addEventListener("click", function (event) {
       var discussionButton = event.target.closest("[data-open-discussion]");
       if (discussionButton) {
         event.preventDefault();
-        loadComments(
+        loadEntityComments(
+          "task",
           discussionButton.getAttribute("data-open-discussion"),
           discussionButton.getAttribute("data-task-title"),
           discussionButton.getAttribute("data-project-name")
@@ -6191,6 +6496,18 @@
           settingsButton.getAttribute("data-open-settings"),
           settingsButton.getAttribute("data-task-title"),
           settingsButton.getAttribute("data-project-name")
+        );
+        return;
+      }
+      var entityButton = event.target.closest("[data-open-entity]");
+      if (entityButton) {
+        event.preventDefault();
+        openEntity(
+          entityButton.getAttribute("data-open-entity"),
+          entityButton.getAttribute("data-entity-type"),
+          entityButton.getAttribute("data-entity-id"),
+          entityButton.getAttribute("data-entity-title"),
+          entityButton.getAttribute("data-entity-project")
         );
       }
     });
@@ -6254,7 +6571,8 @@
           }
           var button = document.querySelector('[data-open-discussion="' + payload.task_id + '"]');
           if (button) {
-            loadComments(
+            loadEntityComments(
+              "task",
               payload.task_id,
               button.getAttribute('data-task-title'),
               button.getAttribute('data-project-name')
@@ -6278,7 +6596,7 @@
     sendEl.addEventListener("click", submitComment);
     listEl.addEventListener("click", function (event) {
       var unreadButton = event.target.closest("[data-comment-unread]");
-      if (unreadButton && currentTaskId) {
+      if (unreadButton && currentEntityType === "task" && currentTaskId) {
         fetch("/api/tasks/" + currentTaskId + "/notifications/unread", {
           method: "POST",
           credentials: "same-origin",
@@ -6296,14 +6614,14 @@
       }
 
       var editButton = event.target.closest('[data-comment-edit]');
-      if (editButton && currentTaskId) {
+      if (editButton && currentEntityId) {
         var commentId = editButton.getAttribute('data-comment-edit');
         beginInlineCommentEdit(commentId);
         return;
       }
 
       var saveEditButton = event.target.closest('[data-comment-edit-save]');
-      if (saveEditButton && currentTaskId) {
+      if (saveEditButton && currentEntityId) {
         saveInlineCommentEdit(saveEditButton.getAttribute('data-comment-edit-save'));
         return;
       }
@@ -6315,10 +6633,10 @@
       }
 
       var deleteButton = event.target.closest('[data-comment-delete]');
-      if (deleteButton && currentTaskId) {
+      if (deleteButton && currentEntityId) {
         var deleteId = deleteButton.getAttribute('data-comment-delete');
         if (!window.confirm('Delete this message?')) return;
-        fetch('/api/tasks/' + currentTaskId + '/comments/' + deleteId, {
+        fetch(commentBaseUrl(currentEntityType, currentEntityId) + '/comments/' + deleteId, {
           method: 'DELETE',
           credentials: 'same-origin',
         })
@@ -6327,7 +6645,7 @@
             if (!result.ok) return;
             var row = listEl.querySelector('[data-comment-id="' + deleteId + '"]');
             if (row) row.remove();
-            syncCommentCount(currentTaskId);
+            syncCommentCount(currentEntityType, currentEntityId);
             if (!listEl.querySelector('[data-comment-id]')) {
               listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
             }
@@ -6341,9 +6659,9 @@
         if (!removeButton) return;
         var index = Number(removeButton.getAttribute('data-remove-link'));
         if (!Number.isFinite(index)) return;
-        currentTaskLinks = currentTaskLinks.filter(function (_link, idx) { return idx !== index; });
-        renderTaskLinkState();
-        persistTaskLinks();
+        currentEntityLinks = currentEntityLinks.filter(function (_link, idx) { return idx !== index; });
+        renderEntityLinkState();
+        persistEntityLinks();
       });
       linksListEl.addEventListener('keydown', function (event) {
         var input = event.target.closest('[data-link-index]');
@@ -6360,22 +6678,22 @@
         var indexAttr = input.getAttribute('data-link-index');
         if (indexAttr === 'new') {
           if (!value) return;
-          currentTaskLinks.push(value);
+          currentEntityLinks.push(value);
         } else {
           return;
         }
-        currentTaskLinks = currentTaskLinks
+        currentEntityLinks = currentEntityLinks
           .map(function (link) { return (link || '').trim(); })
           .filter(function (link, idx, arr) { return link && arr.indexOf(link) === idx; });
-        renderTaskLinkState();
-        persistTaskLinks();
+        renderEntityLinkState();
+        persistEntityLinks();
       }, true);
     }
 
     [taskSettingsTitleEl, taskSettingsDueEl, taskSettingsStatusEl].filter(Boolean).forEach(function (input) {
       if (input === taskSettingsStatusEl) return;
-      input.addEventListener('change', persistTaskSettings);
-      input.addEventListener('blur', persistTaskSettings);
+      input.addEventListener('change', persistEntitySettings);
+      input.addEventListener('blur', persistEntitySettings);
     });
     if (taskSettingsTitleEl) {
       taskSettingsTitleEl.addEventListener('keydown', function (event) {
@@ -6412,7 +6730,7 @@
           window.__applyStatusState(taskSettingsStatusEl, nextValue);
         }
         settingsStatusMenuActive = false;
-        persistTaskSettings();
+        persistEntitySettings();
       }
 
       statusMenu.addEventListener("click", function (event) {
@@ -6471,7 +6789,8 @@
     if (openTaskId) {
       var button = document.querySelector('[data-open-discussion="' + openTaskId + '"]');
       if (button) {
-        loadComments(
+        loadEntityComments(
+          "task",
           openTaskId,
           button.getAttribute("data-task-title"),
           button.getAttribute("data-project-name")
@@ -6492,7 +6811,8 @@
           if (pendingNotificationFocus.kind === "comment") {
             var pendingButton = document.querySelector('[data-open-discussion="' + pendingNotificationFocus.task_id + '"]');
             if (pendingButton) {
-              loadComments(
+              loadEntityComments(
+                "task",
                 pendingNotificationFocus.task_id,
                 pendingButton.getAttribute("data-task-title"),
                 pendingButton.getAttribute("data-project-name")
@@ -6547,9 +6867,9 @@
             applyTaskRowUpdate(task);
             if (String(currentTaskId || "") === String(task.id)) {
               currentTaskData = task;
-              currentTaskLinks = task.links || (task.link ? [task.link] : []);
+              currentEntityLinks = task.links || (task.link ? [task.link] : []);
               renderTaskSettings();
-              renderTaskLinkState();
+              renderEntityLinkState();
             }
           });
         }
@@ -6567,14 +6887,14 @@
 
       socket.on("task_comment_created", function (data) {
         if (!data || !data.task_id || !data.comment) return;
-        setCommentCount(data.task_id, Number(data.comment_count || 0));
+        setCommentCount("task", data.task_id, Number(data.comment_count || 0));
         if (String(currentTaskId || "") !== String(data.task_id)) return;
         var inserted = upsertComment(data.comment);
         var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {
           return el.getAttribute("data-comment-id");
         });
         commentSnapshot = JSON.stringify(comments);
-        syncCommentCount(data.task_id);
+        syncCommentCount("task", data.task_id);
         if (inserted) {
           listEl.scrollTop = listEl.scrollHeight;
         }
@@ -6590,11 +6910,11 @@
 
       socket.on("task_comment_deleted", function (data) {
         if (!data || !data.task_id || !data.comment_id) return;
-        setCommentCount(data.task_id, Number(data.comment_count || 0));
+        setCommentCount("task", data.task_id, Number(data.comment_count || 0));
         if (String(currentTaskId || '') !== String(data.task_id)) return;
         var row = listEl.querySelector('[data-comment-id="' + data.comment_id + '"]');
         if (row) row.remove();
-        syncCommentCount(data.task_id);
+        syncCommentCount("task", data.task_id);
         if (!listEl.querySelector('[data-comment-id]')) {
           listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
         }
@@ -6651,8 +6971,9 @@
 
     function pollOpenDiscussion() {
       if (socketConnected) return;
-      if (!currentTaskId || !drawer.classList.contains("open")) return;
-      fetch("/api/tasks/" + currentTaskId + "/comments", { credentials: "same-origin" })
+      if (!currentEntityId || !drawer.classList.contains("open")) return;
+      if (activeDrawerTab !== "messages") return;
+      fetch(commentBaseUrl(currentEntityType, currentEntityId) + "/comments", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           var comments = data.comments || [];
@@ -6664,9 +6985,11 @@
           } else {
             listEl.innerHTML = comments.map(renderComment).join("");
           }
-          setCommentCount(currentTaskId, comments.length);
-          setTaskUnread(currentTaskId, false);
-          markRead(currentTaskId);
+          setCommentCount(currentEntityType, currentEntityId, comments.length);
+          if (currentEntityType === "task") {
+            setTaskUnread(currentTaskId, false);
+            markRead(currentTaskId);
+          }
           listEl.scrollTop = listEl.scrollHeight;
         })
         .catch(function () {});

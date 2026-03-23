@@ -37,7 +37,23 @@ from app.sidebar_layout import (
 )
 import secrets
 
-from app.models import Division, Task, Project, ProjectSidebarPreference, Assignment, Invite, User, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, CollaboratorProfile
+from app.models import (
+    Division,
+    Task,
+    Project,
+    ProjectSidebarPreference,
+    Assignment,
+    Invite,
+    User,
+    Group,
+    ProjectMember,
+    GroupMember,
+    TaskComment,
+    TaskNotification,
+    CollaboratorProfile,
+    ProjectComment,
+    GroupComment,
+)
 from app.utils import current_user
 
 
@@ -170,6 +186,30 @@ def _serialize_task_comment(comment: TaskComment, author: User | None, collabora
         "updated_at": comment.updated_at.isoformat(),
         "author": author_payload,
     }
+
+
+def _serialize_simple_comment(comment, author: User | None, *, project_id: int | None = None, group_id: int | None = None) -> dict:
+    label = (author.display_name or author.email) if author else "Unknown user"
+    author_payload = {
+        "id": author.id if author else None,
+        "display_name": label,
+        "email": author.email if author else None,
+        "avatar_url": author.avatar_url if author else None,
+        "kind": "user",
+    }
+    payload = {
+        "id": comment.id,
+        "user_id": comment.user_id,
+        "body": comment.body,
+        "created_at": comment.created_at.isoformat(),
+        "updated_at": comment.updated_at.isoformat(),
+        "author": author_payload,
+    }
+    if project_id is not None:
+        payload["project_id"] = project_id
+    if group_id is not None:
+        payload["group_id"] = group_id
+    return payload
 
 
 def _serialize_assignment_row(assignment: Assignment) -> dict:
@@ -553,6 +593,41 @@ def get_task(task_id: int):
     }, 200
 
 
+@api_bp.get("/projects/<int:project_id>")
+@login_required
+def get_project(project_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+    return {
+        "id": project.id,
+        "name": project.name,
+        "links": _info_payload_for(project).get("links", []),
+        "created_at": project.created_at.isoformat() if project.created_at else None,
+    }, 200
+
+
+@api_bp.get("/groups/<int:group_id>")
+@login_required
+def get_group(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_access_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+    return {
+        "id": group.id,
+        "project_id": group.project_id,
+        "name": group.name,
+        "links": _info_payload_for(group).get("links", []),
+        "created_at": group.created_at.isoformat() if group.created_at else None,
+    }, 200
+
+
 @api_bp.get("/tasks/<int:task_id>/comments")
 @login_required
 def list_task_comments(task_id: int):
@@ -658,6 +733,174 @@ def delete_task_comment(task_id: int, comment_id: int):
     db.session.delete(comment)
     db.session.commit()
     emit_task_comment_deleted(task.id, comment_id)
+    return {"status": "ok", "comment_id": comment_id}, 200
+
+
+@api_bp.get("/projects/<int:project_id>/comments")
+@login_required
+def list_project_comments(project_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+
+    comments = ProjectComment.query.filter_by(project_id=project.id).order_by(ProjectComment.created_at.asc(), ProjectComment.id.asc()).all()
+    user_ids = {comment.user_id for comment in comments}
+    users = {row.id: row for row in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    return {
+        "comments": [_serialize_simple_comment(comment, users.get(comment.user_id), project_id=project.id) for comment in comments],
+    }
+
+
+@api_bp.post("/projects/<int:project_id>/comments")
+@login_required
+def create_project_comment(project_id: int):
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return {"error": "body is required"}, 400
+
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+
+    comment = ProjectComment(project_id=project.id, user_id=user.id, body=body)
+    db.session.add(comment)
+    db.session.commit()
+    comment_count = ProjectComment.query.filter_by(project_id=project.id).count()
+    return {"comment": _serialize_simple_comment(comment, user, project_id=project.id), "comment_count": comment_count}, 201
+
+
+@api_bp.patch("/projects/<int:project_id>/comments/<int:comment_id>")
+@login_required
+def update_project_comment(project_id: int, comment_id: int):
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return {"error": "body is required"}, 400
+
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+
+    comment = ProjectComment.query.filter_by(id=comment_id, project_id=project.id, user_id=user.id).first()
+    if not comment:
+        return {"error": "comment not found"}, 404
+
+    comment.body = body
+    db.session.commit()
+    payload = _serialize_simple_comment(comment, user, project_id=project.id)
+    return {"comment": payload}, 200
+
+
+@api_bp.delete("/projects/<int:project_id>/comments/<int:comment_id>")
+@login_required
+def delete_project_comment(project_id: int, comment_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+
+    comment = ProjectComment.query.filter_by(id=comment_id, project_id=project.id, user_id=user.id).first()
+    if not comment:
+        return {"error": "comment not found"}, 404
+
+    db.session.delete(comment)
+    db.session.commit()
+    return {"status": "ok", "comment_id": comment_id}, 200
+
+
+@api_bp.get("/groups/<int:group_id>/comments")
+@login_required
+def list_group_comments(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_access_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+
+    comments = GroupComment.query.filter_by(group_id=group.id).order_by(GroupComment.created_at.asc(), GroupComment.id.asc()).all()
+    user_ids = {comment.user_id for comment in comments}
+    users = {row.id: row for row in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    return {
+        "comments": [_serialize_simple_comment(comment, users.get(comment.user_id), group_id=group.id) for comment in comments],
+    }
+
+
+@api_bp.post("/groups/<int:group_id>/comments")
+@login_required
+def create_group_comment(group_id: int):
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return {"error": "body is required"}, 400
+
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_access_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+
+    comment = GroupComment(group_id=group.id, user_id=user.id, body=body)
+    db.session.add(comment)
+    db.session.commit()
+    comment_count = GroupComment.query.filter_by(group_id=group.id).count()
+    return {"comment": _serialize_simple_comment(comment, user, group_id=group.id), "comment_count": comment_count}, 201
+
+
+@api_bp.patch("/groups/<int:group_id>/comments/<int:comment_id>")
+@login_required
+def update_group_comment(group_id: int, comment_id: int):
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    if not body:
+        return {"error": "body is required"}, 400
+
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_access_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+
+    comment = GroupComment.query.filter_by(id=comment_id, group_id=group.id, user_id=user.id).first()
+    if not comment:
+        return {"error": "comment not found"}, 404
+
+    comment.body = body
+    db.session.commit()
+    payload = _serialize_simple_comment(comment, user, group_id=group.id)
+    return {"comment": payload}, 200
+
+
+@api_bp.delete("/groups/<int:group_id>/comments/<int:comment_id>")
+@login_required
+def delete_group_comment(group_id: int, comment_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_access_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+
+    comment = GroupComment.query.filter_by(id=comment_id, group_id=group.id, user_id=user.id).first()
+    if not comment:
+        return {"error": "comment not found"}, 404
+
+    db.session.delete(comment)
+    db.session.commit()
     return {"status": "ok", "comment_id": comment_id}, 200
 
 
@@ -809,8 +1052,10 @@ def update_group(group_id: int):
     payload = request.get_json(silent=True) or {}
     user = current_user()
     name = payload.get("name")
-    if name is None:
-        return {"error": "name is required"}, 400
+    link = payload.get("link")
+    links = payload.get("links")
+    if name is None and links is None and link is None:
+        return {"error": "name or links is required"}, 400
 
     group = Group.query.get(group_id)
     if not group:
@@ -819,9 +1064,18 @@ def update_group(group_id: int):
     if not _can_manage_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
 
-    group.name = name.strip() or group.name
+    if name is not None:
+        group.name = name.strip() or group.name
+    info_payload = _info_payload_for(group)
+    if links is None and link is not None:
+        stripped_link = link.strip()
+        links = [stripped_link] if stripped_link else []
+    if links is not None:
+        info_payload["links"] = links
+        group.link = (info_payload.get("links") or [None])[0]
+        group.info = normalize_info_payload(info_payload, group.link)
     db.session.commit()
-    return {"id": group.id, "name": group.name}, 200
+    return {"id": group.id, "name": group.name, "links": _info_payload_for(group).get("links", [])}, 200
 
 
 @api_bp.patch("/projects/<int:project_id>")
@@ -831,9 +1085,13 @@ def update_project(project_id: int):
     user = current_user()
     name = payload.get("name")
     division_id = payload.get("division_id", "__missing__")
-    if name is None and division_id == "__missing__":
-        return {"error": "name or division_id is required"}, 400
+    link = payload.get("link")
+    links = payload.get("links")
+    if name is None and division_id == "__missing__" and links is None and link is None:
+        return {"error": "name, links, or division_id is required"}, 400
     if name is not None and not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    if (links is not None or link is not None) and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if division_id != "__missing__" and not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
@@ -842,6 +1100,14 @@ def update_project(project_id: int):
         return {"error": "project not found"}, 404
     if name is not None:
         project.name = name.strip() or project.name
+    if links is None and link is not None:
+        stripped_link = link.strip()
+        links = [stripped_link] if stripped_link else []
+    if links is not None:
+        info_payload = _info_payload_for(project)
+        info_payload["links"] = links
+        project.link = (info_payload.get("links") or [None])[0]
+        project.info = normalize_info_payload(info_payload, project.link)
     if division_id != "__missing__":
         pref = ensure_sidebar_preference(user.id, project.id, default_division_id=project.division_id, default_position=project.position or 0)
         old_division_id = pref.division_id
@@ -881,7 +1147,12 @@ def update_project(project_id: int):
                 resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
     db.session.commit()
     current_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
-    return {"id": project.id, "name": project.name, "division_id": current_pref.division_id if current_pref else None}, 200
+    return {
+        "id": project.id,
+        "name": project.name,
+        "division_id": current_pref.division_id if current_pref else None,
+        "links": _info_payload_for(project).get("links", []),
+    }, 200
 
 
 @api_bp.post("/projects/<int:project_id>/move")

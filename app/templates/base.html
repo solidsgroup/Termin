@@ -1853,7 +1853,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 6px;
+        margin-bottom: 12px;
       }
 
       .share-avatars {
@@ -1955,7 +1955,7 @@
         opacity: 0.6;
       }
 
-      .group-block.drag-over .panel.group {
+      .group-block.drag-over .panel.group .table {
         box-shadow: 0 0 0 1px var(--group-color, var(--accent));
       }
 
@@ -1973,18 +1973,30 @@
       }
 
       .panel.group {
-        border-color: var(--group-color, var(--border));
-        padding-top: 8px;
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 24%, transparent),
-          0 18px 40px rgba(0, 0, 0, 0.2);
+        border: 0;
+        background: transparent;
+        padding: 0;
+        padding-top: 0;
+        box-shadow: none;
       }
 
       body[data-theme="light"] .panel.group {
-        border-color: color-mix(in srgb, var(--group-color, var(--border)) 88%, white 12%);
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 54%, transparent),
-          0 8px 18px rgba(15, 23, 42, 0.06);
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .panel.group .table {
+        border-left: 3px solid var(--group-color, var(--border));
+        border-radius: 10px;
+        padding-left: 6px;
+        background: color-mix(in srgb, var(--panel) 94%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 18%, transparent);
+      }
+
+      body[data-theme="light"] .panel.group .table {
+        background: color-mix(in srgb, white 96%, var(--panel) 4%);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 28%, transparent);
       }
 
       .group-title {
@@ -1992,26 +2004,18 @@
         align-items: center;
         gap: 8px;
         color: var(--group-color, var(--accent));
-        font-size: 15px;
+        font-size: 16px;
+        font-weight: 700;
         margin: 0;
-        padding: 0 8px 0 6px;
-        background: linear-gradient(
-          to bottom,
-          transparent 0%,
-          transparent 35%,
-          var(--panel) 35%,
-          var(--panel) 65%,
-          transparent 65%,
-          transparent 100%
-        );
-        position: relative;
-        top: -18px;
-        line-height: 1.1;
-        text-shadow: 0 0 18px color-mix(in srgb, var(--group-color, transparent) 18%, transparent);
+        padding: 0;
+        background: none;
+        position: static;
+        line-height: 1.2;
+        text-shadow: 0 6px 16px color-mix(in srgb, var(--group-color, transparent) 20%, transparent);
       }
 
       body[data-theme="light"] .group-title {
-        color: color-mix(in srgb, var(--group-color, var(--accent)) 98%, #243447 2%);
+        color: color-mix(in srgb, var(--group-color, var(--accent)) 94%, #0f172a 6%);
         text-shadow: none;
       }
 
