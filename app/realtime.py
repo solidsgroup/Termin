@@ -312,6 +312,12 @@ def group_members_payload(group_id: int) -> dict:
     if project:
         users.extend(User.query.get(row.user_id) for row in ProjectMember.query.filter_by(project_id=project.id).all())
     users.extend(User.query.get(row.user_id) for row in GroupMember.query.filter_by(group_id=group_id).all())
+    task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.group_id == group_id).all()]
+    if task_ids:
+        users.extend(
+            User.query.get(row.user_id)
+            for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
+        )
     deduped = []
     seen = set()
     for user in users:

@@ -5105,6 +5105,7 @@
       if (presenceEl) {
         presenceEl.style.display = activeDrawerTab === "messages" ? "" : "none";
       }
+      syncTaskRoom(drawer.classList.contains("open") && activeDrawerTab === "messages" ? currentTaskId : null);
     }
 
     function faviconForLink(link) {
@@ -5829,10 +5830,9 @@
 
     function loadComments(taskId, taskTitle, projectName) {
       loadTaskMeta(taskId, taskTitle, projectName);
-      setDrawerTab("messages");
       listEl.innerHTML = '<div class="footer-note">Loading…</div>';
       drawer.classList.add("open");
-      syncTaskRoom(taskId);
+      setDrawerTab("messages");
       fetch("/api/tasks/" + taskId + "/comments", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
@@ -5855,9 +5855,8 @@
 
     function openLinks(taskId, taskTitle, projectName) {
       loadTaskMeta(taskId, taskTitle, projectName);
-      setDrawerTab("links");
       drawer.classList.add("open");
-      syncTaskRoom(null);
+      setDrawerTab("links");
     }
 
     function openSettings(taskId, taskTitle, projectName) {
@@ -5866,9 +5865,8 @@
         taskSettingsAssigneeEl.dataset.assignSelecting = "0";
       }
       loadTaskMeta(taskId, taskTitle, projectName);
-      setDrawerTab("settings");
       drawer.classList.add("open");
-      syncTaskRoom(null);
+      setDrawerTab("settings");
     }
 
     function submitComment() {
@@ -6296,7 +6294,7 @@
         socketConnected = true;
         joinedProjectIds = new Set();
         syncProjectRooms();
-        syncTaskRoom(currentTaskId);
+        syncTaskRoom(drawer.classList.contains("open") && activeDrawerTab === "messages" ? currentTaskId : null);
       });
 
       socket.on("disconnect", function () {

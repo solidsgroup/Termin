@@ -67,6 +67,18 @@ def _resolved_reply_to(reply_to: str | None, from_email: str) -> str | None:
     return None
 
 
+def _inviter_label(inviter_name: str | None, inviter_email: str | None) -> str:
+    safe_name = (inviter_name or "").strip()
+    safe_email = (inviter_email or "").strip()
+    if safe_name and safe_email:
+        return f"{safe_name} ({safe_email})"
+    if safe_name:
+        return safe_name
+    if safe_email:
+        return safe_email
+    return "Someone"
+
+
 def _email_button(url: str, label: str) -> str:
     return (
         '<a href="'
@@ -553,9 +565,10 @@ def send_magic_link_email(
     inviter_email: str | None = None,
     inviter_name: str | None = None,
 ) -> None:
+    inviter_label = _inviter_label(inviter_name, inviter_email)
     subject_target = subtask_title or task_title or "task"
-    subject = f"Task for your review: {subject_target}"
-    intro = f"You have a task ready for review."
+    subject = f"{inviter_label} has assigned you 1 task: {subject_target}"
+    intro = f"{inviter_label} has assigned you 1 task."
     primary_url = manage_url or invite_url or ""
     project_line = f"Project: {project_name}\n" if project_name else ""
     task_line = f"Task: {task_title}\n" if task_title else ""
@@ -580,7 +593,7 @@ def send_magic_link_email(
     )
     html_body = _render_email_template(
         eyebrow="Termin Task",
-        title="A task is ready for you",
+        title="You have 1 assigned task",
         intro=intro,
         body_html=body_html,
     )
@@ -604,9 +617,11 @@ def send_magic_link_digest_email(
     inviter_name: str | None = None,
 ) -> None:
     count = len(items)
-    subject = f"{count} tasks are ready for your review"
+    inviter_label = _inviter_label(inviter_name, inviter_email)
+    task_word = "task" if count == 1 else "tasks"
+    subject = f"{inviter_label} has assigned you {count} {task_word}"
     text_lines = [
-        f"You have {count} tasks ready for review.",
+        f"{inviter_label} has assigned you {count} {task_word}.",
         "",
     ]
     html_parts = []
@@ -654,8 +669,8 @@ def send_magic_link_digest_email(
 
     html_body = _render_email_template(
         eyebrow="Termin Tasks",
-        title=f"{count} tasks are ready for you",
-        intro=f"You have {count} tasks ready for review.",
+        title=f"You have {count} assigned {task_word}",
+        intro=f"{inviter_label} has assigned you {count} {task_word}.",
         body_html="".join(html_parts),
     )
 

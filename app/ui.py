@@ -583,11 +583,27 @@ def dashboard():
         group_member_map = {}
         for row in group_member_rows:
             group_member_map.setdefault(row.group_id, set()).add(row.user_id)
+        grouped_tasks = Task.query.filter(Task.group_id.in_(group_ids)).all() if group_ids else []
+        task_group_map = {task.id: task.group_id for task in grouped_tasks if task.group_id}
+        group_assignment_map = {}
+        if task_group_map:
+            for row in Assignment.query.filter(Assignment.task_id.in_(list(task_group_map.keys())), Assignment.user_id.isnot(None)).all():
+                group_id = task_group_map.get(row.task_id)
+                if not group_id:
+                    continue
+                group_assignment_map.setdefault(group_id, set()).add(row.user_id)
         for group in Group.query.filter(Group.id.in_(group_ids)).all():
             viewers = set()
-            project_viewers_ids = [u.id for u in project_viewers.get(group.project_id, [])]
-            viewers.update(project_viewers_ids)
+            project = project_map.get(group.project_id)
+            if project and project.owner_id:
+                viewers.add(project.owner_id)
+            viewers.update(
+                item["id"]
+                for item in project_access_map(group.project_id).values()
+                if item.get("project_member") and item.get("id")
+            )
             viewers.update(group_member_map.get(group.id, set()))
+            viewers.update(group_assignment_map.get(group.id, set()))
             group_viewers[group.id] = [user_map.get(uid) for uid in viewers if user_map.get(uid)]
 
     visible_group_ids = {
