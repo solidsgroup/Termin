@@ -2,7 +2,7 @@
 {% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
   {% set project_color = color or '#2a3442' %}
-  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}"{% if can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
+  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}"{% if can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
     {% set viewers = project_viewers.get(project.id, []) %}
     {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
     <div class="project-item-top">
@@ -2323,6 +2323,20 @@
       }
     });
   })();
+</script>
+
+<script>
+  document.addEventListener("click", function (event) {
+    var projectTile = event.target.closest("[data-project-href]");
+    if (!projectTile) return;
+    if (event.defaultPrevented) return;
+    if (projectTile.classList.contains("dragging")) return;
+    if (event.target.closest("a, button, input, textarea, select, [contenteditable='true']")) return;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (selection && String(selection).trim()) return;
+    var href = projectTile.getAttribute("data-project-href");
+    if (href) window.location.href = href;
+  });
 </script>
 
 <script>

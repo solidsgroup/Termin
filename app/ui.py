@@ -26,7 +26,7 @@ from app.identity import (
 )
 from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
-from app.realtime import emit_assignment_updated, emit_task_comment_created, emit_task_notification_updates, is_user_viewing_task, project_access_map, _task_notification_user_ids
+from app.realtime import emit_assignment_updated, emit_task_comment_created, emit_task_notification_updates, is_user_viewing_task, _task_notification_user_ids
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -56,6 +56,14 @@ def _task_ordering(query):
     return query.order_by(Task.position.asc(), Task.id.asc())
 
 
+def _should_show_todo_task(task: Task, show_completed: bool, today: date) -> bool:
+    if show_completed or not _is_complete_status(task.status):
+        return True
+    if task.due_at and task.due_at.date() >= today:
+        return True
+    return False
+
+
 def _division_palette() -> list[str]:
     return [
         "#1f77b4",
@@ -69,6 +77,93 @@ def _division_palette() -> list[str]:
         "#bcbd22",
         "#17becf",
     ]
+
+
+def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, list[User]], dict[int, list[User]], dict[int, User]]:
+    if not projects:
+        return {}, {}, {}
+
+    project_ids = [project.id for project in projects]
+    project_by_id = {project.id: project for project in projects}
+    group_rows = Group.query.filter(Group.project_id.in_(project_ids)).all()
+    group_by_id = {group.id: group for group in group_rows}
+    group_ids = list(group_by_id.keys())
+
+    project_flags: dict[int, dict[int, dict[str, bool]]] = {project_id: {} for project_id in project_ids}
+    group_user_ids: dict[int, set[int]] = {group_id: set() for group_id in group_ids}
+    user_ids: set[int] = set()
+
+    def ensure_project_flag(project_id: int, user_id: int) -> dict[str, bool]:
+        row = project_flags.setdefault(project_id, {}).setdefault(
+            user_id,
+            {"owner": False, "project_member": False},
+        )
+        user_ids.add(user_id)
+        return row
+
+    for project in projects:
+        if project.owner_id:
+            flag = ensure_project_flag(project.id, project.owner_id)
+            flag["owner"] = True
+            flag["project_member"] = True
+
+    for row in ProjectMember.query.filter(ProjectMember.project_id.in_(project_ids)).all():
+        flag = ensure_project_flag(row.project_id, row.user_id)
+        flag["project_member"] = True
+
+    if group_ids:
+        for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all():
+            group = group_by_id.get(row.group_id)
+            if not group:
+                continue
+            group_user_ids.setdefault(row.group_id, set()).add(row.user_id)
+            user_ids.add(row.user_id)
+
+        task_rows = db.session.query(Task.id, Task.project_id, Task.group_id).filter(Task.project_id.in_(project_ids)).all()
+        task_group_map = {task_id: group_id for task_id, _project_id, group_id in task_rows if group_id}
+        if task_group_map:
+            for row in Assignment.query.filter(Assignment.task_id.in_(list(task_group_map.keys())), Assignment.user_id.isnot(None)).all():
+                group_id = task_group_map.get(row.task_id)
+                if not group_id or row.user_id is None:
+                    continue
+                group_user_ids.setdefault(group_id, set()).add(row.user_id)
+                user_ids.add(row.user_id)
+
+    user_map = {
+        user.id: user
+        for user in User.query.filter(User.id.in_(user_ids)).all()
+    } if user_ids else {}
+
+    project_viewers: dict[int, list[User]] = {}
+    for project_id, flags_by_user in project_flags.items():
+        viewers = [user_map[user_id] for user_id in flags_by_user.keys() if user_id in user_map]
+        viewers.sort(
+            key=lambda user: (
+                0 if flags_by_user[user.id].get("owner") else 1,
+                0 if flags_by_user[user.id].get("project_member") else 1,
+                (user.display_name or user.email or "").lower(),
+            )
+        )
+        project_viewers[project_id] = viewers
+
+    group_viewers: dict[int, list[User]] = {}
+    for group_id, member_ids in group_user_ids.items():
+        group = group_by_id.get(group_id)
+        if not group:
+            continue
+        project_flag_map = project_flags.get(group.project_id, {})
+        combined_ids = set(member_ids).union(project_flag_map.keys())
+        viewers = [user_map[user_id] for user_id in combined_ids if user_id in user_map]
+        viewers.sort(
+            key=lambda user: (
+                0 if project_flag_map.get(user.id, {}).get("owner") else 1,
+                0 if project_flag_map.get(user.id, {}).get("project_member") else 1,
+                (user.display_name or user.email or "").lower(),
+            )
+        )
+        group_viewers[group_id] = viewers
+
+    return project_viewers, group_viewers, user_map
 
 
 def _render_account_page(user: User, *, section: str = "emails", error: str | None = None, message: str | None = None):
@@ -427,9 +522,10 @@ def dashboard():
     github_project_id = github_sync_state.project_id if github_sync_state else None
     github_auto_sync_needed = bool(github_identity and github_identity.access_token and should_sync_github_issues(user.id))
     current_view = (request.args.get("view") or "project").strip().lower()
-    show_completed = (request.args.get("show_completed") or "1").strip().lower() not in {"0", "false", "no", "off"}
     if current_view not in {"project", "todo"}:
         current_view = "project"
+    default_show_completed = "0" if current_view == "todo" else "1"
+    show_completed = (request.args.get("show_completed") or default_show_completed).strip().lower() not in {"0", "false", "no", "off"}
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
     member_project_ids = [
         m.project_id for m in ProjectMember.query.filter_by(user_id=user.id).all()
@@ -555,11 +651,6 @@ def dashboard():
                 for grouped_tasks in tasks_by_group.values():
                     grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
                 ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
-    project_ids = [p.id for p in projects]
-    all_task_ids = [t.id for t in _task_ordering(Task.query.filter(Task.project_id.in_(project_ids))).all()] if project_ids else []
-    invites = []
-    if owned_projects:
-        invites = Invite.query.filter(Invite.task_id.in_(all_task_ids)).all()
     assignments_by_task = {}
     info_by_task = {}
     if tasks:
@@ -569,133 +660,110 @@ def dashboard():
         for task in tasks:
             info_by_task[task.id] = load_info_payload(task.info, task.link)
 
-    user_map = {u.id: u for u in User.query.all()}
     project_map = {project.id: project for project in projects}
-    project_viewers = {}
-    group_viewers = {}
-    if projects:
-        project_ids = [p.id for p in projects]
-        for project in projects:
-            viewers = list(project_access_map(project.id).values())
-            viewers.sort(key=lambda item: (0 if item.get("owner") else 1, 0 if item.get("project_member") else 1, (item.get("display_name") or item.get("email") or "").lower()))
-            project_viewers[project.id] = [user_map.get(item["id"]) for item in viewers if user_map.get(item["id"])]
+    project_viewers, group_viewers, viewer_user_map = _build_dashboard_viewer_maps(projects)
+    user_map = dict(viewer_user_map)
+    missing_assignee_ids = {
+        assignment.user_id
+        for assignments in assignments_by_task.values()
+        for assignment in assignments
+        if assignment.user_id and assignment.user_id not in user_map
+    }
+    if missing_assignee_ids:
+        for assignee in User.query.filter(User.id.in_(missing_assignee_ids)).all():
+            user_map[assignee.id] = assignee
 
-        group_ids = [g.id for g in Group.query.filter(Group.project_id.in_(project_ids)).all()]
-        group_member_rows = GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all() if group_ids else []
-        group_member_map = {}
-        for row in group_member_rows:
-            group_member_map.setdefault(row.group_id, set()).add(row.user_id)
-        grouped_tasks = Task.query.filter(Task.group_id.in_(group_ids)).all() if group_ids else []
-        task_group_map = {task.id: task.group_id for task in grouped_tasks if task.group_id}
-        group_assignment_map = {}
-        if task_group_map:
-            for row in Assignment.query.filter(Assignment.task_id.in_(list(task_group_map.keys())), Assignment.user_id.isnot(None)).all():
-                group_id = task_group_map.get(row.task_id)
-                if not group_id:
-                    continue
-                group_assignment_map.setdefault(group_id, set()).add(row.user_id)
-        for group in Group.query.filter(Group.id.in_(group_ids)).all():
-            viewers = set()
-            project = project_map.get(group.project_id)
-            if project and project.owner_id:
-                viewers.add(project.owner_id)
-            viewers.update(
-                item["id"]
-                for item in project_access_map(group.project_id).values()
-                if item.get("project_member") and item.get("id")
-            )
-            viewers.update(group_member_map.get(group.id, set()))
-            viewers.update(group_assignment_map.get(group.id, set()))
-            group_viewers[group.id] = [user_map.get(uid) for uid in viewers if user_map.get(uid)]
-
-    visible_group_ids = {
-        row.group_id
-        for row in GroupMember.query.join(Group, Group.id == GroupMember.group_id)
-        .filter(GroupMember.user_id == user.id, Group.project_id.in_(project_ids if project_ids else [-1]))
-        .all()
-    } if project_ids else set()
-    visible_task_ids = set()
-    if manageable_project_ids:
-        visible_task_ids.update(
-            row.id for row in Task.query.filter(Task.project_id.in_(manageable_project_ids)).all()
-        )
-    if visible_group_ids:
-        visible_task_ids.update(
-            row.id for row in Task.query.filter(Task.group_id.in_(visible_group_ids)).all()
-        )
-    visible_task_ids.update(task_id for task_id in assigned_task_ids if task_id)
-    todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
-    if not show_completed:
-        todo_tasks = [task for task in todo_tasks if not _is_complete_status(task.status)]
-    todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
-    todo_items = []
     today = now_utc.date()
-    week_start = today - timedelta(days=today.weekday())
-    next_week_start = week_start + timedelta(days=7)
-    two_weeks_start = week_start + timedelta(days=14)
-    three_weeks_start = week_start + timedelta(days=21)
-    four_weeks_start = week_start + timedelta(days=28)
-    next_month_year = today.year + (1 if today.month == 12 else 0)
-    next_month_month = 1 if today.month == 12 else today.month + 1
-    month_after_next_year = next_month_year + (1 if next_month_month == 12 else 0)
-    month_after_next_month = 1 if next_month_month == 12 else next_month_month + 1
-    next_month_start = date(next_month_year, next_month_month, 1)
-    month_after_next_start = date(month_after_next_year, month_after_next_month, 1)
+    todo_items = []
+    todo_tasks = []
+    if current_view == "todo":
+        project_ids = [p.id for p in projects]
+        visible_group_ids = {
+            row.group_id
+            for row in GroupMember.query.join(Group, Group.id == GroupMember.group_id)
+            .filter(GroupMember.user_id == user.id, Group.project_id.in_(project_ids if project_ids else [-1]))
+            .all()
+        } if project_ids else set()
+        visible_task_ids = set()
+        if manageable_project_ids:
+            visible_task_ids.update(
+                row.id for row in Task.query.filter(Task.project_id.in_(manageable_project_ids)).all()
+            )
+        if visible_group_ids:
+            visible_task_ids.update(
+                row.id for row in Task.query.filter(Task.group_id.in_(visible_group_ids)).all()
+            )
+        visible_task_ids.update(task_id for task_id in assigned_task_ids if task_id)
+        todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
+        if not show_completed:
+            todo_tasks = [task for task in todo_tasks if _should_show_todo_task(task, show_completed, today)]
+        todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
+        week_start = today - timedelta(days=today.weekday())
+        next_week_start = week_start + timedelta(days=7)
+        two_weeks_start = week_start + timedelta(days=14)
+        three_weeks_start = week_start + timedelta(days=21)
+        four_weeks_start = week_start + timedelta(days=28)
+        next_month_year = today.year + (1 if today.month == 12 else 0)
+        next_month_month = 1 if today.month == 12 else today.month + 1
+        month_after_next_year = next_month_year + (1 if next_month_month == 12 else 0)
+        month_after_next_month = 1 if next_month_month == 12 else next_month_month + 1
+        next_month_start = date(next_month_year, next_month_month, 1)
+        month_after_next_start = date(month_after_next_year, month_after_next_month, 1)
 
-    def todo_bucket(due_date):
-        if due_date is None:
-            return ("none", "No Due Date", 9)
-        if due_date < today:
-            return ("overdue", "Overdue", 0)
-        if due_date == today:
-            return ("today", "Today", 1)
-        if due_date == today + timedelta(days=1):
-            return ("tomorrow", "Tomorrow", 2)
-        if due_date < next_week_start:
-            return ("this_week", "This Week", 3)
-        if due_date < two_weeks_start:
-            return ("next_week", "Next Week", 4)
-        if due_date < three_weeks_start:
-            return ("two_weeks", "Two Weeks", 5)
-        if due_date < four_weeks_start:
-            return ("three_weeks", "Three Weeks", 6)
-        if next_month_start <= due_date < month_after_next_start:
-            return ("next_month", "Next Month", 7)
-        return ("later", "Later", 8)
+        def todo_bucket(due_date):
+            if due_date is None:
+                return ("none", "No Due Date", 9)
+            if due_date < today:
+                return ("overdue", "Overdue", 0)
+            if due_date == today:
+                return ("today", "Today", 1)
+            if due_date == today + timedelta(days=1):
+                return ("tomorrow", "Tomorrow", 2)
+            if due_date < next_week_start:
+                return ("this_week", "This Week", 3)
+            if due_date < two_weeks_start:
+                return ("next_week", "Next Week", 4)
+            if due_date < three_weeks_start:
+                return ("two_weeks", "Two Weeks", 5)
+            if due_date < four_weeks_start:
+                return ("three_weeks", "Three Weeks", 6)
+            if next_month_start <= due_date < month_after_next_start:
+                return ("next_month", "Next Month", 7)
+            return ("later", "Later", 8)
 
-    for task in todo_tasks:
-        project = project_map.get(task.project_id)
-        if not project:
-            continue
-        pref = sidebar_pref_map.get(project.id)
-        division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
-        bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
-        todo_items.append(
-            {
-                "task": task,
-                "project": project,
-                "group": todo_groups.get(task.group_id),
-                "division_color": (division.color if division and division.color else "#4cc9f0"),
-                "date_key": bucket_key,
-                "date_label": bucket_label,
-                "date_rank": bucket_rank,
-            }
+        for task in todo_tasks:
+            project = project_map.get(task.project_id)
+            if not project:
+                continue
+            pref = sidebar_pref_map.get(project.id)
+            division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
+            bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
+            todo_items.append(
+                {
+                    "task": task,
+                    "project": project,
+                    "group": todo_groups.get(task.group_id),
+                    "division_color": (division.color if division and division.color else "#4cc9f0"),
+                    "date_key": bucket_key,
+                    "date_label": bucket_label,
+                    "date_rank": bucket_rank,
+                }
+            )
+        todo_items.sort(
+            key=lambda item: (
+                item["date_rank"],
+                item["task"].due_at.date().isoformat() if item["task"].due_at else "9999-12-31",
+                item["project"].name.lower(),
+                item["task"].position or 0,
+                item["task"].id,
+            )
         )
-    todo_items.sort(
-        key=lambda item: (
-            item["date_rank"],
-            item["task"].due_at.date().isoformat() if item["task"].due_at else "9999-12-31",
-            item["project"].name.lower(),
-            item["task"].position or 0,
-            item["task"].id,
-        )
-    )
     github_task_meta, github_project_id = _build_github_task_meta(
         user.id,
-        [task.id for task in todo_tasks + tasks],
+        [task.id for task in list(todo_tasks) + list(tasks)],
         user_map,
     )
-    visible_dashboard_task_ids = {task.id for task in todo_tasks + tasks}
+    visible_dashboard_task_ids = {task.id for task in (todo_tasks if current_view == "todo" else tasks)}
     comment_counts = {}
     if visible_dashboard_task_ids:
         comment_counts = {
@@ -773,7 +841,6 @@ def dashboard():
         projects_by_division=projects_by_division,
         top_level_items=top_level_items,
         tasks=tasks,
-        invites=invites,
         selected_project=selected_project,
         assignments_by_task=assignments_by_task,
         info_by_task=info_by_task,
