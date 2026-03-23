@@ -96,7 +96,7 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
     def ensure_project_flag(project_id: int, user_id: int) -> dict[str, bool]:
         row = project_flags.setdefault(project_id, {}).setdefault(
             user_id,
-            {"owner": False, "project_member": False},
+            {"owner": False, "project_member": False, "group_member": False, "task_assignee": False},
         )
         user_ids.add(user_id)
         return row
@@ -117,16 +117,23 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
             if not group:
                 continue
             group_user_ids.setdefault(row.group_id, set()).add(row.user_id)
+            flag = ensure_project_flag(group.project_id, row.user_id)
+            flag["group_member"] = True
             user_ids.add(row.user_id)
 
         task_rows = db.session.query(Task.id, Task.project_id, Task.group_id).filter(Task.project_id.in_(project_ids)).all()
+        task_project_map = {task_id: project_id for task_id, project_id, _group_id in task_rows}
         task_group_map = {task_id: group_id for task_id, _project_id, group_id in task_rows if group_id}
         if task_group_map:
             for row in Assignment.query.filter(Assignment.task_id.in_(list(task_group_map.keys())), Assignment.user_id.isnot(None)).all():
                 group_id = task_group_map.get(row.task_id)
-                if not group_id or row.user_id is None:
+                project_id = task_project_map.get(row.task_id)
+                if row.user_id is None or not project_id:
                     continue
-                group_user_ids.setdefault(group_id, set()).add(row.user_id)
+                flag = ensure_project_flag(project_id, row.user_id)
+                flag["task_assignee"] = True
+                if group_id:
+                    group_user_ids.setdefault(group_id, set()).add(row.user_id)
                 user_ids.add(row.user_id)
 
     user_map = {
@@ -141,6 +148,8 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
             key=lambda user: (
                 0 if flags_by_user[user.id].get("owner") else 1,
                 0 if flags_by_user[user.id].get("project_member") else 1,
+                0 if flags_by_user[user.id].get("group_member") else 1,
+                0 if flags_by_user[user.id].get("task_assignee") else 1,
                 (user.display_name or user.email or "").lower(),
             )
         )

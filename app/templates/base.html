@@ -3689,7 +3689,7 @@
         {% if current_view is defined %}
           <div class="view-switcher">
             <a class="view-switch{% if current_view == 'project' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='project', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='project', show_completed=1 if show_completed else 0) }}{% endif %}">Project</a>
-            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if show_completed else 0) }}{% endif %}">Todo List</a>
+            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo List</a>
           </div>
         {% endif %}
       </div>

@@ -363,24 +363,6 @@
           <h3 data-selected-project-title="{{ selected_project.id }}">{{ selected_project.name }}</h3>
           <div style="display: inline-flex; gap: 8px; align-items: center;">
             <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
-          {% set viewers = project_viewers.get(selected_project.id, []) %}
-          {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
-          {% if shared_viewers %}
-            <div class="share-avatars" data-presence-project-id="{{ selected_project.id }}" data-project-members="{{ selected_project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-              {% for u in shared_viewers[:6] %}
-                <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
-                  {% if u.avatar_url %}
-                    <img src="{{ u.avatar_url }}" alt="avatar" referrerpolicy="no-referrer" onerror="this.remove();" />
-                  {% else %}
-                    {{ (u.display_name or u.email)[0]|upper }}
-                  {% endif %}
-                </span>
-              {% endfor %}
-              {% if shared_viewers|length > 6 %}
-                <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
-              {% endif %}
-            </div>
-          {% endif %}
           </div>
         </div>
       </div>
