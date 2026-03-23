@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Blueprint, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
 from app.extensions import db
@@ -31,6 +31,13 @@ def _can_self_bootstrap_account(email: str | None) -> bool:
 def _provider_login_error(message: str):
     session["auth_error"] = message
     return redirect(url_for("auth.login"))
+
+
+def _public_url(endpoint: str, **values) -> str:
+    base_url = str(current_app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    if base_url:
+        return f"{base_url}{url_for(endpoint, **values)}"
+    return url_for(endpoint, _external=True, **values)
 
 
 def _get_or_create_user(email: str, display_name: str | None, avatar_url: str | None):
@@ -294,7 +301,7 @@ def logout():
 
 @auth_bp.get("/login/google")
 def login_google():
-    redirect_uri = url_for("auth.google_callback", _external=True)
+    redirect_uri = _public_url("auth.google_callback")
     return oauth.google.authorize_redirect(redirect_uri)
 
 
@@ -302,7 +309,7 @@ def login_google():
 @login_required
 def connect_google():
     session["oauth_link_user_id"] = session.get("user_id")
-    redirect_uri = url_for("auth.google_callback", _external=True)
+    redirect_uri = _public_url("auth.google_callback")
     return oauth.google.authorize_redirect(redirect_uri)
 
 
@@ -374,7 +381,7 @@ def google_callback():
 
 @auth_bp.get("/login/github")
 def login_github():
-    redirect_uri = url_for("auth.github_callback", _external=True)
+    redirect_uri = _public_url("auth.github_callback")
     return oauth.github.authorize_redirect(redirect_uri)
 
 
@@ -382,7 +389,7 @@ def login_github():
 @login_required
 def connect_github():
     session["oauth_link_user_id"] = session.get("user_id")
-    redirect_uri = url_for("auth.github_callback", _external=True)
+    redirect_uri = _public_url("auth.github_callback")
     return oauth.github.authorize_redirect(redirect_uri)
 
 

@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import Config
 from app.extensions import db, migrate, socketio
 from app.realtime import register_socket_handlers
@@ -17,6 +18,7 @@ def create_app() -> Flask:
     app = Flask(__name__, instance_path=instance_path)
     app.config.from_object(Config)
     os.makedirs(app.instance_path, exist_ok=True)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     db.init_app(app)
     migrate.init_app(app, db)

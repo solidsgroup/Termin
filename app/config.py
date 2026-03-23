@@ -37,6 +37,7 @@ class Config:
         "PUBLIC_BASE_URL",
         f"https://{_render_hostname}" if _render_hostname else "http://localhost:5000",
     )
+    PREFERRED_URL_SCHEME = _env("PREFERRED_URL_SCHEME", "https")
 
     # Mail delivery
     MAIL_PROVIDER = _env("MAIL_PROVIDER", "smtp")
