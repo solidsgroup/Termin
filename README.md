@@ -28,6 +28,9 @@ The app will check the database on startup and apply migrations if needed.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
 - `GOOGLE_WEBHOOK_SECRET`
+- `MAIL_PROVIDER`, `GOOGLE_WORKSPACE_SENDER`, `GOOGLE_SERVICE_ACCOUNT_FILE`
+- `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME`, `MAIL_REPLY_TO_POLICY` (`none` by default)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`
 
 ## OAuth Redirect URIs
 - Google: `http://localhost:5000/auth/google/callback`

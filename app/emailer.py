@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from email.utils import parseaddr
 from html import escape
 import base64
 import json
@@ -42,6 +43,28 @@ def _mail_config() -> dict[str, object]:
 def _sender_header(from_name: str, from_email: str) -> str:
     safe_name = str(from_name).replace('"', "").strip()
     return f'"{safe_name}" <{from_email}>'
+
+
+def _email_domain(value: str | None) -> str:
+    _, parsed = parseaddr(str(value or ""))
+    if "@" not in parsed:
+        return ""
+    return parsed.rsplit("@", 1)[1].strip().lower()
+
+
+def _resolved_reply_to(reply_to: str | None, from_email: str) -> str | None:
+    if not reply_to:
+        return None
+    policy = str(current_app.config.get("MAIL_REPLY_TO_POLICY") or "same_domain").strip().lower()
+    if policy == "none":
+        return None
+    if policy == "allow_any":
+        return reply_to
+    reply_to_domain = _email_domain(reply_to)
+    from_domain = _email_domain(from_email)
+    if reply_to_domain and from_domain and reply_to_domain == from_domain:
+        return reply_to
+    return None
 
 
 def _email_button(url: str, label: str) -> str:
@@ -270,8 +293,9 @@ def _send_via_gmail_api(
     message["Subject"] = subject
     message["From"] = _sender_header(from_name, from_email)
     message["To"] = to_email
-    if reply_to:
-        message["Reply-To"] = reply_to
+    resolved_reply_to = _resolved_reply_to(reply_to, from_email)
+    if resolved_reply_to:
+        message["Reply-To"] = resolved_reply_to
     message.set_content(text_body)
     if html_body:
         message.add_alternative(html_body, subtype="html")
@@ -323,6 +347,7 @@ def send_email(
     resolved_from_name = from_name or str(cfg["from_name"])
     if not resolved_from_email:
         raise MailDeliveryError("Email sender is not configured.")
+    resolved_reply_to = _resolved_reply_to(reply_to, str(resolved_from_email))
     if provider == "smtp" and cfg["use_ssl"] and cfg["use_tls"]:
         raise MailDeliveryError("Set only one of SMTP_USE_SSL or SMTP_USE_TLS.")
 
@@ -332,7 +357,7 @@ def send_email(
                 to_email=to_email,
                 from_email=str(resolved_from_email),
                 from_name=str(resolved_from_name),
-                reply_to=reply_to,
+                reply_to=resolved_reply_to,
                 subject=subject,
                 text_body=text_body,
                 html_body=html_body,
@@ -368,7 +393,7 @@ def send_email(
                 attachments=attachments,
                 from_email=str(resolved_from_email),
                 from_name=str(resolved_from_name),
-                reply_to=reply_to,
+                reply_to=resolved_reply_to,
                 service_account_file=service_account_file,
                 workspace_sender=workspace_sender,
             )
@@ -377,7 +402,7 @@ def send_email(
                     to_email=to_email,
                     from_email=str(resolved_from_email),
                     from_name=str(resolved_from_name),
-                    reply_to=reply_to,
+                    reply_to=resolved_reply_to,
                     subject=subject,
                     text_body=text_body,
                     html_body=html_body,
@@ -393,7 +418,7 @@ def send_email(
                     to_email=to_email,
                     from_email=str(resolved_from_email),
                     from_name=str(resolved_from_name),
-                    reply_to=reply_to,
+                    reply_to=resolved_reply_to,
                     subject=subject,
                     text_body=text_body,
                     html_body=html_body,
@@ -420,8 +445,8 @@ def send_email(
     message["Subject"] = subject
     message["From"] = _sender_header(str(resolved_from_name), str(resolved_from_email))
     message["To"] = to_email
-    if reply_to:
-        message["Reply-To"] = reply_to
+    if resolved_reply_to:
+        message["Reply-To"] = resolved_reply_to
     message.set_content(text_body)
     if html_body:
         message.add_alternative(html_body, subtype="html")
@@ -456,7 +481,7 @@ def send_email(
                     to_email=to_email,
                     from_email=str(resolved_from_email),
                     from_name=str(resolved_from_name),
-                    reply_to=reply_to,
+                    reply_to=resolved_reply_to,
                     subject=subject,
                     text_body=text_body,
                     html_body=html_body,
@@ -488,7 +513,7 @@ def send_email(
                 to_email=to_email,
                 from_email=str(resolved_from_email),
                 from_name=str(resolved_from_name),
-                reply_to=reply_to,
+                reply_to=resolved_reply_to,
                 subject=subject,
                 text_body=text_body,
                 html_body=html_body,
