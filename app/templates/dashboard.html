@@ -207,9 +207,10 @@
 {% endmacro %}
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
-<div class="layout"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %}>
+<div class="layout"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout>
   <aside class="sidebar{% if current_view == 'todo' %} todo-tree{% endif %}" {% if current_view == 'todo' %}data-todo-tree{% endif %}>
     {% if current_view == 'todo' %}
+      <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
       <div class="sidebar-heading-row">
         <h3 style="margin: 0;">Filters</h3>
       </div>
@@ -339,19 +340,26 @@
 
   <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
     {% if current_view == 'todo' %}
-      <div class="todo-board">
+      <div class="todo-board" data-todo-resize>
         {% for date_group in todo_groups_by_date %}
-          <div class="panel todo-date-group">
+          <div class="panel todo-date-group" data-todo-date-key="{{ date_group["key"] }}">
             <div class="todo-date-heading">{{ date_group["label"] }}</div>
             <div class="todo-list">
               {% for item in date_group["items"] %}
                 {% set todo_status_state = status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
                 {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
-                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-status-state="{{ todo_status_state }}">
+                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}">
+                  <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
                   <div class="todo-project-meta">
-                    <span class="todo-project-name">{{ item.project.name }}</span>
-                    {% if item.group %}<span class="todo-group-name">{{ item.group.name }}</span>{% endif %}
+                    <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}" title="Open {{ item.project.name }}">
+                      {{ item.project.name }}
+                    </a>
+                    {% if item.group %}
+                      <a class="todo-group-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}#group-{{ item.group.id }}" title="Open {{ item.group.name }}">
+                        {{ item.group.name }}
+                      </a>
+                    {% endif %}
                   </div>
                   <div class="todo-item-main">
                     {% if github_meta %}
@@ -375,6 +383,7 @@
                         </a>
                       {% endfor %}
                     </span>
+                    <span class="todo-main-spacer" aria-hidden="true"></span>
                     <span class="task-pill">
                       <button class="task-pill-segment" type="button" data-open-settings="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ item.project.name|e if item.project else '' }}" onclick='return window.__openSettings({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (item.project.name if item.project else "")|tojson }});'>
                         <i class="fa-solid fa-sliders" aria-hidden="true"></i>
@@ -388,49 +397,56 @@
                       </button>
                     </span>
                   </div>
-                  <div class="due-cell todo-due-cell" data-due-cell onclick="return window.__openDueInput(this);">
-                    <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
-                      <span class="due-summary-label">{{ render_due_summary(item.task, now_utc) }}</span>
+                  <div class="todo-item-controls">
+                    <div class="todo-control-cluster">
+                      <div class="todo-control todo-control-due due-cell todo-due-cell" data-due-cell data-todo-due="1" onclick="return window.__openDueInput(this);">
+                        <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
+                          <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
+                        </div>
+                        <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+                      </div>
+                      {% if github_meta %}
+                        <div class="todo-control todo-control-status">
+                          {{ render_github_status(github_meta, todo_status_state, item.task.id, True) }}
+                        </div>
+                      {% else %}
+                        <div class="todo-control todo-control-status editable todo-status-cell status-editable" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ todo_status_state }}" title="{{ item.task.status }}" aria-label="Status: {{ item.task.status }}">{{ item.task.status }}</div>
+                      {% endif %}
                     </div>
-                    <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
-                  </div>
-                  {% if github_meta %}
-                    {{ render_github_status(github_meta, todo_status_state, item.task.id, True) }}
-                  {% else %}
-                    <div class="editable todo-status-cell status-editable" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ todo_status_state }}">{{ item.task.status }}</div>
-                  {% endif %}
-                  {% if github_meta %}
-                    {{ render_github_assignees(github_meta) }}
-                  {% else %}
-                    <div class="assignments todo-assignments">
-                      {% for assignment in assignments_by_task.get(item.task.id, []) %}
-                        {% set assignee = user_map.get(assignment.user_id) %}
-                        {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                        <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-                          <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
-                            <span class="badge-initial">{{ label[0]|upper }}</span>
-                            {% if assignee and assignee.avatar_url %}
-                              <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                    {% if github_meta %}
+                      <div class="todo-control todo-control-assignees">
+                        {{ render_github_assignees(github_meta) }}
+                      </div>
+                    {% else %}
+                      <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
+                        {% for assignment in assignments_by_task.get(item.task.id, []) %}
+                          {% set assignee = user_map.get(assignment.user_id) %}
+                          {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                          <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                            <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+                              <span class="badge-initial">{{ label[0]|upper }}</span>
+                              {% if assignee and assignee.avatar_url %}
+                                <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                              {% endif %}
+                              <span class="badge-x">×</span>
+                            </button>
+                            <span class="badge-label">{{ label }}</span>
+                            {% if not assignment.user_id %}
+                              {% if assignment.status in ["draft"] %}
+                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                              {% elif assignment.status in ["link_sent"] %}
+                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                              {% endif %}
                             {% endif %}
-                            <span class="badge-x">×</span>
-                          </button>
-                          <span class="badge-label">{{ label }}</span>
-                          {% if not assignment.user_id %}
-                            {% if assignment.status in ["draft"] %}
-                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                            {% elif assignment.status in ["link_sent"] %}
-                              <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                            {% endif %}
-                          {% endif %}
+                          </span>
+                        {% endfor %}
+                        <span class="assign-action">
+                          <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
                         </span>
-                      {% endfor %}
-                      <span class="assign-action">
-                        <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-                        <button class="assign-add-btn" type="button" title="Assign">+</button>
-                      </span>
-                    </div>
-                  {% endif %}
-                  <a class="todo-open-link" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}">Open</a>
+                      </div>
+                    {% endif %}
+                    <div class="todo-resize-overlay" aria-hidden="true"></div>
+                  </div>
                 </div>
               {% endfor %}
             </div>
@@ -2291,7 +2307,11 @@
       var dueValue = (input.value || "").trim();
       var createdValue = input.getAttribute("data-created-at");
       if (label) {
-        label.textContent = formatDueSummary(dueValue, createdValue);
+        if (cell && cell.closest(".todo-item")) {
+          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
+        } else {
+          label.textContent = formatDueSummary(dueValue, createdValue);
+        }
       }
       if (summary) {
         summary.title = dueValue ? "Due " + dueValue : "Created " + (createdValue || new Date().toISOString().slice(0, 10));
@@ -2324,10 +2344,20 @@
       var input = cell.querySelector(".due-input");
       var summary = cell.querySelector("[data-due-summary]");
       if (!input) return false;
-      if (summary) {
+      var isTodo = cell.getAttribute("data-todo-due") === "1";
+      if (!isTodo && summary) {
         summary.classList.add("hidden");
       }
-      input.classList.remove("hidden");
+      if (isTodo) {
+        input.classList.remove("hidden");
+        input.style.position = "absolute";
+        input.style.opacity = "0";
+        input.style.pointerEvents = "none";
+        input.style.width = "0";
+        input.style.height = "0";
+      } else {
+        input.classList.remove("hidden");
+      }
       if (typeof input.focus === "function") {
         input.focus();
       }
@@ -2363,6 +2393,12 @@
           throw new Error("Failed to save due date");
         }
         setSavedDueValue(input, value);
+        if (typeof moveTodoItemIfNeeded === "function") {
+          var cell = input.closest(".todo-item");
+          if (cell) {
+            moveTodoItemIfNeeded(String(taskId), value || "", input.getAttribute("data-created-at"));
+          }
+        }
       }).catch(function (error) {
         input.value = savedValue;
         updateDueDisplay(input);
@@ -3442,7 +3478,11 @@
       const createdValue = input.getAttribute("data-created-at");
       const label = summary.querySelector(".due-summary-label");
       if (label) {
-        label.textContent = formatDueSummary(dueValue, createdValue);
+        if (dueCell && dueCell.closest(".todo-item")) {
+          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
+        } else {
+          label.textContent = formatDueSummary(dueValue, createdValue);
+        }
       }
       summary.title = dueValue ? `Due ${dueValue}` : `Created ${createdValue || new Date().toISOString().slice(0, 10)}`;
       summary.classList.toggle("is-fallback", !dueValue);
@@ -3453,9 +3493,19 @@
     const showDueInput = (input) => {
       if (!input) return;
       const dueCell = input.closest("[data-due-cell]");
+      const isTodo = dueCell && dueCell.getAttribute("data-todo-due") === "1";
       const summary = dueCell ? dueCell.querySelector("[data-due-summary]") : null;
-      if (summary) summary.classList.add("hidden");
-      input.classList.remove("hidden");
+      if (!isTodo) {
+        if (summary) summary.classList.add("hidden");
+        input.classList.remove("hidden");
+      } else {
+        input.classList.remove("hidden");
+        input.style.position = "absolute";
+        input.style.opacity = "0";
+        input.style.pointerEvents = "none";
+        input.style.width = "0";
+        input.style.height = "0";
+      }
       input.focus();
       if (typeof input.select === "function") {
         input.select();
@@ -3502,6 +3552,12 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ due_at: value || null }),
         });
+        if (typeof moveTodoItemIfNeeded === "function") {
+          var todoItem = input.closest(".todo-item");
+          if (todoItem) {
+            moveTodoItemIfNeeded(String(taskId), value || "", input.getAttribute("data-created-at"));
+          }
+        }
       }
     };
 
@@ -5319,6 +5375,86 @@
       return ids;
     }
 
+    function todoBucketFor(dueValue, createdValue) {
+      var today = new Date();
+      var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      var dueDate = dueValue ? new Date(dueValue + "T00:00:00") : null;
+      var dueDay = dueDate ? new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()) : null;
+      var weekStart = new Date(nowDay);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      var nextWeekStart = new Date(weekStart);
+      nextWeekStart.setDate(nextWeekStart.getDate() + 7);
+      var twoWeeksStart = new Date(weekStart);
+      twoWeeksStart.setDate(twoWeeksStart.getDate() + 14);
+      var threeWeeksStart = new Date(weekStart);
+      threeWeeksStart.setDate(threeWeeksStart.getDate() + 21);
+      var fourWeeksStart = new Date(weekStart);
+      fourWeeksStart.setDate(fourWeeksStart.getDate() + 28);
+      var nextMonthStart = new Date(nowDay.getFullYear(), nowDay.getMonth() + 1, 1);
+      var monthAfterNextStart = new Date(nowDay.getFullYear(), nowDay.getMonth() + 2, 1);
+
+      if (!dueDay) {
+        return { key: "none", label: "No Due Date", rank: 9 };
+      }
+      if (dueDay < nowDay) return { key: "overdue", label: "Overdue", rank: 0 };
+      if (dueDay.getTime() === nowDay.getTime()) return { key: "today", label: "Today", rank: 1 };
+      var tomorrow = new Date(nowDay);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      if (dueDay.getTime() === tomorrow.getTime()) return { key: "tomorrow", label: "Tomorrow", rank: 2 };
+      if (dueDay < nextWeekStart) return { key: "this_week", label: "This Week", rank: 3 };
+      if (dueDay < twoWeeksStart) return { key: "next_week", label: "Next Week", rank: 4 };
+      if (dueDay < threeWeeksStart) return { key: "two_weeks", label: "Two Weeks", rank: 5 };
+      if (dueDay < fourWeeksStart) return { key: "three_weeks", label: "Three Weeks", rank: 6 };
+      if (dueDay >= nextMonthStart && dueDay < monthAfterNextStart) return { key: "next_month", label: "Next Month", rank: 7 };
+      return { key: "later", label: "Later", rank: 8 };
+    }
+
+    function ensureTodoGroup(bucket) {
+      var board = document.querySelector(".todo-board");
+      if (!board || !bucket) return null;
+      var existing = board.querySelector('.todo-date-group[data-todo-date-key="' + bucket.key + '"]');
+      if (existing) return existing;
+      var panel = document.createElement("div");
+      panel.className = "panel todo-date-group";
+      panel.setAttribute("data-todo-date-key", bucket.key);
+      panel.innerHTML = '<div class="todo-date-heading">' + bucket.label + '</div><div class="todo-list"></div>';
+      var order = ["overdue","today","tomorrow","this_week","next_week","two_weeks","three_weeks","next_month","later","none"];
+      var inserted = false;
+      for (var i = 0; i < order.length; i++) {
+        if (order[i] === bucket.key) break;
+        var next = board.querySelector('.todo-date-group[data-todo-date-key="' + order[i] + '"]');
+        if (next) {
+          board.insertBefore(panel, next);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) {
+        board.appendChild(panel);
+      }
+      return panel;
+    }
+
+    function moveTodoItemIfNeeded(taskId, dueValue, createdValue) {
+      var item = document.querySelector('.todo-item[data-task-id="' + taskId + '"]');
+      if (!item) return;
+      item.setAttribute("data-due-at", dueValue || "");
+      if (createdValue) item.setAttribute("data-created-at", createdValue);
+      var bucket = todoBucketFor(dueValue, createdValue || item.getAttribute("data-created-at") || "");
+      var currentGroup = item.closest(".todo-date-group");
+      if (currentGroup && currentGroup.getAttribute("data-todo-date-key") === bucket.key) return;
+      var targetGroup = ensureTodoGroup(bucket);
+      var list = targetGroup ? targetGroup.querySelector(".todo-list") : null;
+      if (list) list.appendChild(item);
+      if (currentGroup) {
+        var hasItems = currentGroup.querySelector(".todo-item");
+        if (!hasItems) currentGroup.remove();
+      }
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
+    }
+
     function notificationHref(item) {
       var params = new URLSearchParams(window.location.search);
       if (item.project_id) {
@@ -5972,6 +6108,10 @@
           window.__updateDueDisplay(input);
         }
       });
+      var todoItem = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
+      if (todoItem && typeof moveTodoItemIfNeeded === "function") {
+        moveTodoItemIfNeeded(String(task.id), normalizedDue, task.created_at ? String(task.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"));
+      }
       document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="status"]').forEach(function (cell) {
         matched = true;
         cell.textContent = normalizedStatus;
@@ -7147,6 +7287,9 @@
       var todoTree = document.querySelector("[data-todo-tree]");
       if (!todoTree) return;
       var storageKey = "termin:todo-tree:v1";
+      var filterKey = "termin:todo-sidebar:collapsed";
+      var sidebarToggle = document.querySelector("[data-sidebar-toggle]");
+      var layout = document.querySelector("[data-layout]");
       var todoItems = Array.from(document.querySelectorAll(".todo-item[data-task-id]"));
       var todoGroups = Array.from(document.querySelectorAll(".todo-date-group"));
 
@@ -7163,6 +7306,17 @@
         try {
           localStorage.setItem(storageKey, JSON.stringify(snapshotState()));
         } catch (err) {}
+      }
+
+      function applySidebarCollapse(collapsed) {
+        todoTree.classList.toggle("is-collapsed", !!collapsed);
+        if (layout) {
+          layout.classList.toggle("sidebar-collapsed", !!collapsed);
+        }
+        if (sidebarToggle) {
+          sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+          sidebarToggle.setAttribute("aria-label", collapsed ? "Expand filters" : "Collapse filters");
+        }
       }
 
       function snapshotState() {
@@ -7229,7 +7383,7 @@
         return el ? el.checked : true;
       }
 
-      function applyFilters() {
+    function applyFilters() {
         todoItems.forEach(function (item) {
           var divisionId = String(item.getAttribute("data-division-id") || "none");
           var projectId = String(item.getAttribute("data-project-id") || "");
@@ -7246,6 +7400,7 @@
           group.style.display = hasVisible ? "" : "none";
         });
       }
+      window.__applyTodoFilters = applyFilters;
 
       function updateParentCheckboxStates() {
         document.querySelectorAll("[data-todo-project]").forEach(function (projectBox) {
@@ -7297,6 +7452,15 @@
       }
 
       todoTree.addEventListener("click", function (event) {
+        var sidebarBtn = event.target.closest("[data-sidebar-toggle]");
+        if (sidebarBtn) {
+          var nextCollapsed = !todoTree.classList.contains("is-collapsed");
+          applySidebarCollapse(nextCollapsed);
+          try {
+            localStorage.setItem(filterKey, JSON.stringify(nextCollapsed));
+          } catch (err) {}
+          return;
+        }
         var divisionToggle = event.target.closest("[data-toggle-division]");
         if (divisionToggle) {
           var divisionId = divisionToggle.getAttribute("data-toggle-division");
@@ -7352,6 +7516,379 @@
       applyFilters();
       saveState();
       window.addEventListener("beforeunload", saveState);
+      try {
+        var storedCollapsed = JSON.parse(localStorage.getItem(filterKey) || "false");
+        applySidebarCollapse(!!storedCollapsed);
+      } catch (err) {
+        applySidebarCollapse(false);
+      }
+    })();
+    {% endif %}
+
+    {% if current_view == 'todo' %}
+    (function () {
+      var board = document.querySelector(".todo-board");
+      if (!board) return;
+      var storageKey = "termin:todo-cols:" + String(currentUserId || "0");
+
+      function sanitizePx(value) {
+        if (typeof value !== "string") return null;
+        if (value.indexOf("minmax") !== -1 || value.indexOf("fr") !== -1) return null;
+        if (!value.trim().endsWith("px")) return null;
+        var num = parseFloat(value);
+        if (!Number.isFinite(num) || num <= 0) return null;
+        return Math.round(num) + "px";
+      }
+
+      function applyCols(cols) {
+        if (!cols) return;
+        var meta = sanitizePx(cols.meta);
+        var main = sanitizePx(cols.main);
+        var controls = sanitizePx(cols.controls);
+        var controlDue = sanitizePx(cols.control_due);
+        var controlStatus = sanitizePx(cols.control_status);
+        var controlAssignees = sanitizePx(cols.control_assignees);
+        if (meta) board.style.setProperty("--todo-col-meta", meta);
+        if (main) board.style.setProperty("--todo-col-main", main);
+        if (controls) board.style.setProperty("--todo-col-controls", controls);
+        if (controlDue) board.style.setProperty("--todo-control-due", controlDue);
+        if (controlStatus) board.style.setProperty("--todo-control-status", controlStatus);
+        if (controlAssignees) board.style.setProperty("--todo-control-assignees", controlAssignees);
+      }
+
+      function loadCols() {
+        try {
+          return JSON.parse(localStorage.getItem(storageKey) || "{}");
+        } catch (err) {
+          return {};
+        }
+      }
+
+      function saveCols(cols) {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(cols));
+        } catch (err) {}
+      }
+
+      function getRow() {
+        return document.querySelector(".todo-item");
+      }
+
+      function clampToRow(widths, rowWidth, minControlsOverride) {
+        var minMeta = 90;
+        var minMain = 200;
+        var minControls = minControlsOverride || 100;
+        var meta = Math.max(minMeta, widths.meta);
+        var main = Math.max(minMain, widths.main);
+        var controls = Math.max(minControls, widths.controls);
+        var maxRow = Math.max(rowWidth, minMeta + minMain + minControls);
+        var total = meta + main + controls;
+        if (total < maxRow) {
+          main = Math.max(minMain, maxRow - meta - minControls);
+          controls = Math.max(minControls, maxRow - meta - main);
+        } else if (total > maxRow) {
+          main = Math.max(minMain, maxRow - meta - minControls);
+          controls = Math.max(minControls, maxRow - meta - main);
+          if (main < minMain) {
+            main = minMain;
+            meta = Math.max(minMeta, maxRow - main - minControls);
+            controls = Math.max(minControls, maxRow - meta - main);
+          }
+        }
+        return { meta: meta, main: main, controls: controls };
+      }
+
+      function clampControls(widths, controlsWidth) {
+        var minDue = 18;
+        var minStatus = 60;
+        var minAssignees = 36;
+        var due = Math.max(minDue, widths.control_due);
+        var status = Math.max(minStatus, widths.control_status);
+        var assignees = Math.max(minAssignees, widths.control_assignees);
+        var maxControls = Math.max(controlsWidth, minDue + minStatus + minAssignees);
+        var total = due + status + assignees;
+        if (total < maxControls) {
+          assignees = Math.max(minAssignees, maxControls - due - status);
+        } else if (total > maxControls) {
+          status = Math.max(minStatus, maxControls - due - minAssignees);
+          assignees = Math.max(minAssignees, maxControls - due - status);
+        }
+        return { due: due, status: status, assignees: assignees };
+      }
+
+      function getControlMinWidth() {
+        var controlsEl = document.querySelector(".todo-item-controls");
+        if (!controlsEl) return 100;
+        var cluster = controlsEl.querySelector(".todo-control-cluster");
+        var assignees = controlsEl.querySelector(".todo-control-assignees");
+        var clusterWidth = cluster ? cluster.scrollWidth : 0;
+        var assigneeWidth = assignees ? assignees.scrollWidth : 0;
+        var total = Math.ceil(clusterWidth + assigneeWidth);
+        return Math.max(60, total || controlsEl.scrollWidth);
+      }
+
+      function applyClampedWidths(source) {
+        var row = getRow();
+        if (!row) return;
+        var widths = source || getColWidths();
+        var rowWidth = row.clientWidth || (widths.meta + widths.main + widths.controls);
+        var controlsEl = row.querySelector(".todo-item-controls");
+        var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
+        var minControls = getControlMinWidth();
+        widths.controls = Math.max(minControls, widths.controls);
+        var outer = clampToRow(widths, rowWidth, minControls);
+        var inner = clampControls(widths, controlsWidth);
+        applyCols({
+          meta: Math.round(outer.meta) + "px",
+          main: Math.round(outer.main) + "px",
+          controls: Math.round(outer.controls) + "px",
+          control_due: Math.round(inner.due) + "px",
+          control_status: Math.round(inner.status) + "px",
+          control_assignees: Math.round(inner.assignees) + "px",
+        });
+        updateControlOffsets();
+      }
+
+      function updateControlOffsets() {
+        var due = parseFloat(board.style.getPropertyValue("--todo-control-due")) || 0;
+        var status = parseFloat(board.style.getPropertyValue("--todo-control-status")) || 0;
+        var assignees = parseFloat(board.style.getPropertyValue("--todo-control-assignees")) || 0;
+        var total = due + status + assignees;
+        document.querySelectorAll(".todo-item-controls").forEach(function (controls) {
+          var width = controls.clientWidth || 0;
+          var offset = Math.max(0, width - total);
+          controls.style.setProperty("--todo-control-offset", Math.round(offset) + "px");
+        });
+      }
+
+      function computeRatios(widths, rowWidth, controlsWidth) {
+        if (!rowWidth || !controlsWidth) return null;
+        var total = widths.meta + widths.main + widths.controls;
+        if (!total) return null;
+        return {
+          meta: widths.meta / total,
+          main: widths.main / total,
+          controls: widths.controls / total,
+          due: widths.control_due / controlsWidth,
+          status: widths.control_status / controlsWidth,
+          assignees: widths.control_assignees / controlsWidth,
+        };
+      }
+
+      function applyRatios(ratios) {
+        if (!ratios) return;
+        var row = getRow();
+        if (!row) return;
+        var rowWidth = row.clientWidth;
+        var controlsEl = row.querySelector(".todo-item-controls");
+        var controlsWidth = controlsEl ? controlsEl.clientWidth : 0;
+        var minMeta = 90;
+        var minMain = 200;
+        var minControls = getControlMinWidth();
+        var minDue = 18;
+        var minStatus = 60;
+        var minAssignees = 36;
+        var totalMin = minMeta + minMain + minControls;
+        var usable = Math.max(rowWidth, totalMin);
+        var meta = Math.max(minMeta, Math.round(usable * ratios.meta));
+        var controls = minControls;
+        var main = Math.max(minMain, usable - meta - controls);
+        if (meta + main + controls > usable) {
+          main = Math.max(minMain, usable - meta - controls);
+        }
+        var ctrlMin = minDue + minStatus + minAssignees;
+        var ctrlUsable = Math.max(controlsWidth || controls, ctrlMin);
+        var due = Math.max(minDue, Math.round(ctrlUsable * ratios.due));
+        var status = Math.max(minStatus, Math.round(ctrlUsable * ratios.status));
+        var assignees = Math.max(minAssignees, ctrlUsable - due - status);
+        if (due + status + assignees > ctrlUsable) {
+          assignees = Math.max(minAssignees, ctrlUsable - due - status);
+        }
+        applyCols({
+          meta: meta + "px",
+          main: main + "px",
+          controls: controls + "px",
+          control_due: due + "px",
+          control_status: status + "px",
+          control_assignees: assignees + "px",
+        });
+        applyClampedWidths();
+      }
+
+      var colRatios = null;
+
+      var initial = loadCols();
+      applyCols(initial);
+      applyClampedWidths();
+      (function initRatios() {
+        var row = getRow();
+        if (!row) return;
+        var widths = getColWidths();
+        var controlsEl = row.querySelector(".todo-item-controls");
+        var rowWidth = row.clientWidth || (widths.meta + widths.main + widths.controls);
+        var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
+        colRatios = computeRatios(widths, rowWidth, controlsWidth);
+      })();
+
+      var activeHandle = null;
+      var startX = 0;
+      var startMeta = 0;
+      var startMain = 0;
+      var startControls = 0;
+      var startControlDue = 0;
+      var startControlStatus = 0;
+      var startControlAssignees = 0;
+      var activeRow = null;
+      var activeControls = null;
+      var startRowWidth = 0;
+      var startControlsWidth = 0;
+
+      function toPx(value, fallback) {
+        var num = parseFloat(value);
+        if (!Number.isFinite(num) || num <= 0) return fallback;
+        return num;
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function getColWidths() {
+        var sample = document.querySelector(".todo-item");
+        if (!sample) return { meta: 160, main: 360, controls: 240, control_due: 24, control_status: 90, control_assignees: 140 };
+        var rect = sample.getBoundingClientRect();
+        var styles = getComputedStyle(sample);
+        var cols = styles.gridTemplateColumns.split(" ");
+        if (cols.length >= 3) {
+          var meta = toPx(cols[0], 160);
+          var main = toPx(cols[1], 360);
+          var controls = toPx(cols[2], 240);
+          var controlsEl = sample.querySelector(".todo-item-controls");
+          var controlCols = controlsEl ? getComputedStyle(controlsEl).gridTemplateColumns.split(" ") : [];
+          var controlDue = controlCols[0] ? toPx(controlCols[0], 24) : 24;
+          var controlStatus = controlCols[1] ? toPx(controlCols[1], 90) : 90;
+          var controlAssignees = controlCols[2] ? toPx(controlCols[2], 140) : 140;
+          return {
+            meta: meta,
+            main: main,
+            controls: controls,
+            control_due: controlDue,
+            control_status: controlStatus,
+            control_assignees: controlAssignees,
+          };
+        }
+        return { meta: rect.width * 0.3, main: rect.width * 0.4, controls: rect.width * 0.3, control_due: 24, control_status: 90, control_assignees: 140 };
+      }
+
+      function onMove(event) {
+        if (!activeHandle) return;
+        var dx = event.clientX - startX;
+        var cols = { meta: startMeta, main: startMain, controls: startControls };
+        var controlCols = {
+          due: startControlDue,
+          status: startControlStatus,
+          assignees: startControlAssignees,
+        };
+        var rowWidth = startRowWidth || (startMeta + startMain + startControls);
+        var controlsWidth = startControlsWidth || startControls;
+        var minMeta = 90;
+        var minMain = 200;
+        var minControls = Math.max(60, startControlsWidth || startControls);
+        var minDue = 18;
+        var minStatus = 60;
+        var minAssignees = 36;
+        if (activeHandle === "meta") {
+          var sumMetaMain = Math.max(minMeta + minMain, rowWidth - startControls);
+          cols.meta = clamp(startMeta + dx, minMeta, sumMetaMain - minMain);
+          cols.main = sumMetaMain - cols.meta;
+        } else if (activeHandle === "main") {
+          var sumMainControls = Math.max(minMain + minControls, rowWidth - startMeta);
+          cols.main = clamp(startMain + dx, minMain, sumMainControls - minControls);
+          cols.controls = sumMainControls - cols.main;
+        } else if (activeHandle === "control-due") {
+          var sumDueStatus = Math.max(minDue + minStatus, controlsWidth - startControlAssignees);
+          controlCols.due = clamp(startControlDue + dx, minDue, sumDueStatus - minStatus);
+          controlCols.status = sumDueStatus - controlCols.due;
+        } else if (activeHandle === "control-status") {
+          var sumStatusAssignees = Math.max(minStatus + minAssignees, controlsWidth - startControlDue);
+          controlCols.status = clamp(startControlStatus + dx, minStatus, sumStatusAssignees - minAssignees);
+          controlCols.assignees = sumStatusAssignees - controlCols.status;
+        }
+        var next = {
+          meta: Math.round(cols.meta) + "px",
+          main: Math.round(cols.main) + "px",
+          controls: Math.round(cols.controls) + "px",
+          control_due: Math.round(controlCols.due) + "px",
+          control_status: Math.round(controlCols.status) + "px",
+          control_assignees: Math.round(controlCols.assignees) + "px",
+        };
+        applyCols(next);
+        updateControlOffsets();
+      }
+
+      function onUp() {
+        if (!activeHandle) return;
+        var widths = getColWidths();
+        var row = activeRow || getRow();
+        var rowWidth = row ? row.clientWidth : widths.meta + widths.main + widths.controls;
+        var controlsEl = activeControls || (row ? row.querySelector(".todo-item-controls") : null);
+        var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
+        var outer = clampToRow(widths, rowWidth);
+        var inner = clampControls(widths, controlsWidth);
+        var next = {
+          meta: Math.round(outer.meta) + "px",
+          main: Math.round(outer.main) + "px",
+          controls: Math.round(outer.controls) + "px",
+          control_due: Math.round(inner.due) + "px",
+          control_status: Math.round(inner.status) + "px",
+          control_assignees: Math.round(inner.assignees) + "px",
+        };
+        applyCols(next);
+        updateControlOffsets();
+        saveCols(next);
+        colRatios = computeRatios(outer, rowWidth, controlsWidth) || colRatios;
+        activeHandle = null;
+        activeRow = null;
+        activeControls = null;
+        document.body.classList.remove("is-resizing");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      }
+
+      document.addEventListener("mousedown", function (event) {
+        var handle = event.target.closest("[data-resize-handle]");
+        if (!handle || !board.contains(handle)) return;
+        event.preventDefault();
+        document.body.classList.add("is-resizing");
+        activeHandle = handle.getAttribute("data-resize-handle");
+        activeRow = handle.closest(".todo-item");
+        activeControls = activeRow ? activeRow.querySelector(".todo-item-controls") : null;
+        var widths = getColWidths();
+        startX = event.clientX;
+        var rowWidth = activeRow ? activeRow.clientWidth : widths.meta + widths.main + widths.controls;
+        var controlsWidth = activeControls ? activeControls.clientWidth : widths.controls;
+        var outer = clampToRow(widths, rowWidth, Math.max(60, controlsWidth));
+        var inner = clampControls(widths, controlsWidth);
+        startMeta = outer.meta;
+        startMain = outer.main;
+        startControls = outer.controls;
+        startControlDue = inner.due;
+        startControlStatus = inner.status;
+        startControlAssignees = inner.assignees;
+        startRowWidth = rowWidth;
+        startControlsWidth = controlsWidth;
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+
+      var resizeFrame = null;
+      window.addEventListener("resize", function () {
+        if (resizeFrame) return;
+        resizeFrame = window.requestAnimationFrame(function () {
+          resizeFrame = null;
+          applyRatios(colRatios);
+        });
+      });
     })();
     {% endif %}
 
