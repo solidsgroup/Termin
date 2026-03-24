@@ -383,7 +383,6 @@
                         </a>
                       {% endfor %}
                     </span>
-                    <span class="todo-main-spacer" aria-hidden="true"></span>
                     <span class="task-pill">
                       <button class="task-pill-segment" type="button" data-open-settings="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ item.project.name|e if item.project else '' }}" onclick='return window.__openSettings({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (item.project.name if item.project else "")|tojson }});'>
                         <i class="fa-solid fa-sliders" aria-hidden="true"></i>
@@ -2864,6 +2863,7 @@
   window.addEventListener("DOMContentLoaded", () => {
     const tasksTables = Array.from(document.querySelectorAll(".tasks-table"));
     const infoByTask = {{ info_by_task|tojson }};
+    window.__infoByTask = infoByTask;
     const escapeHtml = (value) =>
       String(value == null ? "" : value)
         .replace(/&/g, "&amp;")
@@ -5409,6 +5409,19 @@
       return { key: "later", label: "Later", rank: 8 };
     }
 
+    function todoBucketRank(key) {
+      if (key === "overdue") return 0;
+      if (key === "today") return 1;
+      if (key === "tomorrow") return 2;
+      if (key === "this_week") return 3;
+      if (key === "next_week") return 4;
+      if (key === "two_weeks") return 5;
+      if (key === "three_weeks") return 6;
+      if (key === "next_month") return 7;
+      if (key === "later") return 8;
+      return 9;
+    }
+
     function ensureTodoGroup(bucket) {
       var board = document.querySelector(".todo-board");
       if (!board || !bucket) return null;
@@ -5418,20 +5431,11 @@
       panel.className = "panel todo-date-group";
       panel.setAttribute("data-todo-date-key", bucket.key);
       panel.innerHTML = '<div class="todo-date-heading">' + bucket.label + '</div><div class="todo-list"></div>';
-      var order = ["overdue","today","tomorrow","this_week","next_week","two_weeks","three_weeks","next_month","later","none"];
-      var inserted = false;
-      for (var i = 0; i < order.length; i++) {
-        if (order[i] === bucket.key) break;
-        var next = board.querySelector('.todo-date-group[data-todo-date-key="' + order[i] + '"]');
-        if (next) {
-          board.insertBefore(panel, next);
-          inserted = true;
-          break;
-        }
-      }
-      if (!inserted) {
-        board.appendChild(panel);
-      }
+      var nextGroup = Array.prototype.find.call(board.querySelectorAll(".todo-date-group"), function (group) {
+        return todoBucketRank(group.getAttribute("data-todo-date-key") || "") > bucket.rank;
+      });
+      if (nextGroup) board.insertBefore(panel, nextGroup);
+      else board.appendChild(panel);
       return panel;
     }
 
@@ -5617,6 +5621,24 @@
       }
     }
 
+    function normalizeLinkInputValue(value) {
+      var raw = String(value || "").trim();
+      if (!raw) return "";
+      var candidate = raw;
+      if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate) && !/^mailto:/i.test(candidate)) {
+        candidate = "https://" + candidate;
+      }
+      try {
+        var url = new URL(candidate);
+        if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "mailto:") {
+          return "";
+        }
+        return url.toString();
+      } catch (err) {
+        return "";
+      }
+    }
+
     function renderTaskLinkBadges(links) {
       return (Array.isArray(links) ? links : [])
         .map(function (link) {
@@ -5676,12 +5698,31 @@
       });
     }
 
+    function setTaskLinksLocal(taskId, links) {
+      if (!taskId) return;
+      var normalizedLinks = Array.isArray(links) ? links.slice() : [];
+      var key = String(taskId);
+      var infoStore = window.__infoByTask || {};
+      var existing = infoStore[key] || { html: "", attachments: [], links: [] };
+      infoStore[key] = Object.assign({}, existing, { links: normalizedLinks });
+      window.__infoByTask = infoStore;
+      syncTaskLinkBadges(taskId, normalizedLinks);
+    }
+
     function syncEntityLinkBadges(entityType, entityId, links) {
       if (!entityType || !entityId) return;
       var key = entityType + ":" + entityId;
       document.querySelectorAll('[data-entity-link-badges="' + key + '"]').forEach(function (container) {
         container.innerHTML = renderTaskLinkBadges(links);
       });
+    }
+
+    function taskLinksFromPayload(task) {
+      if (!task) return [];
+      if (Array.isArray(task.links)) return task.links;
+      if (task.link) return [task.link];
+      if (task.info && Array.isArray(task.info.links)) return task.info.links;
+      return [];
     }
 
     function renderTaskSettings() {
@@ -5878,6 +5919,11 @@
     function persistEntityLinks() {
       if (!currentEntityId) return Promise.resolve();
       var payload = Array.isArray(currentEntityLinks) ? currentEntityLinks.slice() : [];
+      if (currentEntityType === "task") {
+        setTaskLinksLocal(currentEntityId, payload);
+      } else {
+        syncEntityLinkBadges(currentEntityType, currentEntityId, payload);
+      }
       var endpoint = currentEntityType === "task"
         ? '/api/tasks/' + currentEntityId
         : currentEntityType === "project"
@@ -5894,7 +5940,7 @@
           if (!data || !data.id) return;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           if (currentEntityType === "task") {
-            syncTaskLinkBadges(data.id, currentEntityLinks);
+            setTaskLinksLocal(data.id, currentEntityLinks);
           } else {
             syncEntityLinkBadges(currentEntityType, data.id, currentEntityLinks);
           }
@@ -6095,11 +6141,11 @@
         currentTaskTitle = normalizedTitle;
         titleEl.textContent = currentTaskTitle || "Discussion";
         currentTaskData = Object.assign({}, currentTaskData || {}, task);
-        currentEntityLinks = task.links || (task.link ? [task.link] : []);
+        currentEntityLinks = taskLinksFromPayload(task);
         renderTaskSettings();
         renderEntityLinkState();
       }
-      syncTaskLinkBadges(task.id, task.links || (task.link ? [task.link] : []));
+      syncTaskLinkBadges(task.id, taskLinksFromPayload(task));
       document.querySelectorAll('.due-input[data-task-id="' + task.id + '"]').forEach(function (input) {
         matched = true;
         input.value = normalizedDue;
@@ -6740,7 +6786,12 @@
     }
     document.querySelectorAll("[data-drawer-tab]").forEach(function (button) {
       button.addEventListener("click", function () {
-        setDrawerTab(button.getAttribute("data-drawer-tab"));
+        var nextTab = button.getAttribute("data-drawer-tab");
+        if (nextTab === "messages" && currentEntityType === "task" && currentTaskId) {
+          loadEntityComments("task", currentTaskId, currentTaskTitle, currentProjectName);
+          return;
+        }
+        setDrawerTab(nextTab);
       });
     });
 
@@ -6895,16 +6946,17 @@
       linksListEl.addEventListener('blur', function (event) {
         var input = event.target.closest('[data-link-index]');
         if (!input) return;
-        var value = (input.value || '').trim();
+        var value = normalizeLinkInputValue(input.value || '');
         var indexAttr = input.getAttribute('data-link-index');
         if (indexAttr === 'new') {
           if (!value) return;
           currentEntityLinks.push(value);
+          input.value = "";
         } else {
           return;
         }
         currentEntityLinks = currentEntityLinks
-          .map(function (link) { return (link || '').trim(); })
+          .map(function (link) { return normalizeLinkInputValue(link); })
           .filter(function (link, idx, arr) { return link && arr.indexOf(link) === idx; });
         renderEntityLinkState();
         persistEntityLinks();

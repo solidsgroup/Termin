@@ -572,7 +572,15 @@ def update_task(task_id: int):
     db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
-    return {"id": task.id, "title": task.title, "status": task.status, "info": _info_payload_for(task)}, 200
+    info_payload = _info_payload_for(task)
+    return {
+        "id": task.id,
+        "title": task.title,
+        "status": task.status,
+        "info": info_payload,
+        "link": task.link,
+        "links": info_payload.get("links", []),
+    }, 200
 
 
 @api_bp.get("/tasks/<int:task_id>")
