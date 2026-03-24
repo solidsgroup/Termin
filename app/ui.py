@@ -161,7 +161,11 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
         if not group:
             continue
         project_flag_map = project_flags.get(group.project_id, {})
-        combined_ids = set(member_ids).union(project_flag_map.keys())
+        combined_ids = {
+            user_id
+            for user_id, flags in project_flag_map.items()
+            if flags.get("owner") or flags.get("project_member")
+        }.union(member_ids)
         viewers = [user_map[user_id] for user_id in combined_ids if user_id in user_map]
         viewers.sort(
             key=lambda user: (
