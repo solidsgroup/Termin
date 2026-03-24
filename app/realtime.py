@@ -16,6 +16,7 @@ from app.models import (
     Project,
     ProjectComment,
     ProjectMember,
+    ProjectSidebarPreference,
     Task,
     TaskComment,
     TaskNotification,
@@ -105,6 +106,58 @@ def _group_comment_user_ids(group_id: int) -> set[int]:
             for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
         )
     return {user_id for user_id in user_ids if user_id}
+
+
+def _project_update_user_ids(project_id: int) -> set[int]:
+    project = Project.query.get(project_id)
+    if not project:
+        return set()
+    user_ids = {project.owner_id}
+    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=project_id).all())
+    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
+    if group_ids:
+        user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
+        task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.project_id == project_id).all()]
+        if task_ids:
+            user_ids.update(
+                row.user_id
+                for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
+            )
+    return {user_id for user_id in user_ids if user_id}
+
+
+def _serialize_project_payload(project: Project) -> dict:
+    info_payload = load_info_payload(getattr(project, "info", None), getattr(project, "link", None))
+    return {
+        "id": project.id,
+        "name": project.name,
+        "links": info_payload.get("links", []),
+        "division_id": project.division_id,
+    }
+
+
+def _serialize_project_payload_for_user(project: Project, user_id: int) -> dict:
+    payload = _serialize_project_payload(project)
+    pref = ProjectSidebarPreference.query.filter_by(user_id=user_id, project_id=project.id).first()
+    if pref:
+        payload["division_id"] = pref.division_id
+    return payload
+
+
+def _serialize_group_payload(group: Group) -> dict:
+    info_payload = load_info_payload(getattr(group, "info", None), getattr(group, "link", None))
+    return {
+        "id": group.id,
+        "project_id": group.project_id,
+        "name": group.name,
+        "color": group.color,
+        "position": group.position,
+        "links": info_payload.get("links", []),
+    }
+
+
+def _serialize_division_payload(division) -> dict:
+    return {"id": division.id, "name": division.name, "color": division.color, "position": division.position}
 
 
 def _task_summary(task: Task | None) -> dict | None:
@@ -553,6 +606,78 @@ def emit_task_notification_updates(task: Task, *, exclude_user_id: int | None = 
         if exclude_user_id and recipient_id == exclude_user_id:
             continue
         emit_notification_state(recipient_id)
+
+
+def emit_project_updated(project: Project, *, actor_user_id: int | None = None) -> None:
+    for recipient_id in _project_update_user_ids(project.id):
+        payload = {"project": _serialize_project_payload_for_user(project, recipient_id), "actor_user_id": actor_user_id}
+        socketio.emit("project_updated", payload, room=user_room(recipient_id))
+
+
+def emit_project_created(project: Project, *, actor_user_id: int | None = None, recipient_user_id: int | None = None) -> None:
+    if recipient_user_id is not None:
+        payload = {"project": _serialize_project_payload_for_user(project, recipient_user_id), "actor_user_id": actor_user_id}
+        socketio.emit("project_created", payload, room=user_room(recipient_user_id))
+    else:
+        for recipient_id in _project_update_user_ids(project.id):
+            payload = {"project": _serialize_project_payload_for_user(project, recipient_id), "actor_user_id": actor_user_id}
+            socketio.emit("project_created", payload, room=user_room(recipient_id))
+
+
+def emit_project_deleted(project_id: int, *, actor_user_id: int | None = None, task_ids: list[int] | None = None) -> None:
+    payload = {"project_id": project_id, "task_ids": task_ids or [], "actor_user_id": actor_user_id}
+    socketio.emit("project_deleted", payload, room=project_room(project_id))
+    for recipient_id in _project_update_user_ids(project_id):
+        socketio.emit("project_deleted", payload, room=user_room(recipient_id))
+
+
+def emit_group_updated(group: Group, *, actor_user_id: int | None = None) -> None:
+    payload = {"group": _serialize_group_payload(group), "actor_user_id": actor_user_id}
+    socketio.emit("group_updated", payload, room=project_room(group.project_id))
+    for recipient_id in _group_comment_user_ids(group.id):
+        socketio.emit("group_updated", payload, room=user_room(recipient_id))
+
+
+def emit_group_created(group: Group, *, actor_user_id: int | None = None) -> None:
+    payload = {"group": _serialize_group_payload(group), "actor_user_id": actor_user_id}
+    socketio.emit("group_created", payload, room=project_room(group.project_id))
+    for recipient_id in _group_comment_user_ids(group.id):
+        socketio.emit("group_created", payload, room=user_room(recipient_id))
+
+
+def emit_group_deleted(group_id: int, project_id: int, *, actor_user_id: int | None = None, task_ids: list[int] | None = None) -> None:
+    payload = {"group_id": group_id, "project_id": project_id, "task_ids": task_ids or [], "actor_user_id": actor_user_id}
+    socketio.emit("group_deleted", payload, room=project_room(project_id))
+    for recipient_id in _group_comment_user_ids(group_id):
+        socketio.emit("group_deleted", payload, room=user_room(recipient_id))
+
+
+def emit_division_updated(division, *, actor_user_id: int | None = None, recipient_user_id: int | None = None) -> None:
+    payload = {"division": _serialize_division_payload(division), "actor_user_id": actor_user_id}
+    if recipient_user_id is not None:
+        socketio.emit("division_updated", payload, room=user_room(recipient_user_id))
+
+
+def emit_division_created(division, *, actor_user_id: int | None = None, recipient_user_id: int | None = None) -> None:
+    payload = {"division": _serialize_division_payload(division), "actor_user_id": actor_user_id}
+    if recipient_user_id is not None:
+        socketio.emit("division_created", payload, room=user_room(recipient_user_id))
+
+
+def emit_division_deleted(division_id: int, *, actor_user_id: int | None = None, recipient_user_id: int | None = None) -> None:
+    payload = {"division_id": division_id, "actor_user_id": actor_user_id}
+    if recipient_user_id is not None:
+        socketio.emit("division_deleted", payload, room=user_room(recipient_user_id))
+
+
+def emit_group_reordered(project_id: int, order: list[int], *, actor_user_id: int | None = None) -> None:
+    payload = {"project_id": project_id, "order": order, "actor_user_id": actor_user_id}
+    socketio.emit("group_reordered", payload, room=project_room(project_id))
+
+
+def emit_sidebar_reordered(user_id: int, order: list[str], *, actor_user_id: int | None = None) -> None:
+    payload = {"order": order, "actor_user_id": actor_user_id}
+    socketio.emit("sidebar_reordered", payload, room=user_room(user_id))
 
 
 def register_socket_handlers() -> None:

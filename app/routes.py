@@ -12,15 +12,26 @@ from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 from app.realtime import (
     emit_assignment_updated,
+    emit_division_created,
+    emit_division_deleted,
+    emit_division_updated,
+    emit_group_created,
+    emit_group_updated,
+    emit_group_deleted,
     emit_group_members_updated,
     emit_group_comment_created,
     emit_group_comment_deleted,
     emit_group_comment_updated,
+    emit_group_reordered,
     emit_notification_state,
+    emit_project_created,
+    emit_project_deleted,
+    emit_project_updated,
     emit_project_comment_created,
     emit_project_comment_deleted,
     emit_project_comment_updated,
     emit_project_members_updated,
+    emit_sidebar_reordered,
     is_user_viewing_project,
     is_user_viewing_task,
     project_access_map,
@@ -60,7 +71,7 @@ from app.models import (
     ProjectComment,
     GroupComment,
 )
-from app.utils import current_user
+from app.utils import current_user, is_admin as user_is_admin
 
 
 api_bp = Blueprint("api", __name__)
@@ -316,6 +327,14 @@ def _accessible_projects_for_user(user) -> list[Project]:
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
 
 
+def _sidebar_order_tokens(user) -> list[str]:
+    accessible_projects = _accessible_projects_for_user(user)
+    divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
+    pref_map = sidebar_preference_map(user.id, accessible_projects, divisions)
+    items = top_level_sidebar_items(accessible_projects, divisions, pref_map)
+    return [f"{item['type']}:{item['id']}" for item in items]
+
+
 def _task_bucket_query(project_id: int, group_id: int | None):
     query = Task.query.filter_by(project_id=project_id)
     if group_id is None:
@@ -429,12 +448,15 @@ def create_task():
         return {"error": "project not found"}, 404
 
     group = None
-    if group_id:
-        group = Group.query.filter_by(id=group_id, project_id=project.id).first()
+    target_group_id = None if group_id in (None, "", "null") else group_id
+    if target_group_id is not None:
+        try:
+            target_group_id = int(target_group_id)
+        except (TypeError, ValueError):
+            return {"error": "invalid group id"}, 400
+        group = Group.query.filter_by(id=target_group_id, project_id=project.id).first()
         if not group:
             return {"error": "group not found"}, 404
-    else:
-        group = Group.query.filter_by(project_id=project.id).first()
 
     if not _can_manage_task_bucket(user, project.id, group.id if group else None):
         return {"error": "unauthorized"}, 403
@@ -1097,6 +1119,7 @@ def update_group(group_id: int):
         group.link = (info_payload.get("links") or [None])[0]
         group.info = normalize_info_payload(info_payload, group.link)
     db.session.commit()
+    emit_group_updated(group, actor_user_id=user.id)
     return {"id": group.id, "name": group.name, "links": _info_payload_for(group).get("links", [])}, 200
 
 
@@ -1168,6 +1191,9 @@ def update_project(project_id: int):
             elif old_division_id != division.id:
                 resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
     db.session.commit()
+    emit_project_updated(project, actor_user_id=user.id)
+    if division_id != "__missing__":
+        emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     current_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
     return {
         "id": project.id,
@@ -1298,6 +1324,7 @@ def move_project(project_id: int):
                 resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
 
     db.session.commit()
+    emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     return {"status": "ok", "id": project.id, "division_id": moving_pref.division_id, "position": moving_pref.position}, 200
 
 
@@ -1325,6 +1352,7 @@ def update_division(division_id: int):
             return {"error": "invalid color"}, 400
         division.color = color_value or None
     db.session.commit()
+    emit_division_updated(division, actor_user_id=user.id, recipient_user_id=user.id)
     return {"id": division.id, "name": division.name, "color": division.color}, 200
 
 
@@ -1349,6 +1377,7 @@ def delete_project(project_id: int):
     Group.query.filter(Group.project_id == project.id).delete(synchronize_session=False)
     db.session.delete(project)
     db.session.commit()
+    emit_project_deleted(project.id, actor_user_id=user.id, task_ids=task_ids)
     return {"status": "deleted"}, 200
 
 
@@ -1377,6 +1406,8 @@ def delete_division(division_id: int):
 
     db.session.delete(division)
     db.session.commit()
+    emit_division_deleted(division.id, actor_user_id=user.id, recipient_user_id=user.id)
+    emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -1442,6 +1473,8 @@ def duplicate_project(project_id: int):
 
     db.session.commit()
     copy_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=copy.id).first()
+    emit_project_created(copy, actor_user_id=user.id, recipient_user_id=user.id)
+    emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     return {
         "id": copy.id,
         "name": copy.name,
@@ -1459,6 +1492,7 @@ def delete_group(group_id: int):
     if group.project_id is None or not _can_manage_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
 
+    project_id = group.project_id
     task_ids = [t.id for t in Task.query.filter_by(group_id=group.id).all()]
     Assignment.query.filter(Assignment.task_id.in_(task_ids)).delete(synchronize_session=False)
     Invite.query.filter(Invite.task_id.in_(task_ids)).delete(synchronize_session=False)
@@ -1466,6 +1500,7 @@ def delete_group(group_id: int):
     GroupMember.query.filter(GroupMember.group_id == group.id).delete(synchronize_session=False)
     db.session.delete(group)
     db.session.commit()
+    emit_group_deleted(group_id, project_id, actor_user_id=user.id, task_ids=task_ids)
     return {"status": "deleted"}, 200
 
 
@@ -1507,6 +1542,7 @@ def duplicate_group(group_id: int):
 
     db.session.commit()
     tasks = Task.query.filter_by(group_id=new_group.id).order_by(Task.position.asc(), Task.id.asc()).all()
+    emit_group_created(new_group, actor_user_id=user.id)
     return {
         "id": new_group.id,
         "name": new_group.name,
@@ -1535,6 +1571,19 @@ def list_users():
             }
         )
     return {"results": results}
+
+
+@api_bp.post("/admin/resequence_tasks")
+@login_required
+def admin_resequence_tasks():
+    user = current_user()
+    if not user_is_admin(user):
+        return {"error": "unauthorized"}, 403
+    buckets = db.session.query(Task.project_id, Task.group_id).distinct().all()
+    for project_id, group_id in buckets:
+        _resequence_tasks(project_id, group_id)
+    db.session.commit()
+    return {"status": "ok", "buckets": len(buckets)}, 200
 
 
 @api_bp.post("/projects/<int:project_id>/members")
@@ -1750,6 +1799,7 @@ def reorder_groups():
     for idx, gid in enumerate(order_ids):
         Group.query.filter_by(id=gid, project_id=project.id).update({"position": idx + 1})
     db.session.commit()
+    emit_group_reordered(project.id, order_ids, actor_user_id=user.id)
     return {"status": "ok"}, 200
 
 
@@ -1789,6 +1839,7 @@ def reorder_sidebar():
             return {"error": "invalid token"}, 400
 
     db.session.commit()
+    emit_sidebar_reordered(user.id, order, actor_user_id=user.id)
     return {"status": "ok"}, 200
 
 

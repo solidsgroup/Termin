@@ -757,6 +757,19 @@
   </div>
 </div>
 
+<div id="rename-modal" class="modal">
+  <div class="panel">
+    <h3 id="rename-title">Rename</h3>
+    <label for="rename-input">Name</label>
+    <input id="rename-input" placeholder="Enter a name" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <div id="rename-status" class="footer-note" style="margin-top: 8px;"></div>
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button class="btn secondary" type="button" id="rename-cancel">Cancel</button>
+      <button class="btn" type="button" id="rename-save">Save</button>
+    </div>
+  </div>
+</div>
+
 <div id="info-modal" class="modal">
   <div class="panel">
     <h3 id="info-title">Edit info</h3>
@@ -1502,17 +1515,52 @@
         document.querySelectorAll('[data-selected-project-title="' + projectId + '"]').forEach(function (node) {
           node.textContent = name;
         });
+        document.querySelectorAll('[data-project-name]').forEach(function (node) {
+          var inTodo = node.closest && node.closest(".todo-item");
+          var inTable = node.closest && node.closest(".tasks-table");
+          if (inTodo) {
+            var item = node.closest(".todo-item");
+            if (item && String(item.getAttribute("data-project-id") || "") === String(projectId)) {
+              node.setAttribute("data-project-name", name);
+            }
+            return;
+          }
+          if (inTable) {
+            if (String(inTable.getAttribute("data-project-id") || "") === String(projectId)) {
+              node.setAttribute("data-project-name", name);
+            }
+            return;
+          }
+          node.setAttribute("data-project-name", name);
+        });
+        document.querySelectorAll('[data-entity-type="project"][data-entity-id="' + projectId + '"]').forEach(function (node) {
+          node.setAttribute("data-entity-title", name);
+        });
+        if (document.querySelector('[data-selected-project-title="' + projectId + '"]')) {
+          document.querySelectorAll("[data-entity-project]").forEach(function (node) {
+            node.setAttribute("data-entity-project", name);
+          });
+        }
       }
 
       function setGroupNameLocal(groupId, name) {
         document.querySelectorAll('.group-title-text[data-group-id="' + groupId + '"]').forEach(function (node) {
           node.textContent = name;
         });
+        document.querySelectorAll('.group-header[data-group-context="' + groupId + '"] [data-entity-title]').forEach(function (node) {
+          node.setAttribute("data-entity-title", name);
+        });
       }
 
       function setDivisionNameLocal(divisionId, name) {
         document.querySelectorAll('.sidebar-heading-row[data-division-context="' + divisionId + '"] .sidebar-division-title').forEach(function (node) {
           node.textContent = name;
+        });
+        divisionOptions = (divisionOptions || []).map(function (division) {
+          if (String(division.id) === String(divisionId)) {
+            return Object.assign({}, division, { name: name });
+          }
+          return division;
         });
       }
 
@@ -1524,6 +1572,31 @@
           node.setAttribute("data-division-color", nextColor);
           var title = node.querySelector(".sidebar-division-title");
           if (title) title.style.color = nextColor;
+        });
+        divisionOptions = (divisionOptions || []).map(function (division) {
+          if (String(division.id) === String(divisionId)) {
+            return Object.assign({}, division, { color: nextColor });
+          }
+          return division;
+        });
+      }
+
+      function addDivisionOptionLocal(division) {
+        if (!division || !division.id) return;
+        var exists = (divisionOptions || []).some(function (item) {
+          return String(item.id) === String(division.id);
+        });
+        if (exists) return;
+        divisionOptions = (divisionOptions || []).concat([{
+          id: division.id,
+          name: division.name || "Division",
+          color: division.color || "#4cc9f0",
+        }]);
+      }
+
+      function removeDivisionOptionLocal(divisionId) {
+        divisionOptions = (divisionOptions || []).filter(function (division) {
+          return String(division.id) !== String(divisionId);
         });
       }
 
@@ -1609,10 +1682,311 @@
         return true;
       }
 
+      function buildProjectItemNode(project, divisionColor, canManage) {
+        if (!project || !project.id) return null;
+        var projectColor = divisionColor || "#2a3442";
+        var wrapper = document.createElement("div");
+        wrapper.className = "project-item";
+        wrapper.style.setProperty("--project-color", projectColor);
+        wrapper.setAttribute("data-project-context", String(project.id));
+        wrapper.setAttribute("data-project-manage", canManage ? "1" : "0");
+        wrapper.setAttribute("data-project-drop-id", String(project.id));
+        wrapper.setAttribute("data-project-href", "/?project_id=" + encodeURIComponent(project.id));
+        if (canManage) {
+          wrapper.setAttribute("draggable", "true");
+          wrapper.setAttribute("data-sidebar-project", String(project.id));
+        }
+        wrapper.innerHTML =
+          '<div class="project-item-top">' +
+            '<a href="/?project_id=' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
+              '<strong data-project-title="' + String(project.id) + '">' + escapeHtml(project.name || "Project") + '</strong>' +
+            '</a>' +
+          '</div>';
+        return wrapper;
+      }
+
+      function buildDivisionNode(division) {
+        if (!division || !division.id) return null;
+        var color = division.color || "#4cc9f0";
+        var wrapper = document.createElement("div");
+        wrapper.className = "sidebar-division";
+        wrapper.style.setProperty("--division-color", color);
+        wrapper.style.color = color;
+        wrapper.setAttribute("data-sidebar-division", String(division.id));
+        wrapper.setAttribute("data-division-color", color);
+        wrapper.setAttribute("draggable", "true");
+        wrapper.innerHTML =
+          '<div class="sidebar-heading-row" data-division-context="' + String(division.id) + '">' +
+            '<h3 class="sidebar-division-title" style="color: ' + color + ';">' + escapeHtml(division.name || "Division") + '</h3>' +
+          '</div>' +
+          '<div class="project-list"></div>';
+        return wrapper;
+      }
+
+      function insertProjectSidebarLocal(project, canManage) {
+        if (!project || !project.id) return false;
+        var projectId = String(project.id);
+        if (document.querySelector('[data-project-context="' + projectId + '"]')) return false;
+        var divisionId = project.division_id === null || project.division_id === undefined ? "" : String(project.division_id);
+        var item = buildProjectItemNode(project, "", !!canManage);
+        if (!item) return false;
+        var stack = document.querySelector("[data-sidebar-stack]");
+        if (!stack) return false;
+        if (!divisionId) {
+          var topWrapper = document.createElement("div");
+          topWrapper.className = "sidebar-stack-item";
+          topWrapper.setAttribute("data-sidebar-item", "project:" + projectId);
+          topWrapper.appendChild(item);
+          var lastInsert = stack.querySelector(".sidebar-insert-row:last-child");
+          stack.insertBefore(topWrapper, lastInsert || null);
+          return true;
+        }
+        var divisionNode = document.querySelector('[data-sidebar-division="' + divisionId + '"]');
+        var projectList = divisionNode ? divisionNode.querySelector(".project-list") : null;
+        if (!projectList) return false;
+        var divisionColor = divisionNode.getAttribute("data-division-color") || "#4cc9f0";
+        item.style.setProperty("--project-color", divisionColor);
+        projectList.appendChild(item);
+        return true;
+      }
+
+      function insertDivisionSidebarLocal(division) {
+        if (!division || !division.id) return false;
+        var divisionId = String(division.id);
+        if (document.querySelector('[data-sidebar-division="' + divisionId + '"]')) return false;
+        var stack = document.querySelector("[data-sidebar-stack]");
+        if (!stack) return false;
+        var divisionNode = buildDivisionNode(division);
+        if (!divisionNode) return false;
+        var wrapper = document.createElement("div");
+        wrapper.className = "sidebar-stack-item";
+        wrapper.setAttribute("data-sidebar-item", "division:" + divisionId);
+        wrapper.appendChild(divisionNode);
+        var lastInsert = stack.querySelector(".sidebar-insert-row:last-child");
+        stack.insertBefore(wrapper, lastInsert || null);
+        return true;
+      }
+
+      function applySidebarOrderLocal(order) {
+        if (!Array.isArray(order) || !order.length) return false;
+        var stack = document.querySelector("[data-sidebar-stack]");
+        if (!stack) return false;
+        var template = stack.querySelector(".sidebar-insert-row");
+        if (!template) return false;
+        var items = {};
+        stack.querySelectorAll(".sidebar-stack-item[data-sidebar-item]").forEach(function (item) {
+          items[item.getAttribute("data-sidebar-item")] = item;
+        });
+        function buildInsertRow(position) {
+          var row = template.cloneNode(true);
+          row.classList.remove("is-open");
+          row.querySelectorAll("[data-sidebar-insert-position]").forEach(function (node) {
+            node.setAttribute("data-sidebar-insert-position", String(position));
+          });
+          return row;
+        }
+        var fragment = document.createDocumentFragment();
+        fragment.appendChild(buildInsertRow(1));
+        var position = 2;
+        order.forEach(function (token) {
+          var item = items[token];
+          if (!item) return;
+          fragment.appendChild(item);
+          fragment.appendChild(buildInsertRow(position));
+          position += 1;
+        });
+        stack.innerHTML = "";
+        stack.appendChild(fragment);
+        return true;
+      }
+
+      function updateTodoDivisionNode(division) {
+        var todoTree = document.querySelector("[data-todo-tree]");
+        if (!todoTree || !division || !division.id) return false;
+        var divisionId = String(division.id);
+        var node = todoTree.querySelector('.todo-tree-node[data-division-id="' + divisionId + '"]:not(.is-project)');
+        if (!node) {
+          node = document.createElement("div");
+          node.className = "todo-tree-node";
+          node.setAttribute("data-division-id", divisionId);
+          node.innerHTML =
+            '<div class="todo-tree-row">' +
+              '<label class="todo-tree-label-row">' +
+                '<input type="checkbox" class="todo-tree-checkbox" data-todo-division="' + divisionId + '" checked />' +
+                '<span class="todo-tree-label"></span>' +
+                '<button class="todo-tree-toggle" type="button" data-toggle-division="' + divisionId + '" aria-label="Toggle division">▾</button>' +
+              '</label>' +
+            '</div>' +
+            '<div class="todo-tree-children"></div>';
+          var list = todoTree.querySelector(".todo-tree-list");
+          if (list) list.appendChild(node);
+        }
+        var color = division.color || "#4cc9f0";
+        node.style.setProperty("--division-color", color);
+        var label = node.querySelector(".todo-tree-label");
+        if (label) {
+          label.textContent = division.name || "Division";
+          label.style.color = color;
+        }
+        return true;
+      }
+
+      function updateTodoProjectNode(project, divisionId, divisionColor) {
+        var todoTree = document.querySelector("[data-todo-tree]");
+        if (!todoTree || !project || !project.id) return false;
+        var projectId = String(project.id);
+        var targetDivisionId = divisionId !== undefined && divisionId !== null ? String(divisionId) : "none";
+        var node = todoTree.querySelector('.todo-tree-node.is-project[data-project-id="' + projectId + '"]');
+        if (!node) {
+          node = document.createElement("div");
+          node.className = "todo-tree-node is-project";
+          node.setAttribute("data-project-id", projectId);
+          node.innerHTML =
+            '<div class="todo-tree-row">' +
+              '<label class="todo-tree-label-row">' +
+                '<input type="checkbox" class="todo-tree-checkbox" data-todo-project="' + projectId + '" checked />' +
+                '<span class="todo-tree-label"></span>' +
+                '<button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="' + projectId + '" aria-label="Toggle project groups">▸</button>' +
+              '</label>' +
+            '</div>' +
+            '<div class="todo-tree-children todo-tree-groups"><div class="todo-tree-empty">No groups</div></div>';
+        }
+        node.setAttribute("data-division-id", targetDivisionId);
+        node.style.setProperty("--division-color", divisionColor || "#4cc9f0");
+        var label = node.querySelector(".todo-tree-label");
+        if (label) label.textContent = project.name || "Project";
+        var checkbox = node.querySelector('[data-todo-project="' + projectId + '"]');
+        if (checkbox) checkbox.setAttribute("data-division-id", targetDivisionId);
+        node.querySelectorAll('[data-todo-group]').forEach(function (groupInput) {
+          groupInput.setAttribute("data-division-id", targetDivisionId);
+        });
+        var targetDivision = todoTree.querySelector('.todo-tree-node[data-division-id="' + targetDivisionId + '"]:not(.is-project)');
+        if (!targetDivision) {
+          if (targetDivisionId === "none") {
+            targetDivision = todoTree.querySelector('.todo-tree-node[data-division-id="none"]');
+          }
+        }
+        var container = targetDivision ? targetDivision.querySelector(".todo-tree-children") : null;
+        if (container && node.parentNode !== container) {
+          container.appendChild(node);
+        }
+        return true;
+      }
+
+      function updateTodoGroupNode(group, divisionId) {
+        var todoTree = document.querySelector("[data-todo-tree]");
+        if (!todoTree || !group || !group.id) return false;
+        var groupId = String(group.id);
+        var projectId = String(group.project_id || "");
+        if (!projectId) return false;
+        var projectNode = todoTree.querySelector('.todo-tree-node.is-project[data-project-id="' + projectId + '"]');
+        if (!projectNode) return false;
+        var groupsContainer = projectNode.querySelector(".todo-tree-groups");
+        if (!groupsContainer) return false;
+        var row = groupsContainer.querySelector('[data-todo-group="' + groupId + '"]');
+        if (!row) {
+          var label = document.createElement("label");
+          label.className = "todo-tree-row todo-tree-group-row";
+          label.innerHTML =
+            '<input type="checkbox" class="todo-tree-checkbox" data-todo-group="' + groupId + '" data-project-id="' + projectId + '" checked />' +
+            '<span class="todo-tree-label"></span>';
+          row = label;
+          groupsContainer.appendChild(row);
+        }
+        var input = row.querySelector('[data-todo-group="' + groupId + '"]');
+        if (input) {
+          input.setAttribute("data-project-id", projectId);
+          input.setAttribute("data-division-id", divisionId || projectNode.getAttribute("data-division-id") || "none");
+        }
+        var title = row.querySelector(".todo-tree-label");
+        if (title) title.textContent = group.name || "Group";
+        var empty = groupsContainer.querySelector(".todo-tree-empty");
+        if (empty) empty.remove();
+        return true;
+      }
+
+      function removeTodoProjectNode(projectId) {
+        var todoTree = document.querySelector("[data-todo-tree]");
+        if (!todoTree) return false;
+        var node = todoTree.querySelector('.todo-tree-node.is-project[data-project-id="' + projectId + '"]');
+        if (!node) return false;
+        node.remove();
+        return true;
+      }
+
+      function removeTodoGroupNode(groupId) {
+        var todoTree = document.querySelector("[data-todo-tree]");
+        if (!todoTree) return false;
+        var row = todoTree.querySelector('[data-todo-group="' + groupId + '"]');
+        if (!row) return false;
+        var groupsContainer = row.closest(".todo-tree-groups");
+        var wrapper = row.closest(".todo-tree-row");
+        (wrapper || row).remove();
+        if (groupsContainer && !groupsContainer.querySelector('[data-todo-group]')) {
+          var empty = document.createElement("div");
+          empty.className = "todo-tree-empty";
+          empty.textContent = "No groups";
+          groupsContainer.appendChild(empty);
+        }
+        return true;
+      }
+
+      function removeTodoDivisionNode(divisionId) {
+        var todoTree = document.querySelector("[data-todo-tree]");
+        if (!todoTree) return false;
+        var node = todoTree.querySelector('.todo-tree-node[data-division-id="' + divisionId + '"]:not(.is-project)');
+        if (!node) return false;
+        node.remove();
+        return true;
+      }
+
+      function updateTodoItemProjectMeta(projectId, projectName, divisionId, divisionColor) {
+        document.querySelectorAll('.todo-item[data-project-id="' + projectId + '"]').forEach(function (item) {
+          var projectLink = item.querySelector(".todo-project-name");
+          if (projectLink) {
+            projectLink.textContent = projectName || "Project";
+            projectLink.setAttribute("title", "Open " + (projectName || "Project"));
+          }
+          if (divisionId !== undefined && divisionId !== null) {
+            item.setAttribute("data-division-id", String(divisionId || "none"));
+          }
+          if (divisionColor) {
+            item.style.setProperty("--todo-color", divisionColor);
+          }
+        });
+      }
+
+      function updateTodoItemGroupMeta(groupId, groupName) {
+        document.querySelectorAll('.todo-item[data-group-id="' + groupId + '"]').forEach(function (item) {
+          var groupLink = item.querySelector(".todo-group-name");
+          if (groupLink) {
+            groupLink.textContent = groupName || "Group";
+            groupLink.setAttribute("title", "Open " + (groupName || "Group"));
+          }
+        });
+      }
+
       window.__removeProjectLocal = removeProjectLocal;
       window.__removeGroupLocal = removeGroupLocal;
       window.__removeDivisionLocal = removeDivisionLocal;
       window.__moveProjectSidebarLocal = moveProjectSidebarLocal;
+      window.__insertProjectSidebarLocal = insertProjectSidebarLocal;
+      window.__insertDivisionSidebarLocal = insertDivisionSidebarLocal;
+      window.__applySidebarOrderLocal = applySidebarOrderLocal;
+      window.__updateTodoDivisionNode = updateTodoDivisionNode;
+      window.__updateTodoProjectNode = updateTodoProjectNode;
+      window.__updateTodoGroupNode = updateTodoGroupNode;
+      window.__removeTodoProjectNode = removeTodoProjectNode;
+      window.__removeTodoGroupNode = removeTodoGroupNode;
+      window.__removeTodoDivisionNode = removeTodoDivisionNode;
+      window.__updateTodoItemProjectMeta = updateTodoItemProjectMeta;
+      window.__updateTodoItemGroupMeta = updateTodoItemGroupMeta;
+      window.__setProjectNameLocal = setProjectNameLocal;
+      window.__setGroupNameLocal = setGroupNameLocal;
+      window.__setDivisionNameLocal = setDivisionNameLocal;
+      window.__setDivisionColorLocal = setDivisionColorLocal;
+      window.__addDivisionOptionLocal = addDivisionOptionLocal;
+      window.__removeDivisionOptionLocal = removeDivisionOptionLocal;
 
       function submitDivisionColor(color) {
         if (!colorSubmenu) return;
@@ -3212,14 +3586,51 @@
         .then((data) => {
           const task = data.task || null;
           if (!data.id || !task) return null;
-          const inserted = typeof window.__upsertTaskRowFromSnapshot === "function"
+          let inserted = typeof window.__upsertTaskRowFromSnapshot === "function"
             ? window.__upsertTaskRowFromSnapshot(task)
             : false;
+          let row = null;
+          if (!inserted && typeof window.__insertTaskRow === "function") {
+            const assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
+            const info = Object.assign({}, task.info || emptyInfo(), { position: task.position });
+            row = window.__insertTaskRow(
+              table,
+              task.id,
+              task.title || "",
+              info,
+              task.due_at || "",
+              assignment
+            );
+            if (row) {
+              if (task.position !== undefined && task.position !== null) {
+                row.setAttribute("data-task-position", String(task.position));
+              }
+              const tbody = table.querySelector("tbody[data-task-dropzone='1']");
+              if (tbody) {
+                insertTaskRowByPosition(tbody, row, task.id, task.position);
+              }
+              const statusCell = row.querySelector(`.editable[data-task-id="${task.id}"][data-field="status"]`);
+              if (statusCell) {
+                const nextStatus = task.status || "open";
+                statusCell.textContent = nextStatus;
+                statusCell.dataset.originalValue = nextStatus;
+                if (typeof window.__applyStatusState === "function") {
+                  window.__applyStatusState(statusCell, nextStatus);
+                }
+              }
+              if (typeof window.__renderTaskAssignments === "function") {
+                window.__renderTaskAssignments(task.id, task.assignments || []);
+              }
+              inserted = true;
+            }
+          }
           titleInput.value = "";
           if (dueInput) dueInput.value = "";
           if (assigneeInput) assigneeInput.value = "";
           titleInput.focus();
-          const row = inserted ? document.querySelector(`[data-task-row-id='${data.id}']`) : null;
+          if (!row && inserted) {
+            row = document.querySelector(`[data-task-row-id='${data.id}']`);
+          }
           return { id: data.id, row };
         });
     };
@@ -3234,6 +3645,9 @@
       const block = document.createElement("div");
       block.className = "group-block";
       block.setAttribute("data-group-id", String(groupData.id));
+      if (groupData.position !== undefined && groupData.position !== null) {
+        block.setAttribute("data-group-position", String(groupData.position));
+      }
 
       const insertWrap = document.createElement("div");
       insertWrap.className = "group-insert-wrap" + (canManageGroup ? "" : " disabled");
@@ -4128,6 +4542,92 @@
       if (infoFileInput) infoFileInput.value = "";
     };
 
+    const renameModal = document.getElementById("rename-modal");
+    const renameTitle = document.getElementById("rename-title");
+    const renameInput = document.getElementById("rename-input");
+    const renameStatus = document.getElementById("rename-status");
+    const renameSave = document.getElementById("rename-save");
+    const renameCancel = document.getElementById("rename-cancel");
+
+    const getEntityName = (type, id) => {
+      if (!type || !id) return "";
+      if (type === "project") {
+        const node = document.querySelector(`[data-project-title="${id}"]`);
+        return node ? node.textContent.trim() : "";
+      }
+      if (type === "group") {
+        const node = document.querySelector(`.group-title-text[data-group-id="${id}"]`);
+        return node ? node.textContent.trim() : "";
+      }
+      if (type === "division") {
+        const node = document.querySelector(`.sidebar-heading-row[data-division-context="${id}"] .sidebar-division-title`);
+        return node ? node.textContent.trim() : "";
+      }
+      return "";
+    };
+
+    const openRenameModal = (type, id) => {
+      if (!renameModal || !renameInput || !renameTitle) return;
+      renameModal.setAttribute("data-rename-type", type);
+      renameModal.setAttribute("data-rename-id", String(id || ""));
+      renameTitle.textContent = `Rename ${type}`;
+      renameInput.value = getEntityName(type, id) || "";
+      renameStatus.textContent = "";
+      renameModal.style.display = "flex";
+      renameInput.focus();
+      renameInput.select();
+    };
+
+    const closeRenameModal = () => {
+      if (!renameModal) return;
+      renameModal.style.display = "none";
+      renameModal.removeAttribute("data-rename-type");
+      renameModal.removeAttribute("data-rename-id");
+      if (renameInput) renameInput.value = "";
+      if (renameStatus) renameStatus.textContent = "";
+    };
+
+    const submitRenameModal = () => {
+      if (!renameModal || !renameInput) return;
+      const type = renameModal.getAttribute("data-rename-type");
+      const id = renameModal.getAttribute("data-rename-id");
+      const name = renameInput.value.trim();
+      if (!type || !id || !name) return;
+      const url =
+        type === "project"
+          ? `/api/projects/${id}`
+          : type === "group"
+            ? `/api/groups/${id}`
+            : `/api/divisions/${id}`;
+      renameSave && (renameSave.disabled = true);
+      fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          if (!result.ok || !result.data || !result.data.id) {
+            throw new Error("Failed to rename");
+          }
+          const data = result.data;
+          if (type === "project") {
+            setProjectNameLocal(String(data.id), data.name);
+          } else if (type === "group") {
+            setGroupNameLocal(String(data.id), data.name);
+          } else {
+            setDivisionNameLocal(String(data.id), data.name);
+          }
+          closeRenameModal();
+        })
+        .catch(() => {
+          if (renameStatus) renameStatus.textContent = "Rename failed.";
+        })
+        .finally(() => {
+          if (renameSave) renameSave.disabled = false;
+        });
+    };
+
     const infoEndpointBase = (context) =>
       `/api/tasks/${context.id}/info`;
 
@@ -4217,6 +4717,26 @@
       });
     };
 
+    if (renameCancel) renameCancel.addEventListener("click", closeRenameModal);
+    if (renameSave) renameSave.addEventListener("click", submitRenameModal);
+    if (renameInput) {
+      renameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submitRenameModal();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeRenameModal();
+        }
+      });
+    }
+    if (renameModal) {
+      renameModal.addEventListener("click", (event) => {
+        if (event.target === renameModal) closeRenameModal();
+      });
+    }
+
     document.addEventListener("contextmenu", (event) => {
       const projectItem = event.target.closest("[data-project-context]");
       const groupHeader = event.target.closest("[data-group-context]");
@@ -4269,33 +4789,7 @@
         const id = currentContext.id;
         const contextType = currentContext.type;
         if (action === "rename") {
-          const name = prompt("New name");
-          if (!name || !name.trim()) return;
-          const url =
-            contextType === "project"
-              ? `/api/projects/${id}`
-              : contextType === "group"
-                ? `/api/groups/${id}`
-                : `/api/divisions/${id}`;
-          fetch(url, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: name.trim() }),
-          })
-            .then((res) => res.json().catch(() => ({})))
-            .then((data) => {
-              if (!data || !data.id) throw new Error("Failed to rename item");
-              if (contextType === "project") {
-                setProjectNameLocal(String(data.id), data.name);
-              } else if (contextType === "group") {
-                setGroupNameLocal(String(data.id), data.name);
-              } else {
-                setDivisionNameLocal(String(data.id), data.name);
-              }
-            })
-            .catch((error) => {
-              console.error("rename failed", error);
-            });
+          openRenameModal(contextType, id);
         }
         if (action === "color") {
           const divisionNode = document.querySelector(`[data-sidebar-division="${id}"]`);
@@ -5375,6 +5869,10 @@
       return ids;
     }
 
+    function isTodoMode() {
+      return !!document.querySelector("[data-todo-tree]");
+    }
+
     function todoBucketFor(dueValue, createdValue) {
       var today = new Date();
       var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -6093,7 +6591,17 @@
 
     function syncProjectRooms() {
       if (!socket || !socketConnected) return;
+      var ids = new Set();
       visibleProjectIds().forEach(function (projectId) {
+        ids.add(projectId);
+      });
+      if (document.querySelector("[data-todo-tree]")) {
+        document.querySelectorAll("[data-todo-project]").forEach(function (node) {
+          var projectId = node.getAttribute("data-todo-project");
+          if (projectId) ids.add(String(projectId));
+        });
+      }
+      ids.forEach(function (projectId) {
         if (joinedProjectIds.has(projectId)) return;
         joinedProjectIds.add(projectId);
         socket.emit("join_project", { project_id: projectId });
@@ -6359,6 +6867,51 @@
       });
     }
 
+    function insertTaskRowByPosition(tbody, row, taskId, position) {
+      if (!tbody || !row) return;
+      var numericPosition = Number(position || 0);
+      var numericTaskId = Number(taskId || 0);
+      var rows = Array.from(tbody.querySelectorAll('tr[data-task-row-id]')).filter(function (item) {
+        return String(item.getAttribute("data-task-row-id")) !== String(taskId);
+      });
+      var sorted = rows.slice().sort(function (a, b) {
+        var posA = Number(a.getAttribute("data-task-position") || 0);
+        var posB = Number(b.getAttribute("data-task-position") || 0);
+        if (posA !== posB) return posA - posB;
+        var idA = Number(a.getAttribute("data-task-row-id") || 0);
+        var idB = Number(b.getAttribute("data-task-row-id") || 0);
+        return idA - idB;
+      });
+      var insertBefore = null;
+      for (var i = 0; i < sorted.length; i += 1) {
+        var candidate = sorted[i];
+        var candPos = Number(candidate.getAttribute("data-task-position") || 0);
+        var candId = Number(candidate.getAttribute("data-task-row-id") || 0);
+        if (candPos > numericPosition || (candPos === numericPosition && candId > numericTaskId)) {
+          insertBefore = candidate;
+          break;
+        }
+      }
+      var newRow = tbody.querySelector(".new-row");
+      tbody.insertBefore(row, insertBefore || newRow || null);
+    }
+
+    function reorderGroupBlocksLocal(order) {
+      if (!Array.isArray(order) || !order.length) return false;
+      var first = document.querySelector(".group-block");
+      if (!first || !first.parentNode) return false;
+      var parent = first.parentNode;
+      var map = {};
+      document.querySelectorAll(".group-block[data-group-id]").forEach(function (block) {
+        map[block.getAttribute("data-group-id")] = block;
+      });
+      order.forEach(function (groupId) {
+        var block = map[String(groupId)];
+        if (block) parent.appendChild(block);
+      });
+      return true;
+    }
+
     function findTaskTable(projectId, groupId) {
       var normalizedGroupId = groupId === null || groupId === undefined ? "" : String(groupId);
       return document.querySelector('.tasks-table[data-project-id="' + projectId + '"][data-group-id="' + normalizedGroupId + '"]');
@@ -6383,13 +6936,7 @@
       row.setAttribute("data-task-position", String(task.position || ""));
       var tbody = table.querySelector('tbody[data-task-dropzone="1"]');
       if (tbody) {
-        var siblingRows = Array.from(tbody.querySelectorAll('tr[data-task-row-id]')).filter(function (item) {
-          return String(item.getAttribute("data-task-row-id")) !== String(task.id);
-        });
-        var next = siblingRows.find(function (item) {
-          return Number(item.getAttribute("data-task-position") || "0") > Number(task.position || 0);
-        });
-        tbody.insertBefore(row, next || tbody.querySelector(".new-row"));
+        insertTaskRowByPosition(tbody, row, task.id, task.position);
       }
       var statusCell = row.querySelector('.editable[data-task-id="' + task.id + '"][data-field="status"]');
       if (statusCell) {
@@ -6413,6 +6960,130 @@
       return true;
     }
     window.__upsertTaskRowFromSnapshot = upsertTaskRowFromSnapshot;
+
+    function projectViewHref(projectId) {
+      var params = new URLSearchParams(window.location.search);
+      params.set("project_id", String(projectId));
+      params.set("view", "project");
+      if (!params.has("show_completed")) {
+        params.set("show_completed", "1");
+      }
+      params.delete("open_discussion_task_id");
+      return "/?" + params.toString();
+    }
+
+    function todoMetaFor(projectId, groupId) {
+      var projectNode = document.querySelector('.todo-tree-node.is-project[data-project-id="' + projectId + '"]');
+      var projectLabel = projectNode ? projectNode.querySelector(".todo-tree-label") : null;
+      var projectName = projectLabel ? projectLabel.textContent.trim() : "Project";
+      var divisionId = projectNode ? projectNode.getAttribute("data-division-id") : "none";
+      var divisionColor = projectNode ? projectNode.style.getPropertyValue("--division-color") : "";
+      if (!divisionColor && divisionId) {
+        var divisionNode = document.querySelector('.todo-tree-node[data-division-id="' + divisionId + '"]');
+        divisionColor = divisionNode ? divisionNode.style.getPropertyValue("--division-color") : "";
+      }
+      var groupName = "";
+      if (groupId) {
+        var groupInput = document.querySelector('[data-todo-group="' + groupId + '"]');
+        if (groupInput) {
+          var groupRow = groupInput.closest(".todo-tree-row");
+          var groupLabel = groupRow ? groupRow.querySelector(".todo-tree-label") : null;
+          groupName = groupLabel ? groupLabel.textContent.trim() : "";
+        }
+      }
+      return {
+        projectName: projectName,
+        groupName: groupName,
+        divisionId: divisionId || "none",
+        divisionColor: divisionColor || "#4cc9f0",
+      };
+    }
+
+    function buildTodoItem(task) {
+      if (!task || !task.id) return null;
+      var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
+      var meta = todoMetaFor(task.project_id, task.group_id);
+      var projectUrl = projectViewHref(task.project_id);
+      var groupUrl = task.group_id ? projectUrl + "#group-" + task.group_id : "";
+      var linksHtml = typeof renderInlineTaskLinkBadges === "function" ? renderInlineTaskLinkBadges(task.links || []) : "";
+      var title = escapeHtml(task.title || "");
+      var status = escapeHtml(task.status || "open");
+      var statusState = typeof getStatusState === "function" ? getStatusState(task.status || "") : "open";
+      var item = document.createElement("div");
+      item.className = "todo-item";
+      item.style.setProperty("--todo-color", meta.divisionColor);
+      item.setAttribute("data-task-id", String(task.id));
+      item.setAttribute("data-project-id", String(task.project_id));
+      item.setAttribute("data-group-id", task.group_id ? String(task.group_id) : "");
+      item.setAttribute("data-division-id", meta.divisionId);
+      item.setAttribute("data-due-at", dueValue);
+      item.setAttribute("data-created-at", createdValue);
+      item.setAttribute("data-status-state", statusState);
+      item.innerHTML = `
+        <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
+        <div class="todo-project-meta">
+          <a class="todo-project-name" href="${escapeHtml(projectUrl)}" title="Open ${escapeHtml(meta.projectName)}">${escapeHtml(meta.projectName)}</a>
+          ${task.group_id && meta.groupName ? `<a class="todo-group-name" href="${escapeHtml(groupUrl)}" title="Open ${escapeHtml(meta.groupName)}">${escapeHtml(meta.groupName)}</a>` : ""}
+        </div>
+        <div class="todo-item-main">
+          <div class="editable todo-item-title" contenteditable="true" data-task-id="${task.id}" data-field="title" data-col="1">${title}</div>
+          <span class="task-link-badges" data-task-link-badges="${task.id}">${linksHtml}</span>
+          <span class="todo-main-spacer" aria-hidden="true"></span>
+          <span class="task-pill">
+            <button class="task-pill-segment" type="button" data-open-settings="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openSettings(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+            <button class="task-pill-segment" type="button" data-open-links="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openLinks(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+            <button class="task-pill-segment comment-button" type="button" data-open-discussion="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openDiscussion(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="${task.id}">0</span></button>
+          </span>
+        </div>
+        <div class="todo-item-controls">
+          <div class="todo-control-cluster">
+            <div class="todo-control todo-control-due due-cell todo-due-cell" data-due-cell data-todo-due="1" onclick="return window.__openDueInput(this);">
+              <div class="due-summary${dueValue ? "" : " is-fallback"}" data-due-summary title="${dueValue ? "Due " + dueValue : "Created " + createdValue}">
+                <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
+              </div>
+              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" value="${dueValue}" />
+            </div>
+            <div class="todo-control todo-control-status editable todo-status-cell status-editable" contenteditable="true" data-task-id="${task.id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="${escapeHtml(statusState)}" title="${status}" aria-label="Status: ${status}">${status}</div>
+          </div>
+          <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
+            <span class="assign-action">
+              <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="${task.id}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+            </span>
+          </div>
+          <div class="todo-resize-overlay" aria-hidden="true"></div>
+        </div>
+      `;
+      return item;
+    }
+
+    function upsertTodoItemFromSnapshot(task) {
+      if (!task || !task.id) return false;
+      var board = document.querySelector(".todo-board");
+      if (!board) return false;
+      var existing = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
+      if (existing) existing.remove();
+      var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
+      var bucket = todoBucketFor(dueValue, createdValue);
+      var group = ensureTodoGroup(bucket);
+      var list = group ? group.querySelector(".todo-list") : null;
+      if (!list) return false;
+      var item = buildTodoItem(task);
+      if (!item) return false;
+      list.appendChild(item);
+      if (typeof window.__renderTaskAssignments === "function") {
+        window.__renderTaskAssignments(task.id, task.assignments || []);
+      }
+      if (typeof window.__applyStatusState === "function") {
+        window.__applyStatusState(item.querySelector('.status-editable[data-task-id="' + task.id + '"]'), task.status || "open");
+      }
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
+      return true;
+    }
+    window.__upsertTodoItemFromSnapshot = upsertTodoItemFromSnapshot;
 
     function upsertComment(comment) {
       if (!listEl || !comment || !comment.id) return false;
@@ -7259,6 +7930,222 @@
         }
       });
 
+      socket.on("project_updated", function (data) {
+        if (!data || !data.project) return;
+        var project = data.project;
+        if (typeof window.__setProjectNameLocal === "function") {
+          window.__setProjectNameLocal(String(project.id), project.name || "Project");
+        }
+        if (typeof syncEntityLinkBadges === "function") {
+          syncEntityLinkBadges("project", project.id, project.links || []);
+        }
+        if (typeof window.__moveProjectSidebarLocal === "function") {
+          window.__moveProjectSidebarLocal(String(project.id), project.division_id);
+        }
+        var divisionColor = "";
+        if (project.division_id) {
+          var divisionNode = document.querySelector('[data-sidebar-division="' + project.division_id + '"]');
+          divisionColor = divisionNode ? (divisionNode.getAttribute("data-division-color") || "#4cc9f0") : "";
+        } else {
+          divisionColor = "#2a3442";
+        }
+        if (typeof window.__updateTodoProjectNode === "function") {
+          window.__updateTodoProjectNode(project, project.division_id || "none", divisionColor);
+        }
+        if (typeof window.__updateTodoItemProjectMeta === "function") {
+          window.__updateTodoItemProjectMeta(String(project.id), project.name || "Project", project.division_id || "none", divisionColor);
+        }
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("project_created", function (data) {
+        if (!data || !data.project) return;
+        var project = data.project;
+        var isOwner = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
+        if (typeof window.__insertProjectSidebarLocal === "function") {
+          window.__insertProjectSidebarLocal(project, isOwner);
+        }
+        var divisionColor = "";
+        if (project.division_id) {
+          var divisionNode = document.querySelector('[data-sidebar-division="' + project.division_id + '"]');
+          divisionColor = divisionNode ? (divisionNode.getAttribute("data-division-color") || "#4cc9f0") : "";
+        } else {
+          divisionColor = "#2a3442";
+        }
+        if (typeof window.__updateTodoProjectNode === "function") {
+          window.__updateTodoProjectNode(project, project.division_id || "none", divisionColor);
+        }
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("project_deleted", function (data) {
+        if (!data || !data.project_id) return;
+        var projectId = String(data.project_id);
+        if (typeof window.__removeProjectLocal === "function") {
+          window.__removeProjectLocal(projectId);
+        }
+        document.querySelectorAll('.todo-item[data-project-id="' + projectId + '"]').forEach(function (item) {
+          item.remove();
+        });
+        if (typeof window.__removeTodoProjectNode === "function") {
+          window.__removeTodoProjectNode(projectId);
+        }
+        (data.task_ids || []).forEach(function (taskId) {
+          removeTaskRowsLocal(taskId);
+        });
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("group_updated", function (data) {
+        if (!data || !data.group) return;
+        var group = data.group;
+        if (typeof window.__setGroupNameLocal === "function") {
+          window.__setGroupNameLocal(String(group.id), group.name || "Group");
+        }
+        if (typeof syncEntityLinkBadges === "function") {
+          syncEntityLinkBadges("group", group.id, group.links || []);
+        }
+        if (typeof window.__updateTodoGroupNode === "function") {
+          window.__updateTodoGroupNode(group);
+        }
+        if (typeof window.__updateTodoItemGroupMeta === "function") {
+          window.__updateTodoItemGroupMeta(String(group.id), group.name || "Group");
+        }
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("group_created", function (data) {
+        if (!data || !data.group) return;
+        var group = data.group;
+        var firstTable = document.querySelector(".tasks-table");
+        var selectedProjectId = firstTable ? firstTable.getAttribute("data-project-id") : null;
+        if (selectedProjectId && String(selectedProjectId) === String(group.project_id)) {
+          if (typeof buildGroupBlock === "function") {
+            var newBlock = buildGroupBlock(group);
+            if (newBlock) {
+              var parent = document.querySelector(".group-block") ? document.querySelector(".group-block").parentNode : null;
+              var inserted = false;
+              if (parent && group.position !== undefined && group.position !== null) {
+                var siblings = Array.from(parent.querySelectorAll(".group-block"));
+                var next = siblings.find(function (block) {
+                  var pos = parseFloat(block.getAttribute("data-group-position") || "0");
+                  return pos > group.position;
+                });
+                if (next) {
+                  parent.insertBefore(newBlock, next);
+                  inserted = true;
+                }
+              }
+              if (!inserted && parent) {
+                parent.appendChild(newBlock);
+              } else if (!inserted) {
+                document.querySelector(".content") && document.querySelector(".content").appendChild(newBlock);
+              }
+            }
+          }
+        }
+        if (typeof window.__updateTodoGroupNode === "function") {
+          window.__updateTodoGroupNode(group);
+        }
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("group_deleted", function (data) {
+        if (!data || !data.group_id) return;
+        var groupId = String(data.group_id);
+        if (typeof window.__removeGroupLocal === "function") {
+          window.__removeGroupLocal(groupId);
+        }
+        if (typeof window.__removeTodoGroupNode === "function") {
+          window.__removeTodoGroupNode(groupId);
+        }
+        (data.task_ids || []).forEach(function (taskId) {
+          removeTaskRowsLocal(taskId);
+        });
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("division_updated", function (data) {
+        if (!data || !data.division) return;
+        var division = data.division;
+        if (typeof window.__setDivisionNameLocal === "function") {
+          window.__setDivisionNameLocal(String(division.id), division.name || "Division");
+        }
+        if (typeof window.__setDivisionColorLocal === "function") {
+          window.__setDivisionColorLocal(String(division.id), division.color || "#4cc9f0");
+        }
+        if (typeof window.__updateTodoDivisionNode === "function") {
+          window.__updateTodoDivisionNode(division);
+        }
+        document.querySelectorAll('.todo-item[data-division-id="' + division.id + '"]').forEach(function (item) {
+          item.style.setProperty("--todo-color", division.color || "#4cc9f0");
+        });
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("division_created", function (data) {
+        if (!data || !data.division) return;
+        var division = data.division;
+        if (typeof window.__insertDivisionSidebarLocal === "function") {
+          window.__insertDivisionSidebarLocal(division);
+        }
+        if (typeof window.__addDivisionOptionLocal === "function") {
+          window.__addDivisionOptionLocal(division);
+        }
+        if (typeof window.__updateTodoDivisionNode === "function") {
+          window.__updateTodoDivisionNode(division);
+        }
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("division_deleted", function (data) {
+        if (!data || !data.division_id) return;
+        var divisionId = String(data.division_id);
+        if (typeof window.__removeDivisionLocal === "function") {
+          window.__removeDivisionLocal(divisionId);
+        }
+        if (typeof window.__removeDivisionOptionLocal === "function") {
+          window.__removeDivisionOptionLocal(divisionId);
+        }
+        if (typeof window.__removeTodoDivisionNode === "function") {
+          window.__removeTodoDivisionNode(divisionId);
+        }
+        if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
+        if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
+        if (typeof window.__saveTodoTreeState === "function") window.__saveTodoTreeState();
+      });
+
+      socket.on("group_reordered", function (data) {
+        if (!data || !data.order || !data.project_id) return;
+        var firstTable = document.querySelector(".tasks-table");
+        var selectedProjectId = firstTable ? firstTable.getAttribute("data-project-id") : null;
+        if (!selectedProjectId || String(selectedProjectId) !== String(data.project_id)) return;
+        reorderGroupBlocksLocal(data.order || []);
+      });
+
+      socket.on("sidebar_reordered", function (data) {
+        if (!data || !Array.isArray(data.order)) return;
+        if (typeof window.__applySidebarOrderLocal === "function") {
+          window.__applySidebarOrderLocal(data.order);
+        }
+      });
+
       socket.on("task_updated", function (data) {
         if (!data || !data.task) return;
         var isOwnEvent = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
@@ -7266,6 +8153,25 @@
         var currentProjects = visibleProjectIds();
         if (data.action === "deleted") {
           removeTaskRowsLocal(task.id);
+          return;
+        }
+        if (data.action === "moved" && !isOwnEvent) {
+          fetchTaskSnapshot(task.id).then(function (freshTask) {
+            if (!freshTask) return;
+            removeTaskRowsLocal(freshTask.id);
+            if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
+              if (window.__upsertTodoItemFromSnapshot(freshTask)) {
+                pulseTask(freshTask.id);
+                return;
+              }
+            }
+            if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
+              pulseTask(freshTask.id);
+              return;
+            }
+            applyTaskRowUpdate(freshTask);
+            renderTaskAssignments(freshTask.id, freshTask.assignments || []);
+          });
           return;
         }
         if (data.action === "moved" && data.old_project_id && currentProjects.has(String(data.old_project_id)) && !currentProjects.has(String(task.project_id))) {
@@ -7279,6 +8185,12 @@
         if ((data.action === "created" && !updated) || (data.action === "moved" && !isOwnEvent)) {
           fetchTaskSnapshot(task.id).then(function (freshTask) {
             if (!freshTask) return;
+            if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
+              if (window.__upsertTodoItemFromSnapshot(freshTask)) {
+                pulseTask(freshTask.id);
+                return;
+              }
+            }
             if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
               pulseTask(freshTask.id);
               return;
@@ -7291,6 +8203,12 @@
         if (!updated && !isOwnEvent) {
           fetchTaskSnapshot(task.id).then(function (freshTask) {
             if (!freshTask) return;
+            if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
+              if (window.__upsertTodoItemFromSnapshot(freshTask)) {
+                pulseTask(freshTask.id);
+                return;
+              }
+            }
             applyTaskRowUpdate(freshTask);
             renderTaskAssignments(freshTask.id, freshTask.assignments || []);
           });
@@ -7495,6 +8413,7 @@
           }
         });
       }
+      window.__updateTodoParentCheckboxes = updateParentCheckboxStates;
 
       function cascadeCheckboxes(scope, checked) {
         if (!scope) return;
@@ -7567,6 +8486,7 @@
       updateParentCheckboxStates();
       applyFilters();
       saveState();
+      window.__saveTodoTreeState = saveState;
       window.addEventListener("beforeunload", saveState);
       try {
         var storedCollapsed = JSON.parse(localStorage.getItem(filterKey) || "false");

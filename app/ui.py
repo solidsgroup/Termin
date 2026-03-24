@@ -26,7 +26,17 @@ from app.identity import (
 )
 from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
-from app.realtime import emit_assignment_updated, emit_task_comment_created, emit_task_notification_updates, is_user_viewing_task, _task_notification_user_ids
+from app.realtime import (
+    emit_assignment_updated,
+    emit_division_created,
+    emit_group_created,
+    emit_project_created,
+    emit_sidebar_reordered,
+    emit_task_comment_created,
+    emit_task_notification_updates,
+    is_user_viewing_task,
+    _task_notification_user_ids,
+)
 from app.sidebar_layout import (
     ensure_sidebar_preference,
     insert_project_position,
@@ -36,6 +46,40 @@ from app.sidebar_layout import (
 )
 from app.utils import current_user
 from app.utils import is_admin as user_is_admin
+
+
+def _accessible_projects_for_user(user) -> list[Project]:
+    owned_projects = Project.query.filter_by(owner_id=user.id).all()
+    member_project_ids = [row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()]
+    member_group_project_ids = [
+        row.project_id
+        for row in db.session.query(Group.project_id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(GroupMember.user_id == user.id)
+        .all()
+    ]
+    assigned_task_project_ids = [
+        row.project_id
+        for row in db.session.query(Task.project_id)
+        .join(Assignment, Assignment.task_id == Task.id)
+        .filter(Assignment.user_id == user.id)
+        .all()
+    ]
+    accessible_project_ids = list(
+        {project.id for project in owned_projects}
+        .union(member_project_ids)
+        .union(member_group_project_ids)
+        .union(assigned_task_project_ids)
+    )
+    return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
+
+
+def _sidebar_order_tokens(user) -> list[str]:
+    accessible_projects = _accessible_projects_for_user(user)
+    divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
+    pref_map = sidebar_preference_map(user.id, accessible_projects, divisions)
+    items = top_level_sidebar_items(accessible_projects, divisions, pref_map)
+    return [f"{item['type']}:{item['id']}" for item in items]
 
 
 ui_bp = Blueprint("ui", __name__)
@@ -1248,6 +1292,9 @@ def create_project():
     )
     db.session.add(group)
     db.session.commit()
+    emit_project_created(project, actor_user_id=user.id, recipient_user_id=user.id)
+    emit_group_created(group, actor_user_id=user.id)
+    emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     return redirect(url_for("ui.dashboard", project_id=project.id))
 
 
@@ -1274,6 +1321,8 @@ def create_division():
     )
     db.session.add(division)
     db.session.commit()
+    emit_division_created(division, actor_user_id=user.id, recipient_user_id=user.id)
+    emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     return redirect(url_for("ui.dashboard"))
 
 
@@ -1306,6 +1355,7 @@ def create_group():
     )
     db.session.add(group)
     db.session.commit()
+    emit_group_created(group, actor_user_id=user.id)
     return redirect(url_for("ui.dashboard", project_id=project.id))
 
 
