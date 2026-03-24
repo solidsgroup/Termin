@@ -2006,8 +2006,8 @@
       }
 
       body[data-theme="light"] .todo-item {
-        border-color: color-mix(in srgb, var(--todo-color, var(--border)) 26%, var(--border) 74%);
-        background: color-mix(in srgb, white 94%, var(--todo-color, var(--panel-alt)) 6%);
+        border-color: var(--todo-color, var(--accent));
+        background: color-mix(in srgb, white 82%, #eef3f8 18%);
         box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
       }
 
@@ -2244,6 +2244,10 @@
         font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      body[data-theme="light"] .todo-project-name {
+        color: color-mix(in srgb, var(--ink) 78%, var(--todo-color, var(--accent)) 22%);
       }
 
       .todo-group-name {
@@ -2901,6 +2905,11 @@
       .subtasks-row[data-status-state="critical"] td,
       .todo-item[data-status-state="critical"] {
         background: color-mix(in srgb, #f87171 10%, transparent);
+      }
+
+      body[data-theme="light"] .todo-item[data-status-state="critical"] {
+        background: color-mix(in srgb, white 78%, #fca5a5 22%);
+        border-color: #ef4444;
       }
 
       .task-row[data-status-state="critical"] td:first-child,
