@@ -212,7 +212,16 @@
     {% if current_view == 'todo' %}
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
       <div class="sidebar-heading-row">
-        <h3 style="margin: 0;">Filters</h3>
+        <h3 style="margin: 0;">Filter</h3>
+      </div>
+      <div class="todo-sidebar-section is-top">
+        <label class="todo-filter-row">
+          <input type="checkbox" class="todo-tree-checkbox" data-todo-show-completed {% if show_completed %}checked{% endif %} />
+          <span class="todo-tree-label">Show completed</span>
+        </label>
+      </div>
+      <div class="sidebar-heading-row todo-sidebar-subhead">
+        <h3 style="margin: 0;">Structure</h3>
       </div>
       <div class="todo-tree-list">
         {% for division in divisions %}
@@ -289,6 +298,45 @@
           </div>
         {% endif %}
       </div>
+      <div class="todo-sidebar-section">
+        <div class="sidebar-heading-row todo-sidebar-subhead">
+          <h3 style="margin: 0;">Assignees</h3>
+        </div>
+        <div class="todo-assignee-dropdown" data-todo-assignee-dropdown>
+          <button class="todo-assignee-trigger" type="button" data-todo-assignee-trigger aria-expanded="false">
+            <span data-todo-assignee-summary>All assignees</span>
+            <span class="todo-assignee-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="todo-assignee-menu" data-todo-assignee-menu hidden>
+            <div class="todo-assignee-actions">
+              <button class="btn secondary" type="button" data-todo-assignees-all>All</button>
+              <button class="btn secondary" type="button" data-todo-assignees-none>None</button>
+            </div>
+            <div class="todo-assignee-list" data-todo-assignee-list>
+              <label class="todo-assignee-row" data-todo-assignee-row="__unassigned__">
+                <input type="checkbox" class="todo-tree-checkbox" data-todo-assignee="__unassigned__" checked />
+                <span class="todo-assignee-avatar">?</span>
+                <span class="todo-tree-label">Unassigned</span>
+              </label>
+              {% for option in todo_assignee_options %}
+                <label class="todo-assignee-row" data-todo-assignee-row="{{ option.key }}">
+                  <input type="checkbox" class="todo-tree-checkbox" data-todo-assignee="{{ option.key }}" checked />
+                  {% if option.avatar_url %}
+                    <span class="todo-assignee-avatar has-photo">
+                      <img src="{{ option.avatar_url }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('has-photo'); this.remove();" />
+                    </span>
+                  {% else %}
+                    <span class="todo-assignee-avatar">{{ option.label[0]|upper }}</span>
+                  {% endif %}
+                  <span class="todo-tree-label">{{ option.label }}</span>
+                </label>
+              {% else %}
+                <div class="todo-tree-empty">No assignees yet</div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
     {% else %}
       <div class="sidebar-heading-row">
         <h3 style="margin: 0;">Projects</h3>
@@ -349,7 +397,7 @@
                 {% set todo_status_state = status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
                 {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
-                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}">
+                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
                   <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
                   <div class="todo-project-meta">
                     <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}" title="Open {{ item.project.name }}">
@@ -3603,16 +3651,32 @@
 	        loadAssignSuggestions();
 	      });
       input.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          if (moveSuggestSelection(input, 1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          if (moveSuggestSelection(input, -1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
         if (event.key === "Enter" || event.key === "," || event.key === " " || event.key === "Tab") {
           event.preventDefault();
           event.stopPropagation();
           const targetType = input.getAttribute("data-assign-input");
           const targetId = input.getAttribute("data-target-id");
+          const rawValue = (input.value || "").trim();
+          const looksLikeEmail = rawValue.includes("@");
           const hasSuggest = input._suggestItems && input._suggestItems.length;
-          if (hasSuggest && (event.key === "Enter" || event.key === "Tab")) {
-            const first = input._suggestItems[0];
-            if (first && first.email) {
-              input.value = first.email;
+          if (!looksLikeEmail && hasSuggest && (event.key === "Enter" || event.key === "Tab")) {
+            const active = getActiveSuggestItem(input);
+            if (active && active.email) {
+              input.value = active.email;
             }
           }
           submitAssignmentInput(input, targetType, targetId);
@@ -4192,6 +4256,35 @@
       });
     };
 
+	    const setSuggestActiveIndex = (input, index) => {
+	      if (!input || !input._suggestButtons || !input._suggestButtons.length) return;
+	      const count = input._suggestButtons.length;
+	      const nextIndex = Math.max(0, Math.min(count - 1, Number(index) || 0));
+	      input._suggestActiveIndex = nextIndex;
+	      input._suggestButtons.forEach((button, buttonIndex) => {
+	        button.classList.toggle("is-active", buttonIndex === nextIndex);
+	      });
+	    };
+
+	    const getActiveSuggestItem = (input) => {
+	      if (!input || !input._suggestItems || !input._suggestItems.length) return null;
+	      const index = Number.isInteger(input._suggestActiveIndex) ? input._suggestActiveIndex : 0;
+	      return input._suggestItems[index] || input._suggestItems[0] || null;
+	    };
+
+	    const moveSuggestSelection = (input, delta) => {
+	      if (!input || !input._suggestButtons || !input._suggestButtons.length) return false;
+	      const count = input._suggestButtons.length;
+	      const current = Number.isInteger(input._suggestActiveIndex) ? input._suggestActiveIndex : 0;
+	      const next = (current + delta + count) % count;
+	      setSuggestActiveIndex(input, next);
+	      return true;
+	    };
+
+	    window.__setSuggestActiveIndex = setSuggestActiveIndex;
+	    window.__getActiveSuggestItem = getActiveSuggestItem;
+	    window.__moveSuggestSelection = moveSuggestSelection;
+
 	    const showSuggest = (input, results) => {
 	      hideSuggest(input);
 	      if (typeof window.__withAddMeSuggestion === "function") {
@@ -4204,8 +4297,11 @@
       menu.style.left = `${rect.left + window.scrollX}px`;
       menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
 	      input._suggestItems = results;
+	      input._suggestButtons = [];
+	      input._suggestActiveIndex = 0;
 	      results.forEach((item) => {
 	        const btn = document.createElement("button");
+	        btn.type = "button";
 	        const label = item.is_add_me ? "Add me" : (item.type === "user" ? (item.display_name || item.email) : item.email);
 	        const meta = item.is_add_me ? "" : `<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
 	        const avatar = item.is_add_me
@@ -4217,6 +4313,10 @@
 	        btn.addEventListener("mousedown", (event) => {
 	          event.preventDefault();
 	          input.dataset.assignSelecting = "1";
+	        });
+	        btn.addEventListener("mouseenter", () => {
+	          const index = input._suggestButtons.indexOf(btn);
+	          if (index >= 0) setSuggestActiveIndex(input, index);
 	        });
         btn.addEventListener("click", (event) => {
           event.preventDefault();
@@ -4230,11 +4330,13 @@
             input.dataset.assignSelecting = "0";
           }, 50);
         });
+	        input._suggestButtons.push(btn);
         menu.appendChild(btn);
       });
       document.body.appendChild(menu);
       input.dataset.suggestId = "active";
       input._suggestEl = menu;
+	      setSuggestActiveIndex(input, 0);
     };
 
     const hideSuggest = (input) => {
@@ -4242,6 +4344,8 @@
         input._suggestEl.remove();
         input._suggestEl = null;
         input._suggestItems = [];
+        input._suggestButtons = [];
+        input._suggestActiveIndex = 0;
         input.dataset.suggestId = "";
       }
     };
@@ -6072,6 +6176,9 @@
       if (input && input._suggestEl) {
         input._suggestEl.remove();
         input._suggestEl = null;
+        input._suggestItems = [];
+        input._suggestButtons = [];
+        input._suggestActiveIndex = 0;
       }
     }
 
@@ -6087,8 +6194,11 @@
       menu.style.left = rect.left + window.scrollX + "px";
       menu.style.top = rect.bottom + window.scrollY + 4 + "px";
       input._suggestItems = results;
+	      input._suggestButtons = [];
+	      input._suggestActiveIndex = 0;
 	      results.forEach(function (item) {
 	        var btn = document.createElement("button");
+	        btn.type = "button";
 	        var label = item.is_add_me ? "Add me" : (item.type === "user" ? (item.display_name || item.email) : item.email);
 	        var initial = escapeHtml(label.charAt(0).toUpperCase());
 	        var meta = item.is_add_me ? "" : '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
@@ -6102,6 +6212,12 @@
 	          event.preventDefault();
 	          input.dataset.assignSelecting = "1";
         });
+	        btn.addEventListener("mouseenter", function () {
+	          var index = input._suggestButtons.indexOf(btn);
+	          if (index >= 0 && typeof window.__setSuggestActiveIndex === "function") {
+	            window.__setSuggestActiveIndex(input, index);
+	          }
+	        });
         btn.addEventListener("click", function (event) {
           event.preventDefault();
           input.value = item.email;
@@ -6112,10 +6228,14 @@
             input.dataset.assignSelecting = "0";
           }, 50);
         });
+	        input._suggestButtons.push(btn);
         menu.appendChild(btn);
       });
       document.body.appendChild(menu);
       input._suggestEl = menu;
+	      if (typeof window.__setSuggestActiveIndex === "function") {
+	        window.__setSuggestActiveIndex(input, 0);
+	      }
     }
 
     function renderCommentBody(value) {
@@ -6866,6 +6986,9 @@
       if (!payload || !payload.assignment) return false;
       var assignment = payload.assignment;
       if (!assignment.task_id) return false;
+      var assignmentKey = assignment.user_id
+        ? "user:" + assignment.user_id
+        : (assignment.email ? "email:" + String(assignment.email).trim().toLowerCase() : "");
       var updated = false;
       var selector = '.assignments [data-assign-input="task"][data-target-id="' + assignment.task_id + '"]';
       document.querySelectorAll(selector).forEach(function (input) {
@@ -6902,6 +7025,21 @@
         renderTaskSettings();
         updated = true;
       }
+      document.querySelectorAll('.todo-item[data-task-id="' + assignment.task_id + '"]').forEach(function (item) {
+        var keys = String(item.getAttribute("data-assignee-keys") || "").split(",").map(function (value) {
+          return value.trim();
+        }).filter(Boolean);
+        if (payload.action === "deleted") {
+          keys = keys.filter(function (value) { return value !== assignmentKey; });
+        } else if (assignmentKey && keys.indexOf(assignmentKey) === -1) {
+          keys.push(assignmentKey);
+        }
+        item.setAttribute("data-assignee-keys", keys.join(","));
+        updated = true;
+      });
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
       return updated;
     }
 
@@ -6924,6 +7062,17 @@
         });
         updated = true;
       });
+      document.querySelectorAll('.todo-item[data-task-id="' + taskId + '"]').forEach(function (item) {
+        var keys = (assignments || []).map(function (assignment) {
+          if (assignment && assignment.user_id) return "user:" + assignment.user_id;
+          if (assignment && assignment.email) return "email:" + String(assignment.email).trim().toLowerCase();
+          return "";
+        }).filter(Boolean).join(",");
+        item.setAttribute("data-assignee-keys", keys);
+      });
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
       return updated;
     }
     window.__renderTaskAssignments = renderTaskAssignments;
@@ -7344,6 +7493,14 @@
       };
     }
 
+    function taskAssigneeKeys(task) {
+      return (Array.isArray(task && task.assignments) ? task.assignments : []).map(function (assignment) {
+        if (assignment && assignment.user_id) return "user:" + assignment.user_id;
+        if (assignment && assignment.email) return "email:" + String(assignment.email).trim().toLowerCase();
+        return "";
+      }).filter(Boolean).join(",");
+    }
+
     function buildTodoItem(task) {
       if (!task || !task.id) return null;
       var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
@@ -7365,6 +7522,7 @@
       item.setAttribute("data-due-at", dueValue);
       item.setAttribute("data-created-at", createdValue);
       item.setAttribute("data-status-state", statusState);
+      item.setAttribute("data-assignee-keys", taskAssigneeKeys(task));
       item.innerHTML = `
         <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
         <div class="todo-project-meta">
@@ -7550,15 +7708,31 @@
           hideLocalAssignSuggest(taskSettingsAssigneeEl);
           return;
         }
+        if (event.key === "ArrowDown") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsAssigneeEl, 1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsAssigneeEl, -1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
         if (event.key !== "Enter" && event.key !== "Tab" && event.key !== ",") return;
         event.preventDefault();
         event.stopPropagation();
         var rawValue = (taskSettingsAssigneeEl.value || "").trim();
         var looksLikeEmail = rawValue.indexOf("@") !== -1;
         if (!looksLikeEmail && taskSettingsAssigneeEl._suggestItems && taskSettingsAssigneeEl._suggestItems.length && (event.key === "Enter" || event.key === "Tab")) {
-          var first = taskSettingsAssigneeEl._suggestItems[0];
-          if (first && first.email) {
-            taskSettingsAssigneeEl.value = first.email;
+          var active = typeof window.__getActiveSuggestItem === "function"
+            ? window.__getActiveSuggestItem(taskSettingsAssigneeEl)
+            : taskSettingsAssigneeEl._suggestItems[0];
+          if (active && active.email) {
+            taskSettingsAssigneeEl.value = active.email;
           }
         }
         submitSettingsAssignment();
@@ -8609,6 +8783,11 @@
       var filterKey = "termin:todo-sidebar:collapsed";
       var sidebarToggle = document.querySelector("[data-sidebar-toggle]");
       var layout = document.querySelector("[data-layout]");
+      var assigneeDropdown = document.querySelector("[data-todo-assignee-dropdown]");
+      var assigneeTrigger = document.querySelector("[data-todo-assignee-trigger]");
+      var assigneeMenu = document.querySelector("[data-todo-assignee-menu]");
+      var assigneeSummary = document.querySelector("[data-todo-assignee-summary]");
+      var showCompletedToggle = document.querySelector("[data-todo-show-completed]");
       var todoItems = Array.from(document.querySelectorAll(".todo-item[data-task-id]"));
       var todoGroups = Array.from(document.querySelectorAll(".todo-date-group"));
 
@@ -8639,7 +8818,7 @@
       }
 
       function snapshotState() {
-        var state = { divisions: {}, projects: {}, groups: {}, expanded: { divisions: {}, projects: {} } };
+        var state = { divisions: {}, projects: {}, groups: {}, assignees: {}, expanded: { divisions: {}, projects: {} } };
         document.querySelectorAll("[data-todo-division]").forEach(function (cb) {
           state.divisions[String(cb.getAttribute("data-todo-division"))] = cb.checked;
         });
@@ -8648,6 +8827,9 @@
         });
         document.querySelectorAll("[data-todo-group]").forEach(function (cb) {
           state.groups[String(cb.getAttribute("data-todo-group"))] = cb.checked;
+        });
+        document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
+          state.assignees[String(cb.getAttribute("data-todo-assignee"))] = cb.checked;
         });
         document.querySelectorAll(".todo-tree-node[data-division-id]:not(.is-project)").forEach(function (node) {
           var id = String(node.getAttribute("data-division-id"));
@@ -8673,6 +8855,10 @@
         document.querySelectorAll("[data-todo-group]").forEach(function (cb) {
           var id = String(cb.getAttribute("data-todo-group"));
           cb.checked = next.groups && typeof next.groups[id] === "boolean" ? next.groups[id] : true;
+        });
+        document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
+          var id = String(cb.getAttribute("data-todo-assignee"));
+          cb.checked = next.assignees && typeof next.assignees[id] === "boolean" ? next.assignees[id] : true;
         });
         document.querySelectorAll(".todo-tree-node[data-division-id]:not(.is-project)").forEach(function (node) {
           var id = String(node.getAttribute("data-division-id"));
@@ -8702,15 +8888,62 @@
         return el ? el.checked : true;
       }
 
+      function selectedAssigneeKeys() {
+        return Array.from(document.querySelectorAll("[data-todo-assignee]:checked")).map(function (cb) {
+          return String(cb.getAttribute("data-todo-assignee"));
+        });
+      }
+
+      function updateAssigneeSummary() {
+        if (!assigneeSummary) return;
+        var inputs = Array.from(document.querySelectorAll("[data-todo-assignee]"));
+        var checked = inputs.filter(function (cb) { return cb.checked; });
+        if (!inputs.length || checked.length === inputs.length) {
+          assigneeSummary.textContent = "All assignees";
+          return;
+        }
+        if (!checked.length) {
+          assigneeSummary.textContent = "No assignees";
+          return;
+        }
+        if (checked.length === 1) {
+          var row = checked[0].closest("[data-todo-assignee-row]");
+          var label = row ? row.querySelector(".todo-tree-label") : null;
+          assigneeSummary.textContent = label ? label.textContent.trim() : "1 selected";
+          return;
+        }
+        assigneeSummary.textContent = checked.length + " selected";
+      }
+
+      function setAssigneeMenuOpen(open) {
+        if (!assigneeTrigger || !assigneeMenu) return;
+        assigneeTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+        assigneeMenu.hidden = !open;
+      }
+
     function applyFilters() {
+        var assigneeSelections = selectedAssigneeKeys();
+        var assigneeInputs = document.querySelectorAll("[data-todo-assignee]");
+        var assigneeFilterActive = assigneeInputs.length > 0;
         todoItems.forEach(function (item) {
           var divisionId = String(item.getAttribute("data-division-id") || "none");
           var projectId = String(item.getAttribute("data-project-id") || "");
           var groupId = String(item.getAttribute("data-group-id") || "");
+          var assigneeKeys = String(item.getAttribute("data-assignee-keys") || "").split(",").map(function (value) {
+            return value.trim();
+          }).filter(Boolean);
           var divisionOk = checkboxState("data-todo-division", divisionId);
           var projectOk = projectId ? checkboxState("data-todo-project", projectId) : true;
           var groupOk = groupId ? checkboxState("data-todo-group", groupId) : true;
-          var visible = divisionOk && projectOk && groupOk;
+          var assigneeOk = true;
+          if (assigneeFilterActive) {
+            assigneeOk = assigneeKeys.length > 0
+              ? assigneeKeys.some(function (key) {
+                  return assigneeSelections.indexOf(key) >= 0;
+                })
+              : assigneeSelections.indexOf("__unassigned__") >= 0;
+          }
+          var visible = divisionOk && projectOk && groupOk && assigneeOk;
           item.classList.toggle("is-filtered", !visible);
           item.style.display = visible ? "" : "none";
         });
@@ -8718,6 +8951,7 @@
           var hasVisible = !!group.querySelector(".todo-item:not(.is-filtered)");
           group.style.display = hasVisible ? "" : "none";
         });
+        updateAssigneeSummary();
       }
       window.__applyTodoFilters = applyFilters;
 
@@ -8772,6 +9006,31 @@
       }
 
       todoTree.addEventListener("click", function (event) {
+        if (assigneeTrigger && event.target.closest("[data-todo-assignee-trigger]")) {
+          setAssigneeMenuOpen(assigneeMenu ? assigneeMenu.hidden : true);
+          return;
+        }
+        if (assigneeDropdown && !event.target.closest("[data-todo-assignee-dropdown]") && assigneeMenu && !assigneeMenu.hidden) {
+          setAssigneeMenuOpen(false);
+        }
+        var assigneesAll = event.target.closest("[data-todo-assignees-all]");
+        if (assigneesAll) {
+          document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
+            cb.checked = true;
+          });
+          applyFilters();
+          saveState();
+          return;
+        }
+        var assigneesNone = event.target.closest("[data-todo-assignees-none]");
+        if (assigneesNone) {
+          document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
+            cb.checked = false;
+          });
+          applyFilters();
+          saveState();
+          return;
+        }
         var sidebarBtn = event.target.closest("[data-sidebar-toggle]");
         if (sidebarBtn) {
           var nextCollapsed = !todoTree.classList.contains("is-collapsed");
@@ -8805,7 +9064,21 @@
         }
       });
 
+      document.addEventListener("click", function (event) {
+        if (!assigneeDropdown || !assigneeMenu || assigneeMenu.hidden) return;
+        if (event.target.closest("[data-todo-assignee-dropdown]")) return;
+        setAssigneeMenuOpen(false);
+      });
+
       todoTree.addEventListener("change", function (event) {
+        var showCompletedBox = event.target.closest("[data-todo-show-completed]");
+        if (showCompletedBox) {
+          var params = new URLSearchParams(window.location.search);
+          params.set("view", "todo");
+          params.set("show_completed", showCompletedBox.checked ? "1" : "0");
+          window.location.search = params.toString();
+          return;
+        }
         var divisionBox = event.target.closest("[data-todo-division]");
         if (divisionBox) {
           var divisionNode = divisionBox.closest(".todo-tree-node");
@@ -8828,12 +9101,18 @@
           updateParentCheckboxStates();
           applyFilters();
           saveState();
+          return;
+        }
+        if (event.target.closest("[data-todo-assignee]")) {
+          applyFilters();
+          saveState();
         }
       });
 
       applyState(loadState());
       updateParentCheckboxStates();
       applyFilters();
+      setAssigneeMenuOpen(false);
       saveState();
       window.__saveTodoTreeState = saveState;
       window.addEventListener("beforeunload", saveState);

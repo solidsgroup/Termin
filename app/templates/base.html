@@ -686,6 +686,141 @@
         margin-top: 10px;
       }
 
+      .todo-sidebar-section {
+        margin-top: 18px;
+        padding-top: 12px;
+        border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+      }
+
+      .todo-sidebar-section.is-top {
+        margin-top: 10px;
+        padding-top: 0;
+        border-top: 0;
+      }
+
+      .todo-filter-row {
+        display: grid;
+        grid-template-columns: 14px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        min-height: 22px;
+        width: 100%;
+        cursor: pointer;
+      }
+
+      .todo-sidebar-subhead h3 {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .todo-assignee-actions {
+        display: flex;
+        gap: 8px;
+        margin: 0 0 10px;
+      }
+
+      .todo-assignee-actions .btn {
+        padding: 4px 10px;
+        font-size: 11px;
+      }
+
+      .todo-assignee-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 0;
+        max-height: 280px;
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+
+      .todo-assignee-dropdown {
+        position: relative;
+        margin-top: 10px;
+      }
+
+      .todo-assignee-trigger {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .todo-assignee-trigger:hover {
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--border) 60%);
+      }
+
+      .todo-assignee-caret {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .todo-assignee-menu {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 8px);
+        z-index: 30;
+        padding: 10px;
+        border: 1px solid color-mix(in srgb, var(--border) 88%, var(--ink-soft) 12%);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--panel) 97%, var(--panel-alt) 3%);
+        box-shadow: 0 12px 28px color-mix(in srgb, var(--ink) 16%, transparent);
+        backdrop-filter: blur(10px);
+      }
+
+      body[data-theme="light"] .todo-assignee-trigger {
+        background: color-mix(in srgb, white 92%, var(--panel) 8%);
+      }
+
+      body[data-theme="light"] .todo-assignee-menu {
+        background: color-mix(in srgb, white 96%, var(--panel) 4%);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+      }
+
+      .todo-assignee-row {
+        display: grid;
+        grid-template-columns: 14px 22px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        min-height: 22px;
+        width: 100%;
+        cursor: pointer;
+      }
+
+      .todo-assignee-avatar {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--panel-alt) 84%, var(--panel) 16%);
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .todo-assignee-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
       .filters-toggle {
         display: none;
       }
@@ -3537,6 +3672,10 @@
         background: color-mix(in srgb, var(--accent) 10%, transparent);
       }
 
+      .assign-suggest button.is-active {
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+      }
+
       .assign-suggest-avatar {
         width: 22px;
         height: 22px;
@@ -3575,6 +3714,10 @@
 
       .light-mode .assign-suggest button:hover {
         background: color-mix(in srgb, var(--accent) 12%, white 88%);
+      }
+
+      .light-mode .assign-suggest button.is-active {
+        background: color-mix(in srgb, var(--accent) 16%, white 84%);
       }
 
       .light-mode .assign-suggest-avatar {

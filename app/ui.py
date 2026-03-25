@@ -730,6 +730,7 @@ def dashboard():
     today = now_utc.date()
     todo_items = []
     todo_tasks = []
+    todo_assignee_options = []
     if current_view == "todo":
         project_ids = [p.id for p in projects]
         visible_group_ids = {
@@ -830,6 +831,41 @@ def dashboard():
     if missing_assignee_ids:
         for assignee in User.query.filter(User.id.in_(missing_assignee_ids)).all():
             user_map[assignee.id] = assignee
+    if current_view == "todo" and todo_tasks:
+        todo_assignee_map = {}
+        for task in todo_tasks:
+            for assignment in assignments_by_task.get(task.id, []):
+                key = None
+                label = ""
+                avatar_url = ""
+                sort_key = ""
+                option_type = "email"
+                if assignment.user_id:
+                    assignee = user_map.get(assignment.user_id)
+                    if assignee:
+                        key = f"user:{assignment.user_id}"
+                        label = assignee.display_name or assignee.email
+                        avatar_url = assignee.avatar_url or ""
+                        sort_key = (assignee.display_name or assignee.email or "").lower()
+                        option_type = "user"
+                elif assignment.email:
+                    normalized_email = assignment.email.strip().lower()
+                    if normalized_email:
+                        key = f"email:{normalized_email}"
+                        label = assignment.email.strip()
+                        sort_key = normalized_email
+                if key and key not in todo_assignee_map:
+                    todo_assignee_map[key] = {
+                        "key": key,
+                        "label": label,
+                        "avatar_url": avatar_url,
+                        "type": option_type,
+                        "sort_key": sort_key,
+                    }
+        todo_assignee_options = sorted(
+            todo_assignee_map.values(),
+            key=lambda item: (0 if item["type"] == "user" else 1, item["sort_key"], item["label"].lower()),
+        )
     github_task_meta, github_project_id = _build_github_task_meta(
         user.id,
         [task.id for task in list(todo_tasks) + list(tasks)],
@@ -931,6 +967,7 @@ def dashboard():
         project_viewers=project_viewers,
         group_viewers=group_viewers,
         todo_groups_by_date=todo_groups_by_date,
+        todo_assignee_options=todo_assignee_options,
         github_task_meta=github_task_meta,
         github_project_id=github_project_id,
         github_auto_sync_needed=github_auto_sync_needed,
