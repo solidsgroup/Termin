@@ -123,6 +123,13 @@
     <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) }}">{{ status_payload.get('task_status', task.status) if status_payload else task.status }}</div>
   {% endif %}
 {% endmacro %}
+{% macro render_group_assignment_badge(task_id, members) %}
+  <span class="badge user badge-group-assignment" data-group-assignment-badge="{{ task_id }}" title="Assigned to group">
+    {% set count = members|length %}
+    <button class="badge-icon" type="button" data-group-assignment-toggle="{{ task_id }}" aria-label="Show group members">{{ count }}</button>
+    <span class="badge-label">Group</span>
+  </span>
+{% endmacro %}
 {% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) %}
   {% if task_list %}
     {% for task in task_list %}
@@ -198,27 +205,31 @@
             {{ render_github_assignees(github_meta) }}
           {% else %}
             <div class="assignments">
-              {% for assignment in assignments_by_task.get(task.id, []) %}
-                {% set assignee = user_map.get(assignment.user_id) %}
-                {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-                  <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
-                    <span class="badge-initial">{{ label[0]|upper }}</span>
-                    {% if assignee and assignee.avatar_url %}
-                      <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+              {% if task.assign_group_members %}
+                {{ render_group_assignment_badge(task.id, group_assignment_members_by_task.get(task.id, [])) }}
+              {% else %}
+                {% for assignment in assignments_by_task.get(task.id, []) %}
+                  {% set assignee = user_map.get(assignment.user_id) %}
+                  {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                  <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                    <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+                      <span class="badge-initial">{{ label[0]|upper }}</span>
+                      {% if assignee and assignee.avatar_url %}
+                        <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                      {% endif %}
+                      <span class="badge-x">×</span>
+                    </button>
+                    <span class="badge-label">{{ label }}</span>
+                    {% if not assignment.user_id %}
+                      {% if assignment.status in ["draft"] %}
+                        <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                      {% elif assignment.status in ["link_sent"] %}
+                        <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                      {% endif %}
                     {% endif %}
-                    <span class="badge-x">×</span>
-                  </button>
-                  <span class="badge-label">{{ label }}</span>
-                  {% if not assignment.user_id %}
-                    {% if assignment.status in ["draft"] %}
-                      <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                    {% elif assignment.status in ["link_sent"] %}
-                      <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                    {% endif %}
-                  {% endif %}
-                </span>
-              {% endfor %}
+                  </span>
+                {% endfor %}
+              {% endif %}
               <span class="assign-action">
                 {% if assignments_by_task.get(task.id, [])|length == 0 %}
                   <button class="assign-add-btn" type="button" title="Assign">+</button>
@@ -507,27 +518,31 @@
                       </div>
                     {% else %}
                       <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
-                        {% for assignment in assignments_by_task.get(item.task.id, []) %}
-                          {% set assignee = user_map.get(assignment.user_id) %}
-                          {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                          <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-                            <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
-                              <span class="badge-initial">{{ label[0]|upper }}</span>
-                              {% if assignee and assignee.avatar_url %}
-                                <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                        {% if item.task.assign_group_members %}
+                          {{ render_group_assignment_badge(item.task.id, group_assignment_members_by_task.get(item.task.id, [])) }}
+                        {% else %}
+                          {% for assignment in assignments_by_task.get(item.task.id, []) %}
+                            {% set assignee = user_map.get(assignment.user_id) %}
+                            {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+                            <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+                              <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+                                <span class="badge-initial">{{ label[0]|upper }}</span>
+                                {% if assignee and assignee.avatar_url %}
+                                  <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+                                {% endif %}
+                                <span class="badge-x">×</span>
+                              </button>
+                              <span class="badge-label">{{ label }}</span>
+                              {% if not assignment.user_id %}
+                                {% if assignment.status in ["draft"] %}
+                                  <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+                                {% elif assignment.status in ["link_sent"] %}
+                                  <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+                                {% endif %}
                               {% endif %}
-                              <span class="badge-x">×</span>
-                            </button>
-                            <span class="badge-label">{{ label }}</span>
-                            {% if not assignment.user_id %}
-                              {% if assignment.status in ["draft"] %}
-                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                              {% elif assignment.status in ["link_sent"] %}
-                                <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                              {% endif %}
-                            {% endif %}
-                          </span>
-                        {% endfor %}
+                            </span>
+                          {% endfor %}
+                        {% endif %}
                         <span class="assign-action">
                           <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
                         </span>
@@ -3611,6 +3626,46 @@
     };
     window.__renderAssignmentBadge = renderAssignmentBadge;
 
+    const renderGroupAssignmentBadge = (taskId, members) => {
+      const count = Array.isArray(members) ? members.length : 0;
+      return `<span class="badge user badge-group-assignment" data-group-assignment-badge="${taskId}" title="Assigned to group"><button class="badge-icon" type="button" data-group-assignment-toggle="${taskId}" aria-label="Show group members">${count}</button><span class="badge-label">Group</span></span>`;
+    };
+    window.__renderGroupAssignmentBadge = renderGroupAssignmentBadge;
+
+    const taskAssignmentKeysFromMembers = (members) => {
+      return (Array.isArray(members) ? members : []).map((member) => {
+        if (member && member.id) return "user:" + member.id;
+        if (member && member.email) return "email:" + String(member.email).trim().toLowerCase();
+        return "";
+      }).filter(Boolean).join(",");
+    };
+
+    const taskAssignmentKeysFromData = (task, assignments) => {
+      if (task && task.assign_group_members) {
+        return taskAssignmentKeysFromMembers(task.group_assignment_members || []);
+      }
+      return (Array.isArray(assignments) ? assignments : []).map((assignment) => {
+        if (assignment && assignment.user_id) return "user:" + assignment.user_id;
+        if (assignment && assignment.email) return "email:" + String(assignment.email).trim().toLowerCase();
+        return "";
+      }).filter(Boolean).join(",");
+    };
+
+    const taskMetaForAssignments = (taskId) => {
+      const discussionDrawer = document.getElementById("discussion-drawer");
+      const openTaskId = discussionDrawer ? (discussionDrawer.getAttribute("data-open-task-id") || "") : "";
+      const currentTask = typeof window.__getCurrentTaskData === "function"
+        ? window.__getCurrentTaskData()
+        : null;
+      if (String(openTaskId || "") === String(taskId) && currentTask) {
+        return currentTask;
+      }
+      const host = document.querySelector('[data-task-status-host="' + taskId + '"]');
+      return host && host._taskPayload ? host._taskPayload : null;
+    };
+    window.__taskAssignmentKeysFromData = taskAssignmentKeysFromData;
+    window.__taskMetaForAssignments = taskMetaForAssignments;
+
     const insertAssignmentBadge = (container, assignment) => {
       if (!container) return;
       const existing = container.querySelector(`[data-assignment-id='${assignment.id}']`);
@@ -3646,6 +3701,66 @@
             insertAssignmentBadge(container, data);
           }
           return data;
+        });
+    };
+
+    const createAssignmentsForGroup = (targetId, container) => {
+      return fetch("/api/tasks/" + Number(targetId) + "/assign_all", {
+        method: "POST",
+        credentials: "same-origin",
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          const groupAssignments = Array.isArray(data.group_assignment_members) ? data.group_assignment_members : [];
+          const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+          const discussionDrawer = document.getElementById("discussion-drawer");
+          const openTaskId = discussionDrawer ? (discussionDrawer.getAttribute("data-open-task-id") || "") : "";
+          const currentTask = typeof window.__getCurrentTaskData === "function"
+            ? window.__getCurrentTaskData()
+            : null;
+          const host = document.querySelector('[data-task-status-host="' + targetId + '"]');
+          if (host && host._taskPayload) {
+            host._taskPayload = Object.assign({}, host._taskPayload, {
+              assign_group_members: !!data.assign_group_members,
+              group_assignment_members: groupAssignments,
+              assignments: assignments,
+            });
+          }
+          if (data && String(openTaskId || "") === String(targetId) && currentTask) {
+            var mergedTask = Object.assign({}, currentTask, {
+              assign_group_members: !!data.assign_group_members,
+              group_assignment_members: groupAssignments,
+              assignments: assignments,
+            });
+            if (typeof window.__setCurrentTaskData === "function") {
+              window.__setCurrentTaskData(mergedTask);
+            }
+            if (typeof window.__renderTaskSettings === "function") {
+              window.__renderTaskSettings();
+            }
+          }
+          if (data && data.assign_group_members && typeof window.__renderTaskAssignments === "function") {
+            window.__renderTaskAssignments(targetId, assignments);
+          }
+          var fetchSnapshot = typeof window.__fetchTaskSnapshot === "function"
+            ? window.__fetchTaskSnapshot
+            : function () { return Promise.resolve(null); };
+          return fetchSnapshot(targetId).then((task) => {
+            if (task) {
+              if (typeof window.__applyTaskRowUpdate === "function") {
+                window.__applyTaskRowUpdate(task);
+              }
+            } else if (container && data && data.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
+              container.querySelectorAll("[data-assignment-id], [data-group-assignment-badge]").forEach((node) => node.remove());
+              const action = container.querySelector(".assign-action");
+              const wrapper = document.createElement("span");
+              wrapper.innerHTML = window.__renderGroupAssignmentBadge(targetId, data.group_assignment_members || []);
+              if (wrapper.firstElementChild) {
+                container.insertBefore(wrapper.firstElementChild, action || null);
+              }
+            }
+            return data;
+          });
         });
     };
 
@@ -3738,6 +3853,14 @@
           const hasSuggest = input._suggestItems && input._suggestItems.length;
           if (!looksLikeEmail && hasSuggest && (event.key === "Enter" || event.key === "Tab")) {
             const active = getActiveSuggestItem(input);
+            if (active && active.is_add_all) {
+              const container = input.closest(".assignments");
+              createAssignmentsForGroup(targetId, container);
+              input.value = "";
+              hideSuggest(input);
+              collapseInlineAssignInput(input);
+              return;
+            }
             if (active && active.email) {
               input.value = active.email;
             }
@@ -4147,13 +4270,22 @@
       const container = input.closest(".assignments");
       Promise.all(filtered.map((email) => createAssignment(targetType, targetId, email, container)))
         .then((results) => {
-          if (container || !taskSettingsAssignmentsEl || String(currentTaskId || "") !== String(targetId)) return;
+          const discussionDrawer = document.getElementById("discussion-drawer");
+          const openTaskId = discussionDrawer ? (discussionDrawer.getAttribute("data-open-task-id") || "") : "";
+          const currentTask = typeof window.__getCurrentTaskData === "function"
+            ? window.__getCurrentTaskData()
+            : null;
+          if (container || !taskSettingsAssignmentsEl || String(openTaskId || "") !== String(targetId)) return;
           const added = (results || []).filter((row) => row && row.id);
           if (!added.length) return;
-          const existing = Array.isArray((currentTaskData || {}).assignments) ? currentTaskData.assignments.slice() : [];
+          const existing = Array.isArray((currentTask || {}).assignments) ? currentTask.assignments.slice() : [];
           const merged = existing.filter((row) => !added.some((item) => String(item.id) === String(row.id))).concat(added);
-          currentTaskData = Object.assign({}, currentTaskData || {}, { assignments: merged });
-          renderTaskSettings();
+          if (typeof window.__setCurrentTaskData === "function") {
+            window.__setCurrentTaskData(Object.assign({}, currentTask || {}, { assignments: merged }));
+          }
+          if (typeof window.__renderTaskSettings === "function") {
+            window.__renderTaskSettings();
+          }
         })
         .finally(() => {
           input.dataset.assignSubmitting = "0";
@@ -4336,8 +4468,8 @@
 
 	    const showSuggest = (input, results) => {
 	      hideSuggest(input);
-	      if (typeof window.__withAddMeSuggestion === "function") {
-	        results = window.__withAddMeSuggestion(results);
+	      if (typeof window.__withAssignSpecialSuggestions === "function") {
+	        results = window.__withAssignSpecialSuggestions(input, results);
 	      }
 	      if (!results.length) return;
       const rect = input.getBoundingClientRect();
@@ -4351,10 +4483,12 @@
 	      results.forEach((item) => {
 	        const btn = document.createElement("button");
 	        btn.type = "button";
-	        const label = item.is_add_me ? "Add me" : (item.type === "user" ? (item.display_name || item.email) : item.email);
-	        const meta = item.is_add_me ? "" : `<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
+	        const label = item.is_add_me ? "Add me" : item.is_add_all ? "Add all in group" : (item.type === "user" ? (item.display_name || item.email) : item.email);
+	        const meta = (item.is_add_me || item.is_add_all) ? "" : `<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
 	        const avatar = item.is_add_me
 	          ? `<span class="assign-suggest-avatar is-add-me">+</span>`
+            : item.is_add_all
+            ? `<span class="assign-suggest-avatar is-add-me">++</span>`
 	          : item.avatar_url
 	          ? `<span class="assign-suggest-avatar"><img src="${escapeHtml(item.avatar_url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent='${escapeHtml(label.charAt(0).toUpperCase())}'; this.remove();" /></span>`
 	          : `<span class="assign-suggest-avatar">${escapeHtml(label.charAt(0).toUpperCase())}</span>`;
@@ -4369,11 +4503,18 @@
 	        });
         btn.addEventListener("click", (event) => {
           event.preventDefault();
-          input.value = item.email;
           input.dataset.assignSelecting = "0";
           const targetType = input.getAttribute("data-assign-input");
           const targetId = input.getAttribute("data-target-id");
-          submitAssignmentInput(input, targetType, targetId);
+          if (item.is_add_all) {
+            const container = input.closest(".assignments");
+            createAssignmentsForGroup(targetId, container);
+            input.value = "";
+            collapseInlineAssignInput(input);
+          } else {
+            input.value = item.email;
+            submitAssignmentInput(input, targetType, targetId);
+          }
           hideSuggest(input);
           setTimeout(() => {
             input.dataset.assignSelecting = "0";
@@ -4595,6 +4736,38 @@
             if (data.status !== "deleted") return;
             const badge = document.querySelector(`[data-assignment-id='${assignmentId}']`);
             if (badge) badge.remove();
+          });
+        return;
+      }
+
+      const toggleGroupAssignment = event.target.closest("[data-group-assignment-toggle]");
+      if (toggleGroupAssignment) {
+        const taskId = toggleGroupAssignment.getAttribute("data-group-assignment-toggle");
+        if (!taskId) return;
+        fetch("/api/tasks/" + taskId, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assign_group_members: false }),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (task) {
+            if (!task || !task.id) return;
+            if (typeof window.__applyTaskRowUpdate === "function") {
+              window.__applyTaskRowUpdate(task);
+            }
+            if (typeof window.__renderTaskAssignments === "function") {
+              window.__renderTaskAssignments(task.id, task.assignments || []);
+            }
+            if (typeof window.__setCurrentTaskData === "function") {
+              var currentTask = window.__getCurrentTaskData ? window.__getCurrentTaskData() : null;
+              if (currentTask && String(currentTask.id || "") === String(task.id)) {
+                window.__setCurrentTaskData(Object.assign({}, currentTask, task));
+                if (typeof window.__renderTaskSettings === "function") {
+                  window.__renderTaskSettings();
+                }
+              }
+            }
           });
         return;
       }
@@ -6410,6 +6583,38 @@
 	    }
 	    window.__withAddMeSuggestion = withAddMeSuggestion;
 
+    function assignInputGroupId(input) {
+      if (!input) return "";
+      if (input === taskSettingsAssigneeEl) {
+        return currentTaskData && currentTaskData.group_id ? String(currentTaskData.group_id) : "";
+      }
+      var todoItem = input.closest(".todo-item[data-group-id]");
+      if (todoItem) {
+        return todoItem.getAttribute("data-group-id") || "";
+      }
+      var table = input.closest(".tasks-table[data-group-id]");
+      if (table) {
+        return table.getAttribute("data-group-id") || "";
+      }
+      return "";
+    }
+
+    function withAssignSpecialSuggestions(input, results) {
+      var list = typeof window.__withAddMeSuggestion === "function"
+        ? window.__withAddMeSuggestion(results)
+        : (Array.isArray(results) ? results.slice() : []);
+      if (assignInputGroupId(input)) {
+        list.splice(1, 0, {
+          type: "action",
+          is_add_all: true,
+          email: "",
+          accepted_count: 0,
+        });
+      }
+      return list;
+    }
+    window.__withAssignSpecialSuggestions = withAssignSpecialSuggestions;
+
     function hideLocalAssignSuggest(input) {
       if (input && input._suggestEl) {
         input._suggestEl.remove();
@@ -6422,8 +6627,8 @@
 
 	    function showLocalAssignSuggest(input, results) {
 	      hideLocalAssignSuggest(input);
-	      if (typeof window.__withAddMeSuggestion === "function") {
-	        results = window.__withAddMeSuggestion(results);
+	      if (typeof window.__withAssignSpecialSuggestions === "function") {
+	        results = window.__withAssignSpecialSuggestions(input, results);
 	      }
 	      if (!results || !results.length) return;
       var rect = input.getBoundingClientRect();
@@ -6437,11 +6642,13 @@
 	      results.forEach(function (item) {
 	        var btn = document.createElement("button");
 	        btn.type = "button";
-	        var label = item.is_add_me ? "Add me" : (item.type === "user" ? (item.display_name || item.email) : item.email);
+	        var label = item.is_add_me ? "Add me" : item.is_add_all ? "Add all in group" : (item.type === "user" ? (item.display_name || item.email) : item.email);
 	        var initial = escapeHtml(label.charAt(0).toUpperCase());
-	        var meta = item.is_add_me ? "" : '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
+	        var meta = (item.is_add_me || item.is_add_all) ? "" : '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
 	        var avatar = item.is_add_me
 	          ? '<span class="assign-suggest-avatar is-add-me">+</span>'
+            : item.is_add_all
+            ? '<span class="assign-suggest-avatar is-add-me">++</span>'
 	          : item.avatar_url
 	          ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(item.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
 	          : '<span class="assign-suggest-avatar">' + initial + "</span>";
@@ -6458,9 +6665,17 @@
 	        });
         btn.addEventListener("click", function (event) {
           event.preventDefault();
-          input.value = item.email;
           input.dataset.assignSelecting = "0";
-          submitSettingsAssignment();
+          if (item.is_add_all) {
+            createSettingsAssignmentsForGroup()
+              .then(function (result) {
+                if (!result || !result.ok || !result.data) return;
+                return refreshCurrentTaskMeta();
+              });
+          } else {
+            input.value = item.email;
+            submitSettingsAssignment();
+          }
           hideLocalAssignSuggest(input);
           setTimeout(function () {
             input.dataset.assignSelecting = "0";
@@ -6914,6 +7129,9 @@
     }
 
     function renderSettingsAssignmentRows(assignments) {
+      if (currentTaskData && currentTaskData.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
+        return window.__renderGroupAssignmentBadge(currentTaskData.id, currentTaskData.group_assignment_members || []);
+      }
       var rows = Array.isArray(assignments) ? assignments : [];
       if (!rows.length) {
         return '<div class="footer-note">No collaborators yet.</div>';
@@ -7111,6 +7329,7 @@
       var aggregateState = taskAggregateStatusState(task);
       document.querySelectorAll('[data-task-status-host="' + task.id + '"]').forEach(function (host) {
         var todo = !!host.closest('.todo-control-status');
+        host._taskPayload = task;
         host.innerHTML = renderTaskStatusCellHtml(task, { todo: todo });
       });
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
@@ -7257,6 +7476,14 @@
       if (entity.created_at) bits.push("Created " + String(entity.created_at).slice(0, 10));
       taskSettingsMetaEl.textContent = bits.join(" · ");
     }
+    window.__getCurrentTaskData = function () {
+      return currentTaskData;
+    };
+    window.__setCurrentTaskData = function (task) {
+      currentTaskData = task || null;
+      return currentTaskData;
+    };
+    window.__renderTaskSettings = renderTaskSettings;
 
     function createSettingsAssignment(email) {
       if (!currentTaskId) return Promise.resolve(null);
@@ -7268,6 +7495,40 @@
       })
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        });
+    }
+
+    function createSettingsAssignmentsForGroup() {
+      if (!currentTaskId) return Promise.resolve(null);
+      return fetch("/api/tasks/" + currentTaskId + "/assign_all", {
+        method: "POST",
+        credentials: "same-origin",
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            if (res.ok && data) {
+              var groupAssignments = Array.isArray(data.group_assignment_members) ? data.group_assignment_members : [];
+              var assignments = Array.isArray(data.assignments) ? data.assignments : [];
+              currentTaskData = Object.assign({}, currentTaskData || {}, {
+                assign_group_members: !!data.assign_group_members,
+                group_assignment_members: groupAssignments,
+                assignments: assignments,
+              });
+              var host = document.querySelector('[data-task-status-host="' + currentTaskId + '"]');
+              if (host && host._taskPayload) {
+                host._taskPayload = Object.assign({}, host._taskPayload, {
+                  assign_group_members: !!data.assign_group_members,
+                  group_assignment_members: groupAssignments,
+                  assignments: assignments,
+                });
+              }
+              if (typeof window.__renderTaskAssignments === "function") {
+                window.__renderTaskAssignments(currentTaskId, assignments);
+              }
+              renderTaskSettings();
+            }
             return { ok: res.ok, data: data };
           });
         });
@@ -7301,6 +7562,7 @@
           return null;
         });
     }
+    window.__fetchTaskSnapshot = fetchTaskSnapshot;
 
     function persistEntitySettings() {
       if (!currentEntityId) return Promise.resolve();
@@ -7551,6 +7813,23 @@
       if (!payload || !payload.assignment) return false;
       var assignment = payload.assignment;
       if (!assignment.task_id) return false;
+      var taskMeta = typeof window.__taskMetaForAssignments === "function"
+        ? window.__taskMetaForAssignments(assignment.task_id)
+        : null;
+      if (taskMeta && taskMeta.assign_group_members) {
+        document.querySelectorAll('.todo-item[data-task-id="' + assignment.task_id + '"]').forEach(function (item) {
+          item.setAttribute(
+            "data-assignee-keys",
+            typeof window.__taskAssignmentKeysFromData === "function"
+              ? window.__taskAssignmentKeysFromData(taskMeta, taskMeta.assignments || [])
+              : ""
+          );
+        });
+        if (typeof window.__applyTodoFilters === "function") {
+          window.__applyTodoFilters();
+        }
+        return false;
+      }
       var assignmentKey = assignment.user_id
         ? "user:" + assignment.user_id
         : (assignment.email ? "email:" + String(assignment.email).trim().toLowerCase() : "");
@@ -7611,29 +7890,45 @@
     function renderTaskAssignments(taskId, assignments) {
       if (!taskId || typeof window.__renderAssignmentBadge !== "function") return false;
       var updated = false;
+      var taskMeta = typeof window.__taskMetaForAssignments === "function"
+        ? window.__taskMetaForAssignments(taskId)
+        : null;
+      var assignmentKeys = typeof window.__taskAssignmentKeysFromData === "function"
+        ? window.__taskAssignmentKeysFromData(taskMeta, assignments || [])
+        : "";
       document.querySelectorAll('.assignments [data-assign-input="task"][data-target-id="' + taskId + '"]').forEach(function (input) {
         var container = input.closest(".assignments");
         if (!container) return;
         container.querySelectorAll("[data-assignment-id]").forEach(function (node) {
           node.remove();
         });
-        var assignAction = container.querySelector(".assign-action");
-        (assignments || []).forEach(function (assignment) {
-          var wrapper = document.createElement("span");
-          wrapper.innerHTML = window.__renderAssignmentBadge(assignment);
-          var badge = wrapper.firstElementChild;
-          if (!badge) return;
-          container.insertBefore(badge, assignAction || input);
+        container.querySelectorAll("[data-group-assignment-badge]").forEach(function (node) {
+          node.remove();
         });
+        var assignAction = container.querySelector(".assign-action");
+        if (taskMeta && taskMeta.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
+          var groupWrapper = document.createElement("span");
+          groupWrapper.innerHTML = window.__renderGroupAssignmentBadge(taskId, taskMeta.group_assignment_members || []);
+          if (groupWrapper.firstElementChild) {
+            Array.from(groupWrapper.childNodes).forEach(function (node) {
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                container.insertBefore(node, assignAction || input);
+              }
+            });
+          }
+        } else {
+          (assignments || []).forEach(function (assignment) {
+            var wrapper = document.createElement("span");
+            wrapper.innerHTML = window.__renderAssignmentBadge(assignment);
+            var badge = wrapper.firstElementChild;
+            if (!badge) return;
+            container.insertBefore(badge, assignAction || input);
+          });
+        }
         updated = true;
       });
       document.querySelectorAll('.todo-item[data-task-id="' + taskId + '"]').forEach(function (item) {
-        var keys = (assignments || []).map(function (assignment) {
-          if (assignment && assignment.user_id) return "user:" + assignment.user_id;
-          if (assignment && assignment.email) return "email:" + String(assignment.email).trim().toLowerCase();
-          return "";
-        }).filter(Boolean).join(",");
-        item.setAttribute("data-assignee-keys", keys);
+        item.setAttribute("data-assignee-keys", assignmentKeys);
       });
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
@@ -7726,6 +8021,7 @@
       }
       return matched;
     }
+    window.__applyTaskRowUpdate = applyTaskRowUpdate;
 
     function renderNotificationMenu(kind, items) {
       var shell = document.querySelector('[data-notification-kind="' + kind + '"]');
@@ -8050,6 +8346,9 @@
     }
 
     function taskAssigneeKeys(task) {
+      if (typeof window.__taskAssignmentKeysFromData === "function") {
+        return window.__taskAssignmentKeysFromData(task, task && task.assignments);
+      }
       return (Array.isArray(task && task.assignments) ? task.assignments : []).map(function (assignment) {
         if (assignment && assignment.user_id) return "user:" + assignment.user_id;
         if (assignment && assignment.email) return "email:" + String(assignment.email).trim().toLowerCase();
@@ -8209,7 +8508,7 @@
         var statusState = getStatusState(status);
         var editableByViewer = assignee.editable && String(assignee.user_id || "") === String(currentUserId || "");
         return '' +
-          '<div class="multi-status-row" data-multi-status-row="' + escapeHtml(assignee.user_id != null ? String(assignee.user_id) : "email:" + String(index)) + '" data-status-state="' + escapeHtml(statusState) + '">' +
+          '<div class="multi-status-row' + (editableByViewer ? ' is-current-user' : ' is-other-user') + '" data-multi-status-row="' + escapeHtml(assignee.user_id != null ? String(assignee.user_id) : "email:" + String(index)) + '" data-status-state="' + escapeHtml(statusState) + '">' +
             '<div class="multi-status-user">' +
               '<span class="multi-status-avatar' + (avatarUrl ? ' has-photo' : '') + '">' +
                 '<span class="multi-status-avatar-initial">' + escapeHtml(label.trim().slice(0, 1).toUpperCase()) + '</span>' +
@@ -8395,6 +8694,16 @@
           var active = typeof window.__getActiveSuggestItem === "function"
             ? window.__getActiveSuggestItem(taskSettingsAssigneeEl)
             : taskSettingsAssigneeEl._suggestItems[0];
+          if (active && active.is_add_all) {
+            createSettingsAssignmentsForGroup()
+              .then(function (result) {
+                if (!result || !result.ok || !result.data) return;
+                return refreshCurrentTaskMeta();
+              });
+            hideLocalAssignSuggest(taskSettingsAssigneeEl);
+            taskSettingsAssigneeEl.value = "";
+            return;
+          }
           if (active && active.email) {
             taskSettingsAssigneeEl.value = active.email;
           }
@@ -9488,6 +9797,7 @@
           return;
         }
         var updated = applyTaskRowUpdate(task);
+        renderTaskAssignments(task.id, task.assignments || []);
         if (updated) {
           pulseTask(task.id);
         }

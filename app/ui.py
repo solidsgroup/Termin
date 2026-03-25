@@ -26,6 +26,7 @@ from app.identity import (
 )
 from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
+from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
     emit_assignment_updated,
     emit_division_created,
@@ -752,6 +753,7 @@ def dashboard():
                     grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
                 ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
     assignments_by_task = {}
+    group_assignment_members_by_task = {}
     info_by_task = {}
     project_map = {project.id: project for project in projects}
     project_info = load_info_payload(selected_project.info, selected_project.link) if selected_project else {"html": "", "attachments": [], "links": []}
@@ -862,6 +864,8 @@ def dashboard():
             assignments_by_task.setdefault(assignment.task_id, []).append(assignment)
         for task in visible_tasks:
             info_by_task[task.id] = load_info_payload(task.info, task.link)
+            if task.assign_group_members:
+                group_assignment_members_by_task[task.id] = serialize_group_assignment_members(task)
 
     missing_assignee_ids = {
         assignment.user_id
@@ -1037,6 +1041,7 @@ def dashboard():
         tasks=tasks,
         selected_project=selected_project,
         assignments_by_task=assignments_by_task,
+        group_assignment_members_by_task=group_assignment_members_by_task,
         info_by_task=info_by_task,
         project_info=project_info,
         group_info_by_id=group_info_by_id,

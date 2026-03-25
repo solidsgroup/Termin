@@ -7,6 +7,7 @@ from flask_socketio import emit, join_room, leave_room
 
 from app.extensions import db, socketio
 
+from app.group_assignments import serialize_group_assignment_members
 from app.info_utils import load_info_payload
 from app.models import (
     Assignment,
@@ -176,6 +177,8 @@ def _task_summary(task: Task | None) -> dict | None:
         "links": info_payload.get("links", []),
         "status": task.status,
         "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "assign_group_members": bool(task.assign_group_members),
+        "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "status_meta": task_status_meta(task),
         "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
@@ -599,6 +602,15 @@ def emit_group_comment_deleted(group_id: int, comment_id: int) -> None:
 
 def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_id: int | None = None, old_group_id: int | None = None, actor_user_id: int | None = None) -> dict:
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    assignments = (
+        Assignment.query.filter_by(task_id=task.id)
+        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
+        .all()
+    )
+    assignment_users = {
+        user_id: User.query.get(user_id)
+        for user_id in {row.user_id for row in assignments if row.user_id}
+    }
     return {
         "action": action,
         "actor_user_id": actor_user_id,
@@ -612,6 +624,21 @@ def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "status": task.status,
             "per_user_status_enabled": bool(task.per_user_status_enabled),
+            "assign_group_members": bool(task.assign_group_members),
+            "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
+            "assignments": [
+                {
+                    "id": row.id,
+                    "task_id": row.task_id,
+                    "user_id": row.user_id,
+                    "email": row.email,
+                    "status": row.status,
+                    "display_name": (assignment_users.get(row.user_id).display_name if row.user_id and assignment_users.get(row.user_id) else None),
+                    "display_email": (assignment_users.get(row.user_id).email if row.user_id and assignment_users.get(row.user_id) else row.email),
+                    "avatar_url": (assignment_users.get(row.user_id).avatar_url if row.user_id and assignment_users.get(row.user_id) else None),
+                }
+                for row in assignments
+            ],
             "status_meta": task_status_meta(task),
             "created_at": task.created_at.isoformat() if task.created_at else None,
         },

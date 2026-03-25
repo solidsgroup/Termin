@@ -10,6 +10,7 @@ from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
 from app.extensions import db
 from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
+from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 from app.realtime import (
@@ -293,6 +294,8 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "status": task.status,
         "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "assign_group_members": bool(task.assign_group_members),
+        "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "status_meta": status_meta,
         "info": info,
         "assignments": [_serialize_assignment_row(row) for row in assignments],
@@ -599,6 +602,7 @@ def update_task(task_id: int):
     due_at = payload.get("due_at")
     info = payload.get("info")
     per_user_status_enabled = payload.get("per_user_status_enabled")
+    assign_group_members = payload.get("assign_group_members")
 
     if title is not None:
         task.title = title.strip()
@@ -613,6 +617,11 @@ def update_task(task_id: int):
         task.status = status.strip() or task.status
     if per_user_status_enabled is not None:
         task.per_user_status_enabled = bool(per_user_status_enabled)
+    if assign_group_members is not None:
+        next_group_mode = bool(assign_group_members)
+        task.assign_group_members = next_group_mode
+        if next_group_mode:
+            sync_group_task_assignments(task)
     if user_status is not None:
         target_user_id = user.id
         if status_user_id is not None:
@@ -650,16 +659,22 @@ def update_task(task_id: int):
     emit_task_notification_updates(task, exclude_user_id=user.id)
     info_payload = _info_payload_for(task)
     status_meta = task_status_meta(task, viewer_user_id=user.id)
+    assignments = Assignment.query.filter_by(task_id=task.id).all()
     return {
         "id": task.id,
         "title": task.title,
         "status": task.status,
         "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "assign_group_members": bool(task.assign_group_members),
+        "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "status_meta": status_meta,
         "user_status": status_meta.get("my_status"),
         "info": info_payload,
         "link": task.link,
         "links": info_payload.get("links", []),
+        "assignments": [_serialize_assignment_row(row) for row in assignments],
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
     }, 200
 
 
@@ -682,6 +697,8 @@ def get_task(task_id: int):
         "links": _info_payload_for(task).get("links", []),
         "status": task.status,
         "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "assign_group_members": bool(task.assign_group_members),
+        "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "status_meta": task_status_meta(task, viewer_user_id=user.id),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "due_at": task.due_at.isoformat() if task.due_at else None,
@@ -1666,6 +1683,7 @@ def add_project_member(project_id: int):
         return {"status": "ok"}, 200
     db.session.add(ProjectMember(project_id=project_id, user_id=user_id))
     db.session.commit()
+    _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
     emit_project_members_updated(project_id, actor_user_id=user.id)
     return {"status": "ok"}, 201
 
@@ -1691,6 +1709,7 @@ def add_group_member(group_id: int):
         return {"status": "ok"}, 200
     db.session.add(GroupMember(group_id=group_id, user_id=user_id))
     db.session.commit()
+    _sync_group_mode_tasks(group_id, actor_user_id=user.id)
     emit_group_members_updated(group_id, actor_user_id=user.id)
     emit_project_members_updated(group.project_id, actor_user_id=user.id)
     return {"status": "ok"}, 201
@@ -1788,6 +1807,7 @@ def remove_project_member(project_id: int, user_id: int):
         return {"error": "unauthorized"}, 403
     ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).delete()
     db.session.commit()
+    _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
     emit_project_members_updated(project_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
@@ -1817,6 +1837,7 @@ def update_project_member_scope(project_id: int, user_id: int):
         if existing:
             db.session.delete(existing)
     db.session.commit()
+    _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
     emit_project_members_updated(project_id, actor_user_id=user.id)
     return {"status": "ok"}, 200
 
@@ -1832,6 +1853,7 @@ def remove_group_member(group_id: int, user_id: int):
         return {"error": "unauthorized"}, 403
     GroupMember.query.filter_by(group_id=group_id, user_id=user_id).delete()
     db.session.commit()
+    _sync_group_mode_tasks(group_id, actor_user_id=user.id)
     emit_group_members_updated(group_id, actor_user_id=user.id)
     emit_project_members_updated(group.project_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
@@ -2011,6 +2033,54 @@ def create_assignment():
         "display_email": account_user.email if account_user else assignment.email,
         "avatar_url": account_user.avatar_url if account_user else None,
     }, 201
+
+
+@api_bp.post("/tasks/<int:task_id>/assign_all")
+@login_required
+def assign_all_task_members(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if not task.group_id:
+        return {"error": "task is not in a group"}, 400
+    task.assign_group_members = True
+    changes = sync_group_task_assignments(task)
+    db.session.commit()
+    for assignment in changes["deleted"]:
+        emit_assignment_updated(task, assignment, action="deleted", actor_user_id=user.id)
+    for assignment in changes["created"]:
+        emit_assignment_updated(task, assignment, action="created", actor_user_id=user.id)
+    emit_task_updated(task, actor_user_id=user.id)
+    return {
+        "assign_group_members": True,
+        "group_assignment_members": serialize_group_assignment_members(task),
+        "assignments": [_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()],
+    }, 200
+
+
+def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -> None:
+    tasks = Task.query.filter_by(group_id=group_id, assign_group_members=True).all()
+    if not tasks:
+        return
+    emitted = []
+    for task in tasks:
+        changes = sync_group_task_assignments(task)
+        emitted.append((task, changes))
+    db.session.commit()
+    for task, changes in emitted:
+        for assignment in changes["deleted"]:
+            emit_assignment_updated(task, assignment, action="deleted", actor_user_id=actor_user_id)
+        for assignment in changes["created"]:
+            emit_assignment_updated(task, assignment, action="created", actor_user_id=actor_user_id)
+        emit_task_updated(task, actor_user_id=actor_user_id)
+
+
+def _sync_project_group_mode_tasks(project_id: int, *, actor_user_id: int | None = None) -> None:
+    for group in Group.query.filter_by(project_id=project_id).all():
+        _sync_group_mode_tasks(group.id, actor_user_id=actor_user_id)
 
 
 @api_bp.post("/assignments/<int:assignment_id>/send_link")

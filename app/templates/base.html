@@ -1446,6 +1446,37 @@
         border-left: 1px solid rgba(255, 255, 255, 0.08);
       }
 
+      .badge-group-avatar {
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(12, 16, 23, 0.8);
+        margin-left: -5px;
+        position: relative;
+      }
+
+      .badge-group-avatar:first-child {
+        margin-left: 0;
+      }
+
+      .badge-group-avatar .badge-initial {
+        font-size: 8px;
+      }
+
+      .badge-group-avatar.has-photo .badge-initial {
+        display: none;
+      }
+
+      body[data-theme="light"] .badge-group-avatar {
+        border-color: rgba(255, 255, 255, 0.95);
+        background: rgba(15, 23, 42, 0.08);
+      }
+
       .task-pill-segment:hover,
       .comment-button.has-unread {
         color: var(--ink);
@@ -3602,6 +3633,24 @@
         text-overflow: ellipsis;
       }
 
+      .multi-status-row.is-other-user .multi-status-user-name {
+        color: color-mix(in srgb, var(--ink) 68%, var(--muted) 32%);
+        font-weight: 500;
+      }
+
+      .multi-status-row.is-other-user .multi-status-user-email {
+        color: color-mix(in srgb, var(--muted) 82%, transparent 18%);
+      }
+
+      .multi-status-row.is-other-user .multi-status-avatar {
+        opacity: 0.7;
+      }
+
+      .multi-status-row.is-current-user .multi-status-user-name {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
       .multi-status-actions {
         display: inline-flex;
         align-items: center;
@@ -4250,6 +4299,10 @@
         background: var(--accent);
         color: #041015;
         border-color: var(--accent);
+      }
+
+      .badge-group-member .badge-icon {
+        cursor: default;
       }
 
       .badge.github-badge .badge-icon {

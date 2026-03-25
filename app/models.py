@@ -134,6 +134,7 @@ class Task(db.Model):
     assignee_email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="open", nullable=False)
     per_user_status_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    assign_group_members = db.Column(db.Boolean, default=False, nullable=False)
     owner_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
