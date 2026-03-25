@@ -130,6 +130,27 @@
     <span class="badge-label">Group</span>
   </span>
 {% endmacro %}
+{% macro render_assignment_badge(assignment, user_map) %}
+  {% set assignee = user_map.get(assignment.user_id) %}
+  {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
+  <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
+    <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+      <span class="badge-initial">{{ label[0]|upper }}</span>
+      {% if assignee and assignee.avatar_url %}
+        <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
+      {% endif %}
+      <span class="badge-x">×</span>
+    </button>
+    <span class="badge-label">{{ label }}</span>
+    {% if not assignment.user_id %}
+      {% if assignment.status in ["draft"] %}
+        <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
+      {% elif assignment.status in ["link_sent"] %}
+        <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
+      {% endif %}
+    {% endif %}
+  </span>
+{% endmacro %}
 {% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) %}
   {% if task_list %}
     {% for task in task_list %}
@@ -207,27 +228,14 @@
             <div class="assignments">
               {% if task.assign_group_members %}
                 {{ render_group_assignment_badge(task.id, group_assignment_members_by_task.get(task.id, [])) }}
+                {% for assignment in assignments_by_task.get(task.id, []) %}
+                  {% if not assignment.user_id %}
+                    {{ render_assignment_badge(assignment, user_map) }}
+                  {% endif %}
+                {% endfor %}
               {% else %}
                 {% for assignment in assignments_by_task.get(task.id, []) %}
-                  {% set assignee = user_map.get(assignment.user_id) %}
-                  {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                  <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-                    <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
-                      <span class="badge-initial">{{ label[0]|upper }}</span>
-                      {% if assignee and assignee.avatar_url %}
-                        <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
-                      {% endif %}
-                      <span class="badge-x">×</span>
-                    </button>
-                    <span class="badge-label">{{ label }}</span>
-                    {% if not assignment.user_id %}
-                      {% if assignment.status in ["draft"] %}
-                        <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                      {% elif assignment.status in ["link_sent"] %}
-                        <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                      {% endif %}
-                    {% endif %}
-                  </span>
+                  {{ render_assignment_badge(assignment, user_map) }}
                 {% endfor %}
               {% endif %}
               <span class="assign-action">
@@ -520,27 +528,14 @@
                       <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
                         {% if item.task.assign_group_members %}
                           {{ render_group_assignment_badge(item.task.id, group_assignment_members_by_task.get(item.task.id, [])) }}
+                          {% for assignment in assignments_by_task.get(item.task.id, []) %}
+                            {% if not assignment.user_id %}
+                              {{ render_assignment_badge(assignment, user_map) }}
+                            {% endif %}
+                          {% endfor %}
                         {% else %}
                           {% for assignment in assignments_by_task.get(item.task.id, []) %}
-                            {% set assignee = user_map.get(assignment.user_id) %}
-                            {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
-                            <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-                              <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
-                                <span class="badge-initial">{{ label[0]|upper }}</span>
-                                {% if assignee and assignee.avatar_url %}
-                                  <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
-                                {% endif %}
-                                <span class="badge-x">×</span>
-                              </button>
-                              <span class="badge-label">{{ label }}</span>
-                              {% if not assignment.user_id %}
-                                {% if assignment.status in ["draft"] %}
-                                  <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Send link</button>
-                                {% elif assignment.status in ["link_sent"] %}
-                                  <button class="btn link" type="button" data-send-link="{{ assignment.id }}">Resend</button>
-                                {% endif %}
-                              {% endif %}
-                            </span>
+                            {{ render_assignment_badge(assignment, user_map) }}
                           {% endfor %}
                         {% endif %}
                         <span class="assign-action">
@@ -2865,6 +2860,30 @@
           Array.from(container.querySelectorAll('[data-assignment-id="' + data.id + '"]')).slice(1).forEach(function (node) {
             node.remove();
           });
+          if (targetType === "task") {
+            var taskMeta = typeof window.__taskMetaForAssignments === "function"
+              ? window.__taskMetaForAssignments(targetId)
+              : null;
+            if (taskMeta) {
+              var mergedAssignments = Array.isArray(taskMeta.assignments) ? taskMeta.assignments.slice() : [];
+              mergedAssignments = mergedAssignments.filter(function (row) { return String(row.id) !== String(data.id); });
+              mergedAssignments.push(data);
+              taskMeta.assignments = mergedAssignments;
+              var host = document.querySelector('[data-task-status-host="' + targetId + '"]');
+              if (host && host._taskPayload) {
+                host._taskPayload = Object.assign({}, host._taskPayload, { assignments: mergedAssignments });
+              }
+              var discussionDrawer = document.getElementById("discussion-drawer");
+              var openTaskId = discussionDrawer ? (discussionDrawer.getAttribute("data-open-task-id") || "") : "";
+              if (String(openTaskId || "") === String(targetId) && typeof window.__setCurrentTaskData === "function") {
+                var currentTask = window.__getCurrentTaskData ? window.__getCurrentTaskData() : null;
+                window.__setCurrentTaskData(Object.assign({}, currentTask || {}, { assignments: mergedAssignments }));
+              }
+              if (taskMeta.assign_group_members && typeof window.__renderTaskAssignments === "function") {
+                window.__renderTaskAssignments(targetId, mergedAssignments);
+              }
+            }
+          }
           return data;
         });
     }
@@ -3642,7 +3661,15 @@
 
     const taskAssignmentKeysFromData = (task, assignments) => {
       if (task && task.assign_group_members) {
-        return taskAssignmentKeysFromMembers(task.group_assignment_members || []);
+        const keys = new Set(taskAssignmentKeysFromMembers(task.group_assignment_members || []).split(",").filter(Boolean));
+        (Array.isArray(assignments) ? assignments : []).forEach((assignment) => {
+          if (assignment && assignment.user_id) {
+            keys.add("user:" + assignment.user_id);
+          } else if (assignment && assignment.email) {
+            keys.add("email:" + String(assignment.email).trim().toLowerCase());
+          }
+        });
+        return Array.from(keys).join(",");
       }
       return (Array.isArray(assignments) ? assignments : []).map((assignment) => {
         if (assignment && assignment.user_id) return "user:" + assignment.user_id;
@@ -3650,6 +3677,17 @@
         return "";
       }).filter(Boolean).join(",");
     };
+
+    const extraAssignmentsForGroup = (task, assignments) => {
+      if (!task || !task.assign_group_members) return Array.isArray(assignments) ? assignments : [];
+      const memberIds = new Set((Array.isArray(task.group_assignment_members) ? task.group_assignment_members : []).map((member) => String(member.id || "")));
+      return (Array.isArray(assignments) ? assignments : []).filter((assignment) => {
+        if (!assignment) return false;
+        if (!assignment.user_id) return true;
+        return !memberIds.has(String(assignment.user_id));
+      });
+    };
+    window.__extraAssignmentsForGroup = extraAssignmentsForGroup;
 
     const taskMetaForAssignments = (taskId) => {
       const discussionDrawer = document.getElementById("discussion-drawer");
@@ -7813,26 +7851,45 @@
       if (!payload || !payload.assignment) return false;
       var assignment = payload.assignment;
       if (!assignment.task_id) return false;
+      var assignmentKey = assignment.user_id
+        ? "user:" + assignment.user_id
+        : (assignment.email ? "email:" + String(assignment.email).trim().toLowerCase() : "");
       var taskMeta = typeof window.__taskMetaForAssignments === "function"
         ? window.__taskMetaForAssignments(assignment.task_id)
         : null;
       if (taskMeta && taskMeta.assign_group_members) {
+        var currentAssignments = Array.isArray(taskMeta.assignments) ? taskMeta.assignments.slice() : [];
+        if (payload.action === "deleted") {
+          currentAssignments = currentAssignments.filter(function (row) { return String(row.id) !== String(assignment.id); });
+        } else {
+          currentAssignments = currentAssignments.filter(function (row) { return String(row.id) !== String(assignment.id); });
+          currentAssignments.push(assignment);
+        }
+        taskMeta.assignments = currentAssignments;
+        var host = document.querySelector('[data-task-status-host="' + assignment.task_id + '"]');
+        if (host && host._taskPayload) {
+          host._taskPayload = Object.assign({}, host._taskPayload, { assignments: currentAssignments });
+        }
+        if (String(currentTaskId || "") === String(assignment.task_id || "")) {
+          currentTaskData = Object.assign({}, currentTaskData || {}, { assignments: currentAssignments });
+          renderTaskSettings();
+        }
+        if (typeof window.__renderTaskAssignments === "function") {
+          window.__renderTaskAssignments(assignment.task_id, currentAssignments);
+        }
         document.querySelectorAll('.todo-item[data-task-id="' + assignment.task_id + '"]').forEach(function (item) {
           item.setAttribute(
             "data-assignee-keys",
             typeof window.__taskAssignmentKeysFromData === "function"
-              ? window.__taskAssignmentKeysFromData(taskMeta, taskMeta.assignments || [])
+              ? window.__taskAssignmentKeysFromData(taskMeta, currentAssignments)
               : ""
           );
         });
         if (typeof window.__applyTodoFilters === "function") {
           window.__applyTodoFilters();
         }
-        return false;
+        return true;
       }
-      var assignmentKey = assignment.user_id
-        ? "user:" + assignment.user_id
-        : (assignment.email ? "email:" + String(assignment.email).trim().toLowerCase() : "");
       var updated = false;
       var selector = '.assignments [data-assign-input="task"][data-target-id="' + assignment.task_id + '"]';
       document.querySelectorAll(selector).forEach(function (input) {
@@ -7916,6 +7973,16 @@
               }
             });
           }
+          var extraAssignments = typeof window.__extraAssignmentsForGroup === "function"
+            ? window.__extraAssignmentsForGroup(taskMeta, assignments || [])
+            : [];
+          extraAssignments.forEach(function (assignment) {
+            var wrapper = document.createElement("span");
+            wrapper.innerHTML = window.__renderAssignmentBadge(assignment);
+            var badge = wrapper.firstElementChild;
+            if (!badge) return;
+            container.insertBefore(badge, assignAction || input);
+          });
         } else {
           (assignments || []).forEach(function (assignment) {
             var wrapper = document.createElement("span");
@@ -8500,6 +8567,11 @@
       if (!assignees.length) {
         return '<div class="multi-status-empty">Assign people to track per-user statuses.</div>';
       }
+      function statusLabel(value) {
+        var text = String(value || "open").trim();
+        if (!text) return "Open";
+        return text.charAt(0).toUpperCase() + text.slice(1);
+      }
       return assignees.map(function (assignee, index) {
         var label = assignee.display_name || assignee.email || "User";
         var secondary = assignee.email && assignee.email !== label ? assignee.email : "";
@@ -8525,7 +8597,7 @@
                   '<button class="multi-status-action' + (status.toLowerCase() === 'critical' ? ' is-active' : '') + '" type="button" data-status-value="critical" aria-label="Set status to critical" title="Critical"' + (editableByViewer ? '' : ' disabled') + '><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></button>' +
                   '<button class="multi-status-action' + (status.toLowerCase() === 'complete' ? ' is-active' : '') + '" type="button" data-status-value="complete" aria-label="Set status to complete" title="Complete"' + (editableByViewer ? '' : ' disabled') + '><i class="fa-solid fa-circle-check" aria-hidden="true"></i></button>' +
                 '</div>'
-              : '<div class="multi-status-readonly">Pending account</div>') +
+              : '<div class="multi-status-readonly">' + escapeHtml(statusLabel(status)) + '</div>') +
           '</div>';
       }).join("");
     }
@@ -8636,6 +8708,9 @@
           existing = existing.filter(function (row) { return String(row.id) !== String(data.id); });
           existing.push(data);
           currentTaskData = Object.assign({}, currentTaskData || {}, { assignments: existing });
+          if (typeof window.__renderTaskAssignments === "function") {
+            window.__renderTaskAssignments(currentTaskId, existing);
+          }
           renderTaskSettings();
           return refreshCurrentTaskMeta();
         })

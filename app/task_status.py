@@ -1,7 +1,7 @@
 from collections import Counter
 
 from app.extensions import db
-from app.models import Assignment, Task, TaskUserStatus, User
+from app.models import Assignment, Task, TaskCollaboratorStatus, TaskUserStatus, User
 
 
 COMPLETE_STATUS_VALUES = {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
@@ -32,6 +32,20 @@ def load_task_user_status_rows(task_ids: list[int]) -> dict[int, list[TaskUserSt
     rows = (
         TaskUserStatus.query.filter(TaskUserStatus.task_id.in_(task_ids))
         .order_by(TaskUserStatus.updated_at.asc(), TaskUserStatus.id.asc())
+        .all()
+    )
+    for row in rows:
+        rows_by_task.setdefault(row.task_id, []).append(row)
+    return rows_by_task
+
+
+def load_task_collaborator_status_rows(task_ids: list[int]) -> dict[int, list[TaskCollaboratorStatus]]:
+    rows_by_task: dict[int, list[TaskCollaboratorStatus]] = {}
+    if not task_ids:
+        return rows_by_task
+    rows = (
+        TaskCollaboratorStatus.query.filter(TaskCollaboratorStatus.task_id.in_(task_ids))
+        .order_by(TaskCollaboratorStatus.updated_at.asc(), TaskCollaboratorStatus.id.asc())
         .all()
     )
     for row in rows:
@@ -73,10 +87,20 @@ def aggregate_status_state(values: list[str]) -> str:
     return "open"
 
 
-def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_task: dict[int, list[TaskUserStatus]] | None = None) -> dict:
+def task_status_meta(
+    task: Task,
+    *,
+    viewer_user_id: int | None = None,
+    viewer_email: str | None = None,
+    rows_by_task: dict[int, list[TaskUserStatus]] | None = None,
+    collaborator_rows_by_task: dict[int, list[TaskCollaboratorStatus]] | None = None,
+) -> dict:
     if rows_by_task is None:
         rows_by_task = load_task_user_status_rows([task.id] if task and task.id else [])
+    if collaborator_rows_by_task is None:
+        collaborator_rows_by_task = load_task_collaborator_status_rows([task.id] if task and task.id else [])
     rows = list((rows_by_task or {}).get(task.id, []))
+    collaborator_rows = list((collaborator_rows_by_task or {}).get(task.id, []))
     assignments = (
         Assignment.query.filter_by(task_id=task.id)
         .order_by(Assignment.created_at.asc(), Assignment.id.asc())
@@ -89,6 +113,11 @@ def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_t
         for row in rows
         if row.user_id is not None
     }
+    row_by_email = {
+        (row.email or "").strip().lower(): row
+        for row in collaborator_rows
+        if (row.email or "").strip()
+    }
     statuses = []
     assignees = []
     seen_assignment_keys: set[str] = set()
@@ -97,7 +126,8 @@ def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_t
         if not assignment_key or assignment_key in seen_assignment_keys:
             continue
         seen_assignment_keys.add(assignment_key)
-        assignment_row = row_by_user_id.get(int(assignment.user_id)) if assignment.user_id is not None else None
+        normalized_email = (assignment.email or "").strip().lower()
+        assignment_row = row_by_user_id.get(int(assignment.user_id)) if assignment.user_id is not None else row_by_email.get(normalized_email)
         effective_status = normalize_task_status(assignment_row.status if assignment_row else "open")
         account_user = User.query.get(assignment.user_id) if assignment.user_id is not None else None
         display_email = (account_user.email if account_user and account_user.email else assignment.email) or ""
@@ -105,6 +135,7 @@ def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_t
         statuses.append(
             {
                 "user_id": assignment.user_id,
+                "email": normalized_email or display_email.lower(),
                 "status": effective_status,
                 "state": task_status_state(effective_status),
             }
@@ -117,7 +148,7 @@ def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_t
                 "avatar_url": account_user.avatar_url if account_user and account_user.avatar_url else None,
                 "status": effective_status,
                 "state": task_status_state(effective_status),
-                "editable": assignment.user_id is not None,
+                "editable": True,
             }
         )
     viewer_status = None
@@ -128,18 +159,23 @@ def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_t
             None,
         )
         viewer_is_assignee = any(row["user_id"] is not None and int(row["user_id"]) == int(viewer_user_id) for row in statuses)
+    elif viewer_email:
+        normalized_viewer_email = viewer_email.strip().lower()
+        viewer_status = next((row["status"] for row in statuses if (row.get("email") or "").strip().lower() == normalized_viewer_email), None)
+        viewer_is_assignee = any((row.get("email") or "").strip().lower() == normalized_viewer_email for row in statuses)
     enabled = bool(getattr(task, "per_user_status_enabled", False))
     base_status = normalize_task_status(task.status)
     my_status = viewer_status if (enabled and viewer_is_assignee) else (base_status if not enabled else None)
     assignment_backed_statuses = [assignee["status"] for assignee in assignees]
     summary = summarize_status_values(assignment_backed_statuses) if enabled else []
+    has_viewer_identity = (viewer_user_id is not None) or bool((viewer_email or "").strip())
     return {
         "enabled": enabled,
         "task_status": base_status,
         "task_status_state": task_status_state(base_status),
         "aggregate_state": aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status),
-        "my_status": normalize_task_status(my_status) if (viewer_user_id is not None and my_status is not None) else None,
-        "my_status_state": task_status_state(my_status) if (viewer_user_id is not None and my_status is not None) else None,
+        "my_status": normalize_task_status(my_status) if (has_viewer_identity and my_status is not None) else None,
+        "my_status_state": task_status_state(my_status) if (has_viewer_identity and my_status is not None) else None,
         "viewer_can_set": (not enabled) or viewer_is_assignee,
         "summary": summary,
         "user_statuses": statuses,
@@ -147,17 +183,25 @@ def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_t
     }
 
 
-def task_status_meta_map(tasks: list[Task], *, viewer_user_id: int | None = None) -> dict[int, dict]:
-    rows_by_task = load_task_user_status_rows([task.id for task in tasks if task and task.id])
+def task_status_meta_map(tasks: list[Task], *, viewer_user_id: int | None = None, viewer_email: str | None = None) -> dict[int, dict]:
+    task_ids = [task.id for task in tasks if task and task.id]
+    rows_by_task = load_task_user_status_rows(task_ids)
+    collaborator_rows_by_task = load_task_collaborator_status_rows(task_ids)
     return {
-        task.id: task_status_meta(task, viewer_user_id=viewer_user_id, rows_by_task=rows_by_task)
+        task.id: task_status_meta(
+            task,
+            viewer_user_id=viewer_user_id,
+            viewer_email=viewer_email,
+            rows_by_task=rows_by_task,
+            collaborator_rows_by_task=collaborator_rows_by_task,
+        )
         for task in tasks
         if task and task.id
     }
 
 
-def effective_task_status_for_user(task: Task, *, viewer_user_id: int | None = None, status_meta: dict | None = None) -> str:
-    meta = status_meta or task_status_meta(task, viewer_user_id=viewer_user_id)
+def effective_task_status_for_user(task: Task, *, viewer_user_id: int | None = None, viewer_email: str | None = None, status_meta: dict | None = None) -> str:
+    meta = status_meta or task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email)
     if meta.get("enabled"):
         return normalize_task_status(meta.get("my_status"))
     return normalize_task_status(task.status)
@@ -170,5 +214,17 @@ def set_task_user_status(task_id: int, user_id: int, status: str) -> TaskUserSta
         row.status = normalized
     else:
         row = TaskUserStatus(task_id=task_id, user_id=user_id, status=normalized)
+        db.session.add(row)
+    return row
+
+
+def set_task_collaborator_status(task_id: int, email: str, status: str) -> TaskCollaboratorStatus:
+    normalized = normalize_task_status(status)
+    normalized_email = (email or "").strip().lower()
+    row = TaskCollaboratorStatus.query.filter_by(task_id=task_id, email=normalized_email).first()
+    if row:
+        row.status = normalized
+    else:
+        row = TaskCollaboratorStatus(task_id=task_id, email=normalized_email, status=normalized)
         db.session.add(row)
     return row

@@ -49,7 +49,8 @@ def sync_group_task_assignments(task: Task) -> dict:
             continue
         if row.user_id:
             rows_by_user_id[row.user_id] = row
-        if row.user_id is None or row.user_id not in candidate_ids:
+        # Keep explicit email collaborators; group mode only manages account users.
+        if row.user_id is not None and row.user_id not in candidate_ids:
             deleted.append(row)
 
     for user in candidate_users:

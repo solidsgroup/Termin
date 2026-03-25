@@ -153,6 +153,20 @@ class TaskUserStatus(db.Model):
     )
 
 
+class TaskCollaboratorStatus(db.Model):
+    __tablename__ = "task_collaborator_statuses"
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    status = db.Column(db.String(50), nullable=False, default="open")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("task_id", "email", name="uq_task_collaborator_statuses_task_email"),
+    )
+
+
 class TaskComment(db.Model):
     __tablename__ = "task_comments"
     id = db.Column(db.Integer, primary_key=True)

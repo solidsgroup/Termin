@@ -35,6 +35,7 @@ from app.realtime import (
     emit_sidebar_reordered,
     emit_task_comment_created,
     emit_task_notification_updates,
+    emit_task_updated,
     queue_task_notifications,
     is_user_viewing_task,
     _task_notification_user_ids,
@@ -46,7 +47,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
-from app.task_status import effective_task_status_for_user, task_status_meta_map
+from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
 from app.utils import current_user
 from app.utils import is_admin as user_is_admin
 
@@ -394,6 +395,7 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     task_ids = {invite.task_id for invite in invites if invite.task_id}
     task_ids.update({assignment.task_id for assignment in assignments if assignment.task_id})
     tasks = {task.id: task for task in Task.query.filter(Task.id.in_(task_ids)).all()} if task_ids else {}
+    task_status_map = task_status_meta_map(list(tasks.values()), viewer_email=collaborator.email) if tasks else {}
     project_ids = {task.project_id for task in tasks.values() if task and task.project_id}
     projects = {project.id: project for project in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
     entries: list[dict] = []
@@ -413,6 +415,11 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     for assignment in assignments:
         invite = invite_by_assignment_id.get(assignment.id)
         task, project = resolve_context(assignment.task_id)
+        work_status = effective_task_status_for_user(
+            task,
+            viewer_email=collaborator.email,
+            status_meta=task_status_map.get(task.id) if task else None,
+        )
         entries.append(
             {
                 "kind": "assignment",
@@ -425,8 +432,8 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                 "calendar_available": bool(task and task.due_at),
                 "calendar_invite_sent_at": invite.calendar_invite_sent_at if invite else None,
                 "created_at": (invite.created_at if invite else assignment.created_at),
-                "work_status": _work_item_status(task),
-                "is_complete": _is_complete_status(_work_item_status(task)),
+                "work_status": work_status,
+                "is_complete": _is_complete_status(work_status),
             }
         )
 
@@ -435,6 +442,11 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
         if invite.id in assigned_invite_ids:
             continue
         task, project = resolve_context(invite.task_id)
+        work_status = effective_task_status_for_user(
+            task,
+            viewer_email=collaborator.email,
+            status_meta=task_status_map.get(task.id) if task else None,
+        )
         entries.append(
             {
                 "kind": "invite",
@@ -447,8 +459,8 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                 "calendar_available": bool(task and task.due_at),
                 "calendar_invite_sent_at": invite.calendar_invite_sent_at,
                 "created_at": invite.created_at,
-                "work_status": _work_item_status(task),
-                "is_complete": _is_complete_status(_work_item_status(task)),
+                "work_status": work_status,
+                "is_complete": _is_complete_status(work_status),
             }
         )
 
@@ -508,6 +520,29 @@ def _mark_work_item_complete(task: Task | None) -> None:
 def _mark_work_item_open(task: Task | None) -> None:
     if task:
         task.status = "open"
+
+
+def _set_collaborator_work_item_status(task: Task | None, collaborator_email: str | None, status: str) -> None:
+    if not task:
+        return
+    normalized_email = (collaborator_email or "").strip().lower()
+    if (
+        task.per_user_status_enabled
+        and normalized_email
+        and db.session.query(Assignment.id)
+        .filter(
+            Assignment.task_id == task.id,
+            Assignment.email.isnot(None),
+            db.func.lower(Assignment.email) == normalized_email,
+        )
+        .first()
+    ):
+        set_task_collaborator_status(task.id, normalized_email, status)
+        return
+    if (status or "").strip().lower() == "complete":
+        _mark_work_item_complete(task)
+    else:
+        _mark_work_item_open(task)
 
 
 def _serialize_portal_comment(comment: TaskComment, users: dict[int, User], collaborators: dict[int, CollaboratorProfile]) -> dict:
@@ -1713,7 +1748,9 @@ def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
     if action in {"accept", "decline"}:
         _apply_invite_response(invite, action, invite.calendar_opt_in)
     elif action == "complete":
-        _mark_work_item_complete(task)
+        _set_collaborator_work_item_status(task, collaborator.email, "complete")
+    elif action == "uncomplete":
+        _set_collaborator_work_item_status(task, collaborator.email, "open")
     else:
         return redirect(url_for("ui.collaborator_portal", token=token))
 
@@ -1721,6 +1758,8 @@ def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
 
     if action == "accept" and invite.calendar_opt_in and task:
         _safe_ensure_task_event(task.id, invite.email)
+    if task and action in {"complete", "uncomplete"}:
+        emit_task_updated(task)
     return redirect(url_for("ui.collaborator_portal", token=token))
 
 
@@ -1858,9 +1897,9 @@ def update_collaborator_invite(token: str, invite_id: int):
     elif action == "calendar":
         invite.calendar_opt_in = True
     elif action == "complete":
-        _mark_work_item_complete(task)
+        _set_collaborator_work_item_status(task, collaborator.email, "complete")
     elif action == "uncomplete":
-        _mark_work_item_open(task)
+        _set_collaborator_work_item_status(task, collaborator.email, "open")
 
     sent_calendar_invite = False
     if action == "calendar":
@@ -1872,6 +1911,8 @@ def update_collaborator_invite(token: str, invite_id: int):
 
     if task and (sent_calendar_invite or (invite.status == "accepted" and invite.calendar_opt_in)):
         _safe_ensure_task_event(task.id, invite.email)
+    if task and action in {"complete", "uncomplete"}:
+        emit_task_updated(task)
     if invite.assignment_id and task:
         assignment = Assignment.query.get(invite.assignment_id)
         if assignment:
@@ -1899,9 +1940,9 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     elif action == "calendar":
         invite.calendar_opt_in = True
     elif action == "complete":
-        _mark_work_item_complete(task)
+        _set_collaborator_work_item_status(task, collaborator.email, "complete")
     elif action == "uncomplete":
-        _mark_work_item_open(task)
+        _set_collaborator_work_item_status(task, collaborator.email, "open")
 
     sent_calendar_invite = False
     if action == "calendar":
@@ -1913,6 +1954,8 @@ def update_collaborator_assignment(token: str, assignment_id: int):
 
     if task and (sent_calendar_invite or (invite.status == "accepted" and invite.calendar_opt_in)):
         _safe_ensure_task_event(task.id, invite.email)
+    if task and action in {"complete", "uncomplete"}:
+        emit_task_updated(task)
     if task:
         emit_assignment_updated(task, assignment)
     return redirect(url_for("ui.collaborator_portal", token=token))
