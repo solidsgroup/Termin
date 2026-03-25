@@ -190,9 +190,9 @@
               <span class="assign-action">
                 {% if assignments_by_task.get(task.id, [])|length == 0 %}
                   <button class="assign-add-btn" type="button" title="Assign">+</button>
-                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
                 {% else %}
-                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+                  <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ task.id }}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
                   <button class="assign-add-btn" type="button" title="Assign">+</button>
                 {% endif %}
               </span>
@@ -440,7 +440,7 @@
                           </span>
                         {% endfor %}
                         <span class="assign-action">
-                          <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+                          <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
                         </span>
                       </div>
                     {% endif %}
@@ -553,7 +553,7 @@
 	                <tr class="new-row">
 	                    <td></td>
 	                    <td>
-	                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+	                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
 	                    </td>
 	                    <td>
 	                      <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
@@ -569,7 +569,7 @@
 	                    <td>
 	                      <div class="assignments">
 	                        <span class="assign-action">
-	                          <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
+	                          <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
 	                          <button class="assign-add-btn" type="button" title="Assign">+</button>
 	                        </span>
 	                      </div>
@@ -617,7 +617,7 @@
 	                <tr class="new-row">
 	                    <td></td>
 	                    <td>
-	                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+	                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
 	                    </td>
 	                    <td>
 	                      <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
@@ -633,7 +633,7 @@
 	                    <td>
 	                      <div class="assignments">
 	                        <span class="assign-action">
-	                          <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
+	                          <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
 	                          <button class="assign-add-btn" type="button" title="Assign">+</button>
 	                        </span>
 	                      </div>
@@ -672,7 +672,7 @@
       <div class="footer-note">Select a task to view discussion.</div>
     </div>
     <div class="discussion-compose">
-      <textarea id="discussion-input" placeholder="Write a comment..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+      <textarea id="discussion-input" placeholder="Write a comment..." autocomplete="termin-nope-discussion" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
         <button class="btn secondary" type="button" id="discussion-cancel">Close</button>
         <button class="btn" type="button" id="discussion-send">Comment</button>
@@ -683,7 +683,7 @@
     <div class="discussion-settings" id="discussion-settings">
       <label class="discussion-setting-field">
         <span data-settings-title-label>Title</span>
-        <input id="task-settings-title" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        <input id="task-settings-title" type="text" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
       </label>
       <div class="discussion-settings-grid" data-task-only>
         <label class="discussion-setting-field">
@@ -704,7 +704,7 @@
         </div>
         <div class="discussion-settings-assignments" id="task-settings-assignments"></div>
         <div class="discussion-settings-assign-add">
-          <input id="task-settings-assignee" type="text" placeholder="assignee@email" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <input id="task-settings-assignee" type="text" placeholder="assignee@email" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
         </div>
       </div>
       <div class="discussion-settings-meta" id="task-settings-meta"></div>
@@ -754,7 +754,7 @@
   <button type="button" data-status-option="complete"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Complete</span></button>
   <div class="status-menu-custom">
     <label for="status-menu-input">Custom</label>
-    <input id="status-menu-input" type="text" placeholder="Custom status" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <input id="status-menu-input" type="text" placeholder="Custom status" autocomplete="termin-nope-status" autocorrect="off" autocapitalize="off" spellcheck="false" />
     <button type="button" class="btn secondary" id="status-menu-apply">Apply</button>
   </div>
 </div>
@@ -763,7 +763,7 @@
   <div class="panel">
     <h3 id="share-title">Share</h3>
     <label for="share-input">Add user</label>
-    <input id="share-input" placeholder="Type a name or email" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <input id="share-input" placeholder="Type a name or email" autocomplete="termin-nope-share" autocorrect="off" autocapitalize="off" spellcheck="false" />
     <div id="share-suggest" class="suggest-list"></div>
     <div id="share-status" class="footer-note" style="margin-top: 8px;"></div>
     <div id="share-list" class="share-list"></div>
@@ -777,7 +777,7 @@
   <div class="panel">
     <h3 id="rename-title">Rename</h3>
     <label for="rename-input">Name</label>
-    <input id="rename-input" placeholder="Enter a name" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <input id="rename-input" placeholder="Enter a name" autocomplete="termin-nope-rename" autocorrect="off" autocapitalize="off" spellcheck="false" />
     <div id="rename-status" class="footer-note" style="margin-top: 8px;"></div>
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
       <button class="btn secondary" type="button" id="rename-cancel">Cancel</button>
@@ -1112,6 +1112,34 @@
       return null;
     }
 
+    function hardDisableBrowserSuggestions(input) {
+      if (!input) return;
+      input.setAttribute("autocorrect", "off");
+      input.setAttribute("autocapitalize", "none");
+      input.setAttribute("spellcheck", "false");
+      input.setAttribute("data-lpignore", "true");
+      input.setAttribute("data-1p-ignore", "true");
+      input.setAttribute("data-bwignore", "true");
+      input.setAttribute("data-form-type", "other");
+      var type = (input.getAttribute("type") || "text").toLowerCase();
+      var supportsReadonlyHack = input.tagName === "TEXTAREA" || ["text", "search", "email", "url", "tel", "password", ""].indexOf(type) !== -1;
+      input.setAttribute("autocomplete", "termin-nope-" + (input.getAttribute("data-target-id") || input.getAttribute("data-new-task") || input.id || "field"));
+      if (!input.getAttribute("name")) {
+        var suffix = input.getAttribute("data-target-id") || input.getAttribute("data-new-task") || input.id || "field";
+        input.setAttribute("name", "termin-" + suffix + "-" + Math.random().toString(36).slice(2, 8));
+      }
+      if (supportsReadonlyHack && input.dataset.suggestionReadonlyBound !== "1") {
+        input.dataset.suggestionReadonlyBound = "1";
+        input.readOnly = true;
+        var unlock = function () {
+          input.readOnly = false;
+        };
+        input.addEventListener("pointerdown", unlock, { once: true });
+        input.addEventListener("focus", unlock, { once: true });
+      }
+    }
+    window.__hardDisableBrowserSuggestions = hardDisableBrowserSuggestions;
+
     function normalizeEditableText(cell) {
       if (!cell) return "";
       var value = (cell.textContent || "").replace(/\s+/g, " ").trim();
@@ -1219,7 +1247,7 @@
           '<div class="assignments">' +
             '<span class="assign-action">' +
               '<button class="assign-add-btn" type="button" title="Assign">+</button>' +
-              '<input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + taskId + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />' +
+              '<input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + taskId + '" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />' +
             '</span>' +
             '<span class="assign-spacer"></span>' +
             '<button class="icon-button" type="button" data-delete-task="' + taskId + '" title="Delete task">×</button>' +
@@ -2121,6 +2149,55 @@
         return "colWidths:" + (table.getAttribute("data-project-id") || "");
       }
 
+      var projectColumnMinWidths = [30, 220, 110, 96, 132];
+
+      function normalizeProjectColumnWidths(table, rawWidths) {
+        var widths = (rawWidths || []).map(function (value) {
+          return Number(value) || 0;
+        });
+        var total = widths.reduce(function (sum, value) {
+          return sum + value;
+        }, 0);
+        if (!total) return widths;
+        var mins = widths.map(function (_, index) {
+          return projectColumnMinWidths[index] || 80;
+        });
+        var minTotal = mins.reduce(function (sum, value) {
+          return sum + value;
+        }, 0);
+        if (minTotal >= total) {
+          var scale = total / minTotal;
+          return mins.map(function (value) {
+            return Math.max(24, value * scale);
+          });
+        }
+        var adjusted = widths.slice();
+        var changed = true;
+        while (changed) {
+          changed = false;
+          var deficit = 0;
+          adjusted.forEach(function (value, index) {
+            if (value < mins[index]) deficit += mins[index] - value;
+          });
+          if (deficit <= 0) break;
+          var donorCapacity = adjusted.reduce(function (sum, value, index) {
+            return sum + Math.max(0, value - mins[index]);
+          }, 0);
+          if (!donorCapacity) break;
+          adjusted = adjusted.map(function (value, index) {
+            if (value < mins[index]) {
+              changed = true;
+              return mins[index];
+            }
+            var extra = Math.max(0, value - mins[index]);
+            if (!extra) return value;
+            var take = deficit * (extra / donorCapacity);
+            return value - Math.min(extra, take);
+          });
+        }
+        return adjusted;
+      }
+
       function applySavedColumnWidths(cols, saved) {
         if (!saved) return;
         var values = saved.split(",").map(function (width) {
@@ -2135,9 +2212,18 @@
           return sum + (value || 0);
         }, 0);
         if (!total) return;
-        parsed.forEach(function (value, index) {
+        var table = cols[0] ? cols[0].closest("table") : null;
+        var tableWidth = table ? table.getBoundingClientRect().width : 0;
+        var rawWidths = parsed.map(function (value) {
+          return ((value || 0) / total) * tableWidth;
+        });
+        var normalized = normalizeProjectColumnWidths(table, rawWidths);
+        var normalizedTotal = normalized.reduce(function (sum, value) {
+          return sum + value;
+        }, 0) || tableWidth || total;
+        normalized.forEach(function (value, index) {
           if (!cols[index] || !value) return;
-          cols[index].style.width = ((value / total) * 100) + "%";
+          cols[index].style.width = ((value / normalizedTotal) * 100) + "%";
         });
       }
 
@@ -2189,16 +2275,17 @@
 
             function onMove(moveEvent) {
               var delta = moveEvent.clientX - startX;
-              var nextWidth = Math.max(80, startWidth + delta);
+              var pairTotal = startWidth + startNextWidth;
+              var minWidth = projectColumnMinWidths[colIndex] || 80;
+              var minNextWidth = projectColumnMinWidths[nextIndex] || 80;
+              var nextWidth = Math.max(minWidth, Math.min(pairTotal - minNextWidth, startWidth + delta));
+              var nextSiblingWidth = Math.max(minNextWidth, pairTotal - nextWidth);
               var widths = cols.map(function (col, index) {
                 if (index === colIndex) return nextWidth + "px";
-                if (index === nextIndex && cols[nextIndex]) return Math.max(80, startNextWidth - delta) + "px";
+                if (index === nextIndex && cols[nextIndex]) return nextSiblingWidth + "px";
                 return col.style.width || (col.getBoundingClientRect().width + "px");
               });
               applyColumnWidthsToProject(table, widths);
-              if (cols[nextIndex]) {
-                cols[nextIndex].style.width = Math.max(80, startNextWidth - delta) + "px";
-              }
             }
 
             function onUp() {
@@ -2529,17 +2616,21 @@
           });
       }
 
-      function renderSuggestions(results) {
-        shareSuggest.innerHTML = "";
-        (results || []).forEach(function (user) {
-          var btn = document.createElement("button");
-          btn.type = "button";
-          btn.setAttribute("data-user-id", String(user.id));
-          btn.textContent = user.display_name ? (user.display_name + " (" + user.email + ")") : user.email;
-          btn.addEventListener("mousedown", function (event) { event.preventDefault(); });
-          btn.addEventListener("click", function () {
-            submitShare(user.id);
-          });
+	      function renderSuggestions(results) {
+	        shareSuggest.innerHTML = "";
+	        (results || []).forEach(function (user) {
+	          var btn = document.createElement("button");
+	          btn.type = "button";
+	          btn.setAttribute("data-user-id", String(user.id));
+	          var label = user.display_name ? (user.display_name + " (" + user.email + ")") : user.email;
+	          var avatar = user.avatar_url
+	            ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(user.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
+	            : '<span class="assign-suggest-avatar">' + escapeHtml(label.charAt(0).toUpperCase()) + "</span>";
+	          btn.innerHTML = avatar + '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + "</span></span>";
+	          btn.addEventListener("mousedown", function (event) { event.preventDefault(); });
+	          btn.addEventListener("click", function () {
+	            submitShare(user.id);
+	          });
           shareSuggest.appendChild(btn);
         });
       }
@@ -2717,9 +2808,13 @@
 
     function disableBrowserSuggestions(input) {
       if (!input) return;
-      input.setAttribute("autocomplete", "off");
+      if (typeof window.__hardDisableBrowserSuggestions === "function") {
+        window.__hardDisableBrowserSuggestions(input);
+        return;
+      }
+      input.setAttribute("autocomplete", "termin-nope-field");
       input.setAttribute("autocorrect", "off");
-      input.setAttribute("autocapitalize", "off");
+      input.setAttribute("autocapitalize", "none");
       input.setAttribute("spellcheck", "false");
     }
 
@@ -2870,6 +2965,9 @@
     function bindDueInputFallback(input) {
       if (!input || input.dataset.dueFallbackBound === "1") return;
       input.dataset.dueFallbackBound = "1";
+      if (typeof window.__hardDisableBrowserSuggestions === "function") {
+        window.__hardDisableBrowserSuggestions(input);
+      }
       setSavedDueValue(input, (input.value || "").trim());
       updateDueDisplay(input);
       input.addEventListener("change", function () {
@@ -3484,25 +3582,26 @@
       );
     };
 
-    const bindAssignInput = (input) => {
-      if (!input || input.dataset.boundAssign === "1") return;
-      input.dataset.boundAssign = "1";
-      input.setAttribute("autocomplete", "off");
-      input.setAttribute("autocorrect", "off");
-      input.setAttribute("autocapitalize", "off");
-      input.setAttribute("spellcheck", "false");
-      input.addEventListener("input", (event) => {
-        const value = input.value.trim();
-        if (value.length < 1) {
-          hideSuggest(input);
-          return;
-        }
-        fetch(`/api/assignees?q=${encodeURIComponent(value)}`)
-          .then((res) => res.json().catch(() => ({ results: [] })))
-          .then((data) => {
-            showSuggest(input, data.results || []);
-          });
-      });
+	    const bindAssignInput = (input) => {
+	      if (!input || input.dataset.boundAssign === "1") return;
+	      input.dataset.boundAssign = "1";
+	      if (typeof window.__hardDisableBrowserSuggestions === "function") {
+	        window.__hardDisableBrowserSuggestions(input);
+	      }
+	      const loadAssignSuggestions = () => {
+	        const value = input.value.trim();
+	        fetch(`/api/assignees?q=${encodeURIComponent(value)}`)
+	          .then((res) => res.json().catch(() => ({ results: [] })))
+	          .then((data) => {
+	            showSuggest(input, data.results || []);
+	          });
+	      };
+	      input.addEventListener("focus", () => {
+	        loadAssignSuggestions();
+	      });
+	      input.addEventListener("input", (event) => {
+	        loadAssignSuggestions();
+	      });
       input.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === "," || event.key === " " || event.key === "Tab") {
           event.preventDefault();
@@ -3528,17 +3627,8 @@
         const targetId = input.getAttribute("data-target-id");
         submitAssignmentInput(input, targetType, targetId);
         setTimeout(() => hideSuggest(input), 150);
-        const action = input.closest(".assign-action");
-        if (action && input.value.trim() === "") {
-          input.classList.add("hidden");
-          if (!action.querySelector(".assign-add-btn")) {
-            const btn = document.createElement("button");
-            btn.className = "assign-add-btn";
-            btn.type = "button";
-            btn.title = "Assign";
-            btn.textContent = "+";
-            action.appendChild(btn);
-          }
+        if (input.value.trim() === "") {
+          collapseInlineAssignInput(input);
         }
       });
     };
@@ -3586,7 +3676,7 @@
           <div class="assignments">
             ${assignment ? renderAssignmentBadge(assignment) : ""}
             <span class="assign-action">
-              <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="${id}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="${id}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
               <button class="assign-add-btn" type="button" title="Assign">+</button>
             </span>
             <span class="assign-spacer"></span>
@@ -3782,10 +3872,10 @@
             ${canManageGroup ? `
 	              <tr class="new-row">
 	                <td></td>
-	                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
+	                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
 	                <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" value="" disabled tabindex="-1" /></div></td>
 	                <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
-	                <td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>
+	                <td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>
 	              </tr>` : ""}
           </tbody>
         </table>
@@ -3906,6 +3996,21 @@
       return true;
     };
 
+    const collapseInlineAssignInput = (input) => {
+      if (!input) return;
+      const action = input.closest(".assign-action");
+      input.classList.add("hidden");
+      input.blur();
+      if (action && !action.querySelector(".assign-add-btn")) {
+        const btn = document.createElement("button");
+        btn.className = "assign-add-btn";
+        btn.type = "button";
+        btn.title = "Assign";
+        btn.textContent = "+";
+        action.appendChild(btn);
+      }
+    };
+
     const submitAssignmentInput = (input, targetType, targetId) => {
       if (!input || !targetType) return;
       if (input.dataset.assignSelecting === "1") return;
@@ -3947,6 +4052,7 @@
         });
       input.value = "";
       hideSuggest(input);
+      collapseInlineAssignInput(input);
     };
 
     const formatDueSummary = (dueValue, createdValue) => {
@@ -4062,10 +4168,13 @@
       }
     };
 
-    const bindDueInput = (input) => {
-      if (!input) return;
-      updateDueDisplay(input);
-      const dueCell = input.closest("[data-due-cell]");
+	    const bindDueInput = (input) => {
+	      if (!input) return;
+	      if (typeof window.__hardDisableBrowserSuggestions === "function") {
+	        window.__hardDisableBrowserSuggestions(input);
+	      }
+	      updateDueDisplay(input);
+	      const dueCell = input.closest("[data-due-cell]");
       if (dueCell && !dueCell.dataset.bound) {
         dueCell.dataset.bound = "1";
         dueCell.addEventListener("click", (event) => {
@@ -4083,26 +4192,36 @@
       });
     };
 
-    const showSuggest = (input, results) => {
-      hideSuggest(input);
-      if (!results.length) return;
+	    const showSuggest = (input, results) => {
+	      hideSuggest(input);
+	      if (typeof window.__withAddMeSuggestion === "function") {
+	        results = window.__withAddMeSuggestion(results);
+	      }
+	      if (!results.length) return;
       const rect = input.getBoundingClientRect();
       const menu = document.createElement("div");
       menu.className = "assign-suggest";
       menu.style.left = `${rect.left + window.scrollX}px`;
       menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
-      input._suggestItems = results;
-      results.forEach((item) => {
-        const btn = document.createElement("button");
-        const label = item.type === "user" ? (item.display_name || item.email) : item.email;
-        btn.innerHTML = `${label}<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
-        btn.addEventListener("mousedown", (event) => {
-          event.preventDefault();
-          input.dataset.assignSelecting = "1";
-        });
+	      input._suggestItems = results;
+	      results.forEach((item) => {
+	        const btn = document.createElement("button");
+	        const label = item.is_add_me ? "Add me" : (item.type === "user" ? (item.display_name || item.email) : item.email);
+	        const meta = item.is_add_me ? "" : `<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
+	        const avatar = item.is_add_me
+	          ? `<span class="assign-suggest-avatar is-add-me">+</span>`
+	          : item.avatar_url
+	          ? `<span class="assign-suggest-avatar"><img src="${escapeHtml(item.avatar_url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent='${escapeHtml(label.charAt(0).toUpperCase())}'; this.remove();" /></span>`
+	          : `<span class="assign-suggest-avatar">${escapeHtml(label.charAt(0).toUpperCase())}</span>`;
+	        btn.innerHTML = `${avatar}<span class="assign-suggest-copy"><span class="assign-suggest-label">${escapeHtml(label)}</span>${meta}</span>`;
+	        btn.addEventListener("mousedown", (event) => {
+	          event.preventDefault();
+	          input.dataset.assignSelecting = "1";
+	        });
         btn.addEventListener("click", (event) => {
           event.preventDefault();
           input.value = item.email;
+          input.dataset.assignSelecting = "0";
           const targetType = input.getAttribute("data-assign-input");
           const targetId = input.getAttribute("data-target-id");
           submitAssignmentInput(input, targetType, targetId);
@@ -4266,10 +4385,15 @@
       }
     };
 
-    tasksTables.forEach(bindNewTaskRow);
-    document.querySelectorAll(".due-input").forEach(bindDueInput);
+	    tasksTables.forEach(bindNewTaskRow);
+	    document.querySelectorAll(".due-input").forEach(bindDueInput);
+	    document.querySelectorAll("input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='file']), textarea").forEach((input) => {
+	      if (typeof window.__hardDisableBrowserSuggestions === "function") {
+	        window.__hardDisableBrowserSuggestions(input);
+	      }
+	    });
 
-    document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
+	    document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
     document.querySelectorAll("[data-info-edit]").forEach(bindInfoButton);
 
     document.addEventListener("click", (event) => {
@@ -4402,7 +4526,43 @@
 
 	    const initColumnResizers = () => {
 	      const tables = Array.from(document.querySelectorAll(".tasks-table"));
+	      const projectColumnMinWidths = [30, 220, 110, 96, 132];
 	      const storageKey = (table) => `colWidths:${table.getAttribute("data-project-id") || ""}`;
+	      const normalizeProjectColumnWidths = (table, rawWidths) => {
+	        const widths = (rawWidths || []).map((value) => Number(value) || 0);
+	        const total = widths.reduce((sum, value) => sum + value, 0);
+	        if (!total) return widths;
+	        const mins = widths.map((_, idx) => projectColumnMinWidths[idx] || 80);
+	        const minTotal = mins.reduce((sum, value) => sum + value, 0);
+	        if (minTotal >= total) {
+	          const scale = total / minTotal;
+	          return mins.map((value) => Math.max(24, value * scale));
+	        }
+	        let adjusted = widths.slice();
+	        let changed = true;
+	        while (changed) {
+	          changed = false;
+	          const deficit = adjusted.reduce((sum, value, idx) => (
+	            value < mins[idx] ? sum + (mins[idx] - value) : sum
+	          ), 0);
+	          if (deficit <= 0) break;
+	          const donorCapacity = adjusted.reduce((sum, value, idx) => (
+	            sum + Math.max(0, value - mins[idx])
+	          ), 0);
+	          if (!donorCapacity) break;
+	          adjusted = adjusted.map((value, idx) => {
+	            if (value < mins[idx]) {
+	              changed = true;
+	              return mins[idx];
+	            }
+	            const extra = Math.max(0, value - mins[idx]);
+	            if (!extra) return value;
+	            const take = deficit * (extra / donorCapacity);
+	            return value - Math.min(extra, take);
+	          });
+	        }
+	        return adjusted;
+	      };
 	      const applySavedColumnWidths = (cols, saved) => {
 	        if (!saved) return;
 	        const values = saved.split(",").map((width) => width.trim()).filter(Boolean);
@@ -4413,9 +4573,14 @@
 	        });
 	        const total = parsed.reduce((sum, value) => sum + (value || 0), 0);
 	        if (!total) return;
-	        parsed.forEach((value, idx) => {
+	        const table = cols[0] ? cols[0].closest("table") : null;
+	        const tableWidth = table ? table.getBoundingClientRect().width : 0;
+	        const rawWidths = parsed.map((value) => ((value || 0) / total) * tableWidth);
+	        const normalized = normalizeProjectColumnWidths(table, rawWidths);
+	        const normalizedTotal = normalized.reduce((sum, value) => sum + value, 0) || tableWidth || total;
+	        normalized.forEach((value, idx) => {
 	          if (!cols[idx] || !value) return;
-	          cols[idx].style.width = `${(value / total) * 100}%`;
+	          cols[idx].style.width = `${(value / normalizedTotal) * 100}%`;
 	        });
 	      };
 	      const persistColumnWidths = (table, cols) => {
@@ -4446,17 +4611,20 @@
 	        applySavedColumnWidths(cols, saved);
 
         table.querySelectorAll(".col-resizer").forEach((resizer) => {
-          resizer.addEventListener("mousedown", (event) => {
-            event.preventDefault();
-            const colIndex = Number(resizer.getAttribute("data-col"));
-            const startX = event.clientX;
-            const startWidth = cols[colIndex] ? cols[colIndex].getBoundingClientRect().width : 0;
-            const nextIndex = colIndex + 1;
-            const startNextWidth = cols[nextIndex] ? cols[nextIndex].getBoundingClientRect().width : 0;
+	          resizer.addEventListener("mousedown", (event) => {
+	            event.preventDefault();
+	            const colIndex = Number(resizer.getAttribute("data-col"));
+	            const startX = event.clientX;
+	            const startWidth = cols[colIndex] ? cols[colIndex].getBoundingClientRect().width : 0;
+	            const nextIndex = colIndex + 1;
+	            const startNextWidth = cols[nextIndex] ? cols[nextIndex].getBoundingClientRect().width : 0;
 	            const onMove = (moveEvent) => {
 	              const delta = moveEvent.clientX - startX;
-	              const next = Math.max(80, startWidth + delta);
-	              const nextSibling = Math.max(80, startNextWidth - delta);
+	              const pairTotal = startWidth + startNextWidth;
+	              const minWidth = projectColumnMinWidths[colIndex] || 80;
+	              const minNextWidth = projectColumnMinWidths[nextIndex] || 80;
+	              const next = Math.max(minWidth, Math.min(pairTotal - minNextWidth, startWidth + delta));
+	              const nextSibling = Math.max(minNextWidth, pairTotal - next);
 	              const widths = cols.map((col, idx) => {
 	                if (idx === colIndex) return `${next}px`;
 	                if (idx === nextIndex && cols[nextIndex]) return `${nextSibling}px`;
@@ -5146,40 +5314,42 @@
         });
     };
 
-    if (shareInput) {
-      shareInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          const first = shareSuggest.querySelector("button[data-user-id]");
-          if (first) submitShare(first.getAttribute("data-user-id"));
-        }
-      });
-      shareInput.addEventListener("input", () => {
-        const q = shareInput.value.trim();
-        if (!q) {
-          shareSuggest.innerHTML = "";
-          return;
-        }
-        fetch(`/api/users?q=${encodeURIComponent(q)}`)
-          .then((res) => res.json())
-          .then((data) => {
-            shareSuggest.innerHTML = "";
-            (data.results || []).forEach((u) => {
-              const btn = document.createElement("button");
-              const label = u.display_name ? `${u.display_name} (${u.email})` : u.email;
-              btn.textContent = label;
-              btn.addEventListener("mousedown", (event) => event.preventDefault());
-              btn.type = "button";
-              btn.dataset.userId = u.id;
-              btn.addEventListener("click", (event) => event.stopPropagation());
-              btn.addEventListener("click", () => {
-                submitShare(u.id);
-              });
-              shareSuggest.appendChild(btn);
-            });
-          });
-      });
-    }
+	    if (shareInput) {
+	      const loadShareSuggestions = () => {
+	        const q = shareInput.value.trim();
+	        fetch(`/api/users?q=${encodeURIComponent(q)}`)
+	          .then((res) => res.json().catch(() => ({ results: [] })))
+	          .then((data) => {
+	            shareSuggest.innerHTML = "";
+	            (data.results || []).forEach((u) => {
+	              const btn = document.createElement("button");
+	              const label = u.display_name ? `${u.display_name} (${u.email})` : u.email;
+	              btn.textContent = label;
+	              btn.addEventListener("mousedown", (event) => event.preventDefault());
+	              btn.type = "button";
+	              btn.dataset.userId = u.id;
+	              btn.addEventListener("click", (event) => event.stopPropagation());
+	              btn.addEventListener("click", () => {
+	                submitShare(u.id);
+	              });
+	              shareSuggest.appendChild(btn);
+	            });
+	          });
+	      };
+	      shareInput.addEventListener("keydown", (event) => {
+	        if (event.key === "Enter") {
+	          event.preventDefault();
+	          const first = shareSuggest.querySelector("button[data-user-id]");
+	          if (first) submitShare(first.getAttribute("data-user-id"));
+	        }
+	      });
+	      shareInput.addEventListener("focus", () => {
+	        loadShareSuggestions();
+	      });
+	      shareInput.addEventListener("input", () => {
+	        loadShareSuggestions();
+	      });
+	    }
 
     if (shareCancel) {
       shareCancel.addEventListener("click", closeShareModal);
@@ -5851,6 +6021,9 @@
     var joinedTaskId = null;
     var joinedProjectIds = new Set();
     var currentUserId = {{ user.id|tojson }};
+    var currentUserEmail = {{ user.email|tojson }};
+    var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
+    var currentUserAvatarUrl = {{ (user.avatar_url or "")|tojson }};
     var latestTaskFetchById = {};
     var settingsStatusMenuActive = false;
 
@@ -5865,11 +6038,35 @@
 
     function disableLocalInputSuggestions(input) {
       if (!input) return;
-      input.setAttribute("autocomplete", "off");
+      if (typeof window.__hardDisableBrowserSuggestions === "function") {
+        window.__hardDisableBrowserSuggestions(input);
+        return;
+      }
+      input.setAttribute("autocomplete", "termin-nope-field");
       input.setAttribute("autocorrect", "off");
-      input.setAttribute("autocapitalize", "off");
+      input.setAttribute("autocapitalize", "none");
       input.setAttribute("spellcheck", "false");
     }
+
+	    function withAddMeSuggestion(results) {
+	      var list = Array.isArray(results) ? results.slice() : [];
+	      if (!currentUserEmail) return list;
+      var existingIndex = list.findIndex(function (item) {
+        return item && String(item.email || "").toLowerCase() === String(currentUserEmail || "").toLowerCase();
+      });
+      var base = existingIndex >= 0 ? list.splice(existingIndex, 1)[0] : {};
+      list.unshift(Object.assign({}, base, {
+        type: "user",
+        id: currentUserId,
+        email: currentUserEmail,
+        display_name: currentUserDisplayName || currentUserEmail,
+        avatar_url: currentUserAvatarUrl || "",
+        accepted_count: base && base.accepted_count ? base.accepted_count : 0,
+        is_add_me: true,
+	      }));
+	      return list;
+	    }
+	    window.__withAddMeSuggestion = withAddMeSuggestion;
 
     function hideLocalAssignSuggest(input) {
       if (input && input._suggestEl) {
@@ -5878,26 +6075,37 @@
       }
     }
 
-    function showLocalAssignSuggest(input, results) {
-      hideLocalAssignSuggest(input);
-      if (!results || !results.length) return;
+	    function showLocalAssignSuggest(input, results) {
+	      hideLocalAssignSuggest(input);
+	      if (typeof window.__withAddMeSuggestion === "function") {
+	        results = window.__withAddMeSuggestion(results);
+	      }
+	      if (!results || !results.length) return;
       var rect = input.getBoundingClientRect();
       var menu = document.createElement("div");
       menu.className = "assign-suggest";
       menu.style.left = rect.left + window.scrollX + "px";
       menu.style.top = rect.bottom + window.scrollY + 4 + "px";
       input._suggestItems = results;
-      results.forEach(function (item) {
-        var btn = document.createElement("button");
-        var label = item.type === "user" ? (item.display_name || item.email) : item.email;
-        btn.innerHTML = label + '<span class="assign-meta">' + (item.accepted_count || 0) + ' accepts</span>';
-        btn.addEventListener("mousedown", function (event) {
-          event.preventDefault();
-          input.dataset.assignSelecting = "1";
+	      results.forEach(function (item) {
+	        var btn = document.createElement("button");
+	        var label = item.is_add_me ? "Add me" : (item.type === "user" ? (item.display_name || item.email) : item.email);
+	        var initial = escapeHtml(label.charAt(0).toUpperCase());
+	        var meta = item.is_add_me ? "" : '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
+	        var avatar = item.is_add_me
+	          ? '<span class="assign-suggest-avatar is-add-me">+</span>'
+	          : item.avatar_url
+	          ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(item.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
+	          : '<span class="assign-suggest-avatar">' + initial + "</span>";
+	        btn.innerHTML = avatar + '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + "</span>" + meta + "</span>";
+	        btn.addEventListener("mousedown", function (event) {
+	          event.preventDefault();
+	          input.dataset.assignSelecting = "1";
         });
         btn.addEventListener("click", function (event) {
           event.preventDefault();
           input.value = item.email;
+          input.dataset.assignSelecting = "0";
           submitSettingsAssignment();
           hideLocalAssignSuggest(input);
           setTimeout(function () {
@@ -6539,7 +6747,7 @@
       items.push(
         '<div class="discussion-link-row is-new" data-link-row="new">' +
           '<div class="discussion-link-favicon"><i class="fa-solid fa-link" aria-hidden="true"></i></div>' +
-          '<input class="discussion-link-input" type="url" value="" data-link-index="new" placeholder="Paste link" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />' +
+          '<input class="discussion-link-input" type="url" value="" data-link-index="new" placeholder="Paste link" autocomplete="termin-nope-link" autocorrect="off" autocapitalize="off" spellcheck="false" />' +
         '</div>'
       );
       linksListEl.innerHTML = items.join('');
@@ -7185,7 +7393,7 @@
           </div>
           <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
             <span class="assign-action">
-              <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="${task.id}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="${task.id}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
             </span>
           </div>
           <div class="todo-resize-overlay" aria-hidden="true"></div>
@@ -7320,18 +7528,22 @@
       taskSettingsAssigneeEl.dataset.boundSettingsAssign = "1";
       disableLocalInputSuggestions(taskSettingsAssigneeEl);
 
-      taskSettingsAssigneeEl.addEventListener("input", function () {
-        var value = taskSettingsAssigneeEl.value.trim();
-        if (value.length < 1) {
-          hideLocalAssignSuggest(taskSettingsAssigneeEl);
-          return;
-        }
-        fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
-          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
-          .then(function (data) {
-            showLocalAssignSuggest(taskSettingsAssigneeEl, data.results || []);
-          });
-      });
+	      taskSettingsAssigneeEl.addEventListener("input", function () {
+	        var value = taskSettingsAssigneeEl.value.trim();
+	        fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
+	          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+	          .then(function (data) {
+	            showLocalAssignSuggest(taskSettingsAssigneeEl, data.results || []);
+	          });
+	      });
+	      taskSettingsAssigneeEl.addEventListener("focus", function () {
+	        var value = taskSettingsAssigneeEl.value.trim();
+	        fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
+	          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+	          .then(function (data) {
+	            showLocalAssignSuggest(taskSettingsAssigneeEl, data.results || []);
+	          });
+	      });
 
       taskSettingsAssigneeEl.addEventListener("keydown", function (event) {
         if (event.key === "Escape") {

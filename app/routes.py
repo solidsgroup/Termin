@@ -1557,9 +1557,16 @@ def duplicate_group(group_id: int):
 def list_users():
     user = current_user()
     q = (request.args.get("q") or "").strip().lower()
-    if not q:
-        return {"results": []}
-    users = search_users_by_identity(q, exclude_user_id=user.id, limit=10)
+    limit = 100
+    if q:
+        users = search_users_by_identity(q, exclude_user_id=user.id, limit=limit)
+    else:
+        users = (
+            User.query.filter(User.id != user.id)
+            .order_by(User.display_name.asc(), User.email.asc())
+            .limit(limit)
+            .all()
+        )
     results = []
     for u in users:
         results.append(
@@ -2198,8 +2205,7 @@ def serve_upload(item_type: str, item_id: int, filename: str):
 def list_assignees():
     user = current_user()
     q = (request.args.get("q") or "").strip().lower()
-    if not q:
-        return {"results": []}
+    limit = 100
 
     # Limit scope to projects the user owns or tasks they are assigned to
     owned_project_ids = [p.id for p in Project.query.filter_by(owner_id=user.id).all()]
@@ -2218,7 +2224,15 @@ def list_assignees():
     task_ids = list(set(owned_task_ids + assigned_task_ids))
 
     # Users by email/display_name
-    users = search_users_by_identity(q, limit=10)
+    if q:
+        users = search_users_by_identity(q, limit=limit)
+    else:
+        users = (
+            User.query.filter(User.id != user.id)
+            .order_by(User.display_name.asc(), User.email.asc())
+            .limit(limit)
+            .all()
+        )
 
     # Prior emails from assignments/invites within scope
     emails = set()
@@ -2232,7 +2246,8 @@ def list_assignees():
             if row.email:
                 emails.add(row.email)
 
-    filtered_emails = [e for e in emails if q in e.lower()]
+    filtered_emails = [e for e in emails if not q or q in e.lower()]
+    filtered_emails.sort()
 
     # Count accepts per email
     accept_counts = {}
@@ -2252,10 +2267,11 @@ def list_assignees():
                 "id": u.id,
                 "email": u.email,
                 "display_name": u.display_name,
+                "avatar_url": u.avatar_url,
                 "accepted_count": accept_counts.get(u.email, 0),
             }
         )
-    for e in filtered_emails[:10]:
+    for e in filtered_emails[:limit]:
         results.append(
             {
                 "type": "email",

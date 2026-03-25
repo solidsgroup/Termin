@@ -2550,7 +2550,6 @@
 
       .panel.group .table {
         border-left: 3px solid var(--group-color, var(--border));
-        padding-left: 6px;
         background: color-mix(in srgb, var(--panel) 94%, transparent);
         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 18%, transparent);
       }
@@ -2961,6 +2960,11 @@
         border-color: #ef4444;
       }
 
+      body[data-theme="light"] .task-row[data-status-state="critical"] td,
+      body[data-theme="light"] .subtasks-row[data-status-state="critical"] td {
+        background: color-mix(in srgb, white 86%, #fecaca 14%);
+      }
+
       .task-row[data-status-state="critical"] td:first-child,
       .subtasks-row[data-status-state="critical"] td:first-child {
         box-shadow: inset 3px 0 0 #f87171;
@@ -2969,6 +2973,13 @@
       .task-row[data-status-state="critical"] .editable[data-field="title"],
       .subtasks-row[data-status-state="critical"] .editable[data-field="title"] {
         color: #ffd1d1;
+      }
+
+      body[data-theme="light"] .task-row[data-status-state="critical"] .editable[data-field="title"],
+      body[data-theme="light"] .subtasks-row[data-status-state="critical"] .editable[data-field="title"],
+      body[data-theme="light"] .task-row[data-status-state="critical"] .github-task-link,
+      body[data-theme="light"] .subtasks-row[data-status-state="critical"] .github-task-link {
+        color: #7f1d1d;
       }
 
       .task-row[data-status-state="complete"] td,
@@ -3497,14 +3508,15 @@
 
       .assign-suggest {
         position: absolute;
-        background: #0f141c;
-        border: 1px solid var(--border);
-        border-radius: 8px;
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+        border: 1px solid color-mix(in srgb, var(--border) 88%, var(--ink-soft) 12%);
+        border-radius: 10px;
         min-width: 220px;
         max-width: 320px;
         z-index: 1000;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+        box-shadow: 0 10px 24px color-mix(in srgb, var(--ink) 16%, transparent);
         padding: 6px 0;
+        backdrop-filter: blur(8px);
       }
 
       .assign-suggest button {
@@ -3516,16 +3528,77 @@
         color: var(--ink);
         cursor: pointer;
         font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
 
       .assign-suggest button:hover {
-        background: rgba(76, 201, 240, 0.08);
+        background: color-mix(in srgb, var(--accent) 10%, transparent);
+      }
+
+      .assign-suggest-avatar {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        overflow: hidden;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--panel-alt) 84%, var(--panel) 16%);
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .assign-suggest-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .assign-suggest-avatar.is-add-me {
+        border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+        background: color-mix(in srgb, var(--accent) 16%, var(--panel) 84%);
+        color: var(--accent);
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .light-mode .assign-suggest {
+        background: color-mix(in srgb, white 92%, var(--panel) 8%);
+        border-color: color-mix(in srgb, var(--border) 82%, var(--ink-soft) 18%);
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+      }
+
+      .light-mode .assign-suggest button:hover {
+        background: color-mix(in srgb, var(--accent) 12%, white 88%);
+      }
+
+      .light-mode .assign-suggest-avatar {
+        background: color-mix(in srgb, var(--panel-alt) 50%, white 50%);
+      }
+
+      .assign-suggest-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .assign-suggest-label {
+        display: block;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .assign-meta {
         color: var(--muted);
         font-size: 11px;
-        margin-left: 6px;
       }
 
       .badge {
@@ -4440,7 +4513,7 @@
     <script>
       window.addEventListener("DOMContentLoaded", () => {
         document.querySelectorAll("input, textarea").forEach((el) => {
-          el.setAttribute("autocomplete", "off");
+          el.setAttribute("autocomplete", "nope");
           el.setAttribute("autocapitalize", "off");
           el.setAttribute("spellcheck", "false");
         });
