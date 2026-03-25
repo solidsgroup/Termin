@@ -45,6 +45,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
+from app.task_status import effective_task_status_for_user, task_status_meta_map
 from app.utils import current_user
 from app.utils import is_admin as user_is_admin
 
@@ -101,8 +102,9 @@ def _task_ordering(query):
     return query.order_by(Task.position.asc(), Task.id.asc())
 
 
-def _should_show_todo_task(task: Task, show_completed: bool, today: date) -> bool:
-    if show_completed or not _is_complete_status(task.status):
+def _should_show_todo_task(task: Task, show_completed: bool, today: date, *, viewer_status: str | None = None) -> bool:
+    task_status = viewer_status if viewer_status is not None else task.status
+    if show_completed or not _is_complete_status(task_status):
         return True
     if task.due_at and task.due_at.date() >= today:
         return True
@@ -692,8 +694,12 @@ def dashboard():
         can_manage_project = is_owner or is_project_member
         if can_manage_project:
             tasks = _task_ordering(Task.query.filter_by(project_id=selected_project.id)).all()
+            selected_status_map = task_status_meta_map(tasks, viewer_user_id=user.id)
             if not show_completed:
-                tasks = [task for task in tasks if not _is_complete_status(task.status)]
+                tasks = [
+                    task for task in tasks
+                    if not _is_complete_status(effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=selected_status_map.get(task.id)))
+                ]
             groups = Group.query.filter_by(project_id=selected_project.id).order_by(Group.position.asc(), Group.id.asc()).all()
             tasks_by_group = {g.id: [] for g in groups}
             for task in tasks:
@@ -721,8 +727,12 @@ def dashboard():
                 }.values()
             )
             tasks.sort(key=lambda task: (task.position, task.id))
+            selected_status_map = task_status_meta_map(tasks, viewer_user_id=user.id)
             if not show_completed:
-                tasks = [task for task in tasks if not _is_complete_status(task.status)]
+                tasks = [
+                    task for task in tasks
+                    if not _is_complete_status(effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=selected_status_map.get(task.id)))
+                ]
             group_ids = sorted({group_id for group_id in member_group_ids if group_id}.union({t.group_id for t in tasks if t.group_id}))
             groups = (
                 Group.query.filter(Group.id.in_(group_ids))
@@ -771,8 +781,17 @@ def dashboard():
             )
         visible_task_ids.update(task_id for task_id in assigned_task_ids if task_id)
         todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
+        todo_status_map = task_status_meta_map(todo_tasks, viewer_user_id=user.id)
         if not show_completed:
-            todo_tasks = [task for task in todo_tasks if _should_show_todo_task(task, show_completed, today)]
+            todo_tasks = [
+                task for task in todo_tasks
+                if _should_show_todo_task(
+                    task,
+                    show_completed,
+                    today,
+                    viewer_status=effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=todo_status_map.get(task.id)),
+                )
+            ]
         todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
         week_start = today - timedelta(days=today.weekday())
         next_week_start = week_start + timedelta(days=7)
@@ -836,6 +855,7 @@ def dashboard():
             )
         )
     visible_tasks = list({t.id: t for t in list(todo_tasks) + list(tasks)}.values())
+    task_status_payloads = task_status_meta_map(visible_tasks, viewer_user_id=user.id)
     if visible_tasks:
         assignment_rows = Assignment.query.filter(Assignment.task_id.in_([t.id for t in visible_tasks])).all()
         for assignment in assignment_rows:
@@ -1038,6 +1058,7 @@ def dashboard():
         github_auto_sync_needed=github_auto_sync_needed,
         comment_counts=comment_counts,
         unread_task_ids=unread_task_ids,
+        task_status_payloads=task_status_payloads,
         task_notifications=task_notifications,
         message_notifications=message_notifications,
         dashboard_notice=dashboard_notice,

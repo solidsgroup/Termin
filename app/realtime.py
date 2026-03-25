@@ -23,6 +23,7 @@ from app.models import (
     TaskNotification,
     User,
 )
+from app.task_status import task_status_meta
 from app.utils import current_user
 
 _handlers_registered = False
@@ -174,6 +175,8 @@ def _task_summary(task: Task | None) -> dict | None:
         "link": task.link,
         "links": info_payload.get("links", []),
         "status": task.status,
+        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "status_meta": task_status_meta(task),
         "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
@@ -608,6 +611,8 @@ def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_
             "links": info_payload.get("links", []),
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "status": task.status,
+            "per_user_status_enabled": bool(task.per_user_status_enabled),
+            "status_meta": task_status_meta(task),
             "created_at": task.created_at.isoformat() if task.created_at else None,
         },
         "old_project_id": old_project_id,

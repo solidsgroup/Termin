@@ -54,6 +54,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
+from app.task_status import set_task_user_status, task_status_meta
 import secrets
 
 from app.models import (
@@ -275,13 +276,14 @@ def _merge_comment_links(item, body: str) -> bool:
     return True
 
 
-def _serialize_task_row(task: Task) -> dict:
+def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dict:
     info = load_info_payload(task.info)
     assignments = (
         Assignment.query.filter_by(task_id=task.id)
         .order_by(Assignment.created_at.asc(), Assignment.id.asc())
         .all()
     )
+    status_meta = task_status_meta(task, viewer_user_id=viewer_user_id)
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -290,6 +292,8 @@ def _serialize_task_row(task: Task) -> dict:
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "status": task.status,
+        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "status_meta": status_meta,
         "info": info,
         "assignments": [_serialize_assignment_row(row) for row in assignments],
     }
@@ -525,7 +529,7 @@ def create_task():
             _reset_existing_assignment(existing_assignment)
             db.session.commit()
             task = Task.query.get(task.id) or task
-            task_payload = _serialize_task_row(task)
+            task_payload = _serialize_task_row(task, viewer_user_id=user.id)
             emit_task_updated(task, action="created", actor_user_id=user.id)
             return {
                 "task": task_payload,
@@ -561,7 +565,7 @@ def create_task():
     queue_task_notifications(task, exclude_user_id=user.id, kind="task_created")
     db.session.commit()
     task = Task.query.get(task.id) or task
-    task_payload = _serialize_task_row(task)
+    task_payload = _serialize_task_row(task, viewer_user_id=user.id)
     emit_task_updated(task, action="created", actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {
@@ -590,8 +594,11 @@ def update_task(task_id: int):
     link = payload.get("link")
     links = payload.get("links")
     status = payload.get("status")
+    user_status = payload.get("user_status")
+    status_user_id = payload.get("status_user_id")
     due_at = payload.get("due_at")
     info = payload.get("info")
+    per_user_status_enabled = payload.get("per_user_status_enabled")
 
     if title is not None:
         task.title = title.strip()
@@ -604,6 +611,21 @@ def update_task(task_id: int):
         task.link = (info_payload.get("links") or [None])[0]
     if status is not None:
         task.status = status.strip() or task.status
+    if per_user_status_enabled is not None:
+        task.per_user_status_enabled = bool(per_user_status_enabled)
+    if user_status is not None:
+        target_user_id = user.id
+        if status_user_id is not None:
+            try:
+                target_user_id = int(status_user_id)
+            except (TypeError, ValueError):
+                return {"error": "invalid status_user_id"}, 400
+            is_assigned_target = Assignment.query.filter_by(task_id=task.id, user_id=target_user_id).first() is not None
+            if not is_assigned_target:
+                return {"error": "status user must be an assigned account"}, 400
+        personal_row = set_task_user_status(task.id, target_user_id, user_status)
+        if per_user_status_enabled is False and personal_row.status:
+            task.status = personal_row.status
     if info is not None:
         if isinstance(info, dict):
             info_payload["html"] = info.get("html")
@@ -627,10 +649,14 @@ def update_task(task_id: int):
     emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     info_payload = _info_payload_for(task)
+    status_meta = task_status_meta(task, viewer_user_id=user.id)
     return {
         "id": task.id,
         "title": task.title,
         "status": task.status,
+        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "status_meta": status_meta,
+        "user_status": status_meta.get("my_status"),
         "info": info_payload,
         "link": task.link,
         "links": info_payload.get("links", []),
@@ -655,6 +681,8 @@ def get_task(task_id: int):
         "link": task.link,
         "links": _info_payload_for(task).get("links", []),
         "status": task.status,
+        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "status_meta": task_status_meta(task, viewer_user_id=user.id),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,

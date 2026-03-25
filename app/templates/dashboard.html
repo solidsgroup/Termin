@@ -94,11 +94,41 @@
     </div>
   {% endif %}
 {% endmacro %}
+{% macro render_status_summary(summary, task_id) %}
+  <div class="task-status-summary" data-task-status-summary="{{ task_id }}">
+    {% if summary %}
+      {% for item in summary %}
+        <span class="task-status-count status-{{ item.state }}" data-status="{{ item.status }}" data-count="{{ item.count }}" data-state="{{ item.state }}">
+          {% if item.state == 'complete' %}
+            <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+          {% elif item.state == 'critical' %}
+            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+          {% else %}
+            <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+          {% endif %}
+          <span>{{ item.count }}</span>
+        </span>
+      {% endfor %}
+    {% else %}
+      <span class="task-status-count is-empty">No updates</span>
+    {% endif %}
+  </div>
+{% endmacro %}
+{% macro render_task_status_cell(task, status_payload, todo=False) %}
+  {% if status_payload and status_payload.get('enabled') %}
+    <button class="task-status-multi-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
+      {{ render_status_summary(status_payload.get('summary', []), task.id) }}
+    </button>
+  {% else %}
+    <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) }}">{{ status_payload.get('task_status', task.status) if status_payload else task.status }}</div>
+  {% endif %}
+{% endmacro %}
 {% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) %}
   {% if task_list %}
     {% for task in task_list %}
       {% set task_info = info_by_task.get(task.id, {"html": "", "attachments": []}) %}
-      {% set task_status_state = status_state(task.status) %}
+      {% set task_status_payload = task_status_payloads.get(task.id, {}) %}
+      {% set task_status_state = task_status_payload.get('aggregate_state') or task_status_payload.get('my_status_state') or status_state(task.status) %}
       {% set github_meta = github_task_meta.get(task.id) %}
       {% set can_manage_task = can_manage_project or (task.group_id and manageable_group_ids and task.group_id in manageable_group_ids) %}
       <tr class="task-row{% if can_manage_task and not github_meta %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-status-state="{{ task_status_state }}">
@@ -158,7 +188,9 @@
           {% if github_meta %}
             {{ render_github_status(github_meta, task_status_state, task.id) }}
           {% else %}
-            <div class="editable status-editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ task_status_state }}">{{ task.status }}</div>
+            <div data-task-status-host="{{ task.id }}">
+              {{ render_task_status_cell(task, task_status_payload) }}
+            </div>
           {% endif %}
         </td>
         <td>
@@ -398,7 +430,8 @@
             <div class="todo-date-heading">{{ date_group["label"] }}</div>
             <div class="todo-list">
               {% for item in date_group["items"] %}
-                {% set todo_status_state = status_state(item.task.status) %}
+                {% set todo_status_payload = task_status_payloads.get(item.task.id, {}) %}
+                {% set todo_status_state = todo_status_payload.get('aggregate_state') or todo_status_payload.get('my_status_state') or status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
                 {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
                 <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
@@ -461,7 +494,11 @@
                           {{ render_github_status(github_meta, todo_status_state, item.task.id, True) }}
                         </div>
                       {% else %}
-                        <div class="todo-control todo-control-status editable todo-status-cell status-editable" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ todo_status_state }}" title="{{ item.task.status }}" aria-label="Status: {{ item.task.status }}">{{ item.task.status }}</div>
+                        <div class="todo-control todo-control-status" title="{{ todo_status_payload.get('my_status', item.task.status) }}" aria-label="Status: {{ todo_status_payload.get('my_status', item.task.status) }}">
+                          <div data-task-status-host="{{ item.task.id }}">
+                            {{ render_task_status_cell(item.task, todo_status_payload, True) }}
+                          </div>
+                        </div>
                       {% endif %}
                     </div>
                     {% if github_meta %}
@@ -738,18 +775,24 @@
         <input id="task-settings-title" type="text" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
       </label>
       <div class="discussion-settings-grid" data-task-only>
-        <label class="discussion-setting-field">
-          <span>Due</span>
+        <label class="discussion-setting-field is-inline">
+          <span class="discussion-setting-label">Due</span>
           <input id="task-settings-due" type="date" />
         </label>
-        <label class="discussion-setting-field">
-          <span>Status</span>
+        <label class="discussion-setting-field is-inline">
+          <span class="discussion-setting-label" id="task-settings-status-label">Status</span>
           <button id="task-settings-status" class="discussion-setting-status" type="button">
             <span class="discussion-setting-status-label">open</span>
             <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
           </button>
         </label>
       </div>
+      <label class="discussion-setting-toggle-row" data-task-only>
+        <span class="discussion-setting-toggle">
+          <input id="task-settings-per-user-status" type="checkbox" />
+          <span>Per-user status</span>
+        </span>
+      </label>
       <div class="discussion-setting-group" data-task-only>
         <div class="discussion-setting-group-header">
           <span>Assign</span>
@@ -807,12 +850,9 @@
   <button type="button" data-status-option="open"><i class="fa-solid fa-circle-dot" aria-hidden="true"></i><span>Open</span></button>
   <button type="button" data-status-option="critical"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>Critical</span></button>
   <button type="button" data-status-option="complete"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Complete</span></button>
-  <div class="status-menu-custom">
-    <label for="status-menu-input">Custom</label>
-    <input id="status-menu-input" type="text" placeholder="Custom status" autocomplete="termin-nope-status" autocorrect="off" autocapitalize="off" spellcheck="false" />
-    <button type="button" class="btn secondary" id="status-menu-apply">Apply</button>
-  </div>
 </div>
+
+<div id="multi-status-menu" class="context-menu multi-status-menu"></div>
 
 <div id="share-modal" class="modal">
   <div class="panel">
@@ -1155,14 +1195,15 @@
 
     function getEditableTarget(cell) {
       var field = cell.getAttribute("data-field");
+      var payloadField = cell.getAttribute("data-payload-field") || field;
       var taskId = cell.getAttribute("data-task-id");
       var groupId = cell.getAttribute("data-group-id");
       if (!field) return null;
       if (taskId) {
-        return { url: "/api/tasks/" + taskId, field: field };
+        return { url: "/api/tasks/" + taskId, field: field, payloadField: payloadField };
       }
       if (groupId) {
-        return { url: "/api/groups/" + groupId, field: field };
+        return { url: "/api/groups/" + groupId, field: field, payloadField: payloadField };
       }
       return null;
     }
@@ -1239,7 +1280,7 @@
         credentials: "same-origin",
         body: JSON.stringify((function () {
           var payload = {};
-          payload[target.field] = value;
+          payload[target.payloadField || target.field] = value;
           return payload;
         })()),
       })
@@ -1252,12 +1293,27 @@
           if (!result.ok) {
             throw new Error(result.data && result.data.error ? result.data.error : "Save failed");
           }
-          var nextValue = result.data && result.data[target.field] != null
-            ? String(result.data[target.field]).trim()
+          var responseField = target.payloadField || target.field;
+          var nextValue = result.data && result.data[responseField] != null
+            ? String(result.data[responseField]).trim()
             : value;
           cell.textContent = nextValue;
           cell.dataset.originalValue = nextValue;
           applyStatusState(cell, nextValue);
+          if (
+            cell.getAttribute("data-task-id") &&
+            cell.getAttribute("data-field") === "status" &&
+            (responseField === "status" || responseField === "user_status")
+          ) {
+            fetchTaskSnapshot(cell.getAttribute("data-task-id")).then(function (task) {
+              if (!task) return;
+              applyTaskRowUpdate(task);
+              if (String(currentTaskId || "") === String(task.id)) {
+                currentTaskData = task;
+                renderTaskSettings();
+              }
+            });
+          }
         })
         .catch(function () {
           var fallback = original != null ? original : "";
@@ -1297,7 +1353,7 @@
           '</div>' +
         '</td>' +
         '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" /></div></td>' +
-        '<td><div class="editable status-editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></td>' +
+        '<td><div data-task-status-host="' + taskId + '"><div class="editable status-editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></div></td>' +
         '<td>' +
           '<div class="assignments">' +
             '<span class="assign-action">' +
@@ -3742,7 +3798,7 @@
           </div>
         </td>
         <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
-        <td><div class="editable status-editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></td>
+        <td><div data-task-status-host="${id}"><div class="editable status-editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></div></td>
         <td>
           <div class="assignments">
             ${assignment ? renderAssignmentBadge(assignment) : ""}
@@ -3855,15 +3911,7 @@
               if (tbody) {
                 insertTaskRowByPosition(tbody, row, task.id, task.position);
               }
-              const statusCell = row.querySelector(`.editable[data-task-id="${task.id}"][data-field="status"]`);
-              if (statusCell) {
-                const nextStatus = task.status || "open";
-                statusCell.textContent = nextStatus;
-                statusCell.dataset.originalValue = nextStatus;
-                if (typeof window.__applyStatusState === "function") {
-                  window.__applyStatusState(statusCell, nextStatus);
-                }
-              }
+              syncTaskStatusUi(task);
               if (typeof window.__renderTaskAssignments === "function") {
                 window.__renderTaskAssignments(task.id, task.assignments || []);
               }
@@ -3959,13 +4007,7 @@
         const assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
         const row = insertTaskRow(table, task.id, task.title || "", task.info || emptyInfo(), task.due_at || "", assignment);
         if (row) {
-          const statusCell = row.querySelector(`.editable[data-task-id="${task.id}"][data-field="status"]`);
-          if (statusCell) {
-            const nextStatus = task.status || "open";
-            statusCell.textContent = nextStatus;
-            statusCell.dataset.originalValue = nextStatus;
-            applyStatusState(statusCell, nextStatus);
-          }
+          syncTaskStatusUi(task);
           const dueInput = row.querySelector(`.due-input[data-task-id="${task.id}"]`);
           if (dueInput) {
             dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
@@ -6112,6 +6154,8 @@
     var taskSettingsTitleEl = document.getElementById("task-settings-title");
     var taskSettingsDueEl = document.getElementById("task-settings-due");
     var taskSettingsStatusEl = document.getElementById("task-settings-status");
+    var taskSettingsStatusLabelEl = document.getElementById("task-settings-status-label");
+    var taskSettingsPerUserStatusEl = document.getElementById("task-settings-per-user-status");
     var taskSettingsAssignmentsEl = document.getElementById("task-settings-assignments");
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
     var taskSettingsMetaEl = document.getElementById("task-settings-meta");
@@ -6939,19 +6983,225 @@
       return [];
     }
 
+    function taskStatusMeta(task) {
+      var meta = task && task.status_meta ? task.status_meta : {};
+      var baseStatus = (meta.task_status || (task && task.status) || "open");
+      var derivedCanSet = meta.viewer_can_set;
+      if (derivedCanSet === undefined || derivedCanSet === null) {
+        derivedCanSet = meta.enabled ? false : true;
+      }
+      var assignees = Array.isArray(meta.assignees) ? meta.assignees.slice() : [];
+      if (!assignees.length && Array.isArray(task && task.assignments ? task.assignments : null)) {
+        var statusesByUser = {};
+        (Array.isArray(meta.user_statuses) ? meta.user_statuses : []).forEach(function (row) {
+          if (!row || row.user_id == null) return;
+          statusesByUser[String(row.user_id)] = row.status || "open";
+        });
+        assignees = task.assignments.map(function (assignment) {
+          var userId = assignment && assignment.user_id != null ? assignment.user_id : null;
+          var status = userId != null ? (statusesByUser[String(userId)] || "open") : "open";
+          return {
+            user_id: userId,
+            email: assignment.display_email || assignment.email || "",
+            display_name: assignment.display_name || assignment.display_email || assignment.email || "User",
+            avatar_url: assignment.avatar_url || null,
+            status: status,
+            state: getStatusState(status),
+            editable: userId != null,
+          };
+        });
+      }
+      return {
+        enabled: !!meta.enabled,
+        task_status: baseStatus,
+        task_status_state: meta.task_status_state || getStatusState(baseStatus),
+        aggregate_state: meta.aggregate_state || null,
+        my_status: meta.my_status || null,
+        my_status_state: meta.my_status_state || null,
+        viewer_can_set: derivedCanSet !== false,
+        summary: Array.isArray(meta.summary) ? meta.summary : [],
+        user_statuses: Array.isArray(meta.user_statuses) ? meta.user_statuses : [],
+        assignees: assignees,
+      };
+    }
+
+    function taskMyStatus(task) {
+      var meta = taskStatusMeta(task);
+      if (!meta.enabled) return meta.task_status || "open";
+      if (meta.my_status) return meta.my_status;
+      var mine = meta.user_statuses.find(function (row) {
+        return row && String(row.user_id || "") === String(currentUserId || "");
+      });
+      return (mine && mine.status) ? mine.status : "open";
+    }
+
+    function taskMyStatusState(task) {
+      return getStatusState(taskMyStatus(task));
+    }
+
+    function taskAggregateStatusState(task) {
+      var meta = taskStatusMeta(task);
+      if (!meta.enabled) return meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open");
+      if (meta.aggregate_state) return meta.aggregate_state;
+      var summary = Array.isArray(meta.summary) ? meta.summary : [];
+      if (summary.length) {
+        var total = summary.reduce(function (sum, item) {
+          return sum + Number((item && item.count) || 0);
+        }, 0);
+        var completeCount = summary.reduce(function (sum, item) {
+          return sum + ((item && item.state === "complete") ? Number(item.count || 0) : 0);
+        }, 0);
+        var hasCritical = summary.some(function (item) { return item && item.state === "critical" && Number(item.count || 0) > 0; });
+        if (total > 0 && completeCount === total) return "complete";
+        if (hasCritical) return "critical";
+        return "open";
+      }
+      var assignees = Array.isArray(meta.assignees) ? meta.assignees : [];
+      if (!assignees.length) return "open";
+      var states = assignees.map(function (assignee) {
+        return getStatusState(assignee && assignee.status ? assignee.status : "open");
+      });
+      if (states.length && states.every(function (state) { return state === "complete"; })) return "complete";
+      if (states.some(function (state) { return state === "critical"; })) return "critical";
+      return "open";
+    }
+
+    function renderTaskStatusSummary(summary) {
+      var items = Array.isArray(summary) ? summary : [];
+      if (!items.length) {
+        return '<span class="task-status-count is-empty">No updates</span>';
+      }
+      return items.map(function (item) {
+        var state = escapeHtml(item && item.state ? item.state : getStatusState(item && item.status ? item.status : ""));
+        var count = escapeHtml(item && item.count != null ? String(item.count) : "0");
+        var status = escapeHtml(item && item.status ? item.status : "open");
+        var icon = state === "complete"
+          ? "fa-circle-check"
+          : (state === "critical" ? "fa-triangle-exclamation" : "fa-circle-dot");
+        return '<span class="task-status-count status-' + state + '" data-status="' + status + '" data-count="' + count + '" data-state="' + state + '"><i class="fa-solid ' + icon + '" aria-hidden="true"></i><span>' + count + '</span></span>';
+      }).join("");
+    }
+
+    function renderTaskStatusSummaryLabel(summary) {
+      var items = Array.isArray(summary) ? summary : [];
+      if (!items.length) return "No updates";
+      return items.map(function (item) {
+        var count = item && item.count != null ? String(item.count) : "0";
+        var status = item && item.status ? item.status : "open";
+        return count + " " + status;
+      }).join(" · ");
+    }
+
+    function renderTaskStatusCellHtml(task, opts) {
+      var options = opts || {};
+      var meta = taskStatusMeta(task);
+      if (!meta.enabled) {
+        var status = escapeHtml(meta.task_status || (task && task.status) || "open");
+        var state = escapeHtml(meta.task_status_state || getStatusState(status));
+        return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="true" data-task-id="' + escapeHtml(task.id) + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="' + state + '">' + status + '</div>';
+      }
+      return '' +
+        '<button class="task-status-multi-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(renderTaskStatusSummaryLabel(meta.summary)) + '">' +
+          '<div class="task-status-summary" data-task-status-summary="' + escapeHtml(task.id) + '">' + renderTaskStatusSummary(meta.summary) + '</div>' +
+        '</button>';
+    }
+
+    function syncTaskStatusUi(task) {
+      if (!task || !task.id) return;
+      var aggregateState = taskAggregateStatusState(task);
+      document.querySelectorAll('[data-task-status-host="' + task.id + '"]').forEach(function (host) {
+        var todo = !!host.closest('.todo-control-status');
+        host.innerHTML = renderTaskStatusCellHtml(task, { todo: todo });
+      });
+      document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
+        row.setAttribute("data-status-state", aggregateState);
+      });
+    }
+
+    function taskStatusSummaryFromHost(taskId) {
+      var host = document.querySelector('[data-task-status-host="' + taskId + '"]');
+      var summaryEl = host ? host.querySelector('[data-task-status-summary]') : null;
+      if (!summaryEl) return [];
+      return Array.from(summaryEl.querySelectorAll('.task-status-count')).map(function (node) {
+        if (node.classList.contains('is-empty')) return null;
+        var count = Number(node.getAttribute("data-count") || 0);
+        var status = node.getAttribute("data-status") || "open";
+        return {
+          count: count,
+          status: status,
+          state: node.getAttribute("data-state") || (node.classList.contains('status-complete')
+            ? 'complete'
+            : (node.classList.contains('status-critical') ? 'critical' : 'open')),
+        };
+      }).filter(Boolean);
+    }
+
+    function applyCurrentViewerStatusAccessLocal(taskId, canSet) {
+      if (!taskId) return;
+      var localTask = null;
+      if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
+        localTask = Object.assign({}, currentTaskData);
+      } else if (document.querySelector('[data-task-status-host="' + taskId + '"]')) {
+        localTask = {
+          id: taskId,
+          status: "open",
+          status_meta: {
+            enabled: true,
+            task_status: "open",
+            task_status_state: "open",
+            my_status: canSet ? "open" : null,
+            my_status_state: canSet ? "open" : null,
+            viewer_can_set: !!canSet,
+            summary: taskStatusSummaryFromHost(taskId),
+            user_statuses: canSet ? [{ user_id: currentUserId, status: "open", state: "open" }] : [],
+          },
+        };
+      }
+      if (!localTask) return;
+      localTask.status_meta = Object.assign({}, taskStatusMeta(localTask), {
+        enabled: true,
+        viewer_can_set: !!canSet,
+        my_status: canSet ? (taskStatusMeta(localTask).my_status || "open") : null,
+        my_status_state: canSet ? getStatusState(taskStatusMeta(localTask).my_status || "open") : null,
+        summary: taskStatusMeta(localTask).summary && taskStatusMeta(localTask).summary.length
+          ? taskStatusMeta(localTask).summary
+          : taskStatusSummaryFromHost(taskId),
+      });
+      syncTaskStatusUi(localTask);
+      if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
+        currentTaskData = Object.assign({}, currentTaskData, localTask);
+        renderTaskSettings();
+      }
+    }
+
     function renderTaskSettings() {
       if (currentEntityType !== "task") return;
       if (!taskSettingsTitleEl || !taskSettingsDueEl || !taskSettingsStatusEl || !taskSettingsMetaEl) return;
       var task = currentTaskData || {};
+      var meta = taskStatusMeta(task);
+      var effectiveStatus = taskMyStatus(task);
       taskSettingsTitleEl.value = task.title || "";
       taskSettingsDueEl.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
       if (taskSettingsStatusEl) {
-        taskSettingsStatusEl.dataset.statusValue = task.status || "open";
+        taskSettingsStatusEl.dataset.statusValue = effectiveStatus;
+        taskSettingsStatusEl.setAttribute("data-payload-field", meta.enabled ? "user_status" : "status");
+        taskSettingsStatusEl.hidden = false;
+        taskSettingsStatusEl.disabled = false;
+        taskSettingsStatusEl.dataset.perUserStatusEnabled = meta.enabled ? "1" : "0";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
-        if (label) label.textContent = task.status || "open";
-        if (typeof window.__applyStatusState === "function") {
-          window.__applyStatusState(taskSettingsStatusEl, task.status || "open");
+        if (label) {
+          label.textContent = meta.enabled ? renderTaskStatusSummaryLabel(meta.summary) : effectiveStatus;
         }
+        if (!meta.enabled && typeof window.__applyStatusState === "function") {
+          window.__applyStatusState(taskSettingsStatusEl, effectiveStatus);
+        }
+      }
+      if (taskSettingsStatusLabelEl) {
+        taskSettingsStatusLabelEl.textContent = meta.enabled ? "Statuses" : "Status";
+        taskSettingsStatusLabelEl.hidden = false;
+      }
+      if (taskSettingsPerUserStatusEl) {
+        taskSettingsPerUserStatusEl.checked = !!meta.enabled;
       }
       if (taskSettingsAssignmentsEl) {
         var assignments = Array.isArray(task.assignments) ? task.assignments : [];
@@ -6979,8 +7229,19 @@
       if (taskSettingsDueEl) taskSettingsDueEl.value = "";
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = "";
+        taskSettingsStatusEl.setAttribute("data-payload-field", "status");
+        taskSettingsStatusEl.dataset.perUserStatusEnabled = "0";
+        taskSettingsStatusEl.hidden = false;
+        taskSettingsStatusEl.disabled = false;
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
         if (label) label.textContent = "";
+      }
+      if (taskSettingsStatusLabelEl) {
+        taskSettingsStatusLabelEl.textContent = "Status";
+        taskSettingsStatusLabelEl.hidden = false;
+      }
+      if (taskSettingsPerUserStatusEl) {
+        taskSettingsPerUserStatusEl.checked = false;
       }
       if (taskSettingsAssignmentsEl) {
         taskSettingsAssignmentsEl.style.display = "none";
@@ -7044,11 +7305,18 @@
     function persistEntitySettings() {
       if (!currentEntityId) return Promise.resolve();
       if (currentEntityType === "task") {
+        var perUserEnabled = !!(taskSettingsPerUserStatusEl && taskSettingsPerUserStatusEl.checked);
+        var statusPayloadField = perUserEnabled
+          ? "user_status"
+          : "status";
         var payload = {
           title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
           due_at: taskSettingsDueEl ? taskSettingsDueEl.value : "",
-          status: taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "").trim() : "",
+          per_user_status_enabled: perUserEnabled,
         };
+        if (!perUserEnabled) {
+          payload[statusPayloadField] = taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "").trim() : "";
+        }
         return fetch('/api/tasks/' + currentEntityId, {
           method: 'PATCH',
           credentials: 'same-origin',
@@ -7397,12 +7665,13 @@
       if (!task || !task.id) return false;
       var matched = false;
       var normalizedTitle = task.title || "";
-      var normalizedStatus = task.status || "";
       var normalizedDue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var myStatus = taskMyStatus(task);
+      var aggregateState = taskAggregateStatusState(task);
 
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
         matched = true;
-        row.setAttribute("data-status-state", getStatusState(normalizedStatus));
+        row.setAttribute("data-status-state", aggregateState);
         if (task.position !== undefined && task.position !== null) {
           row.setAttribute("data-task-position", String(task.position));
         }
@@ -7451,22 +7720,10 @@
       if (todoItem && typeof moveTodoItemIfNeeded === "function") {
         moveTodoItemIfNeeded(String(task.id), normalizedDue, task.created_at ? String(task.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"));
       }
-      document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="status"]').forEach(function (cell) {
+      if (document.querySelector('[data-task-status-host="' + task.id + '"]')) {
         matched = true;
-        cell.textContent = normalizedStatus;
-        cell.dataset.originalValue = normalizedStatus;
-        if (typeof window.__applyStatusState === "function") {
-          window.__applyStatusState(cell, normalizedStatus);
-        }
-      });
-      document.querySelectorAll('.todo-status-cell[data-task-id="' + task.id + '"]').forEach(function (cell) {
-        matched = true;
-        cell.textContent = normalizedStatus;
-        cell.dataset.originalValue = normalizedStatus;
-        if (typeof window.__applyStatusState === "function") {
-          window.__applyStatusState(cell, normalizedStatus);
-        }
-      });
+        syncTaskStatusUi(task);
+      }
       return matched;
     }
 
@@ -7739,15 +7996,7 @@
       if (tbody) {
         insertTaskRowByPosition(tbody, row, task.id, task.position);
       }
-      var statusCell = row.querySelector('.editable[data-task-id="' + task.id + '"][data-field="status"]');
-      if (statusCell) {
-        var nextStatus = task.status || "open";
-        statusCell.textContent = nextStatus;
-        statusCell.dataset.originalValue = nextStatus;
-        if (typeof window.__applyStatusState === "function") {
-          window.__applyStatusState(statusCell, nextStatus);
-        }
-      }
+      syncTaskStatusUi(task);
       var dueInput = row.querySelector('.due-input[data-task-id="' + task.id + '"]');
       if (dueInput) {
         dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
@@ -7817,8 +8066,8 @@
       var groupUrl = task.group_id ? projectUrl + "#group-" + task.group_id : "";
       var linksHtml = typeof renderInlineTaskLinkBadges === "function" ? renderInlineTaskLinkBadges(task.links || []) : "";
       var title = escapeHtml(task.title || "");
-      var status = escapeHtml(task.status || "open");
-      var statusState = typeof getStatusState === "function" ? getStatusState(task.status || "") : "open";
+      var status = escapeHtml(taskMyStatus(task));
+      var statusState = taskAggregateStatusState(task);
       var item = document.createElement("div");
       item.className = "todo-item";
       item.style.setProperty("--todo-color", meta.divisionColor);
@@ -7854,7 +8103,7 @@
               </div>
               <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" value="${dueValue}" />
             </div>
-            <div class="todo-control todo-control-status editable todo-status-cell status-editable" contenteditable="true" data-task-id="${task.id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="${escapeHtml(statusState)}" title="${status}" aria-label="Status: ${status}">${status}</div>
+            <div class="todo-control todo-control-status" title="${status}" aria-label="Status: ${status}"><div data-task-status-host="${task.id}">${renderTaskStatusCellHtml(task, { todo: true })}</div></div>
           </div>
           <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
             <span class="assign-action">
@@ -7882,11 +8131,9 @@
       var item = buildTodoItem(task);
       if (!item) return false;
       list.appendChild(item);
+      syncTaskStatusUi(task);
       if (typeof window.__renderTaskAssignments === "function") {
         window.__renderTaskAssignments(task.id, task.assignments || []);
-      }
-      if (typeof window.__applyStatusState === "function") {
-        window.__applyStatusState(item.querySelector('.status-editable[data-task-id="' + task.id + '"]'), task.status || "open");
       }
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
@@ -7945,10 +8192,120 @@
       renderEntityLinkState();
       renderDiscussionPresence([]);
       syncTaskRoom(null);
+      closeMultiStatusMenu();
+    }
+
+    function renderMultiStatusMenuRows(task) {
+      var meta = taskStatusMeta(task);
+      var assignees = Array.isArray(meta.assignees) ? meta.assignees : [];
+      if (!assignees.length) {
+        return '<div class="multi-status-empty">Assign people to track per-user statuses.</div>';
+      }
+      return assignees.map(function (assignee, index) {
+        var label = assignee.display_name || assignee.email || "User";
+        var secondary = assignee.email && assignee.email !== label ? assignee.email : "";
+        var avatarUrl = assignee.avatar_url || "";
+        var status = String(assignee.status || "open").trim() || "open";
+        var statusState = getStatusState(status);
+        var editableByViewer = assignee.editable && String(assignee.user_id || "") === String(currentUserId || "");
+        return '' +
+          '<div class="multi-status-row" data-multi-status-row="' + escapeHtml(assignee.user_id != null ? String(assignee.user_id) : "email:" + String(index)) + '" data-status-state="' + escapeHtml(statusState) + '">' +
+            '<div class="multi-status-user">' +
+              '<span class="multi-status-avatar' + (avatarUrl ? ' has-photo' : '') + '">' +
+                '<span class="multi-status-avatar-initial">' + escapeHtml(label.trim().slice(0, 1).toUpperCase()) + '</span>' +
+                (avatarUrl ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.multi-status-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
+              '</span>' +
+              '<div class="multi-status-user-meta">' +
+                '<div class="multi-status-user-name">' + escapeHtml(label) + '</div>' +
+                (secondary ? '<div class="multi-status-user-email">' + escapeHtml(secondary) + '</div>' : '') +
+              '</div>' +
+            '</div>' +
+            (assignee.editable
+              ? '<div class="multi-status-actions" data-multi-status-user-id="' + escapeHtml(String(assignee.user_id)) + '" data-current-value="' + escapeHtml(status) + '">' +
+                  '<button class="multi-status-action' + (status.toLowerCase() === 'open' ? ' is-active' : '') + '" type="button" data-status-value="open" aria-label="Set status to open" title="Open"' + (editableByViewer ? '' : ' disabled') + '><i class="fa-solid fa-circle-dot" aria-hidden="true"></i></button>' +
+                  '<button class="multi-status-action' + (status.toLowerCase() === 'critical' ? ' is-active' : '') + '" type="button" data-status-value="critical" aria-label="Set status to critical" title="Critical"' + (editableByViewer ? '' : ' disabled') + '><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></button>' +
+                  '<button class="multi-status-action' + (status.toLowerCase() === 'complete' ? ' is-active' : '') + '" type="button" data-status-value="complete" aria-label="Set status to complete" title="Complete"' + (editableByViewer ? '' : ' disabled') + '><i class="fa-solid fa-circle-check" aria-hidden="true"></i></button>' +
+                '</div>'
+              : '<div class="multi-status-readonly">Pending account</div>') +
+          '</div>';
+      }).join("");
+    }
+
+    function positionFloatingMenu(menu, anchor) {
+      if (!menu || !anchor) return;
+      var rect = anchor.getBoundingClientRect();
+      menu.style.display = "block";
+      var left = Math.round(Math.min(rect.left, window.innerWidth - menu.offsetWidth - 12));
+      var top = Math.round(Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 12));
+      menu.style.left = Math.max(12, left) + "px";
+      menu.style.top = Math.max(12, top) + "px";
+    }
+
+    function openMultiStatusMenu(task, anchor, source) {
+      var menu = document.getElementById("multi-status-menu");
+      if (!menu || !task || !task.id || !anchor) return;
+      var singleStatusMenu = document.getElementById("status-menu");
+      if (singleStatusMenu) {
+        singleStatusMenu.style.display = "none";
+      }
+      menu.innerHTML = renderMultiStatusMenuRows(task);
+      menu.dataset.taskId = String(task.id);
+      menu.dataset.source = source || "";
+      positionFloatingMenu(menu, anchor);
+      menu._task = task;
+      menu._anchor = anchor;
+    }
+
+    function resolveMultiStatusAnchor(taskId, source, fallback) {
+      if (source === "settings" && taskSettingsStatusEl) {
+        return taskSettingsStatusEl;
+      }
+      var rowTrigger = document.querySelector('[data-task-multi-status-trigger="' + taskId + '"]');
+      if (rowTrigger) return rowTrigger;
+      rowTrigger = document.querySelector('[data-task-multi-status-trigger][data-task-id="' + taskId + '"]');
+      if (rowTrigger) return rowTrigger;
+      return fallback || null;
+    }
+
+    function closeMultiStatusMenu() {
+      var menu = document.getElementById("multi-status-menu");
+      if (!menu) return;
+      menu.style.display = "none";
+      menu.dataset.taskId = "";
+      menu.dataset.source = "";
+      menu._task = null;
+      menu._anchor = null;
+    }
+
+    function patchTaskUserStatus(taskId, userId, statusValue) {
+      return fetch("/api/tasks/" + taskId, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_status: statusValue,
+          status_user_id: userId,
+        }),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok) {
+            throw new Error((result.data && result.data.error) || "Could not update status");
+          }
+          return result.data || {};
+        });
     }
 
     function openSettingsStatusMenu() {
       if (currentEntityType !== "task") return;
+      if (taskSettingsStatusEl && taskSettingsStatusEl.dataset.perUserStatusEnabled === "1" && currentTaskData) {
+        openMultiStatusMenu(currentTaskData, taskSettingsStatusEl, "settings");
+        return;
+      }
       var statusMenu = document.getElementById("status-menu");
       var statusMenuInput = document.getElementById("status-menu-input");
       if (!statusMenu || !taskSettingsStatusEl) return;
@@ -8286,6 +8643,87 @@
         openSettingsStatusMenu();
       });
     }
+    document.addEventListener("click", function (event) {
+      var trigger = event.target.closest("[data-task-multi-status-trigger]");
+      if (trigger) {
+        event.preventDefault();
+        event.stopPropagation();
+        var taskId = trigger.getAttribute("data-task-id") || trigger.getAttribute("data-task-multi-status-trigger");
+        if (!taskId) return;
+        if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
+          openMultiStatusMenu(currentTaskData, trigger, "row");
+          return;
+        }
+        fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (task) {
+            if (!task || !task.id) return;
+            openMultiStatusMenu(task, trigger, "row");
+          })
+          .catch(function (err) {
+            console.error("openMultiStatusMenu load failed", err);
+          });
+        return;
+      }
+      var multiStatusMenu = document.getElementById("multi-status-menu");
+      if (multiStatusMenu && multiStatusMenu.contains(event.target)) return;
+      if (taskSettingsStatusEl && taskSettingsStatusEl.contains(event.target)) return;
+      closeMultiStatusMenu();
+    });
+    (function () {
+      var multiStatusMenu = document.getElementById("multi-status-menu");
+      if (!multiStatusMenu) return;
+      multiStatusMenu.addEventListener("click", function (event) {
+        var action = event.target.closest(".multi-status-action");
+        if (!action) return;
+        var control = action.closest("[data-multi-status-user-id]");
+        if (!control) return;
+        var taskId = multiStatusMenu.dataset.taskId;
+        var userId = control.getAttribute("data-multi-status-user-id");
+        var nextValue = action.getAttribute("data-status-value");
+        var priorValue = control.dataset.currentValue || "open";
+        if (!taskId || !userId) return;
+        if (!nextValue || nextValue === priorValue) return;
+        control.dataset.submitting = "1";
+        control.querySelectorAll(".multi-status-action").forEach(function (button) {
+          button.disabled = true;
+        });
+        patchTaskUserStatus(taskId, userId, nextValue)
+          .then(function (data) {
+            if (data && data.status_meta) {
+              var task = (multiStatusMenu._task && String(multiStatusMenu._task.id) === String(taskId))
+                ? Object.assign({}, multiStatusMenu._task, {
+                    status_meta: data.status_meta,
+                    per_user_status_enabled: true,
+                  })
+                : {
+                    id: taskId,
+                    status: data.status || "open",
+                    status_meta: data.status_meta,
+                    per_user_status_enabled: true,
+                  };
+              if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
+                currentTaskData = Object.assign({}, currentTaskData, task);
+                renderTaskSettings();
+              }
+              syncTaskStatusUi(task);
+              var nextAnchor = resolveMultiStatusAnchor(taskId, multiStatusMenu.dataset.source || "", multiStatusMenu._anchor || control);
+              if (nextAnchor) {
+                openMultiStatusMenu(task, nextAnchor, multiStatusMenu.dataset.source || "");
+              }
+            }
+          })
+          .catch(function (err) {
+            console.error("patchTaskUserStatus failed", err);
+          })
+          .finally(function () {
+            control.dataset.submitting = "0";
+            control.querySelectorAll(".multi-status-action").forEach(function (button) {
+              button.disabled = false;
+            });
+          });
+      });
+    })();
     document.querySelectorAll("[data-drawer-tab]").forEach(function (button) {
       button.addEventListener("click", function () {
         var nextTab = button.getAttribute("data-drawer-tab");
@@ -8507,6 +8945,9 @@
         }
       });
     }
+    if (taskSettingsPerUserStatusEl) {
+      taskSettingsPerUserStatusEl.addEventListener("change", persistEntitySettings);
+    }
     if (taskSettingsAssigneeEl) {
       bindSettingsAssignmentInput();
     }
@@ -8656,6 +9097,22 @@
         var updated = applyAssignmentUpdate(data || {});
         var isOwnEvent = data && data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
         var taskId = data && data.assignment ? data.assignment.task_id : null;
+        var affectsCurrentViewer = data && data.assignment && data.assignment.user_id && String(data.assignment.user_id) === String(currentUserId);
+        var hasStatusHost = taskId ? !!document.querySelector('[data-task-status-host="' + taskId + '"]') : false;
+        if (taskId && affectsCurrentViewer) {
+          applyCurrentViewerStatusAccessLocal(taskId, data.action !== "deleted");
+        }
+        if (taskId && (affectsCurrentViewer || hasStatusHost || String(currentTaskId || "") === String(taskId))) {
+          fetchTaskSnapshot(taskId).then(function (task) {
+            if (!task) return;
+            applyTaskRowUpdate(task);
+            renderTaskAssignments(task.id, task.assignments || []);
+            if (String(currentTaskId || "") === String(task.id)) {
+              currentTaskData = Object.assign({}, currentTaskData || {}, task);
+              renderTaskSettings();
+            }
+          });
+        }
         if (!updated && !isOwnEvent && taskId) {
           fetchTaskSnapshot(taskId).then(function (task) {
             if (!task) return;

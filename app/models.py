@@ -133,8 +133,23 @@ class Task(db.Model):
     due_at = db.Column(db.DateTime)
     assignee_email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="open", nullable=False)
+    per_user_status_enabled = db.Column(db.Boolean, default=False, nullable=False)
     owner_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TaskUserStatus(db.Model):
+    __tablename__ = "task_user_statuses"
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    status = db.Column(db.String(50), nullable=False, default="open")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("task_id", "user_id", name="uq_task_user_statuses_task_user"),
+    )
 
 
 class TaskComment(db.Model):
