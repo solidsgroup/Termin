@@ -21,7 +21,8 @@ def upgrade():
     columns = {col["name"] for col in inspector.get_columns("tasks")}
     if "assign_group_members" not in columns:
         op.add_column("tasks", sa.Column("assign_group_members", sa.Boolean(), nullable=False, server_default=sa.false()))
-        op.alter_column("tasks", "assign_group_members", server_default=None)
+        if inspector.bind.dialect.name != "sqlite":
+            op.alter_column("tasks", "assign_group_members", server_default=None)
 
 
 def downgrade():
