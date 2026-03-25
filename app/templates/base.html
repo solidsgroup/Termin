@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title or "Termin" }}</title>
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
+    <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" data-base-favicon="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <style>
@@ -4643,7 +4643,7 @@
                       >
                         <div class="notifications-title">{{ item.sender_name }}</div>
                         <div class="notifications-copy">
-                          {{ item.task_title }}{% if item.project_name %} · {{ item.project_name }}{% endif %}{% if item.comment_preview %} · {{ item.comment_preview }}{% endif %}
+                          {% if item.unread_count and item.unread_count > 1 %}{{ item.unread_count }} new messages · {% endif %}{{ item.task_title }}{% if item.project_name %} · {{ item.project_name }}{% endif %}{% if item.comment_preview %} · {{ item.comment_preview }}{% endif %}
                         </div>
                       </button>
                       <div class="notifications-actions">

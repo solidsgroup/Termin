@@ -34,6 +34,7 @@ from app.realtime import (
     emit_sidebar_reordered,
     emit_task_comment_created,
     emit_task_notification_updates,
+    queue_task_notifications,
     is_user_viewing_task,
     _task_notification_user_ids,
 )
@@ -940,6 +941,30 @@ def dashboard():
         row.id: row
         for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(notification_collaborator_ids)).all()
     } if notification_collaborator_ids else {}
+    unread_message_task_ids = {row.task_id for row in notification_rows if row.kind == "comment" and row.read_at is None and row.task_id}
+    latest_read_by_task = {}
+    unread_comment_count_by_task = {}
+    if unread_message_task_ids:
+        latest_read_rows = (
+            db.session.query(TaskNotification.task_id, db.func.max(TaskNotification.read_at))
+            .filter(
+                TaskNotification.user_id == user.id,
+                TaskNotification.kind == "comment",
+                TaskNotification.task_id.in_(unread_message_task_ids),
+                TaskNotification.read_at.isnot(None),
+            )
+            .group_by(TaskNotification.task_id)
+            .all()
+        )
+        latest_read_by_task = {task_id: read_at for task_id, read_at in latest_read_rows if task_id}
+        unread_comment_count_by_task = {task_id: 0 for task_id in unread_message_task_ids}
+        for comment_row in TaskComment.query.filter(TaskComment.task_id.in_(unread_message_task_ids)).all():
+            if comment_row.user_id and int(comment_row.user_id) == int(user.id):
+                continue
+            threshold = latest_read_by_task.get(comment_row.task_id)
+            if threshold and comment_row.created_at <= threshold:
+                continue
+            unread_comment_count_by_task[comment_row.task_id] = unread_comment_count_by_task.get(comment_row.task_id, 0) + 1
     task_notifications = []
     message_notifications = []
     for row in notification_rows:
@@ -962,6 +987,7 @@ def dashboard():
             "project_name": project.name if project else None,
             "sender_name": sender_name or "New message",
             "comment_preview": ((comment.body[:120] + "…") if comment and len(comment.body) > 120 else (comment.body if comment else "")),
+            "unread_count": unread_comment_count_by_task.get(row.task_id, 0) if row.kind == "comment" else 0,
             "created_at": row.created_at,
             "pinned": bool(getattr(row, "pinned", False)),
             "kind": row.kind,
@@ -1897,17 +1923,7 @@ def collaborator_post_task_comment(token: str, task_id: int):
     db.session.flush()
     task = Task.query.get(task_id)
     if task:
-        for recipient_id in _task_notification_user_ids(task):
-            if is_user_viewing_task(recipient_id, task.id):
-                continue
-            db.session.add(
-                TaskNotification(
-                    user_id=recipient_id,
-                    task_id=task.id,
-                    comment_id=comment.id,
-                    kind="comment",
-                )
-            )
+        queue_task_notifications(task, kind="comment", comment_id=comment.id)
     db.session.commit()
     if task:
         emit_task_comment_created(task_id, _serialize_portal_comment(comment, {}, {collaborator.id: collaborator}))

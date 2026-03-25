@@ -738,19 +738,7 @@ def create_task_comment(task_id: int):
     db.session.flush()
     links_changed = _merge_comment_links(task, body)
 
-    for recipient_id in _task_notification_user_ids(task):
-        if recipient_id == user.id:
-            continue
-        if is_user_viewing_task(recipient_id, task.id):
-            continue
-        db.session.add(
-            TaskNotification(
-                user_id=recipient_id,
-                task_id=task.id,
-                comment_id=comment.id,
-                kind="comment",
-            )
-        )
+    queue_task_notifications(task, exclude_user_id=user.id, kind="comment", comment_id=comment.id)
 
     db.session.commit()
     comment_count = TaskComment.query.filter_by(task_id=task.id).count()

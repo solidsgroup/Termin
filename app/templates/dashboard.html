@@ -6139,6 +6139,16 @@
     var currentUserAvatarUrl = {{ (user.avatar_url or "")|tojson }};
     var latestTaskFetchById = {};
     var settingsStatusMenuActive = false;
+    var faviconEl = document.getElementById("app-favicon");
+    var faviconBaseHref = faviconEl ? (faviconEl.getAttribute("data-base-favicon") || faviconEl.getAttribute("href") || "") : "";
+    var faviconBadgeCache = Object.create(null);
+    var desktopNotificationsSupported = typeof window !== "undefined" && "Notification" in window;
+    var desktopNotificationsPrimed = false;
+    var desktopNotificationSeenIds = new Set();
+    var desktopNotificationPromptBound = false;
+    var desktopNotificationQueues = Object.create(null);
+    var desktopNotificationFlushTimers = Object.create(null);
+    var desktopNotificationDisplayState = Object.create(null);
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -6159,6 +6169,181 @@
       input.setAttribute("autocorrect", "off");
       input.setAttribute("autocapitalize", "none");
       input.setAttribute("spellcheck", "false");
+    }
+
+    function loadSeenDesktopNotificationIds() {
+      try {
+        var raw = sessionStorage.getItem("termin:desktop-notification-seen");
+        if (!raw) return new Set();
+        var values = JSON.parse(raw);
+        return new Set(Array.isArray(values) ? values.map(function (value) { return String(value); }) : []);
+      } catch (err) {
+        return new Set();
+      }
+    }
+
+    function saveSeenDesktopNotificationIds() {
+      try {
+        var values = Array.from(desktopNotificationSeenIds);
+        if (values.length > 250) values = values.slice(values.length - 250);
+        sessionStorage.setItem("termin:desktop-notification-seen", JSON.stringify(values));
+      } catch (err) {}
+    }
+
+    function primeDesktopNotifications(data) {
+      if (desktopNotificationsPrimed) return;
+      desktopNotificationsSupported = typeof window !== "undefined" && "Notification" in window;
+      desktopNotificationSeenIds = loadSeenDesktopNotificationIds();
+      var items = []
+        .concat(Array.isArray(data && data.regular_notifications) ? data.regular_notifications : [])
+        .concat(Array.isArray(data && data.message_notifications) ? data.message_notifications : []);
+      items.forEach(function (item) {
+        if (!item || item.id == null) return;
+        desktopNotificationSeenIds.add(String(item.id));
+      });
+      saveSeenDesktopNotificationIds();
+      desktopNotificationsPrimed = true;
+    }
+
+    function maybeRequestDesktopNotificationPermission() {
+      if (!desktopNotificationsSupported || desktopNotificationPromptBound) return;
+      if (Notification.permission !== "default") return;
+      desktopNotificationPromptBound = true;
+      var requestPermission = function () {
+        document.removeEventListener("pointerdown", requestPermission, true);
+        document.removeEventListener("keydown", requestPermission, true);
+        try {
+          Notification.requestPermission().catch(function () {});
+        } catch (err) {}
+      };
+      document.addEventListener("pointerdown", requestPermission, true);
+      document.addEventListener("keydown", requestPermission, true);
+    }
+
+    function shouldSuppressDesktopNotification(item) {
+      if (!item) return true;
+      if (document.visibilityState === "visible") {
+        if (item.kind === "comment" && currentEntityType === "task" && activeDrawerTab === "messages" && String(currentTaskId || "") === String(item.task_id || "")) {
+          return true;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    function desktopNotificationTitle(item, kind) {
+      var isMessage = (item.kind || kind) === "comment" || kind === "message";
+      return isMessage ? (item.sender_name || "New message") : (item.task_title || "Task updated");
+    }
+
+    function desktopNotificationBody(item, kind) {
+      var preview = item.preview || item.comment_preview || "New activity";
+      var isMessage = (item.kind || kind) === "comment" || kind === "message";
+      if (isMessage) {
+        var unreadCount = Number(item.unread_count || 0);
+        var prefix = unreadCount > 1 ? String(unreadCount) + " new messages · " : "";
+        return prefix + (item.task_title || "Task") +
+          (item.project_name ? " · " + item.project_name : "") +
+          (preview ? " · " + preview : "");
+      }
+      return (item.project_name ? item.project_name + " · " : "") + preview;
+    }
+
+    function desktopNotificationGroupKey(item, kind) {
+      var isMessage = (item.kind || kind) === "comment" || kind === "message";
+      if (item && item.task_id) {
+        return (isMessage ? "message" : "regular") + ":task:" + String(item.task_id);
+      }
+      return (isMessage ? "message" : "regular") + ":notification:" + String(item && item.id != null ? item.id : "unknown");
+    }
+
+    function flushDesktopNotificationGroup(groupKey) {
+      var batch = desktopNotificationQueues[groupKey];
+      delete desktopNotificationQueues[groupKey];
+      if (desktopNotificationFlushTimers[groupKey]) {
+        window.clearTimeout(desktopNotificationFlushTimers[groupKey]);
+        delete desktopNotificationFlushTimers[groupKey];
+      }
+      if (!batch || !batch.items || !batch.items.length) return;
+      var latest = batch.items[batch.items.length - 1];
+      var count = batch.items.length;
+      var title = desktopNotificationTitle(latest, batch.kind);
+      var body = desktopNotificationBody(latest, batch.kind);
+      var unreadCount = Number(latest.unread_count || 0);
+      if (count > 1 || unreadCount > 1) {
+        var aggregateCount = Math.max(count, unreadCount);
+        body = aggregateCount + " new messages" + (latest.task_title ? " · " + latest.task_title : "") + (latest.project_name ? " · " + latest.project_name : "");
+      }
+      var signature = [
+        String(latest.id || ""),
+        String(latest.task_id || ""),
+        String(unreadCount || count || 0),
+        String(latest.comment_preview || latest.preview || ""),
+      ].join("|");
+      var lastDisplay = desktopNotificationDisplayState[groupKey];
+      var now = Date.now();
+      if (lastDisplay && lastDisplay.signature === signature && (now - lastDisplay.at) < 5000) {
+        return;
+      }
+      desktopNotificationDisplayState[groupKey] = { signature: signature, at: now };
+      var notice = null;
+      try {
+        notice = new Notification(title, {
+          body: body,
+          icon: {{ url_for('static', filename='brand/termin-light-logo.svg')|tojson }},
+          tag: "termin-notification-" + groupKey,
+          renotify: false,
+        });
+      } catch (err) {
+        return;
+      }
+      notice.onclick = function () {
+        try {
+          window.focus();
+        } catch (err) {}
+        storePendingNotificationFocus(latest);
+        var href = notificationHref(latest);
+        var currentUrl = window.location.pathname + window.location.search;
+        if ((latest.kind || batch.kind) === "comment" && latest.task_id && href === currentUrl) {
+          var button = document.querySelector('[data-open-discussion="' + latest.task_id + '"]');
+          if (button) {
+            loadEntityComments(
+              "task",
+              latest.task_id,
+              button.getAttribute("data-task-title"),
+              button.getAttribute("data-project-name")
+            );
+          }
+        } else if (href !== currentUrl) {
+          window.location.href = href;
+        }
+        notice.close();
+      };
+    }
+
+    function showDesktopNotifications(kind, items) {
+      if (!desktopNotificationsSupported) return;
+      maybeRequestDesktopNotificationPermission();
+      if (Notification.permission !== "granted") return;
+      (Array.isArray(items) ? items : []).forEach(function (item) {
+        if (!item || item.id == null || item.read) return;
+        var key = String(item.id);
+        if (desktopNotificationSeenIds.has(key)) return;
+        desktopNotificationSeenIds.add(key);
+        if (shouldSuppressDesktopNotification(item)) return;
+        var groupKey = desktopNotificationGroupKey(item, kind);
+        if (!desktopNotificationQueues[groupKey]) {
+          desktopNotificationQueues[groupKey] = { kind: kind, items: [] };
+        }
+        desktopNotificationQueues[groupKey].items.push(item);
+        if (desktopNotificationFlushTimers[groupKey]) {
+          window.clearTimeout(desktopNotificationFlushTimers[groupKey]);
+        }
+        desktopNotificationFlushTimers[groupKey] = window.setTimeout(function () {
+          flushDesktopNotificationGroup(groupKey);
+        }, 900);
+      });
+      saveSeenDesktopNotificationIds();
     }
 
 	    function withAddMeSuggestion(results) {
@@ -6326,7 +6511,60 @@
       } else if (badge) {
         badge.remove();
       }
+      updateFaviconNotificationBadge();
     }
+
+    function totalUnreadNotificationCount() {
+      var total = 0;
+      document.querySelectorAll('.notifications-shell .notifications-count').forEach(function (badge) {
+        var value = Number(badge.textContent || 0);
+        if (Number.isFinite(value) && value > 0) total += value;
+      });
+      return total;
+    }
+
+    function updateFaviconNotificationBadge() {
+      if (!faviconEl || !faviconBaseHref) return;
+      var total = totalUnreadNotificationCount();
+      if (total <= 0) {
+        faviconEl.setAttribute("href", faviconBaseHref);
+        return;
+      }
+      var cacheKey = String(Math.min(total, 99));
+      if (faviconBadgeCache[cacheKey]) {
+        faviconEl.setAttribute("href", faviconBadgeCache[cacheKey]);
+        return;
+      }
+      var img = new Image();
+      img.onload = function () {
+        var size = 64;
+        var canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        var ctx = canvas.getContext("2d");
+        if (!ctx) {
+          faviconEl.setAttribute("href", faviconBaseHref);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, size, size);
+        ctx.fillStyle = "#d92d20";
+        ctx.beginPath();
+        ctx.arc(size - 14, 14, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        var href = canvas.toDataURL("image/png");
+        faviconBadgeCache[cacheKey] = href;
+        faviconEl.setAttribute("href", href);
+      };
+      img.onerror = function () {
+        faviconEl.setAttribute("href", faviconBaseHref);
+      };
+      img.src = faviconBaseHref;
+    }
+
+    updateFaviconNotificationBadge();
 
     function visibleProjectIds() {
       var ids = new Set();
@@ -7247,7 +7485,8 @@
         var isMessage = (item.kind || kind) === "comment" || kind === "message";
         var title = isMessage ? (item.sender_name || "New message") : (item.task_title || "Task");
         var copy = isMessage
-          ? escapeHtml(item.task_title || "Task") +
+          ? (Number(item.unread_count || 0) > 1 ? escapeHtml(String(item.unread_count) + " new messages") + " · " : "") +
+            escapeHtml(item.task_title || "Task") +
             (item.project_name ? " · " + escapeHtml(item.project_name) : "") +
             (preview ? " · " + escapeHtml(preview) : "")
           : (item.project_name ? escapeHtml(item.project_name) + " · " : "") + escapeHtml(preview);
@@ -7276,10 +7515,13 @@
     }
 
     function applyNotificationState(data) {
+      primeDesktopNotifications(data || {});
       setNotificationCount('regular', Number(data.unread_regular_total || 0));
       setNotificationCount('message', Number(data.unread_message_total || 0));
       renderNotificationMenu('regular', data.regular_notifications || []);
       renderNotificationMenu('message', data.message_notifications || []);
+      showDesktopNotifications('regular', data.regular_notifications || []);
+      showDesktopNotifications('message', data.message_notifications || []);
       var unreadTaskIds = new Set((data.unread_comment_task_ids || []).map(function (id) { return String(id); }));
       document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
         var taskId = String(button.getAttribute("data-open-discussion"));

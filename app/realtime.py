@@ -253,6 +253,7 @@ def notification_payload_for_user(user_id: int) -> dict:
     unread_message_rows = [row for row in unread_rows if row.kind == "comment"]
     unread_task_ids = sorted({row.task_id for row in unread_rows if row.task_id})
     unread_comment_task_ids = sorted({row.task_id for row in unread_message_rows if row.task_id})
+    unread_comment_task_set = {row.task_id for row in unread_message_rows if row.task_id}
     comment_ids = [row.comment_id for row in notification_rows if row.comment_id]
     task_ids = [row.task_id for row in notification_rows if row.task_id]
     comments = {
@@ -278,6 +279,33 @@ def notification_payload_for_user(user_id: int) -> dict:
         row.id: row
         for row in Project.query.filter(Project.id.in_(project_ids)).all()
     } if project_ids else {}
+    latest_read_by_task = {}
+    unread_comment_count_by_task = {}
+    if unread_comment_task_set:
+        latest_read_rows = (
+            db.session.query(TaskNotification.task_id, db.func.max(TaskNotification.read_at))
+            .filter(
+                TaskNotification.user_id == user_id,
+                TaskNotification.kind == "comment",
+                TaskNotification.task_id.in_(unread_comment_task_set),
+                TaskNotification.read_at.isnot(None),
+            )
+            .group_by(TaskNotification.task_id)
+            .all()
+        )
+        latest_read_by_task = {task_id: read_at for task_id, read_at in latest_read_rows if task_id}
+        unread_comment_count_by_task = {
+            task_id: 0
+            for task_id in unread_comment_task_set
+        }
+        comment_rows = TaskComment.query.filter(TaskComment.task_id.in_(unread_comment_task_set)).all()
+        for comment_row in comment_rows:
+            if comment_row.user_id and int(comment_row.user_id) == int(user_id):
+                continue
+            threshold = latest_read_by_task.get(comment_row.task_id)
+            if threshold and comment_row.created_at <= threshold:
+                continue
+            unread_comment_count_by_task[comment_row.task_id] = unread_comment_count_by_task.get(comment_row.task_id, 0) + 1
     notifications = []
     regular_notifications = []
     message_notifications = []
@@ -318,6 +346,7 @@ def notification_payload_for_user(user_id: int) -> dict:
             "sender_name": sender_name or "New message",
             "preview": preview,
             "comment_preview": preview,
+            "unread_count": unread_comment_count_by_task.get(row.task_id, 0) if row.kind == "comment" else 0,
             "created_at": row.created_at.isoformat(),
         }
         notifications.append(payload)
@@ -594,13 +623,17 @@ def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: in
     for recipient_id in _task_notification_user_ids(task):
         socketio.emit("task_updated", payload, room=user_room(recipient_id))
 
-def queue_task_notifications(task: Task, *, exclude_user_id: int | None = None, kind: str = "task_update") -> None:
+def queue_task_notifications(task: Task, *, exclude_user_id: int | None = None, kind: str = "task_update", comment_id: int | None = None) -> None:
     now = datetime.utcnow()
     for recipient_id in _task_notification_user_ids(task):
         if exclude_user_id and recipient_id == exclude_user_id:
             continue
-        if is_user_viewing_project(recipient_id, task.project_id):
-            continue
+        if kind == "comment":
+            if is_user_viewing_task(recipient_id, task.id):
+                continue
+        else:
+            if is_user_viewing_project(recipient_id, task.project_id):
+                continue
         existing = (
             TaskNotification.query.filter_by(user_id=recipient_id, task_id=task.id, kind=kind)
             .filter(TaskNotification.read_at.is_(None))
@@ -609,13 +642,13 @@ def queue_task_notifications(task: Task, *, exclude_user_id: int | None = None, 
         )
         if existing:
             existing.created_at = now
-            existing.comment_id = None
+            existing.comment_id = comment_id
         else:
             db.session.add(
                 TaskNotification(
                     user_id=recipient_id,
                     task_id=task.id,
-                    comment_id=None,
+                    comment_id=comment_id,
                     kind=kind,
                     created_at=now,
                 )
