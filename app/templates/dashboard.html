@@ -531,8 +531,8 @@
             </div>
             <table class="table tasks-table" data-project-id="{{ selected_project.id }}" data-group-id="{{ group.id }}">
             <colgroup>
-              <col style="width: 4%;">
-              <col style="width: 46%;">
+              <col style="width: 3%;">
+              <col style="width: 47%;">
               <col style="width: 16%;">
               <col style="width: 14%;">
               <col style="width: 20%;">
@@ -549,24 +549,32 @@
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
               {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) }}
-              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project %}
-                <tr class="new-row">
-                    <td></td>
-                    <td>
-                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-                    </td>
-                    <td>
-                      <input class="due-input" type="date" data-new-task="due_at" data-col="2" />
-                    </td>
-                    <td>
-                      <span class="tag">open</span>
-                    </td>
-                    <td>
-                      <div class="cell-controls">
-                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-                      </div>
-                    </td>
-                </tr>
+	              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project %}
+	                <tr class="new-row">
+	                    <td></td>
+	                    <td>
+	                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+	                    </td>
+	                    <td>
+	                      <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
+	                        <div class="due-summary is-fallback" data-due-summary title="Created today">
+	                          <span class="due-summary-label">Created today</span>
+	                        </div>
+	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+	                      </div>
+	                    </td>
+	                    <td>
+	                      <div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div>
+	                    </td>
+	                    <td>
+	                      <div class="assignments">
+	                        <span class="assign-action">
+	                          <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
+	                          <button class="assign-add-btn" type="button" title="Assign">+</button>
+	                        </span>
+	                      </div>
+	                    </td>
+	                </tr>
               {% endif %}
             </tbody>
             </table>
@@ -588,8 +596,8 @@
           </div>
           <table class="table tasks-table" data-project-id="{{ selected_project.id }}" data-group-id="">
             <colgroup>
-              <col style="width: 4%;">
-              <col style="width: 46%;">
+              <col style="width: 3%;">
+              <col style="width: 47%;">
               <col style="width: 16%;">
               <col style="width: 14%;">
               <col style="width: 20%;">
@@ -605,24 +613,32 @@
             </thead>
             <tbody data-task-dropzone="1">
               {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) }}
-              {% if can_manage_project and not is_github_project %}
-                <tr class="new-row">
-                    <td></td>
-                    <td>
-                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-                    </td>
-                    <td>
-                      <input class="due-input" type="date" data-new-task="due_at" data-col="2" />
-                    </td>
-                    <td>
-                      <span class="tag">open</span>
-                    </td>
-                    <td>
-                      <div class="cell-controls">
-                        <input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-                      </div>
-                    </td>
-                </tr>
+	              {% if can_manage_project and not is_github_project %}
+	                <tr class="new-row">
+	                    <td></td>
+	                    <td>
+	                      <input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+	                    </td>
+	                    <td>
+	                      <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
+	                        <div class="due-summary is-fallback" data-due-summary title="Created today">
+	                          <span class="due-summary-label">Created today</span>
+	                        </div>
+	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+	                      </div>
+	                    </td>
+	                    <td>
+	                      <div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div>
+	                    </td>
+	                    <td>
+	                      <div class="assignments">
+	                        <span class="assign-action">
+	                          <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
+	                          <button class="assign-add-btn" type="button" title="Assign">+</button>
+	                        </span>
+	                      </div>
+	                    </td>
+	                </tr>
               {% endif %}
             </tbody>
           </table>
@@ -1066,6 +1082,22 @@
       return true;
     }
 
+    function focusNewTaskPlaceholder(table, attempt) {
+      if (!table) return false;
+      var tryCount = Number(attempt || 0);
+      var input = table.querySelector(".new-row [data-new-task='title']");
+      if (input && !input.disabled) {
+        input.focus();
+        return true;
+      }
+      if (tryCount >= 8) return false;
+      window.setTimeout(function () {
+        focusNewTaskPlaceholder(table, tryCount + 1);
+      }, 40);
+      return false;
+    }
+    window.__focusNewTaskPlaceholder = focusNewTaskPlaceholder;
+
     function getEditableTarget(cell) {
       var field = cell.getAttribute("data-field");
       var taskId = cell.getAttribute("data-task-id");
@@ -1407,6 +1439,14 @@
           event.stopPropagation();
           normalizeEditableText(cell);
           lastEditableCell = cell;
+          if (cell.getAttribute("data-field") === "title" && cell.hasAttribute("data-task-id")) {
+            saveEditable(cell).then(function () {
+              if (typeof window.__focusNewTaskPlaceholder === "function") {
+                window.__focusNewTaskPlaceholder(cell.closest(".tasks-table"));
+              }
+            });
+            return;
+          }
           cell.blur();
           return;
         }
@@ -2078,7 +2118,54 @@
       }
 
       function storageKey(table) {
-        return "colWidths:" + (table.getAttribute("data-project-id") || "") + ":" + (table.getAttribute("data-group-id") || "all");
+        return "colWidths:" + (table.getAttribute("data-project-id") || "");
+      }
+
+      function applySavedColumnWidths(cols, saved) {
+        if (!saved) return;
+        var values = saved.split(",").map(function (width) {
+          return width.trim();
+        }).filter(Boolean);
+        if (!values.length) return;
+        var parsed = values.map(function (width) {
+          var numeric = parseFloat(width);
+          return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+        });
+        var total = parsed.reduce(function (sum, value) {
+          return sum + (value || 0);
+        }, 0);
+        if (!total) return;
+        parsed.forEach(function (value, index) {
+          if (!cols[index] || !value) return;
+          cols[index].style.width = ((value / total) * 100) + "%";
+        });
+      }
+
+      function persistColumnWidths(table, cols) {
+        var widths = cols.map(function (col) {
+          return col.getBoundingClientRect().width;
+        });
+        var total = widths.reduce(function (sum, value) {
+          return sum + value;
+        }, 0);
+        if (!total) return;
+        localStorage.setItem(
+          storageKey(table),
+          widths.map(function (value) {
+            return ((value / total) * 100).toFixed(4) + "%";
+          }).join(",")
+        );
+      }
+
+      function applyColumnWidthsToProject(table, widths) {
+        var projectId = table.getAttribute("data-project-id") || "";
+        document.querySelectorAll('.tasks-table[data-project-id="' + projectId + '"]').forEach(function (projectTable) {
+          var projectCols = Array.prototype.slice.call(projectTable.querySelectorAll("colgroup col"));
+          widths.forEach(function (width, index) {
+            if (!projectCols[index]) return;
+            projectCols[index].style.width = width;
+          });
+        });
       }
 
       document.querySelectorAll(".tasks-table").forEach(function (table) {
@@ -2086,11 +2173,7 @@
         if (!colgroup) return;
         var cols = Array.prototype.slice.call(colgroup.querySelectorAll("col"));
         var saved = localStorage.getItem(storageKey(table));
-        if (saved) {
-          saved.split(",").forEach(function (width, index) {
-            if (cols[index] && width) cols[index].style.width = width.trim();
-          });
-        }
+        applySavedColumnWidths(cols, saved);
 
         table.querySelectorAll(".col-resizer").forEach(function (resizer) {
           if (resizer.dataset.chromeFallbackBound === "1") return;
@@ -2107,7 +2190,12 @@
             function onMove(moveEvent) {
               var delta = moveEvent.clientX - startX;
               var nextWidth = Math.max(80, startWidth + delta);
-              cols[colIndex].style.width = nextWidth + "px";
+              var widths = cols.map(function (col, index) {
+                if (index === colIndex) return nextWidth + "px";
+                if (index === nextIndex && cols[nextIndex]) return Math.max(80, startNextWidth - delta) + "px";
+                return col.style.width || (col.getBoundingClientRect().width + "px");
+              });
+              applyColumnWidthsToProject(table, widths);
               if (cols[nextIndex]) {
                 cols[nextIndex].style.width = Math.max(80, startNextWidth - delta) + "px";
               }
@@ -2116,10 +2204,7 @@
             function onUp() {
               document.removeEventListener("mousemove", onMove);
               document.removeEventListener("mouseup", onUp);
-              localStorage.setItem(
-                storageKey(table),
-                cols.map(function (col) { return col.style.width || (col.getBoundingClientRect().width + "px"); }).join(",")
-              );
+              persistColumnWidths(table, cols);
             }
 
             document.addEventListener("mousemove", onMove);
@@ -3627,7 +3712,9 @@
           titleInput.value = "";
           if (dueInput) dueInput.value = "";
           if (assigneeInput) assigneeInput.value = "";
-          titleInput.focus();
+          if (typeof window.__syncNewTaskRowState === "function") {
+            window.__syncNewTaskRowState(titleInput.closest(".new-row"));
+          }
           if (!row && inserted) {
             row = document.querySelector(`[data-task-row-id='${data.id}']`);
           }
@@ -3675,12 +3762,12 @@
           </h3>
         </div>
         <table class="table tasks-table" data-project-id="${projectId}" data-group-id="${groupData.id}">
-          <colgroup>
-            <col style="width: 4%;">
-            <col style="width: 46%;">
-            <col style="width: 16%;">
-            <col style="width: 14%;">
-            <col style="width: 20%;">
+	          <colgroup>
+	            <col style="width: 3%;">
+	            <col style="width: 47%;">
+	            <col style="width: 16%;">
+	            <col style="width: 14%;">
+	            <col style="width: 20%;">
           </colgroup>
           <thead>
             <tr>
@@ -3693,13 +3780,13 @@
           </thead>
           <tbody data-task-dropzone="1">
             ${canManageGroup ? `
-              <tr class="new-row">
-                <td></td>
-                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
-                <td><input class="due-input" type="date" data-new-task="due_at" data-col="2" /></td>
-                <td><span class="tag">open</span></td>
-                <td><div class="cell-controls"><input placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" /></div></td>
-              </tr>` : ""}
+	              <tr class="new-row">
+	                <td></td>
+	                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
+	                <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" value="" disabled tabindex="-1" /></div></td>
+	                <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
+	                <td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>
+	              </tr>` : ""}
           </tbody>
         </table>
       `;
@@ -4046,6 +4133,7 @@
     document.addEventListener("keydown", (event) => {
       const cell = event.target.closest(".editable");
       if (!cell) return;
+      if (event.defaultPrevented) return;
       if (event.key === "Enter") {
         event.preventDefault();
         cell.blur();
@@ -4091,28 +4179,67 @@
       if (!table) return;
       const newRow = table.querySelector(".new-row");
       if (!newRow) return;
+      if (newRow.dataset.newTaskPrimaryBound === "1") return;
       newRow.dataset.newTaskPrimaryBound = "1";
       const titleInput = newRow.querySelector("[data-new-task='title']");
       const dueInput = newRow.querySelector("[data-new-task='due_at']");
       const assigneeInput = newRow.querySelector("[data-new-task='assignee_email']");
       if (!titleInput) return;
 
+      const syncNewTaskRowState = (row) => {
+        if (!row) return;
+        const rowTitleInput = row.querySelector("[data-new-task='title']");
+        const rowDueInput = row.querySelector("[data-new-task='due_at']");
+        const rowAssigneeInput = row.querySelector("[data-new-task='assignee_email']");
+        const rowStatus = row.querySelector("[data-new-task-status]");
+        const hasTitle = Boolean(rowTitleInput && rowTitleInput.value.trim());
+        row.classList.toggle("is-empty", !hasTitle);
+        if (rowDueInput) {
+          rowDueInput.disabled = !hasTitle;
+          rowDueInput.tabIndex = hasTitle ? 0 : -1;
+        }
+        if (rowAssigneeInput) {
+          rowAssigneeInput.disabled = !hasTitle;
+          rowAssigneeInput.tabIndex = hasTitle ? 0 : -1;
+        }
+        if (rowStatus) {
+          rowStatus.setAttribute("aria-hidden", hasTitle ? "false" : "true");
+        }
+      };
+      window.__syncNewTaskRowState = syncNewTaskRowState;
+      syncNewTaskRowState(newRow);
+
+      titleInput.addEventListener("input", () => {
+        syncNewTaskRowState(newRow);
+      });
+
       titleInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
+        if (event.key === "Enter" || event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
           event.stopPropagation();
-          createTaskFromRow(table, titleInput, dueInput, assigneeInput);
+          titleInput.dataset.focusPlaceholderAfterCreate = event.key === "Enter" ? "1" : "";
+          titleInput.blur();
         }
       });
 
+      titleInput.addEventListener("blur", () => {
+        const nextTitle = titleInput.value.trim();
+        const shouldFocusPlaceholder = titleInput.dataset.focusPlaceholderAfterCreate === "1";
+        delete titleInput.dataset.focusPlaceholderAfterCreate;
+        syncNewTaskRowState(newRow);
+        if (!nextTitle || titleInput.dataset.creatingTask === "1") return;
+        titleInput.dataset.creatingTask = "1";
+        createTaskFromRow(table, titleInput, dueInput, assigneeInput)
+          .finally(() => {
+            delete titleInput.dataset.creatingTask;
+            syncNewTaskRowState(newRow);
+            if (shouldFocusPlaceholder && typeof window.__focusNewTaskPlaceholder === "function") {
+              window.__focusNewTaskPlaceholder(table);
+            }
+          });
+      });
+
       if (dueInput) {
-        dueInput.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            event.stopPropagation();
-            createTaskFromRow(table, titleInput, dueInput, assigneeInput);
-          }
-        });
         dueInput.addEventListener("blur", () => {
           setInvalid(dueInput, !isValidDate(dueInput.value.trim()), "Use YYYY-MM-DD");
         });
@@ -4141,34 +4268,6 @@
 
     tasksTables.forEach(bindNewTaskRow);
     document.querySelectorAll(".due-input").forEach(bindDueInput);
-
-    document.addEventListener("keydown", (event) => {
-      const newTaskInput = event.target.closest("[data-new-task]");
-      if (!newTaskInput || event.key !== "Enter") return;
-      const table = newTaskInput.closest(".tasks-table");
-      if (!table) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const titleInput = table.querySelector(".new-row [data-new-task='title']");
-      const dueInput = table.querySelector(".new-row [data-new-task='due_at']");
-      const assigneeInput = table.querySelector(".new-row [data-new-task='assignee_email']");
-      if (!titleInput) return;
-      if (newTaskInput.getAttribute("data-new-task") === "assignee_email") {
-        const raw = (assigneeInput && assigneeInput.value || "").trim();
-        if (!raw) return;
-        createTaskFromRow(table, titleInput, dueInput, assigneeInput).then((created) => {
-          if (!created) return;
-          const container = created.row ? created.row.querySelector(".assignments") : null;
-          raw
-            .split(/[\s,]+/)
-            .map((e) => e.trim())
-            .filter((e) => e && e.includes("@"))
-            .forEach((email) => createAssignment("task", created.id, email, container));
-        });
-        return;
-      }
-      createTaskFromRow(table, titleInput, dueInput, assigneeInput);
-    });
 
     document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
     document.querySelectorAll("[data-info-edit]").forEach(bindInfoButton);
@@ -4301,21 +4400,50 @@
       applyDueInput(input);
     });
 
-    const initColumnResizers = () => {
-      const tables = Array.from(document.querySelectorAll(".tasks-table"));
-      const storageKey = (table) => `colWidths:${table.getAttribute("data-project-id")}:${table.getAttribute("data-group-id") || "all"}`;
+	    const initColumnResizers = () => {
+	      const tables = Array.from(document.querySelectorAll(".tasks-table"));
+	      const storageKey = (table) => `colWidths:${table.getAttribute("data-project-id") || ""}`;
+	      const applySavedColumnWidths = (cols, saved) => {
+	        if (!saved) return;
+	        const values = saved.split(",").map((width) => width.trim()).filter(Boolean);
+	        if (!values.length) return;
+	        const parsed = values.map((width) => {
+	          const numeric = parseFloat(width);
+	          return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+	        });
+	        const total = parsed.reduce((sum, value) => sum + (value || 0), 0);
+	        if (!total) return;
+	        parsed.forEach((value, idx) => {
+	          if (!cols[idx] || !value) return;
+	          cols[idx].style.width = `${(value / total) * 100}%`;
+	        });
+	      };
+	      const persistColumnWidths = (table, cols) => {
+	        const widths = cols.map((col) => col.getBoundingClientRect().width);
+	        const total = widths.reduce((sum, value) => sum + value, 0);
+	        if (!total) return;
+	        localStorage.setItem(
+	          storageKey(table),
+	          widths.map((value) => `${((value / total) * 100).toFixed(4)}%`).join(",")
+	        );
+	      };
+	      const applyColumnWidthsToProject = (table, widths) => {
+	        const projectId = table.getAttribute("data-project-id") || "";
+	        document.querySelectorAll(`.tasks-table[data-project-id="${projectId}"]`).forEach((projectTable) => {
+	          const projectCols = Array.from(projectTable.querySelectorAll("colgroup col"));
+	          widths.forEach((width, idx) => {
+	            if (!projectCols[idx]) return;
+	            projectCols[idx].style.width = width;
+	          });
+	        });
+	      };
 
-      tables.forEach((table) => {
-        const colgroup = table.querySelector("colgroup");
-        if (!colgroup) return;
-        const cols = Array.from(colgroup.querySelectorAll("col"));
-        const saved = localStorage.getItem(storageKey(table));
-        if (saved) {
-          const widths = saved.split(",").map((w) => w.trim());
-          widths.forEach((w, idx) => {
-            if (cols[idx]) cols[idx].style.width = w;
-          });
-        }
+	      tables.forEach((table) => {
+	        const colgroup = table.querySelector("colgroup");
+	        if (!colgroup) return;
+	        const cols = Array.from(colgroup.querySelectorAll("col"));
+	        const saved = localStorage.getItem(storageKey(table));
+	        applySavedColumnWidths(cols, saved);
 
         table.querySelectorAll(".col-resizer").forEach((resizer) => {
           resizer.addEventListener("mousedown", (event) => {
@@ -4325,19 +4453,22 @@
             const startWidth = cols[colIndex] ? cols[colIndex].getBoundingClientRect().width : 0;
             const nextIndex = colIndex + 1;
             const startNextWidth = cols[nextIndex] ? cols[nextIndex].getBoundingClientRect().width : 0;
-            const onMove = (moveEvent) => {
-              const delta = moveEvent.clientX - startX;
-              const next = Math.max(80, startWidth + delta);
-              const nextSibling = Math.max(80, startNextWidth - delta);
-              if (cols[colIndex]) cols[colIndex].style.width = `${next}px`;
-              if (cols[nextIndex]) cols[nextIndex].style.width = `${nextSibling}px`;
-            };
-            const onUp = () => {
-              document.removeEventListener("mousemove", onMove);
-              document.removeEventListener("mouseup", onUp);
-              const widths = cols.map((c) => c.style.width || `${c.getBoundingClientRect().width}px`);
-              localStorage.setItem(storageKey(table), widths.join(","));
-            };
+	            const onMove = (moveEvent) => {
+	              const delta = moveEvent.clientX - startX;
+	              const next = Math.max(80, startWidth + delta);
+	              const nextSibling = Math.max(80, startNextWidth - delta);
+	              const widths = cols.map((col, idx) => {
+	                if (idx === colIndex) return `${next}px`;
+	                if (idx === nextIndex && cols[nextIndex]) return `${nextSibling}px`;
+	                return col.style.width || `${col.getBoundingClientRect().width}px`;
+	              });
+	              applyColumnWidthsToProject(table, widths);
+	            };
+	            const onUp = () => {
+	              document.removeEventListener("mousemove", onMove);
+	              document.removeEventListener("mouseup", onUp);
+	              persistColumnWidths(table, cols);
+	            };
             document.addEventListener("mousemove", onMove);
             document.addEventListener("mouseup", onUp);
           });
@@ -6869,7 +7000,13 @@
 
     function insertTaskRowByPosition(tbody, row, taskId, position) {
       if (!tbody || !row) return;
-      var numericPosition = Number(position || 0);
+      var hasPosition = position !== null && position !== undefined && position !== "" && Number.isFinite(Number(position));
+      if (!hasPosition) {
+        var appendTarget = tbody.querySelector(".new-row");
+        tbody.insertBefore(row, appendTarget || null);
+        return;
+      }
+      var numericPosition = Number(position);
       var numericTaskId = Number(taskId || 0);
       var rows = Array.from(tbody.querySelectorAll('tr[data-task-row-id]')).filter(function (item) {
         return String(item.getAttribute("data-task-row-id")) !== String(taskId);

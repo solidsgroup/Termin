@@ -5,6 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title or "Termin" }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <style>
@@ -94,6 +95,26 @@
       .header-brand a {
         color: inherit;
         text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .header-brand-logo {
+        display: block;
+        width: auto;
+        height: 34px;
+      }
+
+      .header-brand-logo.is-light {
+        display: none;
+      }
+
+      body[data-theme="light"] .header-brand-logo.is-dark {
+        display: none;
+      }
+
+      body[data-theme="light"] .header-brand-logo.is-light {
+        display: block;
       }
 
       .header-center {
@@ -115,6 +136,12 @@
         font-size: 22px;
         letter-spacing: 1px;
         text-transform: uppercase;
+      }
+
+      @media (max-width: 720px) {
+        .header-brand-logo {
+          height: 28px;
+        }
       }
 
       .account-shell {
@@ -580,6 +607,7 @@
         display: grid;
         grid-template-columns: 240px 1fr;
         min-height: calc(100vh - 54px);
+        min-width: 0;
       }
 
       .sidebar {
@@ -810,10 +838,14 @@
 
       .content {
         padding: 16px 18px 32px;
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: clip;
       }
 
       body[data-theme="light"] .content {
-        overflow-x: hidden;
+        overflow-x: clip;
       }
 
       .auth-page {
@@ -2518,7 +2550,6 @@
 
       .panel.group .table {
         border-left: 3px solid var(--group-color, var(--border));
-        border-radius: 10px;
         padding-left: 6px;
         background: color-mix(in srgb, var(--panel) 94%, transparent);
         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 18%, transparent);
@@ -2847,6 +2878,13 @@
         table-layout: fixed;
       }
 
+      .tasks-table {
+        border-collapse: separate;
+        border-spacing: 0;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+
       .table th, .table td {
         text-align: left;
         padding: 6px 6px;
@@ -2887,6 +2925,17 @@
       .table th:last-child,
       .table td:last-child {
         border-right: none;
+      }
+
+      .tasks-table th:first-child,
+      .tasks-table td:first-child {
+        border-right: none;
+        padding-right: 0;
+      }
+
+      .tasks-table th:nth-child(2),
+      .tasks-table td:nth-child(2) {
+        padding-left: 0;
       }
 
       .table tbody tr:hover {
@@ -3133,7 +3182,8 @@
       .row-controls {
         display: flex;
         align-items: center;
-        gap: 2px;
+        justify-content: center;
+        min-height: 18px;
       }
 
       .task-drag-handle {
@@ -3141,9 +3191,11 @@
         background: transparent;
         color: var(--muted);
         cursor: grab;
-        font-size: 12px;
-        padding: 0 4px;
+        font-size: 11px;
+        padding: 0 6px 0 8px;
         line-height: 1;
+        letter-spacing: -1px;
+        opacity: 0.84;
       }
 
       .task-drag-handle:hover {
@@ -3170,6 +3222,13 @@
         display: flex;
         align-items: center;
         gap: 6px;
+      }
+
+      .new-row.is-empty .due-cell,
+      .new-row.is-empty [data-new-task-status],
+      .new-row.is-empty .assignments {
+        opacity: 0;
+        pointer-events: none;
       }
 
       .table .editable {
@@ -4227,7 +4286,18 @@
   <body data-theme="{{ active_theme }}">
     <header>
       <div class="header-brand">
-        <a href="{{ url_for('ui.dashboard') }}"><h1>Termin</h1></a>
+        <a href="{{ url_for('ui.dashboard') }}" aria-label="Termin dashboard">
+          <img
+            class="header-brand-logo is-dark"
+            src="{{ url_for('static', filename='brand/termin-dark-full.svg') }}"
+            alt="Termin"
+          />
+          <img
+            class="header-brand-logo is-light"
+            src="{{ url_for('static', filename='brand/termin-light-full.svg') }}"
+            alt="Termin"
+          />
+        </a>
       </div>
       <div class="header-center">
         {% if current_view is defined %}
