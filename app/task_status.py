@@ -123,7 +123,10 @@ def task_status_meta(task: Task, *, viewer_user_id: int | None = None, rows_by_t
     viewer_status = None
     viewer_is_assignee = False
     if viewer_user_id is not None:
-        viewer_status = next((row["status"] for row in statuses if int(row["user_id"]) == int(viewer_user_id)), None)
+        viewer_status = next(
+            (row["status"] for row in statuses if row["user_id"] is not None and int(row["user_id"]) == int(viewer_user_id)),
+            None,
+        )
         viewer_is_assignee = any(row["user_id"] is not None and int(row["user_id"]) == int(viewer_user_id) for row in statuses)
     enabled = bool(getattr(task, "per_user_status_enabled", False))
     base_status = normalize_task_status(task.status)
