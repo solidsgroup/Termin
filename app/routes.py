@@ -1,5 +1,7 @@
 from datetime import datetime
 from pathlib import Path
+import re
+from urllib.parse import urlparse
 
 from flask import Blueprint, current_app, request, send_from_directory
 
@@ -75,6 +77,9 @@ from app.utils import current_user, is_admin as user_is_admin
 
 
 api_bp = Blueprint("api", __name__)
+
+
+URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 
 
 @api_bp.get("/me")
@@ -241,6 +246,33 @@ def _serialize_assignment_row(assignment: Assignment) -> dict:
         "display_email": account_user.email if account_user else assignment.email,
         "avatar_url": account_user.avatar_url if account_user else None,
     }
+
+
+def _merge_comment_links(item, body: str) -> bool:
+    candidates = []
+    for match in URL_PATTERN.findall(body or ""):
+        link = match.rstrip('.,;:!?)]}\'"')
+        parsed = urlparse(link)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if link not in candidates:
+            candidates.append(link)
+    if not candidates:
+        return False
+    info_payload = load_info_payload(getattr(item, "info", None), getattr(item, "link", None))
+    links = list(info_payload.get("links", []))
+    changed = False
+    for link in candidates:
+        if link in links:
+            continue
+        links.append(link)
+        changed = True
+    if not changed:
+        return False
+    info_payload["links"] = links
+    item.link = links[0] if links else None
+    item.info = normalize_info_payload(info_payload, item.link)
+    return True
 
 
 def _serialize_task_row(task: Task) -> dict:
@@ -704,6 +736,7 @@ def create_task_comment(task_id: int):
     comment = TaskComment(task_id=task.id, user_id=user.id, body=body)
     db.session.add(comment)
     db.session.flush()
+    links_changed = _merge_comment_links(task, body)
 
     for recipient_id in _task_notification_user_ids(task):
         if recipient_id == user.id:
@@ -721,6 +754,8 @@ def create_task_comment(task_id: int):
 
     db.session.commit()
     comment_count = TaskComment.query.filter_by(task_id=task.id).count()
+    if links_changed:
+        emit_task_updated(task, actor_user_id=user.id)
     emit_task_comment_created(task.id, _serialize_task_comment(comment, user))
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"comment": _serialize_task_comment(comment, user), "comment_count": comment_count}, 201
@@ -807,9 +842,11 @@ def create_project_comment(project_id: int):
 
     comment = ProjectComment(project_id=project.id, user_id=user.id, body=body)
     db.session.add(comment)
+    _merge_comment_links(project, body)
     db.session.commit()
     comment_count = ProjectComment.query.filter_by(project_id=project.id).count()
     payload = _serialize_simple_comment(comment, user, project_id=project.id)
+    emit_project_updated(project, actor_user_id=user.id)
     emit_project_comment_created(project.id, payload)
     return {"comment": payload, "comment_count": comment_count}, 201
 
@@ -895,9 +932,11 @@ def create_group_comment(group_id: int):
 
     comment = GroupComment(group_id=group.id, user_id=user.id, body=body)
     db.session.add(comment)
+    _merge_comment_links(group, body)
     db.session.commit()
     comment_count = GroupComment.query.filter_by(group_id=group.id).count()
     payload = _serialize_simple_comment(comment, user, group_id=group.id)
+    emit_group_updated(group, actor_user_id=user.id)
     emit_group_comment_created(group.id, payload)
     return {"comment": payload, "comment_count": comment_count}, 201
 

@@ -66,6 +66,8 @@
         font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
         background: radial-gradient(circle at top, #141a24 0%, var(--bg) 55%, #0a0d12 100%);
         color: var(--ink);
+        height: 100vh;
+        overflow: hidden;
       }
 
       body[data-theme="light"] {
@@ -82,7 +84,8 @@
         border-bottom: 1px solid var(--border);
         background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
         backdrop-filter: blur(8px);
-        position: relative;
+        position: sticky;
+        top: 0;
         z-index: 180;
       }
 
@@ -223,6 +226,7 @@
         padding: 10px 12px;
         border-radius: 12px;
         border: 1px solid transparent;
+        min-width: 0;
       }
 
       .notifications-item:hover {
@@ -240,7 +244,11 @@
 
       .notifications-open {
         flex: 1 1 auto;
+        display: block;
+        width: 100%;
         min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
         background: none;
         border: 0;
         padding: 0;
@@ -299,14 +307,22 @@
       }
 
       .notifications-title {
+        display: block;
+        max-width: 100%;
         font-size: 12px;
         font-weight: 600;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .notifications-copy {
+        display: block;
+        max-width: 100%;
         font-size: 11px;
         color: var(--muted);
         margin-top: 2px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .account-trigger {
@@ -601,12 +617,15 @@
       main {
         padding: 0;
         margin: 0;
+        height: calc(100vh - 55px);
+        min-height: 0;
       }
 
       .layout {
         display: grid;
         grid-template-columns: 240px 1fr;
-        min-height: calc(100vh - 54px);
+        height: 100%;
+        min-height: 0;
         min-width: 0;
       }
 
@@ -614,6 +633,16 @@
         border-right: 1px solid var(--border);
         background: color-mix(in srgb, var(--panel-alt) 78%, var(--panel) 22%);
         padding: 16px 14px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        min-height: 0;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .sidebar::-webkit-scrollbar {
+        width: 0;
+        height: 0;
       }
 
       .sidebar.todo-tree {
@@ -974,9 +1003,12 @@
       .content {
         padding: 16px 18px 32px;
         min-width: 0;
+        min-height: 0;
         width: 100%;
+        height: 100%;
         max-width: 100%;
         overflow-x: clip;
+        overflow-y: auto;
       }
 
       .dashboard-notice {
@@ -2024,6 +2056,8 @@
         white-space: pre-wrap;
         font-size: 13px;
         line-height: 1.45;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .discussion-comment-editor {
@@ -2069,6 +2103,8 @@
         color: var(--accent);
         text-decoration: underline;
         text-underline-offset: 2px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .discussion-compose {
@@ -4512,11 +4548,13 @@
 
         .layout {
           grid-template-columns: 1fr;
+          height: 100%;
         }
 
         .sidebar {
           border-right: none;
           border-bottom: 1px solid var(--border);
+          max-height: 40vh;
         }
       }
     </style>
@@ -4603,10 +4641,9 @@
                         data-notification-open='{{ {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id, "kind": item.kind}|tojson|forceescape }}'
                         data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='project', show_completed=1 if show_completed else 0) if item.project_id else url_for('ui.dashboard', show_completed=1 if show_completed else 0) }}"
                       >
-                        <div class="notifications-title">{{ item.task_title }}</div>
+                        <div class="notifications-title">{{ item.sender_name }}</div>
                         <div class="notifications-copy">
-                          {% if item.project_name %}{{ item.project_name }} · {% endif %}
-                          {{ item.comment_preview or 'New message' }}
+                          {{ item.task_title }}{% if item.project_name %} · {{ item.project_name }}{% endif %}{% if item.comment_preview %} · {{ item.comment_preview }}{% endif %}
                         </div>
                       </button>
                       <div class="notifications-actions">

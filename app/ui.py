@@ -930,18 +930,37 @@ def dashboard():
         row.id: row
         for row in Task.query.filter(Task.id.in_(notification_task_ids)).all()
     } if notification_task_ids else {}
+    notification_author_ids = sorted({row.user_id for row in notification_comments.values() if row and row.user_id})
+    notification_collaborator_ids = sorted({row.collaborator_id for row in notification_comments.values() if row and row.collaborator_id})
+    notification_authors = {
+        row.id: row
+        for row in User.query.filter(User.id.in_(notification_author_ids)).all()
+    } if notification_author_ids else {}
+    notification_collaborators = {
+        row.id: row
+        for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(notification_collaborator_ids)).all()
+    } if notification_collaborator_ids else {}
     task_notifications = []
     message_notifications = []
     for row in notification_rows:
         task = notification_tasks.get(row.task_id)
         comment = notification_comments.get(row.comment_id)
         project = project_map.get(task.project_id) if task else None
+        sender_name = None
+        if comment:
+            if comment.user_id:
+                author = notification_authors.get(comment.user_id)
+                sender_name = (author.display_name or author.email) if author else None
+            elif comment.collaborator_id:
+                collaborator = notification_collaborators.get(comment.collaborator_id)
+                sender_name = (collaborator.display_name or collaborator.email) if collaborator else None
         item = {
             "id": row.id,
             "task_id": row.task_id,
             "task_title": task.title if task else "Task",
             "project_id": project.id if project else None,
             "project_name": project.name if project else None,
+            "sender_name": sender_name or "New message",
             "comment_preview": ((comment.body[:120] + "…") if comment and len(comment.body) > 120 else (comment.body if comment else "")),
             "created_at": row.created_at,
             "pinned": bool(getattr(row, "pinned", False)),

@@ -10,6 +10,7 @@ from app.extensions import db, socketio
 from app.info_utils import load_info_payload
 from app.models import (
     Assignment,
+    CollaboratorProfile,
     Group,
     GroupComment,
     GroupMember,
@@ -20,6 +21,7 @@ from app.models import (
     Task,
     TaskComment,
     TaskNotification,
+    User,
 )
 from app.utils import current_user
 
@@ -257,6 +259,16 @@ def notification_payload_for_user(user_id: int) -> dict:
         row.id: row
         for row in TaskComment.query.filter(TaskComment.id.in_(comment_ids)).all()
     } if comment_ids else {}
+    author_ids = sorted({row.user_id for row in comments.values() if row and row.user_id})
+    collaborator_ids = sorted({row.collaborator_id for row in comments.values() if row and row.collaborator_id})
+    authors = {
+        row.id: row
+        for row in User.query.filter(User.id.in_(author_ids)).all()
+    } if author_ids else {}
+    collaborators = {
+        row.id: row
+        for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(collaborator_ids)).all()
+    } if collaborator_ids else {}
     tasks = {
         row.id: row
         for row in Task.query.filter(Task.id.in_(task_ids)).all()
@@ -273,6 +285,14 @@ def notification_payload_for_user(user_id: int) -> dict:
         task = tasks.get(row.task_id)
         comment = comments.get(row.comment_id)
         project = projects.get(task.project_id) if task else None
+        sender_name = None
+        if comment:
+            if comment.user_id:
+                author = authors.get(comment.user_id)
+                sender_name = (author.display_name or author.email) if author else None
+            elif comment.collaborator_id:
+                collaborator = collaborators.get(comment.collaborator_id)
+                sender_name = (collaborator.display_name or collaborator.email) if collaborator else None
         preview = ""
         if row.kind == "comment":
             if comment and comment.body:
@@ -295,6 +315,7 @@ def notification_payload_for_user(user_id: int) -> dict:
             "kind": row.kind,
             "pinned": bool(row.pinned),
             "read": row.read_at is not None,
+            "sender_name": sender_name or "New message",
             "preview": preview,
             "comment_preview": preview,
             "created_at": row.created_at.isoformat(),

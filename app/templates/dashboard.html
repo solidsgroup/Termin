@@ -310,6 +310,7 @@
           <div class="todo-assignee-menu" data-todo-assignee-menu hidden>
             <div class="todo-assignee-actions">
               <button class="btn secondary" type="button" data-todo-assignees-all>All</button>
+              <button class="btn secondary" type="button" data-todo-assignees-me>Just me</button>
               <button class="btn secondary" type="button" data-todo-assignees-none>None</button>
             </div>
             <div class="todo-assignee-list" data-todo-assignee-list>
@@ -6522,6 +6523,13 @@
       drawer.setAttribute("data-entity-type", currentEntityType);
     }
 
+    function scrollDiscussionToBottom() {
+      if (!listEl) return;
+      window.requestAnimationFrame(function () {
+        listEl.scrollTop = listEl.scrollHeight;
+      });
+    }
+
     function setDrawerTab(tab) {
       activeDrawerTab = (tab === "settings" || tab === "links" || tab === "messages") ? tab : "messages";
       document.querySelectorAll("[data-drawer-tab]").forEach(function (button) {
@@ -6534,6 +6542,9 @@
         presenceEl.style.display = activeDrawerTab === "messages" ? "" : "none";
       }
       syncTaskRoom(drawer.classList.contains("open") && activeDrawerTab === "messages" && currentEntityType === "task" ? currentTaskId : null);
+      if (drawer.classList.contains("open") && activeDrawerTab === "messages") {
+        scrollDiscussionToBottom();
+      }
     }
 
     function faviconCandidates(link) {
@@ -6888,6 +6899,7 @@
       if (currentEntityType !== "task" || !currentTaskId) return "";
       var url = new URL(window.location.href);
       url.searchParams.set("view", "project");
+      url.searchParams.set("show_completed", "1");
       url.searchParams.set("open_discussion_task_id", String(currentTaskId));
       url.searchParams.delete("project_id");
       return url.toString();
@@ -7231,8 +7243,14 @@
         return;
       }
       menu.innerHTML = items.map(function (item) {
-        var project = item.project_name ? escapeHtml(item.project_name) + " · " : "";
         var preview = item.preview || item.comment_preview || "New activity";
+        var isMessage = (item.kind || kind) === "comment" || kind === "message";
+        var title = isMessage ? (item.sender_name || "New message") : (item.task_title || "Task");
+        var copy = isMessage
+          ? escapeHtml(item.task_title || "Task") +
+            (item.project_name ? " · " + escapeHtml(item.project_name) : "") +
+            (preview ? " · " + escapeHtml(preview) : "")
+          : (item.project_name ? escapeHtml(item.project_name) + " · " : "") + escapeHtml(preview);
         return (
           '<div class="notifications-item' + (item.pinned ? ' is-pinned' : '') + '" data-notification-id="' + item.id + '">' +
             '<button class="notifications-open" type="button" data-notification-open=\'' + escapeHtml(JSON.stringify({
@@ -7241,8 +7259,8 @@
               project_id: item.project_id || "",
               kind: item.kind || kind,
             })) + '\' data-notification-href="' + escapeHtml(notificationHref(item)) + '">' +
-              '<div class="notifications-title">' + escapeHtml(item.task_title || "Task") + '</div>' +
-              '<div class="notifications-copy">' + project + escapeHtml(preview) + '</div>' +
+              '<div class="notifications-title">' + escapeHtml(title) + '</div>' +
+              '<div class="notifications-copy">' + copy + '</div>' +
             '</button>' +
             '<div class="notifications-actions">' +
               '<button class="notifications-action icon' + (item.pinned ? ' is-active' : '') + '" type="button" data-notification-pin="' + item.id + '" title="' + (item.pinned ? 'Unpin' : 'Pin') + '" aria-label="' + (item.pinned ? 'Unpin' : 'Pin') + '">' +
@@ -7838,6 +7856,7 @@
             setTaskUnread(entityId, false);
             markRead(entityId);
           }
+          scrollDiscussionToBottom();
         })
         .catch(function (err) {
           console.error("loadComments failed", err);
@@ -7908,7 +7927,7 @@
           var domCount = listEl ? listEl.querySelectorAll("[data-comment-id]").length : 0;
           var serverCount = typeof data.comment_count === "number" ? data.comment_count : 0;
           setCommentCount(currentEntityType, currentEntityId, Math.max(previousCount + 1, domCount, serverCount));
-          listEl.scrollTop = listEl.scrollHeight;
+          scrollDiscussionToBottom();
         })
         .catch(function (err) {
           console.error("submitComment failed", err);
@@ -8303,7 +8322,7 @@
     })();
 
     inputEl.addEventListener("keydown", function (event) {
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         submitComment();
       }
@@ -8431,7 +8450,7 @@
         commentSnapshot = JSON.stringify(comments);
         syncCommentCount("task", data.task_id);
         if (inserted) {
-          listEl.scrollTop = listEl.scrollHeight;
+          scrollDiscussionToBottom();
         }
         setTaskUnread(data.task_id, false);
         markRead(data.task_id);
@@ -8466,7 +8485,7 @@
         commentSnapshot = JSON.stringify(comments);
         syncCommentCount("project", data.project_id);
         if (inserted) {
-          listEl.scrollTop = listEl.scrollHeight;
+          scrollDiscussionToBottom();
         }
       });
 
@@ -8499,7 +8518,7 @@
         commentSnapshot = JSON.stringify(comments);
         syncCommentCount("group", data.group_id);
         if (inserted) {
-          listEl.scrollTop = listEl.scrollHeight;
+          scrollDiscussionToBottom();
         }
       });
 
@@ -8838,7 +8857,7 @@
             setTaskUnread(currentTaskId, false);
             markRead(currentTaskId);
           }
-          listEl.scrollTop = listEl.scrollHeight;
+          scrollDiscussionToBottom();
         })
         .catch(function () {});
     }
@@ -9085,6 +9104,16 @@
         if (assigneesAll) {
           document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
             cb.checked = true;
+          });
+          applyFilters();
+          saveState();
+          return;
+        }
+        var assigneesMe = event.target.closest("[data-todo-assignees-me]");
+        if (assigneesMe) {
+          var myAssigneeKey = "user:" + String(currentUserId || "");
+          document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
+            cb.checked = String(cb.getAttribute("data-todo-assignee")) === myAssigneeKey;
           });
           applyFilters();
           saveState();
