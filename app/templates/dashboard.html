@@ -387,6 +387,9 @@
   </aside>
 
   <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
+    {% if dashboard_notice %}
+      <div class="dashboard-notice" role="alert">{{ dashboard_notice }}</div>
+    {% endif %}
     {% if current_view == 'todo' %}
       <div class="todo-board" data-todo-resize>
         {% for date_group in todo_groups_by_date %}
@@ -759,6 +762,9 @@
     </div>
   </div>
   <div class="discussion-pane" id="discussion-links-pane" data-drawer-pane="links">
+    <div class="discussion-links-actions" id="discussion-links-actions" hidden>
+      <button class="btn secondary" type="button" id="copy-task-permalink">Copy task permalink</button>
+    </div>
     <div class="discussion-links-list" id="discussion-links-list"></div>
   </div>
 </aside>
@@ -6099,7 +6105,9 @@
     var titleEl = document.getElementById("discussion-title");
     var subtitleEl = document.getElementById("discussion-subtitle");
     var presenceEl = document.getElementById("discussion-presence");
+    var linksActionsEl = document.getElementById("discussion-links-actions");
     var linksListEl = document.getElementById("discussion-links-list");
+    var copyTaskPermalinkEl = document.getElementById("copy-task-permalink");
     var taskSettingsTitleEl = document.getElementById("task-settings-title");
     var taskSettingsDueEl = document.getElementById("task-settings-due");
     var taskSettingsStatusEl = document.getElementById("task-settings-status");
@@ -6843,6 +6851,9 @@
     }
 
     function renderEntityLinkState() {
+      if (linksActionsEl) {
+        linksActionsEl.hidden = !(currentEntityType === "task" && currentTaskData && currentTaskData.project_id);
+      }
       if (!linksListEl) return;
       var links = Array.isArray(currentEntityLinks) ? currentEntityLinks : [];
       var items = links.map(function (link, index) {
@@ -6871,6 +6882,42 @@
         '</div>'
       );
       linksListEl.innerHTML = items.join('');
+    }
+
+    function taskPermalinkForCurrentDrawer() {
+      if (currentEntityType !== "task" || !currentTaskId) return "";
+      var url = new URL(window.location.href);
+      url.searchParams.set("view", "project");
+      url.searchParams.set("open_discussion_task_id", String(currentTaskId));
+      url.searchParams.delete("project_id");
+      return url.toString();
+    }
+
+    function copyTextToClipboard(value) {
+      if (!value) return Promise.reject(new Error("No value to copy"));
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(value);
+      }
+      return new Promise(function (resolve, reject) {
+        var input = document.createElement("textarea");
+        input.value = value;
+        input.setAttribute("readonly", "readonly");
+        input.style.position = "fixed";
+        input.style.opacity = "0";
+        input.style.pointerEvents = "none";
+        document.body.appendChild(input);
+        input.select();
+        input.setSelectionRange(0, input.value.length);
+        try {
+          var ok = document.execCommand("copy");
+          document.body.removeChild(input);
+          if (!ok) throw new Error("Copy command failed");
+          resolve();
+        } catch (err) {
+          document.body.removeChild(input);
+          reject(err);
+        }
+      });
     }
 
     function persistEntityLinks() {
@@ -8059,6 +8106,27 @@
     closeEls.forEach(function (button) {
       button.addEventListener("click", closeDrawer);
     });
+    if (copyTaskPermalinkEl) {
+      copyTaskPermalinkEl.addEventListener("click", function () {
+        var permalink = taskPermalinkForCurrentDrawer();
+        if (!permalink) return;
+        var original = copyTaskPermalinkEl.textContent;
+        copyTextToClipboard(permalink)
+          .then(function () {
+            copyTaskPermalinkEl.textContent = "Copied";
+            window.setTimeout(function () {
+              copyTaskPermalinkEl.textContent = original;
+            }, 1400);
+          })
+          .catch(function (err) {
+            console.error("copyTaskPermalink failed", err);
+            copyTaskPermalinkEl.textContent = "Copy failed";
+            window.setTimeout(function () {
+              copyTaskPermalinkEl.textContent = original;
+            }, 1400);
+          });
+      });
+    }
     sendEl.addEventListener("click", submitComment);
     listEl.addEventListener("click", function (event) {
       var unreadButton = event.target.closest("[data-comment-unread]");
@@ -8252,7 +8320,7 @@
       }
     });
 
-    var openTaskId = drawer.getAttribute("data-open-task-id");
+    var openTaskId = drawer.getAttribute("data-open-task-id") || new URLSearchParams(window.location.search).get("open_discussion_task_id") || "";
     if (openTaskId) {
       var button = document.querySelector('[data-open-discussion="' + openTaskId + '"]');
       if (button) {
@@ -9170,8 +9238,37 @@
         } catch (err) {}
       }
 
+      function visibleTodoRows() {
+        return Array.from(document.querySelectorAll(".todo-item")).filter(function (row) {
+          return row && row.offsetParent !== null && row.style.display !== "none";
+        });
+      }
+
+      function controlContentWidth(row) {
+        if (!row) return 0;
+        var controlsEl = row.querySelector(".todo-item-controls");
+        if (!controlsEl) return 0;
+        var cluster = controlsEl.querySelector(".todo-control-cluster");
+        var assignees = controlsEl.querySelector(".todo-control-assignees");
+        var clusterWidth = cluster ? cluster.scrollWidth : 0;
+        var assigneeWidth = assignees ? assignees.scrollWidth : 0;
+        return Math.ceil(clusterWidth + assigneeWidth);
+      }
+
+      function getReferenceRow() {
+        var rows = visibleTodoRows();
+        if (!rows.length) return document.querySelector(".todo-item");
+        return rows.reduce(function (best, row) {
+          if (!best) return row;
+          var bestWidth = controlContentWidth(best);
+          var rowWidth = controlContentWidth(row);
+          if (rowWidth !== bestWidth) return rowWidth > bestWidth ? row : best;
+          return (row.clientWidth || 0) > (best.clientWidth || 0) ? row : best;
+        }, null);
+      }
+
       function getRow() {
-        return document.querySelector(".todo-item");
+        return getReferenceRow();
       }
 
       function clampToRow(widths, rowWidth, minControlsOverride) {
@@ -9217,13 +9314,10 @@
       }
 
       function getControlMinWidth() {
-        var controlsEl = document.querySelector(".todo-item-controls");
+        var row = getReferenceRow();
+        var controlsEl = row ? row.querySelector(".todo-item-controls") : null;
         if (!controlsEl) return 100;
-        var cluster = controlsEl.querySelector(".todo-control-cluster");
-        var assignees = controlsEl.querySelector(".todo-control-assignees");
-        var clusterWidth = cluster ? cluster.scrollWidth : 0;
-        var assigneeWidth = assignees ? assignees.scrollWidth : 0;
-        var total = Math.ceil(clusterWidth + assigneeWidth);
+        var total = controlContentWidth(row);
         return Math.max(60, total || controlsEl.scrollWidth);
       }
 
@@ -9277,7 +9371,7 @@
 
       function applyRatios(ratios) {
         if (!ratios) return;
-        var row = getRow();
+        var row = getReferenceRow();
         if (!row) return;
         var rowWidth = row.clientWidth;
         var controlsEl = row.querySelector(".todo-item-controls");
@@ -9321,7 +9415,7 @@
       applyCols(initial);
       applyClampedWidths();
       (function initRatios() {
-        var row = getRow();
+        var row = getReferenceRow();
         if (!row) return;
         var widths = getColWidths();
         var controlsEl = row.querySelector(".todo-item-controls");
@@ -9429,11 +9523,12 @@
       function onUp() {
         if (!activeHandle) return;
         var widths = getColWidths();
-        var row = activeRow || getRow();
+        var row = getReferenceRow() || activeRow || getRow();
         var rowWidth = row ? row.clientWidth : widths.meta + widths.main + widths.controls;
-        var controlsEl = activeControls || (row ? row.querySelector(".todo-item-controls") : null);
+        var controlsEl = row ? row.querySelector(".todo-item-controls") : (activeControls || null);
         var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
-        var outer = clampToRow(widths, rowWidth);
+        var minControls = getControlMinWidth();
+        var outer = clampToRow(widths, rowWidth, minControls);
         var inner = clampControls(widths, controlsWidth);
         var next = {
           meta: Math.round(outer.meta) + "px",
@@ -9461,13 +9556,13 @@
         event.preventDefault();
         document.body.classList.add("is-resizing");
         activeHandle = handle.getAttribute("data-resize-handle");
-        activeRow = handle.closest(".todo-item");
+        activeRow = getReferenceRow() || handle.closest(".todo-item");
         activeControls = activeRow ? activeRow.querySelector(".todo-item-controls") : null;
         var widths = getColWidths();
         startX = event.clientX;
         var rowWidth = activeRow ? activeRow.clientWidth : widths.meta + widths.main + widths.controls;
         var controlsWidth = activeControls ? activeControls.clientWidth : widths.controls;
-        var outer = clampToRow(widths, rowWidth, Math.max(60, controlsWidth));
+        var outer = clampToRow(widths, rowWidth, getControlMinWidth());
         var inner = clampControls(widths, controlsWidth);
         startMeta = outer.meta;
         startMain = outer.main;

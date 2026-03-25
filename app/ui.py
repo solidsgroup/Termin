@@ -637,13 +637,33 @@ def dashboard():
     selected_project = None
     division_color_map = {division.id: (division.color or "#4cc9f0") for division in sidebar_divisions}
     selected_id = request.args.get("project_id")
+    open_task_id = request.args.get("open_discussion_task_id")
+    selected_from_task_id = None
+    dashboard_notice = None
+    if open_task_id:
+        try:
+            open_task_id_int = int(open_task_id)
+        except ValueError:
+            open_task_id_int = None
+            dashboard_notice = "That task link is invalid."
+        if open_task_id_int:
+            open_task = Task.query.filter_by(id=open_task_id_int).first()
+            if open_task and open_task.project_id in accessible_project_ids:
+                selected_from_task_id = open_task.project_id
+                current_view = "project"
+            elif open_task:
+                dashboard_notice = "You do not have access to that task."
+            else:
+                dashboard_notice = "That task link is no longer valid."
     if projects:
+        if selected_from_task_id:
+            selected_project = next((p for p in projects if p.id == selected_from_task_id), None)
         if selected_id:
             try:
                 selected_id_int = int(selected_id)
             except ValueError:
                 selected_id_int = None
-            if selected_id_int:
+            if selected_id_int and not selected_project:
                 selected_project = next((p for p in projects if p.id == selected_id_int), None)
         if not selected_project:
             selected_project = projects[0]
@@ -975,6 +995,7 @@ def dashboard():
         unread_task_ids=unread_task_ids,
         task_notifications=task_notifications,
         message_notifications=message_notifications,
+        dashboard_notice=dashboard_notice,
     )
 
 

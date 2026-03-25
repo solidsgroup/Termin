@@ -979,6 +979,22 @@
         overflow-x: clip;
       }
 
+      .dashboard-notice {
+        margin: 0 0 14px;
+        padding: 10px 12px;
+        border: 1px solid color-mix(in srgb, #f87171 42%, var(--border) 58%);
+        border-radius: 10px;
+        background: color-mix(in srgb, #f87171 10%, var(--panel) 90%);
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      body[data-theme="light"] .dashboard-notice {
+        background: color-mix(in srgb, #fee2e2 72%, white 28%);
+        border-color: color-mix(in srgb, #ef4444 38%, var(--border) 62%);
+        color: #7f1d1d;
+      }
+
       body[data-theme="light"] .content {
         overflow-x: clip;
       }
@@ -1574,6 +1590,12 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
+      }
+
+      .discussion-links-actions {
+        padding: 14px 18px 0;
+        display: flex;
+        justify-content: flex-start;
       }
 
       .discussion-link-row {
