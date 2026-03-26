@@ -2,7 +2,9 @@ from datetime import date, datetime, timedelta
 from functools import wraps
 import hashlib
 import json
+from pathlib import Path
 import secrets
+import subprocess
 
 from flask import Blueprint, Response, current_app, redirect, render_template, request, url_for
 from sqlalchemy import func, or_
@@ -163,7 +165,20 @@ def _calendar_feed_tasks(email: str) -> list[Task]:
         .order_by(Task.due_at.asc(), Task.id.asc())
         .all()
     )
-    return tasks
+    if not tasks:
+        return []
+    status_map = task_status_meta_map(tasks, viewer_email=normalized)
+    return [
+        task
+        for task in tasks
+        if not _is_complete_status(
+            effective_task_status_for_user(
+                task,
+                viewer_email=normalized,
+                status_meta=status_map.get(task.id),
+            )
+        )
+    ]
 
 
 def _calendar_portal_url(email: str, public_base_url: str, task_id: int | None = None) -> str:
@@ -253,8 +268,9 @@ def _build_calendar_feed_ics(email: str, tasks: list[Task]) -> str:
             f"SUMMARY:{_escape_ics_text(task.title)}",
             f"DESCRIPTION:{_escape_ics_text(_calendar_event_description(task, project_map, group_map, effective_status, account_url, portal_url))}",
             "STATUS:CONFIRMED",
-            "TRANSP:OPAQUE",
-        ]
+            "TRANSP:TRANSPARENT",
+            "X-MICROSOFT-CDO-BUSYSTATUS:FREE",
+            ]
         if event_url:
             event_lines.append(f"URL:{_escape_ics_text(event_url)}")
         event_lines.append("END:VEVENT")
@@ -516,6 +532,34 @@ def _render_admin_page(template: str, *, section: str, **context):
         admin_section=section,
         **context,
     )
+
+
+def _deployment_git_info() -> dict[str, str | bool | None]:
+    repo_root = Path(__file__).resolve().parent.parent
+
+    def run_git(*args: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return (result.stdout or "").strip() or None
+
+    commit = run_git("rev-parse", "HEAD")
+    short_commit = run_git("rev-parse", "--short", "HEAD")
+    branch = run_git("rev-parse", "--abbrev-ref", "HEAD")
+    status = run_git("status", "--porcelain")
+    return {
+        "commit": commit,
+        "short_commit": short_commit,
+        "branch": branch,
+        "is_dirty": bool(status),
+    }
 
 
 def _safe_ensure_task_event(task_id: int, invitee_email: str | None = None) -> None:
@@ -1376,6 +1420,16 @@ def admin_users():
         emails_by_user=emails_by_user,
         identities_by_user=identities_by_user,
         collaborators=collaborators,
+    )
+
+
+@ui_bp.get("/admin/deployment")
+@admin_required
+def admin_deployment():
+    return _render_admin_page(
+        "admin_deployment.html",
+        section="deployment",
+        deployment=_deployment_git_info(),
     )
 
 

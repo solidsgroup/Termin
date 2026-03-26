@@ -10,6 +10,10 @@
         <i class="fa-solid fa-users" aria-hidden="true"></i>
         <span>Users</span>
       </a>
+      <a class="admin-nav-link{% if admin_section == 'deployment' %} active{% endif %}" href="{{ url_for('ui.admin_deployment') }}">
+        <i class="fa-solid fa-code-commit" aria-hidden="true"></i>
+        <span>Deployment</span>
+      </a>
     </nav>
   </aside>
   <section class="content admin-content">

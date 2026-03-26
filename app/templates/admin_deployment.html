@@ -1,0 +1,35 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<div class="panel">
+  <h2>Deployment</h2>
+  <p class="footer-note">Runtime git metadata from the checkout serving this app.</p>
+</div>
+
+<div class="panel">
+  <div class="admin-user-sections">
+    <div class="admin-user-section">
+      <div class="admin-user-section-title">Commit</div>
+      {% if deployment.commit %}
+        <div class="admin-inline-list">
+          <span class="tag">{{ deployment.short_commit or deployment.commit }}</span>
+          {% if deployment.is_dirty %}
+            <span class="tag">dirty</span>
+          {% else %}
+            <span class="tag">clean</span>
+          {% endif %}
+        </div>
+        <div class="footer-note" style="margin-top: 10px;">{{ deployment.commit }}</div>
+      {% else %}
+        <div class="footer-note">Git commit unavailable in this runtime.</div>
+      {% endif %}
+    </div>
+
+    <div class="admin-user-section">
+      <div class="admin-user-section-title">Branch</div>
+      <div class="admin-inline-list">
+        <span class="tag">{{ deployment.branch or "unknown" }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
