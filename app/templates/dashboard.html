@@ -2587,6 +2587,8 @@
 <script>
   (function () {
     function initShareFallback() {
+      // The main dashboard script owns the share modal behavior now.
+      return;
       if (window.__shareFallbackReady) return;
       window.__shareFallbackReady = true;
 
@@ -2743,18 +2745,40 @@
 	          var btn = document.createElement("button");
 	          btn.type = "button";
 	          btn.setAttribute("data-user-id", String(user.id));
-	          var label = user.display_name ? (user.display_name + " (" + user.email + ")") : user.email;
-	          var avatar = user.avatar_url
-	            ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(user.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
-	            : '<span class="assign-suggest-avatar">' + escapeHtml(label.charAt(0).toUpperCase()) + "</span>";
-	          btn.innerHTML = avatar + '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + "</span></span>";
-	          btn.addEventListener("mousedown", function (event) { event.preventDefault(); });
-	          btn.addEventListener("click", function () {
+	          var label = user.display_name || user.email || "User";
+	          var copy = document.createElement("span");
+	          copy.className = "assign-suggest-copy";
+	          var labelEl = document.createElement("span");
+	          labelEl.className = "assign-suggest-label";
+	          labelEl.textContent = user.display_name ? (user.display_name + " (" + user.email + ")") : user.email;
+	          var avatar = document.createElement("span");
+	          avatar.className = "assign-suggest-avatar";
+	          if (user.avatar_url) {
+	            var img = document.createElement("img");
+	            img.src = user.avatar_url;
+	            img.alt = "";
+	            img.loading = "lazy";
+	            img.decoding = "async";
+	            img.referrerPolicy = "no-referrer";
+	            img.onerror = function () {
+	              img.remove();
+	              avatar.textContent = label.charAt(0).toUpperCase();
+	            };
+	            avatar.appendChild(img);
+	          } else {
+	            avatar.textContent = label.charAt(0).toUpperCase();
+	          }
+	          copy.appendChild(labelEl);
+	          btn.appendChild(avatar);
+	          btn.appendChild(copy);
+	          btn.addEventListener("mousedown", function (event) {
+	            event.preventDefault();
+	            event.stopPropagation();
 	            submitShare(user.id);
 	          });
-          shareSuggest.appendChild(btn);
-        });
-      }
+	          shareSuggest.appendChild(btn);
+	        });
+	      }
 
       window.__openShareModal = function (context) {
         shareContext = { type: context.type, id: String(context.id) };
@@ -5031,6 +5055,8 @@
     let infoContext = null;
     let currentContext = null;
     let shareContext = null;
+    let shareSuggestResults = [];
+    let shareSuggestActiveIndex = -1;
 
     const hideContextMenu = () => {
       if (contextMenu) contextMenu.style.display = "none";
@@ -5148,17 +5174,22 @@
       shareContext = context;
       shareTitle.textContent = context.type === "project" ? "Share Project" : "Share Group";
       shareInput.value = "";
+      shareSuggestResults = [];
+      shareSuggestActiveIndex = -1;
       shareSuggest.innerHTML = "";
       if (shareStatus) shareStatus.textContent = "";
       shareModal.style.display = "flex";
       shareInput.focus();
       loadShareMembers();
     };
+    window.__openShareModal = openShareModal;
 
     const closeShareModal = () => {
       if (!shareModal) return;
       shareModal.style.display = "none";
       shareContext = null;
+      shareSuggestResults = [];
+      shareSuggestActiveIndex = -1;
       if (shareStatus) shareStatus.textContent = "";
       if (shareList) shareList.innerHTML = "";
     };
@@ -5562,12 +5593,15 @@
       fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ user_id: userId }),
       })
         .then((res) => res.json().catch(() => ({})))
         .then((data) => {
           if (shareStatus) shareStatus.textContent = "Added.";
           shareInput.value = "";
+          shareSuggestResults = [];
+          shareSuggestActiveIndex = -1;
           shareSuggest.innerHTML = "";
           loadShareMembers();
         });
@@ -5579,7 +5613,7 @@
         shareContext.type === "project"
           ? `/api/projects/${shareContext.id}/members`
           : `/api/groups/${shareContext.id}/members`;
-      fetch(url)
+      fetch(url, { credentials: "same-origin" })
         .then((res) => res.json().catch(() => ({ members: [] })))
           .then((data) => {
             shareList.innerHTML = "";
@@ -5679,32 +5713,74 @@
     };
 
 	    if (shareInput) {
+	      const syncShareSuggestionActive = () => {
+	        shareSuggest.querySelectorAll("button[data-user-id]").forEach((button, index) => {
+	          button.classList.toggle("is-active", index === shareSuggestActiveIndex);
+	        });
+	      };
+
+	      const renderShareSuggestions = () => {
+	        shareSuggest.innerHTML = "";
+	        shareSuggestResults.forEach((u, index) => {
+	          const btn = document.createElement("button");
+	          const label = u.display_name || u.email || "User";
+	          const secondary = u.email && u.email !== label ? u.email : "";
+	          const initial = label.trim().slice(0, 1).toUpperCase();
+	          btn.type = "button";
+	          btn.dataset.userId = u.id;
+	          if (index === shareSuggestActiveIndex) {
+	            btn.classList.add("is-active");
+	          }
+	          const avatar = u.avatar_url
+	            ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(u.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(initial) + '; this.remove();" /></span>'
+	            : '<span class="assign-suggest-avatar">' + escapeHtml(initial) + '</span>';
+	          btn.innerHTML = avatar +
+	            '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + '</span>' +
+	            (secondary ? '<span class="muted">' + escapeHtml(secondary) + '</span>' : '') +
+	            '</span>';
+	          btn.addEventListener("mousedown", (event) => {
+	            event.preventDefault();
+	            event.stopPropagation();
+	            submitShare(u.id);
+	          });
+	          btn.addEventListener("mouseenter", () => {
+	            shareSuggestActiveIndex = index;
+	            syncShareSuggestionActive();
+	          });
+	          shareSuggest.appendChild(btn);
+	        });
+	        syncShareSuggestionActive();
+	      };
+
 	      const loadShareSuggestions = () => {
 	        const q = shareInput.value.trim();
 	        fetch(`/api/users?q=${encodeURIComponent(q)}`)
 	          .then((res) => res.json().catch(() => ({ results: [] })))
 	          .then((data) => {
-	            shareSuggest.innerHTML = "";
-	            (data.results || []).forEach((u) => {
-	              const btn = document.createElement("button");
-	              const label = u.display_name ? `${u.display_name} (${u.email})` : u.email;
-	              btn.textContent = label;
-	              btn.addEventListener("mousedown", (event) => event.preventDefault());
-	              btn.type = "button";
-	              btn.dataset.userId = u.id;
-	              btn.addEventListener("click", (event) => event.stopPropagation());
-	              btn.addEventListener("click", () => {
-	                submitShare(u.id);
-	              });
-	              shareSuggest.appendChild(btn);
-	            });
+	            shareSuggestResults = Array.isArray(data.results) ? data.results : [];
+	            shareSuggestActiveIndex = shareSuggestResults.length ? 0 : -1;
+	            renderShareSuggestions();
 	          });
 	      };
 	      shareInput.addEventListener("keydown", (event) => {
+	        if (event.key === "ArrowDown") {
+	          event.preventDefault();
+	          if (!shareSuggestResults.length) return;
+	          shareSuggestActiveIndex = Math.min(shareSuggestResults.length - 1, Math.max(0, shareSuggestActiveIndex + 1));
+	          renderShareSuggestions();
+	          return;
+	        }
+	        if (event.key === "ArrowUp") {
+	          event.preventDefault();
+	          if (!shareSuggestResults.length) return;
+	          shareSuggestActiveIndex = Math.max(0, (shareSuggestActiveIndex < 0 ? 0 : shareSuggestActiveIndex - 1));
+	          renderShareSuggestions();
+	          return;
+	        }
 	        if (event.key === "Enter") {
 	          event.preventDefault();
-	          const first = shareSuggest.querySelector("button[data-user-id]");
-	          if (first) submitShare(first.getAttribute("data-user-id"));
+	          const selected = shareSuggestResults[shareSuggestActiveIndex] || shareSuggestResults[0];
+	          if (selected) submitShare(selected.id);
 	        }
 	      });
 	      shareInput.addEventListener("focus", () => {
@@ -6399,7 +6475,7 @@
     var faviconBadgeCache = Object.create(null);
     var desktopNotificationsSupported = typeof window !== "undefined" && "Notification" in window;
     var desktopNotificationsPrimed = false;
-    var desktopNotificationSeenIds = new Set();
+    var desktopNotificationSeenSignatures = new Set();
     var desktopNotificationPromptBound = false;
     var desktopNotificationQueues = Object.create(null);
     var desktopNotificationFlushTimers = Object.create(null);
@@ -6426,7 +6502,19 @@
       input.setAttribute("spellcheck", "false");
     }
 
-    function loadSeenDesktopNotificationIds() {
+    function desktopNotificationSeenSignature(item, kind) {
+      if (!item || item.id == null) return "";
+      return [
+        String(kind || item.kind || ""),
+        String(item.id),
+        String(item.task_id || ""),
+        String(item.unread_count || 0),
+        String(item.comment_preview || item.preview || ""),
+        String(item.created_at || ""),
+      ].join("|");
+    }
+
+    function loadSeenDesktopNotificationSignatures() {
       try {
         var raw = sessionStorage.getItem("termin:desktop-notification-seen");
         if (!raw) return new Set();
@@ -6437,9 +6525,9 @@
       }
     }
 
-    function saveSeenDesktopNotificationIds() {
+    function saveSeenDesktopNotificationSignatures() {
       try {
-        var values = Array.from(desktopNotificationSeenIds);
+        var values = Array.from(desktopNotificationSeenSignatures);
         if (values.length > 250) values = values.slice(values.length - 250);
         sessionStorage.setItem("termin:desktop-notification-seen", JSON.stringify(values));
       } catch (err) {}
@@ -6448,15 +6536,16 @@
     function primeDesktopNotifications(data) {
       if (desktopNotificationsPrimed) return;
       desktopNotificationsSupported = typeof window !== "undefined" && "Notification" in window;
-      desktopNotificationSeenIds = loadSeenDesktopNotificationIds();
-      var items = []
-        .concat(Array.isArray(data && data.regular_notifications) ? data.regular_notifications : [])
-        .concat(Array.isArray(data && data.message_notifications) ? data.message_notifications : []);
-      items.forEach(function (item) {
-        if (!item || item.id == null) return;
-        desktopNotificationSeenIds.add(String(item.id));
+      desktopNotificationSeenSignatures = loadSeenDesktopNotificationSignatures();
+      (Array.isArray(data && data.regular_notifications) ? data.regular_notifications : []).forEach(function (item) {
+        var signature = desktopNotificationSeenSignature(item, "regular");
+        if (signature) desktopNotificationSeenSignatures.add(signature);
       });
-      saveSeenDesktopNotificationIds();
+      (Array.isArray(data && data.message_notifications) ? data.message_notifications : []).forEach(function (item) {
+        var signature = desktopNotificationSeenSignature(item, "message");
+        if (signature) desktopNotificationSeenSignatures.add(signature);
+      });
+      saveSeenDesktopNotificationSignatures();
       desktopNotificationsPrimed = true;
     }
 
@@ -6582,9 +6671,10 @@
       if (Notification.permission !== "granted") return;
       (Array.isArray(items) ? items : []).forEach(function (item) {
         if (!item || item.id == null || item.read) return;
-        var key = String(item.id);
-        if (desktopNotificationSeenIds.has(key)) return;
-        desktopNotificationSeenIds.add(key);
+        var signature = desktopNotificationSeenSignature(item, kind);
+        if (!signature) return;
+        if (desktopNotificationSeenSignatures.has(signature)) return;
+        desktopNotificationSeenSignatures.add(signature);
         if (shouldSuppressDesktopNotification(item)) return;
         var groupKey = desktopNotificationGroupKey(item, kind);
         if (!desktopNotificationQueues[groupKey]) {
@@ -6598,7 +6688,7 @@
           flushDesktopNotificationGroup(groupKey);
         }, 900);
       });
-      saveSeenDesktopNotificationIds();
+      saveSeenDesktopNotificationSignatures();
     }
 
 	    function withAddMeSuggestion(results) {

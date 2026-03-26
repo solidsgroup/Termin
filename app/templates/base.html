@@ -2361,6 +2361,19 @@
       .todo-item-main .task-pill {
         flex: 0 0 auto;
         margin-left: 6px;
+        min-height: 20px;
+        height: 20px;
+      }
+
+      .todo-item-main .task-pill-segment {
+        min-height: 20px;
+        height: 20px;
+        padding: 0 7px;
+      }
+
+      .todo-item-main .comment-button {
+        min-height: 20px;
+        height: 20px;
       }
 
       .todo-item-main .comment-button {
@@ -2490,7 +2503,7 @@
 
       .todo-control-status.todo-status-cell,
       .todo-control-status > .todo-status-cell {
-        width: auto;
+        width: 84px;
         padding-right: 0;
       }
 
@@ -2531,8 +2544,8 @@
       }
 
       .task-status-multi-button.is-todo {
-        height: 26px;
-        min-height: 26px;
+        height: 20px;
+        min-height: 20px;
       }
 
       .task-status-summary {
@@ -2592,13 +2605,14 @@
       }
 
       body[data-theme="light"] .task-status-multi-button {
-        background: rgba(15, 23, 42, 0.03);
-        border-color: rgba(15, 23, 42, 0.09);
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
       }
 
       body[data-theme="light"] .task-status-count {
-        background: rgba(15, 23, 42, 0.04);
-        border-right-color: rgba(15, 23, 42, 0.09);
+        background: color-mix(in srgb, white 95%, var(--panel-alt) 5%);
+        border-right-color: color-mix(in srgb, var(--border) 88%, white 12%);
         color: color-mix(in srgb, var(--ink) 76%, var(--muted) 24%);
       }
 
@@ -2690,11 +2704,13 @@
 
       .todo-due-cell .due-summary {
         padding: 2px 4px;
-        min-height: 0;
+        min-height: 20px;
+        height: 20px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         width: 20px;
+        box-sizing: border-box;
       }
 
       .todo-due-cell .due-summary-label {
@@ -2713,12 +2729,16 @@
       .todo-status-cell {
         color: var(--muted);
         text-transform: lowercase;
+        width: 84px;
+        min-width: 84px;
+        max-width: 84px;
       }
 
       .todo-status-cell.status-editable {
-        min-width: 20px;
+        min-width: 84px;
         min-height: 20px;
-        width: 20px;
+        width: 84px;
+        max-width: 84px;
         padding: 2px;
         justify-content: center;
         font-size: 0;
@@ -2734,6 +2754,18 @@
         font-size: 12px;
       }
 
+      .task-status-multi-button.is-todo {
+        width: 84px;
+        min-width: 84px;
+        max-width: 84px;
+      }
+
+      .task-status-multi-button.is-todo .task-status-count {
+        min-height: 20px;
+        height: 20px;
+        padding: 0 6px;
+      }
+
       .todo-assignments {
         min-width: 0;
         gap: 4px;
@@ -2745,6 +2777,8 @@
         min-width: 0;
         padding-right: 0;
         margin-right: 0;
+        border-color: var(--border);
+        background: rgba(255, 255, 255, 0.04);
       }
 
       .github-assignments .badge {
@@ -2756,6 +2790,19 @@
         flex: 0 0 20px;
         width: 20px;
         height: 20px;
+        border-color: var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--muted);
+      }
+
+      .todo-assignments .badge.user {
+        border-color: var(--border);
+      }
+
+      .todo-assignments .badge.user .badge-icon {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--muted);
+        border-color: var(--border);
       }
 
       .todo-assignments .badge-label {
@@ -2772,6 +2819,22 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      body[data-theme="light"] .todo-assignments .badge {
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      }
+
+      body[data-theme="light"] .todo-assignments .badge.user {
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+      }
+
+      body[data-theme="light"] .todo-assignments .badge-icon,
+      body[data-theme="light"] .todo-assignments .badge.user .badge-icon {
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        background: color-mix(in srgb, white 92%, var(--panel-alt) 8%);
+        color: color-mix(in srgb, var(--muted) 88%, #475569 12%);
       }
 
       .todo-open-link {
@@ -3156,10 +3219,31 @@
         color: var(--ink);
         cursor: pointer;
         font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
 
-      .modal .suggest-list button:hover {
+      .modal .suggest-list button:hover,
+      .modal .suggest-list button.is-active {
         background: rgba(76, 201, 240, 0.08);
+      }
+
+      body[data-theme="light"] .modal .suggest-list {
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+      }
+
+      body[data-theme="light"] .modal .suggest-list button:hover,
+      body[data-theme="light"] .modal .suggest-list button.is-active {
+        background: color-mix(in srgb, var(--accent) 10%, white 90%);
+      }
+
+      body[data-theme="light"] #share-input {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        color: var(--ink);
       }
 
       .share-list {
@@ -3487,6 +3571,17 @@
 
       body[data-theme="light"] .status-editable[data-status-state="complete"]::before {
         color: color-mix(in srgb, var(--success) 82%, #14532d 18%);
+      }
+
+      body[data-theme="light"] .status-editable {
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+      }
+
+      body[data-theme="light"] .status-editable[data-status-state="critical"] {
+        border-color: color-mix(in srgb, #f87171 34%, white 66%);
+        background: color-mix(in srgb, #f87171 12%, white 88%);
       }
 
       .status-menu > button {
@@ -3882,16 +3977,37 @@
       }
 
       .table .status-editable {
-        width: auto;
+        width: 100%;
         max-width: 100%;
         display: inline-flex;
         align-items: center;
-        min-width: 76px;
-        min-height: 18px;
-        padding: 4px 10px 4px 28px;
+        justify-content: center;
+        text-align: center;
+        min-width: 0;
+        min-height: 26px;
+        height: 26px;
+        padding: 0 12px 0 30px;
         border-radius: 999px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(255, 255, 255, 0.03);
+        box-sizing: border-box;
+        color: transparent;
+        font-size: 0;
+      }
+
+      .table .status-editable::before {
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .table td .status-editable[contenteditable="true"]:focus {
+        color: inherit;
+        font-size: 11px;
+      }
+
+      .table td .status-editable[contenteditable="true"]:focus::before {
+        left: 9px;
+        transform: translateY(-50%);
       }
 
       .table .status-editable[data-status-state="critical"] {
@@ -3907,14 +4023,18 @@
       }
 
       .github-status-readonly {
-        width: auto;
+        width: 100%;
         max-width: 100%;
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 8px;
-        min-width: 98px;
+        min-width: 0;
         cursor: default;
-        padding: 4px 10px;
+        min-height: 26px;
+        height: 26px;
+        padding: 0 12px;
+        box-sizing: border-box;
       }
 
       .github-status-readonly i {
@@ -3923,6 +4043,29 @@
 
       .github-status-readonly::before {
         display: none;
+      }
+
+      .table td [data-task-status-host] {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .table td [data-task-status-host] > .task-status-multi-button,
+      .table td [data-task-status-host] > .status-editable,
+      .table td [data-task-status-host] > .github-status-readonly {
+        width: 100%;
+      }
+
+      .table td [data-task-status-host] > .task-status-multi-button {
+        height: 26px;
+        min-height: 26px;
+      }
+
+      .table td [data-task-status-host] > .task-status-multi-button .task-status-summary {
+        width: 100%;
       }
 
       .table .task-cell {
@@ -4081,6 +4224,16 @@
       .due-summary:focus-visible {
         outline: 2px solid rgba(76, 201, 240, 0.4);
         outline-offset: 2px;
+      }
+
+      body[data-theme="light"] .due-summary {
+        background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+      }
+
+      body[data-theme="light"] .due-summary.is-fallback {
+        background: color-mix(in srgb, white 95%, var(--panel-alt) 5%);
       }
 
       .due-summary.is-fallback {
