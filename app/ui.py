@@ -166,6 +166,18 @@ def _calendar_feed_tasks(email: str) -> list[Task]:
     return tasks
 
 
+def _calendar_portal_url(email: str, public_base_url: str, task_id: int | None = None) -> str:
+    if not public_base_url:
+        return ""
+    collaborator = CollaboratorProfile.query.filter(func.lower(CollaboratorProfile.email) == _normalize_email(email)).first()
+    if not collaborator or not collaborator.access_token:
+        return ""
+    url = f"{public_base_url}/collaborators/{collaborator.access_token}"
+    if task_id:
+        url += f"?open_discussion_task_id={task_id}#task-{task_id}"
+    return url
+
+
 def _calendar_event_uid(task: Task, email: str) -> str:
     identity_hash = hashlib.sha256(_normalize_email(email).encode("utf-8")).hexdigest()[:16]
     return f"termin-task-{task.id}-{identity_hash}"
@@ -175,20 +187,32 @@ def _calendar_event_description(
     task: Task,
     project_map: dict[int, Project],
     group_map: dict[int, Group],
-    public_base_url: str,
     status_value: str,
+    event_url: str,
+    portal_url: str,
 ) -> str:
-    bits = []
+    bits = ["Termin task"]
     project = project_map.get(task.project_id)
     group = group_map.get(task.group_id) if task.group_id else None
+    bits.append("")
     if project:
         bits.append(f"Project: {project.name}")
     if group:
         bits.append(f"Group: {group.name}")
     bits.append(f"Status: {status_value}")
-    if public_base_url and project:
-        bits.append(f"Open in Termin: {public_base_url}/?project_id={project.id}")
+    if event_url or portal_url:
+        bits.append("")
+    if event_url:
+        bits.append(f"Open task: {event_url}")
+    if portal_url:
+        bits.append(f"Collaborator portal: {portal_url}")
     return "\n".join(bits)
+
+
+def _calendar_event_url(task: Task, public_base_url: str) -> str:
+    if not public_base_url:
+        return ""
+    return f"{public_base_url}/?project_id={task.project_id}&open_discussion_task_id={task.id}"
 
 
 def _build_calendar_feed_ics(email: str, tasks: list[Task]) -> str:
@@ -215,22 +239,26 @@ def _build_calendar_feed_ics(email: str, tasks: list[Task]) -> str:
             viewer_email=email,
             status_meta=status_map.get(task.id),
         )
+        account_url = _calendar_event_url(task, public_base_url)
+        portal_url = _calendar_portal_url(email, public_base_url, task.id)
+        event_url = portal_url or account_url
         start_date = task.due_at.date()
         end_date = start_date + timedelta(days=1)
-        lines.extend(
-            [
-                "BEGIN:VEVENT",
-                f"UID:{_calendar_event_uid(task, email)}",
-                f"DTSTAMP:{_format_ics_timestamp(now)}",
-                f"DTSTART;VALUE=DATE:{start_date.strftime('%Y%m%d')}",
-                f"DTEND;VALUE=DATE:{end_date.strftime('%Y%m%d')}",
-                f"SUMMARY:{_escape_ics_text(task.title)}",
-                f"DESCRIPTION:{_escape_ics_text(_calendar_event_description(task, project_map, group_map, public_base_url, effective_status))}",
-                "STATUS:CONFIRMED",
-                "TRANSP:OPAQUE",
-                "END:VEVENT",
-            ]
-        )
+        event_lines = [
+            "BEGIN:VEVENT",
+            f"UID:{_calendar_event_uid(task, email)}",
+            f"DTSTAMP:{_format_ics_timestamp(now)}",
+            f"DTSTART;VALUE=DATE:{start_date.strftime('%Y%m%d')}",
+            f"DTEND;VALUE=DATE:{end_date.strftime('%Y%m%d')}",
+            f"SUMMARY:{_escape_ics_text(task.title)}",
+            f"DESCRIPTION:{_escape_ics_text(_calendar_event_description(task, project_map, group_map, effective_status, account_url, portal_url))}",
+            "STATUS:CONFIRMED",
+            "TRANSP:OPAQUE",
+        ]
+        if event_url:
+            event_lines.append(f"URL:{_escape_ics_text(event_url)}")
+        event_lines.append("END:VEVENT")
+        lines.extend(event_lines)
     lines.extend(["END:VCALENDAR", ""])
     return "\r\n".join(lines)
 

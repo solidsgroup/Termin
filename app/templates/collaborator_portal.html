@@ -17,6 +17,15 @@
       border-bottom: 1px solid var(--grid);
     }
 
+    .collab-row.is-focused {
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      border-radius: 12px;
+      padding-left: 12px;
+      padding-right: 12px;
+      margin-left: -12px;
+      margin-right: -12px;
+    }
+
     .collab-row.complete .collab-title {
       text-decoration: line-through;
       color: var(--success);
@@ -228,7 +237,7 @@
         {% set assignment = entry.assignment %}
         {% set task = entry.task %}
         {% set project = entry.project %}
-        <div class="collab-row{% if entry.is_complete %} complete{% endif %}">
+        <div class="collab-row{% if entry.is_complete %} complete{% endif %}" id="task-{{ task.id if task else entry.assignment.task_id if entry.assignment else entry.invite.task_id if entry.invite else '' }}" data-collab-task-row="{{ task.id if task else entry.assignment.task_id if entry.assignment else entry.invite.task_id if entry.invite else '' }}">
           <div>
             <div class="collab-title">
               <span>{{ task.title if task else 'Unknown task' }}</span>
@@ -368,6 +377,7 @@
       const subtitleEl = document.getElementById("collab-discussion-subtitle");
       const closeEls = [document.getElementById("collab-discussion-close"), document.getElementById("collab-discussion-cancel")].filter(Boolean);
       let currentTaskId = null;
+      const params = new URLSearchParams(window.location.search);
 
       function escapeHtml(value) {
         return String(value == null ? "" : value)
@@ -477,6 +487,24 @@
         });
       });
 
+      function focusTaskFromUrl() {
+        const taskId = params.get("open_discussion_task_id") || params.get("task_id");
+        if (!taskId) return;
+        const row = document.querySelector('[data-collab-task-row="' + taskId + '"]');
+        if (row) {
+          row.classList.add("is-focused");
+          row.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+        const button = document.querySelector('[data-open-collab-discussion="' + taskId + '"]');
+        if (button) {
+          loadComments(
+            button.getAttribute("data-open-collab-discussion"),
+            button.getAttribute("data-task-title"),
+            button.getAttribute("data-project-name")
+          );
+        }
+      }
+
       const settingsForm = document.getElementById("collab-settings-form");
       const settingsName = document.getElementById("collaborator-display-name");
       const settingsPreferences = [
@@ -512,6 +540,7 @@
           submitComment();
         }
       });
+      focusTaskFromUrl();
     })();
   </script>
 {% endif %}
