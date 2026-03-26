@@ -308,6 +308,15 @@
             <span>Notify me again when things change</span>
           </label>
         </div>
+        {% if calendar_subscription_url %}
+          <div class="collab-settings-row">
+            <span class="collab-settings-label">Calendar feed</span>
+            <div class="collab-settings-toggle">
+              <button class="btn secondary" type="button" title="{{ calendar_subscription_url }}" data-copy-text="{{ calendar_subscription_url }}" data-copy-feedback="Calendar URL copied">Copy URL</button>
+              <span class="footer-note">Use this same subscription if this email later becomes a full account.</span>
+            </div>
+          </div>
+        {% endif %}
       </form>
     </div>
 

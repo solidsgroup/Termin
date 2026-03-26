@@ -590,13 +590,17 @@
       .account-menu-link {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-start;
+        gap: 10px;
         width: 100%;
+        font: inherit;
         text-decoration: none;
         color: var(--ink);
         padding: 10px 12px;
         border-radius: 12px;
         border: 1px solid transparent;
+        background: transparent;
+        cursor: pointer;
         transition: background 140ms ease, border-color 140ms ease;
       }
 
@@ -612,6 +616,19 @@
 
       .account-menu-link + .account-menu-link {
         margin-top: 4px;
+      }
+
+      .account-menu-icon {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 16px;
+        color: var(--muted);
+      }
+
+      .account-menu-label {
+        min-width: 0;
+        text-align: left;
+        white-space: nowrap;
       }
 
       main {
@@ -5273,24 +5290,36 @@
                 <div class="account-menu-email">{{ user.email }}</div>
               </div>
               <a class="account-menu-link" href="{{ url_for('ui.account') }}" role="menuitem">
-                <span>Settings</span>
-                <span class="footer-note">Preferences and accounts</span>
+                <i class="fa-solid fa-gear account-menu-icon" aria-hidden="true"></i>
+                <span class="account-menu-label">Settings</span>
               </a>
+              {% if calendar_subscription_url %}
+                <button
+                  class="account-menu-link"
+                  type="button"
+                  role="menuitem"
+                  title="{{ calendar_subscription_url }}"
+                  data-copy-text="{{ calendar_subscription_url }}"
+                >
+                  <i class="fa-regular fa-calendar account-menu-icon" aria-hidden="true"></i>
+                  <span class="account-menu-label" data-copy-label>Calendar Feed</span>
+                </button>
+              {% endif %}
               {% if is_admin_user %}
                 <a class="account-menu-link" href="{{ url_for('ui.admin_users') }}" role="menuitem">
-                  <span>Admin</span>
-                  <span class="footer-note">Users and access</span>
+                  <i class="fa-solid fa-user-shield account-menu-icon" aria-hidden="true"></i>
+                  <span class="account-menu-label">Admin</span>
                 </a>
               {% endif %}
               {% if config.DEV_MAILBOX_ENABLED %}
                 <a class="account-menu-link" href="{{ url_for('ui.dev_mailbox') }}" role="menuitem">
-                  <span>Dev Mail</span>
-                  <span class="footer-note">Captured emails</span>
+                  <i class="fa-regular fa-envelope account-menu-icon" aria-hidden="true"></i>
+                  <span class="account-menu-label">Dev Mail</span>
                 </a>
               {% endif %}
               <a class="account-menu-link" href="{{ url_for('auth.logout') }}" role="menuitem">
-                <span>Log out</span>
-                <span class="footer-note">End session</span>
+                <i class="fa-solid fa-right-from-bracket account-menu-icon" aria-hidden="true"></i>
+                <span class="account-menu-label">Log out</span>
               </a>
             </div>
           </div>
@@ -5306,6 +5335,28 @@
           el.setAttribute("autocomplete", "nope");
           el.setAttribute("autocapitalize", "off");
           el.setAttribute("spellcheck", "false");
+        });
+
+        document.querySelectorAll("[data-copy-text]").forEach((el) => {
+          el.addEventListener("click", async (event) => {
+            event.preventDefault();
+            const text = el.getAttribute("data-copy-text") || "";
+            if (!text) return;
+            const label = el.querySelector("[data-copy-label]");
+            const original = label ? label.textContent : "";
+            try {
+              await navigator.clipboard.writeText(text);
+              if (label) label.textContent = "Copied";
+            } catch (_error) {
+              window.open(text, "_blank", "noopener,noreferrer");
+              if (label) label.textContent = "Opened URL";
+            }
+            if (label) {
+              window.setTimeout(() => {
+                label.textContent = original;
+              }, 1800);
+            }
+          });
         });
 
         const accountShell = document.querySelector("[data-account-menu]");

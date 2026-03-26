@@ -7,7 +7,7 @@ from app.extensions import db, migrate, socketio
 from app.realtime import register_socket_handlers
 from app.routes import api_bp
 from app.auth import auth_bp
-from app.ui import ui_bp
+from app.ui import ui_bp, calendar_subscription_urls_for_user
 from app.webhooks.google import google_webhooks_bp
 from app.oauth import init_oauth
 from app.utils import current_user, is_admin
@@ -38,9 +38,12 @@ def create_app() -> Flask:
     @app.context_processor
     def inject_template_globals():
         user = current_user()
+        calendar_urls = calendar_subscription_urls_for_user(user) if user else {"https": "", "webcal": ""}
         return {
             "user": user,
             "is_admin_user": is_admin(user),
+            "calendar_subscription_url": calendar_urls["https"],
+            "calendar_subscription_webcal_url": calendar_urls["webcal"],
         }
 
     return app

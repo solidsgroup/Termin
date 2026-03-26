@@ -1,15 +1,18 @@
 from datetime import date, datetime, timedelta
 from functools import wraps
+import hashlib
 import json
 import secrets
 
-from flask import Blueprint, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, redirect, render_template, request, url_for
+from sqlalchemy import func, or_
 from werkzeug.security import generate_password_hash
 
 from app.auth import login_required
 from app.calendar_sync import CalendarSyncError, ensure_task_event
 from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_account_verification_email, send_calendar_invite_email
+from app.emailer import _escape_ics_text, _format_ics_timestamp
 from app.extensions import db
 from app.github_sync import GitHubSyncError, github_identity_for_user, github_sync_state_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.identity import (
@@ -25,7 +28,7 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
+from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
 from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
     emit_assignment_updated,
@@ -76,6 +79,160 @@ def _accessible_projects_for_user(user) -> list[Project]:
         .union(assigned_task_project_ids)
     )
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
+
+
+def _normalize_email(email: str | None) -> str:
+    return (email or "").strip().lower()
+
+
+def _ensure_calendar_feed(email: str | None) -> CalendarFeed | None:
+    normalized = _normalize_email(email)
+    if not normalized:
+        return None
+    feed = CalendarFeed.query.filter_by(email=normalized).first()
+    if feed:
+        return feed
+    feed = CalendarFeed(
+        email=normalized,
+        token=secrets.token_urlsafe(32),
+        updated_at=datetime.utcnow(),
+    )
+    db.session.add(feed)
+    db.session.commit()
+    return feed
+
+
+def calendar_subscription_urls_for_email(email: str | None) -> dict[str, str]:
+    normalized = _normalize_email(email)
+    if not normalized:
+        return {"https": "", "webcal": ""}
+    feed = _ensure_calendar_feed(normalized)
+    if not feed:
+        return {"https": "", "webcal": ""}
+    https_url = url_for("ui.calendar_feed", token=feed.token, _external=True)
+    webcal_url = "webcal://" + https_url[len("https://"):] if https_url.startswith("https://") else https_url
+    return {"https": https_url, "webcal": webcal_url}
+
+
+def calendar_subscription_urls_for_user(user) -> dict[str, str]:
+    if not user:
+        return {"https": "", "webcal": ""}
+    return calendar_subscription_urls_for_email(user.email)
+
+
+def _calendar_feed_user_ids(email: str) -> list[int]:
+    normalized = _normalize_email(email)
+    if not normalized:
+        return []
+    user_ids = {
+        row.id
+        for row in User.query.filter(func.lower(User.email) == normalized).all()
+    }
+    user_ids.update(
+        row.user_id
+        for row in UserEmail.query.filter(func.lower(UserEmail.email) == normalized).all()
+        if row.user_id
+    )
+    collaborator = CollaboratorProfile.query.filter(func.lower(CollaboratorProfile.email) == normalized).first()
+    if collaborator and collaborator.user_id:
+        user_ids.add(collaborator.user_id)
+    return sorted(user_ids)
+
+
+def _calendar_feed_tasks(email: str) -> list[Task]:
+    normalized = _normalize_email(email)
+    if not normalized:
+        return []
+    user_ids = _calendar_feed_user_ids(normalized)
+    assignment_query = Assignment.query.filter(Assignment.status != "denied")
+    assignment_filter = func.lower(Assignment.email) == normalized
+    if user_ids:
+        assignment_filter = or_(assignment_filter, Assignment.user_id.in_(user_ids))
+    assignments = assignment_query.filter(assignment_filter).all()
+    task_ids: list[int] = []
+    seen_task_ids: set[int] = set()
+    for assignment in assignments:
+        if not assignment.task_id or assignment.task_id in seen_task_ids:
+            continue
+        seen_task_ids.add(assignment.task_id)
+        task_ids.append(assignment.task_id)
+    if not task_ids:
+        return []
+    tasks = (
+        Task.query.filter(Task.id.in_(task_ids), Task.due_at.isnot(None))
+        .order_by(Task.due_at.asc(), Task.id.asc())
+        .all()
+    )
+    return tasks
+
+
+def _calendar_event_uid(task: Task, email: str) -> str:
+    identity_hash = hashlib.sha256(_normalize_email(email).encode("utf-8")).hexdigest()[:16]
+    return f"termin-task-{task.id}-{identity_hash}"
+
+
+def _calendar_event_description(
+    task: Task,
+    project_map: dict[int, Project],
+    group_map: dict[int, Group],
+    public_base_url: str,
+    status_value: str,
+) -> str:
+    bits = []
+    project = project_map.get(task.project_id)
+    group = group_map.get(task.group_id) if task.group_id else None
+    if project:
+        bits.append(f"Project: {project.name}")
+    if group:
+        bits.append(f"Group: {group.name}")
+    bits.append(f"Status: {status_value}")
+    if public_base_url and project:
+        bits.append(f"Open in Termin: {public_base_url}/?project_id={project.id}")
+    return "\n".join(bits)
+
+
+def _build_calendar_feed_ics(email: str, tasks: list[Task]) -> str:
+    project_ids = {task.project_id for task in tasks}
+    group_ids = {task.group_id for task in tasks if task.group_id}
+    project_map = {row.id: row for row in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
+    group_map = {row.id: row for row in Group.query.filter(Group.id.in_(group_ids)).all()} if group_ids else {}
+    status_map = task_status_meta_map(tasks, viewer_email=email)
+    public_base_url = (current_app.config.get("PUBLIC_BASE_URL") or request.url_root.rstrip("/")).rstrip("/")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Termin//Assigned Tasks//EN",
+        "CALSCALE:GREGORIAN",
+        "X-WR-CALNAME:" + _escape_ics_text("Termin - Assigned Tasks"),
+        "X-PUBLISHED-TTL:PT6H",
+    ]
+    now = datetime.utcnow()
+    for task in tasks:
+        if not task.due_at:
+            continue
+        effective_status = effective_task_status_for_user(
+            task,
+            viewer_email=email,
+            status_meta=status_map.get(task.id),
+        )
+        start_date = task.due_at.date()
+        end_date = start_date + timedelta(days=1)
+        lines.extend(
+            [
+                "BEGIN:VEVENT",
+                f"UID:{_calendar_event_uid(task, email)}",
+                f"DTSTAMP:{_format_ics_timestamp(now)}",
+                f"DTSTART;VALUE=DATE:{start_date.strftime('%Y%m%d')}",
+                f"DTEND;VALUE=DATE:{end_date.strftime('%Y%m%d')}",
+                f"SUMMARY:{_escape_ics_text(task.title)}",
+                f"DESCRIPTION:{_escape_ics_text(_calendar_event_description(task, project_map, group_map, public_base_url, effective_status))}",
+                "STATUS:CONFIRMED",
+                "TRANSP:OPAQUE",
+                "END:VEVENT",
+            ]
+        )
+    lines.extend(["END:VCALENDAR", ""])
+    return "\r\n".join(lines)
 
 
 def _sidebar_order_tokens(user) -> list[str]:
@@ -1142,6 +1299,20 @@ def admin_index():
     return redirect(url_for("ui.admin_users"))
 
 
+@ui_bp.get("/calendar/feed/<token>.ics")
+def calendar_feed(token: str):
+    feed = CalendarFeed.query.filter_by(token=token).first()
+    if not feed:
+        return Response("Not found", status=404)
+    ics = _build_calendar_feed_ics(feed.email, _calendar_feed_tasks(feed.email))
+    response = Response(ics, mimetype="text/calendar")
+    response.headers["Content-Disposition"] = 'inline; filename="termin-assigned-tasks.ics"'
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @ui_bp.get("/admin/users")
 @admin_required
 def admin_users():
@@ -1712,6 +1883,7 @@ def collaborator_portal(token: str):
         for task_id, latest_comment_at in latest_comment_rows
         if latest_comment_at and latest_comment_at > (read_rows.get(task_id) or datetime.min)
     }
+    calendar_urls = calendar_subscription_urls_for_email(collaborator.email)
 
     return render_template(
         "collaborator_portal.html",
@@ -1720,6 +1892,8 @@ def collaborator_portal(token: str):
         entries=entries,
         task_comment_counts=task_comment_counts,
         unread_task_ids=unread_task_ids,
+        calendar_subscription_url=calendar_urls["https"],
+        calendar_subscription_webcal_url=calendar_urls["webcal"],
     )
 
 
