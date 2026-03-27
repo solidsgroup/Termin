@@ -1499,6 +1499,69 @@ def move_project(project_id: int):
     return {"status": "ok", "id": project.id, "division_id": moving_pref.division_id, "position": moving_pref.position}, 200
 
 
+@api_bp.post("/divisions/reorder")
+@login_required
+def reorder_divisions():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    order = payload.get("order") or []
+    if not isinstance(order, list) or not order:
+        return {"error": "order is required"}, 400
+
+    divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
+    expected_ids = [division.id for division in divisions]
+    try:
+        order_ids = [int(item) for item in order]
+    except (TypeError, ValueError):
+        return {"error": "invalid order"}, 400
+    if set(order_ids) != set(expected_ids):
+        return {"error": "order mismatch"}, 400
+
+    for index, division_id in enumerate(order_ids, start=1):
+        Division.query.filter_by(id=division_id, owner_id=user.id).update({"position": index})
+
+    db.session.commit()
+    emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
+    return {"status": "ok"}, 200
+
+
+@api_bp.post("/divisions/<int:division_id>/shift")
+@login_required
+def shift_division(division_id: int):
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    direction = (payload.get("direction") or "").strip().lower()
+    if direction not in {"up", "down"}:
+        return {"error": "invalid direction"}, 400
+
+    divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
+    division_ids = [row.id for row in divisions]
+    if division_id not in division_ids:
+        return {"error": "division not found"}, 404
+
+    index = division_ids.index(division_id)
+    if direction == "up":
+        if index == 0:
+            return {"status": "ok", "moved": False}, 200
+        swap_index = index - 1
+    else:
+        if index >= len(divisions) - 1:
+            return {"status": "ok", "moved": False}, 200
+        swap_index = index + 1
+
+    divisions[index], divisions[swap_index] = divisions[swap_index], divisions[index]
+    for position, division in enumerate(divisions, start=1):
+        division.position = position
+
+    db.session.commit()
+    emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
+    return {
+        "status": "ok",
+        "moved": True,
+        "order": [row.id for row in divisions],
+    }, 200
+
+
 @api_bp.patch("/divisions/<int:division_id>")
 @login_required
 def update_division(division_id: int):

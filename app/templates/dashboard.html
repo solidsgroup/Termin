@@ -420,7 +420,7 @@
           <div class="todo-tree-list tree-select-list" data-tree-select-list>
             {% for division in divisions %}
               <div class="todo-tree-node" data-tree-division-node="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
-                <div class="todo-tree-row" data-division-context="{{ division.id }}" data-division-color="{{ division.color or '#4cc9f0' }}" data-tree-division-row="{{ division.id }}">
+                <div class="todo-tree-row" data-division-context="{{ division.id }}" data-division-color="{{ division.color or '#4cc9f0' }}" data-tree-division-row="{{ division.id }}" draggable="true">
                   <button class="tree-select-button" type="button" data-tree-select-type="division" data-tree-select-id="{{ division.id }}">
                     <span class="todo-tree-label" style="color: {{ division.color or '#4cc9f0' }};">{{ division.name }}</span>
                   </button>
@@ -1133,7 +1133,10 @@
         <button class="discussion-tab is-active" type="button" data-drawer-tab="messages">Messages</button>
       </div>
     </div>
-    <button class="icon-button" type="button" id="discussion-close" title="Close discussion">×</button>
+    <div class="discussion-header-actions">
+      <button class="btn secondary discussion-follow-link" type="button" id="discussion-follow-link" hidden>Follow link</button>
+      <button class="icon-button" type="button" id="discussion-close" title="Close discussion">×</button>
+    </div>
   </div>
   <div class="discussion-presence" id="discussion-presence"></div>
   <div class="discussion-pane is-active" id="discussion-messages-pane" data-drawer-pane="messages">
@@ -1201,6 +1204,8 @@
   <button data-action="add-project">Add Project</button>
   <button data-action="add-group">Add Group</button>
   <button data-action="promote-project">Promote to Project</button>
+  <button data-action="move-up">Move up</button>
+  <button data-action="move-down">Move down</button>
   <button data-action="rename">Rename</button>
   <button data-action="move">Move</button>
   <div class="context-menu-submenu">
@@ -2428,7 +2433,7 @@
         node.setAttribute("data-tree-division-node", String(division.id));
         node.style.setProperty("--division-color", color);
         node.innerHTML =
-          '<div class="todo-tree-row" data-division-context="' + String(division.id) + '" data-division-color="' + escapeDivisionText(color) + '" data-tree-division-row="' + String(division.id) + '">' +
+          '<div class="todo-tree-row" data-division-context="' + String(division.id) + '" data-division-color="' + escapeDivisionText(color) + '" data-tree-division-row="' + String(division.id) + '" draggable="true">' +
             '<button class="tree-select-button" type="button" data-tree-select-type="division" data-tree-select-id="' + String(division.id) + '">' +
               '<span class="todo-tree-label" style="color: ' + escapeDivisionText(color) + ';">' + escapeDivisionText(division.name || "Division") + '</span>' +
             '</button>' +
@@ -3424,7 +3429,7 @@
         Array.prototype.forEach.call(contextMenu.querySelectorAll("[data-action]"), function (button) {
           var action = button.getAttribute("data-action");
           var show = type === "division"
-            ? action === "rename" || action === "delete" || action === "color" || action === "add-project"
+            ? action === "rename" || action === "delete" || action === "color" || action === "add-project" || action === "move-up" || action === "move-down"
             : action === "share"
               ? type === "project"
               : action === "promote-project"
@@ -3471,6 +3476,22 @@
           .catch(function (error) {
             console.error("promptProjectDivisionMove failed", error);
           });
+      }
+
+      function moveDivisionLocal(divisionId, direction) {
+        var divisionNode = document.querySelector('[data-tree-division-node="' + String(divisionId) + '"]');
+        if (!divisionNode || !divisionNode.parentNode) return false;
+        var sibling = direction === "up" ? divisionNode.previousElementSibling : divisionNode.nextElementSibling;
+        while (sibling && !sibling.hasAttribute("data-tree-division-node")) {
+          sibling = direction === "up" ? sibling.previousElementSibling : sibling.nextElementSibling;
+        }
+        if (!sibling || String(sibling.getAttribute("data-tree-division-node")) === "none") return false;
+        if (direction === "up") {
+          divisionNode.parentNode.insertBefore(divisionNode, sibling);
+        } else {
+          divisionNode.parentNode.insertBefore(divisionNode, sibling.nextElementSibling);
+        }
+        return true;
       }
 
       function storageKey(table) {
@@ -3695,6 +3716,17 @@
           return;
         } else if (action === "move") {
           promptProjectDivisionMove(id);
+        } else if (action === "move-up" || action === "move-down") {
+          var shiftDirection = action === "move-up" ? "up" : "down";
+          moveDivisionLocal(id, shiftDirection);
+          fetch("/api/divisions/" + id + "/shift", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ direction: shiftDirection }),
+          }).catch(function (error) {
+            console.error("shift division failed", error);
+          });
         } else if (action === "add-project") {
           if (typeof window.__submitTreeQuickCreate === "function") {
             window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
@@ -6327,7 +6359,7 @@
       contextMenu.querySelectorAll("[data-action]").forEach((button) => {
         const action = button.getAttribute("data-action");
         const show = type === "division"
-          ? action === "rename" || action === "delete" || action === "color" || action === "add-project"
+          ? action === "rename" || action === "delete" || action === "color" || action === "add-project" || action === "move-up" || action === "move-down"
           : type === "direct_project"
             ? action === "delete"
             : action === "promote-project"
@@ -6341,6 +6373,22 @@
               : (action === "move" ? type === "project" : action !== "color");
         button.style.display = show ? "" : "none";
       });
+    };
+
+    const moveDivisionLocal = (divisionId, direction) => {
+      const divisionNode = document.querySelector(`[data-tree-division-node="${divisionId}"]`);
+      if (!divisionNode || !divisionNode.parentNode) return false;
+      let sibling = direction === "up" ? divisionNode.previousElementSibling : divisionNode.nextElementSibling;
+      while (sibling && !sibling.hasAttribute("data-tree-division-node")) {
+        sibling = direction === "up" ? sibling.previousElementSibling : sibling.nextElementSibling;
+      }
+      if (!sibling || String(sibling.getAttribute("data-tree-division-node")) === "none") return false;
+      if (direction === "up") {
+        divisionNode.parentNode.insertBefore(divisionNode, sibling);
+      } else {
+        divisionNode.parentNode.insertBefore(divisionNode, sibling.nextElementSibling);
+      }
+      return true;
     };
 
     const promptProjectDivisionMove = (projectId) => {
@@ -6924,6 +6972,18 @@
         }
         if (action === "move") {
           promptProjectDivisionMove(id);
+        }
+        if (action === "move-up" || action === "move-down") {
+          const shiftDirection = action === "move-up" ? "up" : "down";
+          moveDivisionLocal(id, shiftDirection);
+          fetch(`/api/divisions/${id}/shift`, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ direction: shiftDirection }),
+          }).catch((error) => {
+            console.error("shift division failed", error);
+          });
         }
         if (action === "add-project" && typeof window.__submitTreeQuickCreate === "function") {
           window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
@@ -8055,6 +8115,7 @@
     var inputEl = document.getElementById("discussion-input");
     var sendEl = document.getElementById("discussion-send");
     var closeEls = [document.getElementById("discussion-close"), document.getElementById("discussion-cancel")].filter(Boolean);
+    var followLinkEl = document.getElementById("discussion-follow-link");
     var titleEl = document.getElementById("discussion-title");
     var subtitleEl = document.getElementById("discussion-subtitle");
     var presenceEl = document.getElementById("discussion-presence");
@@ -8090,6 +8151,55 @@
     var currentUserId = {{ user.id|tojson }};
     var currentUserEmail = {{ user.email|tojson }};
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
+
+    function discussionFollowPayload() {
+      if (currentEntityType === "task" && currentTaskData && currentTaskData.project_id) {
+        return {
+          project_id: String(currentTaskData.project_id),
+          group_id: currentTaskData.group_id ? String(currentTaskData.group_id) : "",
+          task_id: currentTaskId ? String(currentTaskId) : "",
+          kind: "comment",
+        };
+      }
+      if (currentEntityType === "group" && currentEntityId) {
+        var groupProjectId =
+          (currentEntityData && currentEntityData.project_id ? String(currentEntityData.project_id) : "");
+        if (!groupProjectId) return null;
+        return {
+          project_id: groupProjectId,
+          group_id: String(currentEntityId),
+          task_id: "",
+          kind: "comment",
+        };
+      }
+      if (currentEntityType === "project" && currentEntityId) {
+        return {
+          project_id: String(currentEntityId),
+          group_id: "",
+          task_id: "",
+          kind: "comment",
+        };
+      }
+      return null;
+    }
+
+    function discussionFollowHref() {
+      if (currentEntityType === "task" && currentTaskId) {
+        return "/follow/task/" + encodeURIComponent(String(currentTaskId));
+      }
+      if (currentEntityType === "group" && currentEntityId) {
+        return "/follow/group/" + encodeURIComponent(String(currentEntityId));
+      }
+      if (currentEntityType === "project" && currentEntityId) {
+        return "/follow/project/" + encodeURIComponent(String(currentEntityId));
+      }
+      return "";
+    }
+
+    function updateDiscussionFollowButton() {
+      if (!followLinkEl) return;
+      followLinkEl.hidden = !discussionFollowHref();
+    }
     var currentUserAvatarUrl = {{ (user.avatar_url or "")|tojson }};
     var latestTaskFetchById = {};
     var settingsStatusMenuActive = false;
@@ -8279,6 +8389,29 @@
       applyNotificationState(latestNotificationState || {});
     }
 
+    function isSyntheticNotificationId(notificationId) {
+      return String(notificationId || "").indexOf("live-") === 0;
+    }
+
+    function dismissLiveMessageNotification(notificationId) {
+      var nextId = String(notificationId || "");
+      liveMessageNotifications = liveMessageNotifications.filter(function (item) {
+        return String(item.id || "") !== nextId;
+      });
+      applyNotificationState(latestNotificationState || {});
+    }
+
+    function togglePinLiveMessageNotification(notificationId) {
+      var nextId = String(notificationId || "");
+      liveMessageNotifications = liveMessageNotifications.map(function (item) {
+        if (String(item.id || "") !== nextId) return item;
+        var clone = Object.assign({}, item);
+        clone.pinned = !clone.pinned;
+        return clone;
+      });
+      applyNotificationState(latestNotificationState || {});
+    }
+
     function shouldSuppressDesktopNotification(item) {
       if (!item) return true;
       return isActivelyViewingMessageItem(item);
@@ -8355,7 +8488,7 @@
           window.focus();
         } catch (err) {}
         storePendingNotificationFocus(latest);
-        var href = notificationHref(latest);
+        var href = notificationTargetForPayload(latest);
         var currentUrl = window.location.pathname + window.location.search;
         if ((latest.kind || batch.kind) === "comment" && href === currentUrl) {
           if (latest.task_id) {
@@ -8368,13 +8501,6 @@
                 button.getAttribute("data-project-name")
               );
             }
-          } else if (latest.group_id) {
-            loadEntityComments(
-              "group",
-              latest.group_id,
-              notificationEntityName("group", latest.group_id) || "Group",
-              latest.project_id ? (notificationEntityName("project", latest.project_id) || "") : ""
-            );
           } else if (latest.project_id) {
             loadEntityComments(
               "project",
@@ -8792,16 +8918,29 @@
     }
 
     function notificationHref(item) {
-      var params = new URLSearchParams(window.location.search);
+      var params = new URLSearchParams();
       if (item.project_id) {
         params.set("project_id", String(item.project_id));
       }
-      params.set("view", "project");
-      if (!params.has("show_completed")) {
-        params.set("show_completed", "1");
+      params.set("view", "tree");
+      params.set("show_completed", "1");
+      if (item.task_id) {
+        params.set("open_discussion_task_id", String(item.task_id));
       }
-      params.delete("open_discussion_task_id");
+      if (item.project_id) {
+        params.set("tree_select_type", "project");
+        params.set("tree_select_id", String(item.project_id));
+      }
       return "/?" + params.toString();
+    }
+
+    function notificationTargetForPayload(payload) {
+      if (!payload) return "/";
+      return notificationHref({
+        project_id: payload.project_id || "",
+        group_id: payload.group_id || "",
+        task_id: payload.task_id || "",
+      });
     }
 
     function storePendingNotificationFocus(item) {
@@ -9602,12 +9741,21 @@
     }
 
     function taskPermalinkForCurrentDrawer() {
-      if (currentEntityType !== "task" || !currentTaskId) return "";
-      var url = new URL(window.location.href);
-      url.searchParams.set("view", "project");
+      if (currentEntityType !== "task" || !currentTaskId || !currentTaskData || !currentTaskData.project_id) return "";
+      var url = new URL(window.location.origin + "/");
+      var treeSelectionType = (currentTaskData && currentTaskData.group_id) ? "group" : "project";
+      var treeSelectionId = (currentTaskData && currentTaskData.group_id) ? currentTaskData.group_id : (currentTaskData ? currentTaskData.project_id : "");
+      url.searchParams.set("view", "tree");
       url.searchParams.set("show_completed", "1");
       url.searchParams.set("open_discussion_task_id", String(currentTaskId));
-      url.searchParams.delete("project_id");
+      url.searchParams.set("project_id", String(currentTaskData.project_id));
+      if (treeSelectionId) {
+        url.searchParams.set("tree_select_type", treeSelectionType);
+        url.searchParams.set("tree_select_id", String(treeSelectionId));
+      } else {
+        url.searchParams.delete("tree_select_type");
+        url.searchParams.delete("tree_select_id");
+      }
       return url.toString();
     }
 
@@ -9680,17 +9828,20 @@
       currentProjectName = projectName || "";
       titleEl.textContent = currentTaskTitle || "Task";
       subtitleEl.textContent = projectName ? projectName + " · Task details" : "Task details";
+      updateDiscussionFollowButton();
       fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           currentTaskData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
+          updateDiscussionFollowButton();
           renderTaskSettings();
           renderEntityLinkState();
         })
         .catch(function () {
           currentTaskData = null;
           currentEntityLinks = [];
+          updateDiscussionFollowButton();
           renderTaskSettings();
           renderEntityLinkState();
         });
@@ -9716,6 +9867,7 @@
       } else {
         subtitleEl.textContent = "Task details";
       }
+      updateDiscussionFollowButton();
       if (entityType === "task") {
         loadTaskMeta(entityId, entityTitle, projectName);
         return;
@@ -9728,12 +9880,14 @@
         .then(function (data) {
           currentEntityData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
+          updateDiscussionFollowButton();
           renderEntitySettings();
           renderEntityLinkState();
         })
         .catch(function () {
           currentEntityData = null;
           currentEntityLinks = [];
+          updateDiscussionFollowButton();
           renderEntitySettings();
           renderEntityLinkState();
         });
@@ -10483,6 +10637,7 @@
       renderTaskSettings();
       renderEntityLinkState();
       renderDiscussionPresence([]);
+      updateDiscussionFollowButton();
       syncTaskRoom(null);
       closeMultiStatusMenu();
     }
@@ -11058,7 +11213,12 @@
         var dismissBtn = event.target.closest('[data-notification-dismiss]');
         if (dismissBtn) {
           event.preventDefault();
-          fetch('/api/notifications/' + dismissBtn.getAttribute('data-notification-dismiss') + '/dismiss', {
+          var dismissId = dismissBtn.getAttribute('data-notification-dismiss');
+          if (isSyntheticNotificationId(dismissId)) {
+            dismissLiveMessageNotification(dismissId);
+            return;
+          }
+          fetch('/api/notifications/' + dismissId + '/dismiss', {
             method: 'POST',
             credentials: 'same-origin',
           }).catch(function () {});
@@ -11069,6 +11229,10 @@
         if (pinBtn) {
           event.preventDefault();
           var notificationId = pinBtn.getAttribute('data-notification-pin');
+          if (isSyntheticNotificationId(notificationId)) {
+            togglePinLiveMessageNotification(notificationId);
+            return;
+          }
           var endpoint = pinBtn.classList.contains('is-active') ? 'unpin' : 'pin';
           fetch('/api/notifications/' + notificationId + '/' + endpoint, {
             method: 'POST',
@@ -11084,14 +11248,18 @@
         try {
           payload = JSON.parse(link.getAttribute('data-notification-open') || '{}');
         } catch (err) {}
-        var href = link.getAttribute('data-notification-href') || '/';
+        var href = payload ? notificationTargetForPayload(payload) : (link.getAttribute('data-notification-href') || '/');
         closeDrawer();
         if (payload) {
           storePendingNotificationFocus(payload);
-          fetch('/api/notifications/' + payload.notification_id + '/dismiss', {
-            method: 'POST',
-            credentials: 'same-origin',
-          }).catch(function () {});
+          if (isSyntheticNotificationId(payload.notification_id)) {
+            dismissLiveMessageNotification(payload.notification_id);
+          } else {
+            fetch('/api/notifications/' + payload.notification_id + '/dismiss', {
+              method: 'POST',
+              credentials: 'same-origin',
+            }).catch(function () {});
+          }
         }
         var currentUrl = window.location.pathname + window.location.search;
         if (payload && payload.kind === 'comment') {
@@ -11109,13 +11277,6 @@
                 button.getAttribute('data-project-name')
               );
             }
-          } else if (payload.group_id) {
-            loadEntityComments(
-              "group",
-              payload.group_id,
-              notificationEntityName("group", payload.group_id) || "Group",
-              payload.project_id ? (notificationEntityName("project", payload.project_id) || "") : ""
-            );
           } else if (payload.project_id) {
             loadEntityComments(
               "project",
@@ -11139,6 +11300,13 @@
     closeEls.forEach(function (button) {
       button.addEventListener("click", closeDrawer);
     });
+    if (followLinkEl) {
+      followLinkEl.addEventListener("click", function () {
+        var href = discussionFollowHref();
+        if (!href) return;
+        window.location.href = href;
+      });
+    }
     if (copyTaskPermalinkEl) {
       copyTaskPermalinkEl.addEventListener("click", function () {
         var permalink = taskPermalinkForCurrentDrawer();
@@ -11356,7 +11524,10 @@
       }
     });
 
-    var openTaskId = drawer.getAttribute("data-open-task-id") || new URLSearchParams(window.location.search).get("open_discussion_task_id") || "";
+    var initialDrawerParams = new URLSearchParams(window.location.search);
+    var openTaskId = drawer.getAttribute("data-open-task-id") || initialDrawerParams.get("open_discussion_task_id") || "";
+    var openProjectDiscussionId = initialDrawerParams.get("open_discussion_project_id") || "";
+    var openGroupDiscussionId = initialDrawerParams.get("open_discussion_group_id") || "";
     if (openTaskId) {
       var button = document.querySelector('[data-open-discussion="' + openTaskId + '"]');
       if (button) {
@@ -11369,8 +11540,38 @@
         if (window.history && window.history.replaceState) {
           var cleanUrl = new URL(window.location.href);
           cleanUrl.searchParams.delete("open_discussion_task_id");
+          cleanUrl.searchParams.delete("open_discussion_project_id");
+          cleanUrl.searchParams.delete("open_discussion_group_id");
           window.history.replaceState({}, "", cleanUrl.pathname + (cleanUrl.search ? cleanUrl.search : "") + cleanUrl.hash);
         }
+      }
+    } else if (openGroupDiscussionId) {
+      loadEntityComments(
+        "group",
+        openGroupDiscussionId,
+        notificationEntityName("group", openGroupDiscussionId) || "Group",
+        initialDrawerParams.get("project_id") ? (notificationEntityName("project", initialDrawerParams.get("project_id")) || "") : ""
+      );
+      if (window.history && window.history.replaceState) {
+        var cleanGroupUrl = new URL(window.location.href);
+        cleanGroupUrl.searchParams.delete("open_discussion_task_id");
+        cleanGroupUrl.searchParams.delete("open_discussion_project_id");
+        cleanGroupUrl.searchParams.delete("open_discussion_group_id");
+        window.history.replaceState({}, "", cleanGroupUrl.pathname + (cleanGroupUrl.search ? cleanGroupUrl.search : "") + cleanGroupUrl.hash);
+      }
+    } else if (openProjectDiscussionId) {
+      loadEntityComments(
+        "project",
+        openProjectDiscussionId,
+        notificationEntityName("project", openProjectDiscussionId) || "Project",
+        ""
+      );
+      if (window.history && window.history.replaceState) {
+        var cleanProjectUrl = new URL(window.location.href);
+        cleanProjectUrl.searchParams.delete("open_discussion_task_id");
+        cleanProjectUrl.searchParams.delete("open_discussion_project_id");
+        cleanProjectUrl.searchParams.delete("open_discussion_group_id");
+        window.history.replaceState({}, "", cleanProjectUrl.pathname + (cleanProjectUrl.search ? cleanProjectUrl.search : "") + cleanProjectUrl.hash);
       }
     }
 
@@ -11391,14 +11592,6 @@
                 );
                 return;
               }
-            } else if (pendingNotificationFocus.group_id) {
-              loadEntityComments(
-                "group",
-                pendingNotificationFocus.group_id,
-                notificationEntityName("group", pendingNotificationFocus.group_id) || "Group",
-                pendingNotificationFocus.project_id ? (notificationEntityName("project", pendingNotificationFocus.project_id) || "") : ""
-              );
-              return;
             } else if (pendingNotificationFocus.project_id) {
               loadEntityComments(
                 "project",
@@ -11594,20 +11787,14 @@
         setCommentCount("group", data.group_id, Number(data.comment_count || 0));
         var groupCommentAuthorId = data.comment && data.comment.author ? data.comment.author.id : data.comment.user_id;
         if (String(groupCommentAuthorId || "") !== String(currentUserId || "")) {
-          var groupRow = document.querySelector('.group-header[data-group-context="' + String(data.group_id) + '"]');
-          var groupProjectId = groupRow ? groupRow.closest(".panel.group, .group-block") : null;
-          var inferredProjectId = "";
-          if (groupRow) {
-            var table = groupRow.parentNode ? groupRow.parentNode.querySelector(".tasks-table[data-project-id]") : null;
-            inferredProjectId = table ? (table.getAttribute("data-project-id") || "") : "";
-          }
+          var groupProjectId = String(data.project_id || "");
           var groupNotificationItem = {
             id: "live-group-comment:" + String(data.group_id) + ":" + String(data.comment.id),
-            project_id: inferredProjectId,
+            project_id: groupProjectId,
             group_id: data.group_id,
             task_id: "",
             task_title: notificationEntityName("group", data.group_id) || "Group chat",
-            project_name: inferredProjectId ? (notificationEntityName("project", inferredProjectId) || "Project") : "",
+            project_name: groupProjectId ? (notificationEntityName("project", groupProjectId) || "Project") : "",
             kind: "comment",
             pinned: false,
             read: false,
@@ -12169,12 +12356,22 @@
         applySelection(currentSelection);
       };
 
+      var draggingTreeDivisionId = null;
+      var draggingTreeDivisionRow = null;
+      var activeTreeDivisionDrop = null;
       var draggingTreeProjectId = null;
       var draggingTreeProjectRow = null;
       var activeTreeProjectDrop = null;
       var draggingTreeGroupId = null;
       var draggingTreeGroupRow = null;
       var activeTreeGroupDrop = null;
+
+      function clearTreeDivisionDrop() {
+        if (activeTreeDivisionDrop && activeTreeDivisionDrop.row) {
+          activeTreeDivisionDrop.row.classList.remove("tree-drag-over");
+        }
+        activeTreeDivisionDrop = null;
+      }
 
       function clearTreeProjectDrop() {
         if (activeTreeProjectDrop && activeTreeProjectDrop.row) {
@@ -12217,15 +12414,53 @@
         }
       }
 
+      function setTreeDivisionDrop(row, placement) {
+        if (activeTreeDivisionDrop && activeTreeDivisionDrop.row !== row) {
+          activeTreeDivisionDrop.row.classList.remove("tree-drag-over");
+        }
+        activeTreeDivisionDrop = row ? {
+          row: row,
+          placement: placement || "before",
+        } : null;
+        if (activeTreeDivisionDrop) {
+          activeTreeDivisionDrop.row.classList.add("tree-drag-over");
+        }
+      }
+
       function clearTreeDragState() {
+        clearTreeDivisionDrop();
         clearTreeProjectDrop();
         clearTreeGroupDrop();
+        if (draggingTreeDivisionRow) draggingTreeDivisionRow.classList.remove("tree-dragging");
         if (draggingTreeProjectRow) draggingTreeProjectRow.classList.remove("tree-dragging");
         if (draggingTreeGroupRow) draggingTreeGroupRow.classList.remove("tree-dragging");
+        draggingTreeDivisionId = null;
+        draggingTreeDivisionRow = null;
         draggingTreeProjectId = null;
         draggingTreeProjectRow = null;
         draggingTreeGroupId = null;
         draggingTreeGroupRow = null;
+      }
+
+      function submitTreeDivisionOrder() {
+        var treeList = document.querySelector("[data-tree-select-list]");
+        if (!treeList) return;
+        var order = Array.from(treeList.querySelectorAll(":scope > [data-tree-division-node]"))
+          .map(function (node) {
+            return String(node.getAttribute("data-tree-division-node") || "");
+          })
+          .filter(function (id) {
+            return id && id !== "none";
+          });
+        if (!order.length) return;
+        fetch("/api/divisions/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ order: order.map(function (id) { return Number(id); }) }),
+        }).catch(function (error) {
+          console.error("tree division reorder failed", error);
+        });
       }
 
       function moveTreeProjectRowLocal(projectId, targetProjectId, placement, targetDivisionId) {
@@ -12297,6 +12532,19 @@
       }
 
       document.addEventListener("dragstart", function (event) {
+        var divisionRow = event.target.closest('[data-tree-division-row][draggable="true"]');
+        if (divisionRow) {
+          var divisionId = String(divisionRow.getAttribute("data-tree-division-row") || "");
+          if (!divisionId || divisionId === "none") return;
+          draggingTreeDivisionId = divisionId;
+          draggingTreeDivisionRow = divisionRow;
+          divisionRow.classList.add("tree-dragging");
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", draggingTreeDivisionId);
+          }
+          return;
+        }
         var projectRow = event.target.closest("[data-tree-project-row]");
         if (projectRow) {
           draggingTreeProjectId = String(projectRow.getAttribute("data-tree-project-row"));
@@ -12321,6 +12569,21 @@
       });
 
       document.addEventListener("dragover", function (event) {
+        if (draggingTreeDivisionId) {
+          var targetDivisionRow = event.target.closest('[data-tree-division-row][draggable="true"]');
+          if (targetDivisionRow) {
+            var targetDivisionId = String(targetDivisionRow.getAttribute("data-tree-division-row") || "");
+            if (targetDivisionId && targetDivisionId !== "none" && targetDivisionId !== draggingTreeDivisionId) {
+              event.preventDefault();
+              var divisionRect = targetDivisionRow.getBoundingClientRect();
+              var divisionPlacement = event.clientY > divisionRect.top + divisionRect.height / 2 ? "after" : "before";
+              setTreeDivisionDrop(targetDivisionRow, divisionPlacement);
+              clearTreeProjectDrop();
+              clearTreeGroupDrop();
+            }
+          }
+          return;
+        }
         if (draggingTreeProjectId) {
           var projectRow = event.target.closest("[data-tree-project-row]");
           if (projectRow && String(projectRow.getAttribute("data-tree-project-row")) !== draggingTreeProjectId) {
@@ -12351,6 +12614,26 @@
       });
 
       document.addEventListener("drop", function (event) {
+        if (draggingTreeDivisionId && activeTreeDivisionDrop) {
+          event.preventDefault();
+          var sourceNode = draggingTreeDivisionRow ? draggingTreeDivisionRow.closest("[data-tree-division-node]") : null;
+          var targetNode = activeTreeDivisionDrop.row ? activeTreeDivisionDrop.row.closest("[data-tree-division-node]") : null;
+          var movedDivision = false;
+          if (sourceNode && targetNode && sourceNode !== targetNode && targetNode.parentNode) {
+            if (activeTreeDivisionDrop.placement === "after") {
+              targetNode.parentNode.insertBefore(sourceNode, targetNode.nextSibling);
+            } else {
+              targetNode.parentNode.insertBefore(sourceNode, targetNode);
+            }
+            movedDivision = true;
+            submitTreeDivisionOrder();
+          }
+          clearTreeDragState();
+          if (movedDivision) {
+            saveState(snapshotState(currentSelection));
+          }
+          return;
+        }
         if (draggingTreeProjectId && activeTreeProjectDrop) {
           event.preventDefault();
           var targetProjectId = activeTreeProjectDrop.row.getAttribute("data-tree-project-row");
@@ -12472,8 +12755,21 @@
       if (state.selection && state.selection.type && state.selection.id) {
         currentSelection = state.selection;
       } else {
+        var requestedTreeSelectionType = {{ (tree_selection_type or "")|tojson }};
+        var requestedTreeSelectionId = {{ (tree_selection_id or "")|tojson }};
+        var requestedTreeButton = null;
+        if (requestedTreeSelectionType && requestedTreeSelectionId) {
+          requestedTreeButton = document.querySelector(
+            '[data-tree-select-type="' + requestedTreeSelectionType + '"][data-tree-select-id="' + requestedTreeSelectionId + '"]'
+          );
+        }
         var selectedProjectId = {{ selected_project.id if selected_project else 'null' }};
-        if (selectedProjectId) {
+        if (requestedTreeButton) {
+          currentSelection = {
+            type: String(requestedTreeButton.getAttribute("data-tree-select-type")),
+            id: String(requestedTreeButton.getAttribute("data-tree-select-id")),
+          };
+        } else if (selectedProjectId) {
           currentSelection = { type: "project", id: String(selectedProjectId) };
         } else {
           var firstButton = document.querySelector("[data-tree-select-type]");

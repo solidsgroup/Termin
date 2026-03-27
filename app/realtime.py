@@ -563,18 +563,20 @@ def emit_project_comment_deleted(project_id: int, comment_id: int) -> None:
 
 def emit_group_comment_created(group_id: int, comment_payload: dict) -> None:
     comment_count = GroupComment.query.filter_by(group_id=group_id).count()
-    payload = {"group_id": group_id, "comment": comment_payload, "comment_count": comment_count}
+    payload = {"group_id": group_id, "project_id": None, "comment": comment_payload, "comment_count": comment_count}
     group = Group.query.get(group_id)
     if group:
+        payload["project_id"] = group.project_id
         socketio.emit("group_comment_created", payload, room=project_room(group.project_id))
     for recipient_id in _group_comment_user_ids(group_id):
         socketio.emit("group_comment_created", payload, room=user_room(recipient_id))
 
 
 def emit_group_comment_updated(group_id: int, comment_payload: dict) -> None:
-    payload = {"group_id": group_id, "comment": comment_payload}
+    payload = {"group_id": group_id, "project_id": None, "comment": comment_payload}
     group = Group.query.get(group_id)
     if group:
+        payload["project_id"] = group.project_id
         socketio.emit("group_comment_updated", payload, room=project_room(group.project_id))
     for recipient_id in _group_comment_user_ids(group_id):
         socketio.emit("group_comment_updated", payload, room=user_room(recipient_id))
@@ -582,9 +584,10 @@ def emit_group_comment_updated(group_id: int, comment_payload: dict) -> None:
 
 def emit_group_comment_deleted(group_id: int, comment_id: int) -> None:
     comment_count = GroupComment.query.filter_by(group_id=group_id).count()
-    payload = {"group_id": group_id, "comment_id": comment_id, "comment_count": comment_count}
+    payload = {"group_id": group_id, "project_id": None, "comment_id": comment_id, "comment_count": comment_count}
     group = Group.query.get(group_id)
     if group:
+        payload["project_id"] = group.project_id
         socketio.emit("group_comment_deleted", payload, room=project_room(group.project_id))
     for recipient_id in _group_comment_user_ids(group_id):
         socketio.emit("group_comment_deleted", payload, room=user_room(recipient_id))

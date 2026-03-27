@@ -237,7 +237,16 @@ def _calendar_event_description(
 def _calendar_event_url(task: Task, public_base_url: str) -> str:
     if not public_base_url:
         return ""
-    return f"{public_base_url}/?project_id={task.project_id}&open_discussion_task_id={task.id}"
+    selection_type = "group" if task.group_id else "project"
+    selection_id = task.group_id if task.group_id else task.project_id
+    return (
+        f"{public_base_url}/?project_id={task.project_id}"
+        f"&view=tree"
+        f"&show_completed=1"
+        f"&open_discussion_task_id={task.id}"
+        f"&tree_select_type={selection_type}"
+        f"&tree_select_id={selection_id}"
+    )
 
 
 def _build_calendar_feed_ics(email: str, tasks: list[Task]) -> str:
@@ -903,6 +912,11 @@ def dashboard():
     division_color_map = {division.id: (division.color or "#4cc9f0") for division in sidebar_divisions}
     selected_id = request.args.get("project_id")
     open_task_id = request.args.get("open_discussion_task_id")
+    tree_selection_type = (request.args.get("tree_select_type") or "").strip().lower()
+    tree_selection_id = (request.args.get("tree_select_id") or "").strip()
+    if tree_selection_type not in {"division", "project", "group"}:
+        tree_selection_type = ""
+        tree_selection_id = ""
     selected_from_task_id = None
     dashboard_notice = None
     if open_task_id:
@@ -915,7 +929,14 @@ def dashboard():
             open_task = Task.query.filter_by(id=open_task_id_int).first()
             if open_task and open_task.project_id in accessible_project_ids:
                 selected_from_task_id = open_task.project_id
-                current_view = "project"
+                current_view = "tree"
+                if not tree_selection_type or not tree_selection_id:
+                    if open_task.group_id:
+                        tree_selection_type = "group"
+                        tree_selection_id = str(open_task.group_id)
+                    else:
+                        tree_selection_type = "project"
+                        tree_selection_id = str(open_task.project_id)
             elif open_task:
                 dashboard_notice = "You do not have access to that task."
             else:
@@ -1383,6 +1404,95 @@ def dashboard():
         task_notifications=task_notifications,
         message_notifications=message_notifications,
         dashboard_notice=dashboard_notice,
+        tree_selection_type=tree_selection_type,
+        tree_selection_id=tree_selection_id,
+    )
+
+
+@ui_bp.get("/follow/task/<int:task_id>")
+@login_required
+def follow_task(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return redirect(url_for("ui.dashboard"))
+    if not (
+        Project.query.filter_by(id=task.project_id, owner_id=user.id).first()
+        or ProjectMember.query.filter_by(project_id=task.project_id, user_id=user.id).first()
+        or db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == task.project_id, GroupMember.user_id == user.id)
+        .first()
+    ):
+        return redirect(url_for("ui.dashboard"))
+    return redirect(
+        url_for(
+            "ui.dashboard",
+            project_id=task.project_id,
+            view="tree",
+            show_completed=1,
+            open_discussion_task_id=task.id,
+            tree_select_type="group" if task.group_id else "project",
+            tree_select_id=task.group_id if task.group_id else task.project_id,
+        )
+    )
+
+
+@ui_bp.get("/follow/group/<int:group_id>")
+@login_required
+def follow_group(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return redirect(url_for("ui.dashboard"))
+    if not (
+        Project.query.filter_by(id=group.project_id, owner_id=user.id).first()
+        or ProjectMember.query.filter_by(project_id=group.project_id, user_id=user.id).first()
+        or db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == group.project_id, GroupMember.user_id == user.id)
+        .first()
+    ):
+        return redirect(url_for("ui.dashboard"))
+    return redirect(
+        url_for(
+            "ui.dashboard",
+            project_id=group.project_id,
+            view="tree",
+            show_completed=1,
+            open_discussion_group_id=group.id,
+            tree_select_type="group",
+            tree_select_id=group.id,
+        )
+    )
+
+
+@ui_bp.get("/follow/project/<int:project_id>")
+@login_required
+def follow_project(project_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return redirect(url_for("ui.dashboard"))
+    if not (
+        Project.query.filter_by(id=project.id, owner_id=user.id).first()
+        or ProjectMember.query.filter_by(project_id=project.id, user_id=user.id).first()
+        or db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == project.id, GroupMember.user_id == user.id)
+        .first()
+    ):
+        return redirect(url_for("ui.dashboard"))
+    return redirect(
+        url_for(
+            "ui.dashboard",
+            project_id=project.id,
+            view="tree",
+            show_completed=1,
+            open_discussion_project_id=project.id,
+            tree_select_type="project",
+            tree_select_id=project.id,
+        )
     )
 
 
