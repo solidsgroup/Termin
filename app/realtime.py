@@ -49,6 +49,10 @@ def project_room(project_id: int) -> str:
     return f"project:{project_id}"
 
 
+def _user_sids(user_id: int) -> list[str]:
+    return [sid for sid, sid_user_id in _sid_user.items() if int(sid_user_id) == int(user_id)]
+
+
 def is_user_viewing_project(user_id: int, project_id: int) -> bool:
     return _project_user_counts.get(project_id, {}).get(user_id, 0) > 0
 
@@ -135,16 +139,38 @@ def _serialize_project_payload(project: Project) -> dict:
     return {
         "id": project.id,
         "name": project.name,
+        "owner_id": project.owner_id,
         "links": info_payload.get("links", []),
         "division_id": project.division_id,
+        "is_direct": bool(getattr(project, "is_direct", False)),
     }
 
 
 def _serialize_project_payload_for_user(project: Project, user_id: int) -> dict:
     payload = _serialize_project_payload(project)
-    pref = ProjectSidebarPreference.query.filter_by(user_id=user_id, project_id=project.id).first()
-    if pref:
-        payload["division_id"] = pref.division_id
+    if project.is_direct:
+        peer_id = None
+        if project.direct_user_a_id and int(project.direct_user_a_id) != int(user_id):
+            peer_id = project.direct_user_a_id
+        elif project.direct_user_b_id and int(project.direct_user_b_id) != int(user_id):
+            peer_id = project.direct_user_b_id
+        peer = User.query.get(peer_id) if peer_id else None
+        payload["direct_peer"] = (
+            {
+                "id": peer.id,
+                "email": peer.email,
+                "display_name": peer.display_name,
+                "avatar_url": peer.avatar_url,
+            }
+            if peer
+            else None
+        )
+        payload["display_name"] = (peer.display_name or peer.email) if peer else project.name
+        payload["division_id"] = None
+    else:
+        pref = ProjectSidebarPreference.query.filter_by(user_id=user_id, project_id=project.id).first()
+        if pref:
+            payload["division_id"] = pref.division_id
     return payload
 
 
@@ -704,17 +730,24 @@ def emit_project_created(project: Project, *, actor_user_id: int | None = None, 
     if recipient_user_id is not None:
         payload = {"project": _serialize_project_payload_for_user(project, recipient_user_id), "actor_user_id": actor_user_id}
         socketio.emit("project_created", payload, room=user_room(recipient_user_id))
+        for sid in _user_sids(recipient_user_id):
+            socketio.emit("project_created", payload, room=sid)
     else:
         for recipient_id in _project_update_user_ids(project.id):
             payload = {"project": _serialize_project_payload_for_user(project, recipient_id), "actor_user_id": actor_user_id}
             socketio.emit("project_created", payload, room=user_room(recipient_id))
+            for sid in _user_sids(recipient_id):
+                socketio.emit("project_created", payload, room=sid)
 
 
-def emit_project_deleted(project_id: int, *, actor_user_id: int | None = None, task_ids: list[int] | None = None) -> None:
+def emit_project_deleted(project_id: int, *, actor_user_id: int | None = None, task_ids: list[int] | None = None, recipient_user_ids: list[int] | None = None) -> None:
     payload = {"project_id": project_id, "task_ids": task_ids or [], "actor_user_id": actor_user_id}
     socketio.emit("project_deleted", payload, room=project_room(project_id))
-    for recipient_id in _project_update_user_ids(project_id):
+    recipients = recipient_user_ids if recipient_user_ids is not None else list(_project_update_user_ids(project_id))
+    for recipient_id in recipients:
         socketio.emit("project_deleted", payload, room=user_room(recipient_id))
+        for sid in _user_sids(recipient_id):
+            socketio.emit("project_deleted", payload, room=sid)
 
 
 def emit_group_updated(group: Group, *, actor_user_id: int | None = None) -> None:

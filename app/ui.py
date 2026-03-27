@@ -57,6 +57,24 @@ from app.utils import current_user
 from app.utils import is_admin as user_is_admin
 
 
+def _direct_peer_for_user(project: Project, user_id: int) -> User | None:
+    if not project or not getattr(project, "is_direct", False):
+        return None
+    peer_id = None
+    if project.direct_user_a_id and int(project.direct_user_a_id) != int(user_id):
+        peer_id = project.direct_user_a_id
+    elif project.direct_user_b_id and int(project.direct_user_b_id) != int(user_id):
+        peer_id = project.direct_user_b_id
+    return User.query.get(peer_id) if peer_id else None
+
+
+def _project_display_name_for_user(project: Project, user_id: int) -> str:
+    peer = _direct_peer_for_user(project, user_id)
+    if peer:
+        return peer.display_name or peer.email or project.name
+    return project.name
+
+
 def _accessible_projects_for_user(user) -> list[Project]:
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
     member_project_ids = [row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()]
@@ -878,12 +896,17 @@ def dashboard():
         if accessible_project_ids
         else []
     )
+    standard_projects = [project for project in projects if not project.is_direct]
+    direct_projects = [project for project in projects if project.is_direct]
+    direct_projects.sort(
+        key=lambda project: ((_project_display_name_for_user(project, user.id) or "").lower(), project.id)
+    )
     sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.name.asc(), Division.id.asc()).all()
     division_options = [{"id": division.id, "name": division.name, "color": division.color} for division in sidebar_divisions]
-    sidebar_pref_map = sidebar_preference_map(user.id, projects, sidebar_divisions)
+    sidebar_pref_map = sidebar_preference_map(user.id, standard_projects, sidebar_divisions)
     projects_by_division = {division.id: [] for division in sidebar_divisions}
-    top_level_items = top_level_sidebar_items(projects, sidebar_divisions, sidebar_pref_map)
-    for project in projects:
+    top_level_items = top_level_sidebar_items(standard_projects, sidebar_divisions, sidebar_pref_map)
+    for project in standard_projects:
         pref = sidebar_pref_map.get(project.id)
         if pref and pref.division_id and pref.division_id in projects_by_division:
             projects_by_division[pref.division_id].append(project)
@@ -900,7 +923,11 @@ def dashboard():
         for group in group_rows:
             groups_by_project.setdefault(group.project_id, []).append(group)
 
-    unassigned_projects = [project for project in projects if not (sidebar_pref_map.get(project.id) and sidebar_pref_map.get(project.id).division_id)]
+    unassigned_projects = [
+        project
+        for project in projects
+        if project.is_direct or not (sidebar_pref_map.get(project.id) and sidebar_pref_map.get(project.id).division_id)
+    ]
 
     selected_project = None
     division_color_map = {division.id: (division.color or "#4cc9f0") for division in sidebar_divisions}
@@ -934,7 +961,7 @@ def dashboard():
             if selected_id_int and not selected_project:
                 selected_project = next((p for p in projects if p.id == selected_id_int), None)
         if not selected_project:
-            selected_project = projects[0]
+            selected_project = standard_projects[0] if standard_projects else (direct_projects[0] if direct_projects else projects[0])
 
     tasks = []
     groups = []
@@ -1024,6 +1051,9 @@ def dashboard():
     group_info_by_id = {group.id: load_info_payload(group.info, group.link) for group in groups}
     project_viewers, group_viewers, viewer_user_map = _build_dashboard_viewer_maps(projects)
     user_map = dict(viewer_user_map)
+    direct_project_peers = {project.id: _direct_peer_for_user(project, user.id) for project in direct_projects}
+    project_display_names = {project.id: _project_display_name_for_user(project, user.id) for project in projects}
+    selected_project_display_name = project_display_names.get(selected_project.id, selected_project.name) if selected_project else ""
     today = now_utc.date()
     todo_items = []
     todo_tasks = []
@@ -1320,6 +1350,10 @@ def dashboard():
         member_project_ids=member_project_ids,
         project_viewers=project_viewers,
         group_viewers=group_viewers,
+        direct_projects=direct_projects,
+        direct_project_peers=direct_project_peers,
+        project_display_names=project_display_names,
+        selected_project_display_name=selected_project_display_name,
         todo_groups_by_date=todo_groups_by_date,
         todo_assignee_options=todo_assignee_options,
         github_task_meta=github_task_meta,

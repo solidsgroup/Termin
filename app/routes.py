@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 from urllib.parse import urlparse
+from sqlalchemy import or_
 
 from flask import Blueprint, current_app, request, send_from_directory
 
@@ -14,6 +15,7 @@ from app.group_assignments import group_assignment_candidate_users, serialize_gr
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 from app.realtime import (
+    _serialize_project_payload_for_user,
     emit_assignment_updated,
     emit_division_created,
     emit_division_deleted,
@@ -333,6 +335,25 @@ def _can_access_project(user, project_id: int) -> bool:
         db.session.query(Task.id)
         .join(Assignment, Assignment.task_id == Task.id)
         .filter(Task.project_id == project_id, Assignment.user_id == user.id)
+        .first()
+        is not None
+    ):
+        return True
+    return False
+
+
+def _can_access_group(user, group_id: int) -> bool:
+    group = Group.query.get(group_id)
+    if not group:
+        return False
+    if _can_access_project(user, group.project_id):
+        return True
+    if GroupMember.query.filter_by(group_id=group_id, user_id=user.id).first():
+        return True
+    if (
+        db.session.query(Task.id)
+        .join(Assignment, Assignment.task_id == Task.id)
+        .filter(Task.group_id == group_id, Assignment.user_id == user.id)
         .first()
         is not None
     ):
@@ -1113,7 +1134,11 @@ def move_task(task_id: int):
         target_group = Group.query.filter_by(id=target_group_id, project_id=target_project.id).first()
         if not target_group:
             return {"error": "group not found"}, 404
-    if not _can_manage_task_bucket(user, source_project_id, source_group_id) or not _can_manage_task_bucket(user, target_project.id, target_group_id):
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if not _can_access_project(user, target_project.id):
+        return {"error": "unauthorized"}, 403
+    if target_group_id is not None and not _can_access_group(user, target_group_id):
         return {"error": "unauthorized"}, 403
 
     before_task = None
@@ -1125,6 +1150,8 @@ def move_task(task_id: int):
             before_task = None
         elif before_task.project_id != target_project.id or before_task.group_id != target_group_id:
             return {"error": "before_task bucket mismatch"}, 400
+        elif not _can_access_task(user, before_task):
+            return {"error": "unauthorized"}, 403
 
     if source_project_id == target_project.id and source_group_id == target_group_id:
         siblings = [row for row in _task_bucket_query(target_project.id, target_group_id).all() if row.id != task.id]
@@ -1438,6 +1465,8 @@ def delete_project(project_id: int):
     if project.owner_id != user.id:
         return {"error": "unauthorized"}, 403
 
+    recipient_user_ids = [project.owner_id] + [row.user_id for row in ProjectMember.query.filter_by(project_id=project.id).all()]
+    recipient_user_ids = sorted({user_id for user_id in recipient_user_ids if user_id})
     group_ids = [g.id for g in Group.query.filter_by(project_id=project.id).all()]
     task_ids = [t.id for t in Task.query.filter_by(project_id=project.id).all()]
     Assignment.query.filter(Assignment.task_id.in_(task_ids)).delete(synchronize_session=False)
@@ -1449,7 +1478,7 @@ def delete_project(project_id: int):
     Group.query.filter(Group.project_id == project.id).delete(synchronize_session=False)
     db.session.delete(project)
     db.session.commit()
-    emit_project_deleted(project.id, actor_user_id=user.id, task_ids=task_ids)
+    emit_project_deleted(project.id, actor_user_id=user.id, task_ids=task_ids, recipient_user_ids=recipient_user_ids)
     return {"status": "deleted"}, 200
 
 
@@ -1649,6 +1678,83 @@ def list_users():
                 "avatar_url": u.avatar_url,
             }
         )
+    return {"results": results}
+
+
+@api_bp.post("/direct-projects")
+@login_required
+def create_direct_project():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    target_user_id = payload.get("user_id")
+    try:
+        target_user_id = int(target_user_id)
+    except (TypeError, ValueError):
+        return {"error": "user_id is required"}, 400
+    if int(target_user_id) == int(user.id):
+        return {"error": "cannot create a direct space with yourself"}, 400
+    target_user = User.query.get(target_user_id)
+    if not target_user:
+        return {"error": "user not found"}, 404
+
+    user_a_id, user_b_id = sorted([int(user.id), int(target_user.id)])
+    project = Project.query.filter_by(
+        is_direct=True,
+        direct_user_a_id=user_a_id,
+        direct_user_b_id=user_b_id,
+    ).first()
+    created = False
+    if not project:
+        label_a = user.display_name or user.email or f"User {user.id}"
+        label_b = target_user.display_name or target_user.email or f"User {target_user.id}"
+        project = Project(
+            name=f"{label_a} · {label_b}",
+            owner_id=user.id,
+            is_direct=True,
+            direct_user_a_id=user_a_id,
+            direct_user_b_id=user_b_id,
+            division_id=None,
+            position=0,
+        )
+        db.session.add(project)
+        db.session.flush()
+        if not ProjectMember.query.filter_by(project_id=project.id, user_id=target_user.id).first():
+            db.session.add(ProjectMember(project_id=project.id, user_id=target_user.id))
+        db.session.flush()
+        palette = ["#4cc9f0", "#f72585", "#f8961e", "#43aa8b", "#577590"]
+        group = Group(
+            project_id=project.id,
+            name="General",
+            position=1,
+            color=palette[project.id % len(palette)],
+        )
+        db.session.add(group)
+        db.session.commit()
+        emit_group_created(group, actor_user_id=user.id)
+        emit_project_created(project, actor_user_id=user.id, recipient_user_id=user.id)
+        emit_project_created(project, actor_user_id=user.id, recipient_user_id=target_user.id)
+        created = True
+
+    return {
+        "project": _serialize_project_payload_for_user(project, user.id),
+        "created": created,
+    }, 201 if created else 200
+
+
+@api_bp.get("/direct-projects")
+@login_required
+def list_direct_projects():
+    user = current_user()
+    member_project_ids = [row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()]
+    projects = (
+        Project.query.filter(
+            Project.is_direct.is_(True),
+            or_(Project.owner_id == user.id, Project.id.in_(member_project_ids if member_project_ids else [-1])),
+        )
+        .all()
+    )
+    results = [_serialize_project_payload_for_user(project, user.id) for project in projects]
+    results.sort(key=lambda item: ((item.get("display_name") or item.get("name") or "").lower(), item.get("id") or 0))
     return {"results": results}
 
 

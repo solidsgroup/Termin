@@ -2,7 +2,7 @@
 {% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
   {% set project_color = color or '#2a3442' %}
-  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %}{% if can_manage %} project-drop-target{% endif %}" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}"{% if can_manage %} draggable="true" data-sidebar-project="{{ project.id }}"{% endif %}>
+  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}" draggable="true" data-sidebar-project="{{ project.id }}">
     {% set viewers = project_viewers.get(project.id, []) %}
     {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
     <div class="project-item-top">
@@ -25,6 +25,25 @@
           {% endif %}
         </div>
       {% endif %}
+    </div>
+  </div>
+{% endmacro %}
+{% macro render_direct_project_item(project, selected_project, peer, user) %}
+  {% set label = (peer.display_name or peer.email) if peer else project.name %}
+  <div class="project-item direct-project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if project.owner_id == user.id else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}" data-project-direct="1">
+    <div class="project-item-top">
+      <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
+        <strong data-project-title="{{ project.id }}">{{ label }}</strong>
+      </a>
+      <span class="avatar-stack is-direct" data-presence-project-id="{{ project.id }}">
+        <span class="avatar-chip"{% if peer %} data-user-id="{{ peer.id }}"{% endif %} title="{{ label }}">
+          {% if peer and peer.avatar_url %}
+            <img src="{{ peer.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+          {% else %}
+            {{ label[0]|upper }}
+          {% endif %}
+        </span>
+      </span>
     </div>
   </div>
 {% endmacro %}
@@ -158,11 +177,11 @@
       {% set task_status_payload = task_status_payloads.get(task.id, {}) %}
       {% set task_status_state = task_status_payload.get('aggregate_state') or task_status_payload.get('my_status_state') or status_state(task.status) %}
       {% set github_meta = github_task_meta.get(task.id) %}
-      {% set can_manage_task = can_manage_project or (task.group_id and manageable_group_ids and task.group_id in manageable_group_ids) %}
-      <tr class="task-row{% if can_manage_task and not github_meta %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-status-state="{{ task_status_state }}">
+      {% set can_move_task = not github_meta %}
+      <tr class="task-row{% if can_move_task %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-status-state="{{ task_status_state }}">
         <td>
           <div class="row-controls">
-            {% if can_manage_task and not github_meta %}
+            {% if can_move_task %}
               <button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="{{ task.id }}" title="Drag task">⋮⋮</button>
             {% endif %}
           </div>
@@ -191,13 +210,13 @@
               {% endfor %}
             </span>
             <span class="task-pill">
-              <button class="task-pill-segment" type="button" data-open-settings="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project.name|e if selected_project else '' }}" onclick='return window.__openSettings({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project.name if selected_project else "")|tojson }});'>
+              <button class="task-pill-segment" type="button" data-open-settings="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project_display_name|e if selected_project else '' }}" onclick='return window.__openSettings({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project_display_name if selected_project else "")|tojson }});'>
                 <i class="fa-solid fa-sliders" aria-hidden="true"></i>
               </button>
-              <button class="task-pill-segment" type="button" data-open-links="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project.name|e if selected_project else '' }}" onclick='return window.__openLinks({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project.name if selected_project else "")|tojson }});'>
+              <button class="task-pill-segment" type="button" data-open-links="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project_display_name|e if selected_project else '' }}" onclick='return window.__openLinks({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project_display_name if selected_project else "")|tojson }});'>
                 <i class="fa-solid fa-link" aria-hidden="true"></i>
               </button>
-              <button class="task-pill-segment comment-button{% if task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project.name|e if selected_project else '' }}" onclick='return window.__openDiscussion({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project.name if selected_project else "")|tojson }});'>
+              <button class="task-pill-segment comment-button{% if task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project_display_name|e if selected_project else '' }}" onclick='return window.__openDiscussion({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project_display_name if selected_project else "")|tojson }});'>
                 <i class="fa-regular fa-comments" aria-hidden="true"></i>
                 <span data-comment-count="{{ task.id }}">{{ comment_counts.get(task.id, 0) }}</span>
               </button>
@@ -390,50 +409,70 @@
         </div>
       </div>
     {% else %}
-      <div class="sidebar-heading-row">
-        <h3 style="margin: 0;">Projects</h3>
-      </div>
-      <div class="sidebar-stack" data-sidebar-stack>
-        <div class="sidebar-insert-row">
-          <div class="sidebar-insert-line"></div>
-          <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="1" onclick="return window.__openSidebarInsert(this);">+</button>
-          <div class="sidebar-insert-line"></div>
-          <div class="sidebar-insert-chooser" data-sidebar-insert-position="1">
-            <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
-            <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
-            <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
+      <div class="sidebar-split-shell" data-sidebar-split-shell>
+        <div class="sidebar-split-pane sidebar-split-pane-top" data-sidebar-split-pane="top">
+          <div class="sidebar-heading-row">
+            <h3 style="margin: 0;">Projects</h3>
           </div>
-        </div>
-        {% for item in top_level_items %}
-          <div class="sidebar-stack-item" data-sidebar-item="{{ item.type }}:{{ item.id }}">
-            {% if item.type == "project" %}
-              {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, True, None) }}
-            {% else %}
-              <div class="sidebar-division" style="--division-color: {{ item.division.color or '#4cc9f0' }}; color: {{ item.division.color or '#4cc9f0' }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ item.division.color or '#4cc9f0' }}">
-                <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
-                  <h3 class="sidebar-division-title" style="color: {{ item.division.color or '#4cc9f0' }};">{{ item.division.name }}</h3>
-                </div>
-                <div class="project-list">
-                  {% for project in projects_by_division.get(item.division.id, []) %}
-                    {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, False, item.division.color) }}
-                  {% endfor %}
+          <div class="sidebar-stack" data-sidebar-stack>
+            <div class="sidebar-insert-row">
+              <div class="sidebar-insert-line"></div>
+              <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="1" onclick="return window.__openSidebarInsert(this);">+</button>
+              <div class="sidebar-insert-line"></div>
+              <div class="sidebar-insert-chooser" data-sidebar-insert-position="1">
+                <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
+                <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
+                <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
+              </div>
+            </div>
+            {% for item in top_level_items %}
+              <div class="sidebar-stack-item" data-sidebar-item="{{ item.type }}:{{ item.id }}">
+                {% if item.type == "project" %}
+                  {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, True, None) }}
+                {% else %}
+                  <div class="sidebar-division" style="--division-color: {{ item.division.color or '#4cc9f0' }}; color: {{ item.division.color or '#4cc9f0' }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ item.division.color or '#4cc9f0' }}">
+                    <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
+                      <h3 class="sidebar-division-title" style="color: {{ item.division.color or '#4cc9f0' }};">{{ item.division.name }}</h3>
+                    </div>
+                    <div class="project-list">
+                      {% for project in projects_by_division.get(item.division.id, []) %}
+                        {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, False, item.division.color) }}
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+              </div>
+              <div class="sidebar-insert-row">
+                <div class="sidebar-insert-line"></div>
+                <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="{{ loop.index + 1 }}" onclick="return window.__openSidebarInsert(this);">+</button>
+                <div class="sidebar-insert-line"></div>
+                <div class="sidebar-insert-chooser" data-sidebar-insert-position="{{ loop.index + 1 }}">
+                  <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
+                  <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
+                  <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
                 </div>
               </div>
-            {% endif %}
+            {% else %}
+              <div><small>No projects yet.</small></div>
+            {% endfor %}
           </div>
-          <div class="sidebar-insert-row">
-            <div class="sidebar-insert-line"></div>
-            <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="{{ loop.index + 1 }}" onclick="return window.__openSidebarInsert(this);">+</button>
-            <div class="sidebar-insert-line"></div>
-            <div class="sidebar-insert-chooser" data-sidebar-insert-position="{{ loop.index + 1 }}">
-              <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
-              <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
-              <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
+        </div>
+        <div class="sidebar-split-divider" data-sidebar-splitter role="separator" aria-orientation="horizontal" aria-label="Resize project and direct panels"></div>
+        <div class="sidebar-split-pane sidebar-split-pane-bottom" data-sidebar-split-pane="bottom">
+          <div class="direct-projects-section">
+            <div class="sidebar-heading-row direct-projects-heading">
+              <h3 style="margin: 0;">Direct</h3>
+              <button class="sidebar-mini-add" type="button" data-open-direct-project-modal aria-label="Create direct task space">+</button>
+            </div>
+            <div class="direct-project-list" data-direct-project-list>
+              {% for project in direct_projects %}
+                {{ render_direct_project_item(project, selected_project, direct_project_peers.get(project.id), user) }}
+              {% else %}
+                <div class="direct-project-empty" data-direct-project-empty>No direct spaces yet.</div>
+              {% endfor %}
             </div>
           </div>
-        {% else %}
-          <div><small>No projects yet.</small></div>
-        {% endfor %}
+        </div>
       </div>
     {% endif %}
   </aside>
@@ -456,8 +495,8 @@
                 <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
                   <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
                   <div class="todo-project-meta">
-                    <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}" title="Open {{ item.project.name }}">
-                      {{ item.project.name }}
+                    <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
+                      {{ project_display_names.get(item.project.id, item.project.name) }}
                     </a>
                     {% if item.group %}
                       <a class="todo-group-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}#group-{{ item.group.id }}" title="Open {{ item.group.name }}">
@@ -488,13 +527,13 @@
                       {% endfor %}
                     </span>
                     <span class="task-pill">
-                      <button class="task-pill-segment" type="button" data-open-settings="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ item.project.name|e if item.project else '' }}" onclick='return window.__openSettings({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (item.project.name if item.project else "")|tojson }});'>
+                      <button class="task-pill-segment" type="button" data-open-settings="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ project_display_names.get(item.project.id, item.project.name)|e if item.project else '' }}" onclick='return window.__openSettings({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (project_display_names.get(item.project.id, item.project.name) if item.project else "")|tojson }});'>
                         <i class="fa-solid fa-sliders" aria-hidden="true"></i>
                       </button>
-                      <button class="task-pill-segment" type="button" data-open-links="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ item.project.name|e if item.project else '' }}" onclick='return window.__openLinks({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (item.project.name if item.project else "")|tojson }});'>
+                      <button class="task-pill-segment" type="button" data-open-links="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ project_display_names.get(item.project.id, item.project.name)|e if item.project else '' }}" onclick='return window.__openLinks({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (project_display_names.get(item.project.id, item.project.name) if item.project else "")|tojson }});'>
                         <i class="fa-solid fa-link" aria-hidden="true"></i>
                       </button>
-                      <button class="task-pill-segment comment-button{% if item.task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ item.project.name|e if item.project else '' }}" onclick='return window.__openDiscussion({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (item.project.name if item.project else "")|tojson }});'>
+                      <button class="task-pill-segment comment-button{% if item.task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ project_display_names.get(item.project.id, item.project.name)|e if item.project else '' }}" onclick='return window.__openDiscussion({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (project_display_names.get(item.project.id, item.project.name) if item.project else "")|tojson }});'>
                         <i class="fa-regular fa-comments" aria-hidden="true"></i>
                         <span data-comment-count="{{ item.task.id }}">{{ comment_counts.get(item.task.id, 0) }}</span>
                       </button>
@@ -560,7 +599,7 @@
       <div class="panel">
         <div class="group-header">
           <div style="display: flex; align-items: center; gap: 8px;">
-            <h3 data-selected-project-title="{{ selected_project.id }}">{{ selected_project.name }}</h3>
+            <h3 data-selected-project-title="{{ selected_project.id }}">{{ selected_project_display_name }}</h3>
             <span class="task-link-badges" data-entity-link-badges="project:{{ selected_project.id }}">
               {% for link in project_info.links or [] %}
                 {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
@@ -571,9 +610,9 @@
               {% endfor %}
             </span>
             <span class="task-pill" aria-label="Project settings links and messages">
-              <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project.name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
-              <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project.name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
-              <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project.name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:{{ selected_project.id }}">0</span></button>
+              <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+              <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+              <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:{{ selected_project.id }}">0</span></button>
             </span>
           </div>
           <div style="display: inline-flex; gap: 8px; align-items: center;">
@@ -874,6 +913,19 @@
     <div id="share-list" class="share-list"></div>
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
       <button class="btn secondary" type="button" id="share-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="direct-project-modal" class="modal">
+  <div class="panel">
+    <h3>Create Direct Space</h3>
+    <label for="direct-project-input">Choose user</label>
+    <input id="direct-project-input" placeholder="Type a name or email" autocomplete="termin-nope-direct" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <div id="direct-project-suggest" class="suggest-list"></div>
+    <div id="direct-project-status" class="footer-note" style="margin-top: 8px;"></div>
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button class="btn secondary" type="button" id="direct-project-cancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -1801,6 +1853,9 @@
         if (document.querySelector('[data-selected-project-title="' + projectId + '"]')) {
           window.location.href = "/";
         }
+        if (typeof updateDirectProjectEmptyState === "function") {
+          updateDirectProjectEmptyState();
+        }
         return true;
       }
 
@@ -1875,21 +1930,93 @@
         if (!project || !project.id) return null;
         var projectColor = divisionColor || "#2a3442";
         var wrapper = document.createElement("div");
-        wrapper.className = "project-item";
+        wrapper.className = "project-item project-drop-target";
         wrapper.style.setProperty("--project-color", projectColor);
         wrapper.setAttribute("data-project-context", String(project.id));
         wrapper.setAttribute("data-project-manage", canManage ? "1" : "0");
         wrapper.setAttribute("data-project-drop-id", String(project.id));
         wrapper.setAttribute("data-project-href", "/?project_id=" + encodeURIComponent(project.id));
-        if (canManage) {
-          wrapper.setAttribute("draggable", "true");
-          wrapper.setAttribute("data-sidebar-project", String(project.id));
-        }
+        wrapper.setAttribute("draggable", "true");
+        wrapper.setAttribute("data-sidebar-project", String(project.id));
         wrapper.innerHTML =
           '<div class="project-item-top">' +
             '<a href="/?project_id=' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
               '<strong data-project-title="' + String(project.id) + '">' + escapeHtml(project.name || "Project") + '</strong>' +
             '</a>' +
+          '</div>';
+        return wrapper;
+      }
+
+      function updateDirectProjectEmptyState() {
+        var list = document.querySelector("[data-direct-project-list]");
+        if (!list) return;
+        var hasItems = !!list.querySelector(".direct-project-item");
+        var empty = list.querySelector("[data-direct-project-empty]");
+        if (hasItems && empty) {
+          empty.remove();
+        } else if (!hasItems && !empty) {
+          var node = document.createElement("div");
+          node.className = "direct-project-empty";
+          node.setAttribute("data-direct-project-empty", "");
+          node.textContent = "No direct spaces yet.";
+          list.appendChild(node);
+        }
+      }
+
+      function ensureDirectProjectList() {
+        var list = document.querySelector("[data-direct-project-list]");
+        if (list) return list;
+        var sidebar = document.querySelector(".layout > .sidebar:not(.todo-tree)");
+        if (!sidebar) return null;
+        var section = document.createElement("div");
+        section.className = "direct-projects-section";
+        section.innerHTML =
+          '<div class="sidebar-heading-row direct-projects-heading">' +
+            '<h3 style="margin: 0;">Direct</h3>' +
+            '<button class="sidebar-mini-add" type="button" data-open-direct-project-modal aria-label="Create direct task space">+</button>' +
+          '</div>' +
+          '<div class="direct-project-list" data-direct-project-list>' +
+            '<div class="direct-project-empty" data-direct-project-empty>No direct spaces yet.</div>' +
+          '</div>';
+        sidebar.appendChild(section);
+        section.querySelectorAll("[data-open-direct-project-modal]").forEach(function (button) {
+          button.addEventListener("click", function (event) {
+            event.preventDefault();
+            if (typeof window.__openDirectProjectModal === "function") {
+              window.__openDirectProjectModal();
+            }
+          });
+        });
+        return section.querySelector("[data-direct-project-list]");
+      }
+
+      function buildDirectProjectItemNode(project, canManage) {
+        if (!project || !project.id) return null;
+        function escapeDirectText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var label = project.display_name || project.name || "Direct";
+        var wrapper = document.createElement("div");
+        wrapper.className = "project-item direct-project-item project-drop-target";
+        wrapper.setAttribute("data-project-context", String(project.id));
+        wrapper.setAttribute("data-project-manage", canManage ? "1" : "0");
+        wrapper.setAttribute("data-project-drop-id", String(project.id));
+        wrapper.setAttribute("data-project-href", "/?project_id=" + encodeURIComponent(project.id));
+        wrapper.setAttribute("data-project-direct", "1");
+        var avatarHtml = project.direct_peer && project.direct_peer.avatar_url
+          ? '<img src="' + escapeDirectText(project.direct_peer.avatar_url) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />'
+          : escapeDirectText((label || "D").charAt(0).toUpperCase());
+        wrapper.innerHTML =
+          '<div class="project-item-top">' +
+            '<a href="/?project_id=' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
+              '<strong data-project-title="' + String(project.id) + '">' + escapeDirectText(label) + '</strong>' +
+            '</a>' +
+            '<span class="avatar-stack is-direct" data-presence-project-id="' + String(project.id) + '"><span class="avatar-chip"' + (project.direct_peer && project.direct_peer.id ? ' data-user-id="' + String(project.direct_peer.id) + '"' : '') + ' title="' + escapeDirectText(label) + '">' + avatarHtml + '</span></span>' +
           '</div>';
         return wrapper;
       }
@@ -1916,6 +2043,15 @@
         if (!project || !project.id) return false;
         var projectId = String(project.id);
         if (document.querySelector('[data-project-context="' + projectId + '"]')) return false;
+        if (project.is_direct) {
+          var directList = ensureDirectProjectList();
+          if (!directList) return false;
+          var directItem = buildDirectProjectItemNode(project, !!canManage);
+          if (!directItem) return false;
+          directList.appendChild(directItem);
+          updateDirectProjectEmptyState();
+          return true;
+        }
         var divisionId = project.division_id === null || project.division_id === undefined ? "" : String(project.division_id);
         var item = buildProjectItemNode(project, "", !!canManage);
         if (!item) return false;
@@ -2173,6 +2309,9 @@
       window.__setProjectNameLocal = setProjectNameLocal;
       window.__setGroupNameLocal = setGroupNameLocal;
       window.__setDivisionNameLocal = setDivisionNameLocal;
+      window.__updateDirectProjectEmptyState = updateDirectProjectEmptyState;
+      window.__ensureDirectProjectList = ensureDirectProjectList;
+      window.__buildDirectProjectItemNode = buildDirectProjectItemNode;
       window.__setDivisionColorLocal = setDivisionColorLocal;
       window.__addDivisionOptionLocal = addDivisionOptionLocal;
       window.__removeDivisionOptionLocal = removeDivisionOptionLocal;
@@ -3959,8 +4098,7 @@
       const safeTitle = escapeHtml(title || "");
       const newRow = table.querySelector(".new-row");
       const tr = document.createElement("tr");
-      const groupId = table.getAttribute("data-group-id") || "";
-      const showDragHandle = canManageTaskBucket(table.getAttribute("data-project-id"), groupId);
+      const showDragHandle = true;
       tr.className = "task-row" + (showDragHandle ? " task-row-draggable" : "");
       tr.dataset.taskRowId = String(id);
       tr.dataset.taskId = String(id);
@@ -4118,7 +4256,7 @@
 
     const buildGroupBlock = (groupData) => {
       const projectId = {{ selected_project.id|tojson if selected_project else 'null' }};
-      const projectName = {{ (selected_project.name if selected_project else "")|tojson }};
+      const projectName = {{ (selected_project_display_name if selected_project else "")|tojson }};
       const groupColor = {{ (selected_project_color or '#4cc9f0')|tojson }};
       const canManageGroup = !{{ 'true' if is_github_project else 'false' }} && canManageTaskBucket(projectId, groupData.id);
       if (!projectId || !groupData || !groupData.id) return null;
@@ -5034,6 +5172,7 @@
 
     initColumnResizers();
 
+    const dashboardUserId = {{ user.id|tojson }};
     const divisionOptions = {{ division_options|tojson }};
     const contextMenu = document.getElementById("context-menu");
     const colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
@@ -5046,6 +5185,11 @@
     const shareCancel = document.getElementById("share-cancel");
     const shareStatus = document.getElementById("share-status");
     const shareList = document.getElementById("share-list");
+    const directProjectModal = document.getElementById("direct-project-modal");
+    const directProjectInput = document.getElementById("direct-project-input");
+    const directProjectSuggest = document.getElementById("direct-project-suggest");
+    const directProjectStatus = document.getElementById("direct-project-status");
+    const directProjectCancel = document.getElementById("direct-project-cancel");
     const infoModal = document.getElementById("info-modal");
     const infoEditor = document.getElementById("info-editor");
     const infoSave = document.getElementById("info-save");
@@ -5057,6 +5201,8 @@
     let shareContext = null;
     let shareSuggestResults = [];
     let shareSuggestActiveIndex = -1;
+    let directProjectResults = [];
+    let directProjectActiveIndex = -1;
 
     const hideContextMenu = () => {
       if (contextMenu) contextMenu.style.display = "none";
@@ -5130,7 +5276,9 @@
         const action = button.getAttribute("data-action");
         const show = type === "division"
           ? action === "rename" || action === "delete" || action === "color"
-          : (action === "move" ? type === "project" : action !== "color");
+          : type === "direct_project"
+            ? action === "delete"
+            : (action === "move" ? type === "project" : action !== "color");
         button.style.display = show ? "" : "none";
       });
     };
@@ -5192,6 +5340,104 @@
       shareSuggestActiveIndex = -1;
       if (shareStatus) shareStatus.textContent = "";
       if (shareList) shareList.innerHTML = "";
+    };
+
+    const syncDirectProjectSuggestionActive = () => {
+      if (!directProjectSuggest) return;
+      directProjectSuggest.querySelectorAll("button").forEach((button, index) => {
+        button.classList.toggle("is-active", index === directProjectActiveIndex);
+      });
+    };
+
+    const renderDirectProjectSuggestions = () => {
+      if (!directProjectSuggest) return;
+      directProjectSuggest.innerHTML = "";
+      directProjectResults.forEach((item, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = index === directProjectActiveIndex ? "is-active" : "";
+        const label = item.display_name || item.email || "User";
+        const initial = (label || "U").charAt(0).toUpperCase();
+        const avatar = item.avatar_url
+          ? `<span class="assign-suggest-avatar"><img src="${escapeHtml(item.avatar_url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=${JSON.stringify(initial)}; this.remove();" /></span>`
+          : `<span class="assign-suggest-avatar">${escapeHtml(initial)}</span>`;
+        const meta = item.display_name && item.email ? `<span class="footer-note">${escapeHtml(item.email)}</span>` : "";
+        button.innerHTML = `${avatar}<span class="assign-suggest-copy"><span class="assign-suggest-label">${escapeHtml(label)}</span>${meta}</span>`;
+        button.addEventListener("mouseenter", () => {
+          directProjectActiveIndex = index;
+          syncDirectProjectSuggestionActive();
+        });
+        button.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          submitDirectProject(item);
+        });
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          submitDirectProject(item);
+        });
+        directProjectSuggest.appendChild(button);
+      });
+      syncDirectProjectSuggestionActive();
+    };
+
+    const loadDirectProjectSuggestions = (q) => {
+      fetch(`/api/users?q=${encodeURIComponent(q || "")}`, { credentials: "same-origin" })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          directProjectResults = Array.isArray(data.results) ? data.results : [];
+          directProjectActiveIndex = directProjectResults.length ? 0 : -1;
+          renderDirectProjectSuggestions();
+        })
+        .catch((error) => {
+          console.error("loadDirectProjectSuggestions failed", error);
+        });
+    };
+
+    const openDirectProjectModal = () => {
+      if (!directProjectModal) return;
+      directProjectModal.style.display = "flex";
+      directProjectResults = [];
+      directProjectActiveIndex = -1;
+      if (directProjectStatus) directProjectStatus.textContent = "";
+      if (directProjectInput) {
+        directProjectInput.value = "";
+        directProjectInput.focus();
+      }
+      loadDirectProjectSuggestions("");
+    };
+    window.__openDirectProjectModal = openDirectProjectModal;
+
+    const closeDirectProjectModal = () => {
+      if (!directProjectModal) return;
+      directProjectModal.style.display = "none";
+      directProjectResults = [];
+      directProjectActiveIndex = -1;
+      if (directProjectSuggest) directProjectSuggest.innerHTML = "";
+      if (directProjectStatus) directProjectStatus.textContent = "";
+    };
+
+    const submitDirectProject = (item) => {
+      if (!item || !item.id) return;
+      if (directProjectStatus) directProjectStatus.textContent = "Creating…";
+      fetch("/api/direct-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ user_id: item.id }),
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          if (!result.ok || !result.data || !result.data.project || !result.data.project.id) {
+            throw new Error(result.data && result.data.error ? result.data.error : "Failed to create direct space");
+          }
+          closeDirectProjectModal();
+          window.location.href = "/?project_id=" + encodeURIComponent(result.data.project.id);
+        })
+        .catch((error) => {
+          if (directProjectStatus) directProjectStatus.textContent = error.message || "Unable to create direct space.";
+        });
     };
 
     const renderInfoAttachments = () => {
@@ -5438,9 +5684,10 @@
       if (!contextMenu) return;
       if (projectItem) {
         const canManage = projectItem.getAttribute("data-project-manage") === "1";
+        const isDirect = projectItem.hasAttribute("data-project-direct");
         if (!canManage) return;
         event.preventDefault();
-        currentContext = { type: "project", id: projectItem.getAttribute("data-project-context") };
+        currentContext = { type: isDirect ? "direct_project" : "project", id: projectItem.getAttribute("data-project-context") };
       } else if (groupHeader) {
         if (!{{ 'true' if can_manage_project else 'false' }}) return;
         event.preventDefault();
@@ -5527,7 +5774,7 @@
         if (action === "delete") {
           if (!confirm("Delete this item?")) return;
           const url =
-            contextType === "project"
+            contextType === "project" || contextType === "direct_project"
               ? `/api/projects/${id}`
               : contextType === "group"
                 ? `/api/groups/${id}`
@@ -5800,6 +6047,110 @@
         if (event.target === shareModal) closeShareModal();
       });
     }
+
+    document.querySelectorAll("[data-open-direct-project-modal]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        openDirectProjectModal();
+      });
+    });
+
+    if (directProjectInput) {
+      directProjectInput.addEventListener("focus", () => {
+        loadDirectProjectSuggestions(directProjectInput.value.trim());
+      });
+      directProjectInput.addEventListener("input", () => {
+        loadDirectProjectSuggestions(directProjectInput.value.trim());
+      });
+      directProjectInput.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (!directProjectResults.length) return;
+          directProjectActiveIndex = Math.min(directProjectResults.length - 1, Math.max(0, directProjectActiveIndex + 1));
+          renderDirectProjectSuggestions();
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (!directProjectResults.length) return;
+          directProjectActiveIndex = Math.max(0, (directProjectActiveIndex < 0 ? 0 : directProjectActiveIndex - 1));
+          renderDirectProjectSuggestions();
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const selected = directProjectResults[directProjectActiveIndex] || directProjectResults[0];
+          if (selected) submitDirectProject(selected);
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeDirectProjectModal();
+        }
+      });
+    }
+
+    if (directProjectCancel) {
+      directProjectCancel.addEventListener("click", closeDirectProjectModal);
+    }
+
+    if (directProjectModal) {
+      directProjectModal.addEventListener("click", (event) => {
+        if (event.target === directProjectModal) closeDirectProjectModal();
+      });
+    }
+
+    (() => {
+      const shell = document.querySelector("[data-sidebar-split-shell]");
+      const divider = document.querySelector("[data-sidebar-splitter]");
+      const topPane = document.querySelector('[data-sidebar-split-pane="top"]');
+      const bottomPane = document.querySelector('[data-sidebar-split-pane="bottom"]');
+      if (!shell || !divider || !topPane || !bottomPane) return;
+      const storageKey = `termin:sidebar-split:${dashboardUserId}`;
+
+      const applyRatio = (ratio) => {
+        const nextRatio = Math.max(0.2, Math.min(0.8, Number(ratio) || 0.62));
+        shell.style.gridTemplateRows = `minmax(120px, ${nextRatio}fr) 12px minmax(110px, ${1 - nextRatio}fr)`;
+      };
+
+      try {
+        const saved = window.localStorage ? window.localStorage.getItem(storageKey) : "";
+        if (saved) applyRatio(parseFloat(saved));
+      } catch (error) {
+        console.warn("sidebar split restore failed", error);
+      }
+
+      divider.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        const shellRect = shell.getBoundingClientRect();
+        const dividerHeight = divider.getBoundingClientRect().height || 12;
+        shell.classList.add("is-dragging");
+
+        const onMove = (moveEvent) => {
+          const usableHeight = Math.max(1, shellRect.height - dividerHeight);
+          const offset = moveEvent.clientY - shellRect.top - dividerHeight / 2;
+          const ratio = offset / usableHeight;
+          applyRatio(ratio);
+        };
+
+        const onUp = () => {
+          shell.classList.remove("is-dragging");
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          const total = topPane.getBoundingClientRect().height + bottomPane.getBoundingClientRect().height;
+          if (total > 0) {
+            const ratio = topPane.getBoundingClientRect().height / total;
+            try {
+              if (window.localStorage) window.localStorage.setItem(storageKey, String(ratio));
+            } catch (error) {
+              console.warn("sidebar split persist failed", error);
+            }
+          }
+        };
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    })();
 
     if (infoCancel) {
       infoCancel.addEventListener("click", closeInfoModal);
@@ -9747,7 +10098,18 @@
         if (!data || !data.project) return;
         var project = data.project;
         var isOwner = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
-        if (typeof window.__insertProjectSidebarLocal === "function") {
+        if (project.is_direct && typeof window.__ensureDirectProjectList === "function" && typeof window.__buildDirectProjectItemNode === "function") {
+          var directList = window.__ensureDirectProjectList();
+          if (directList && !directList.querySelector('[data-project-context="' + project.id + '"]')) {
+            var directItem = window.__buildDirectProjectItemNode(project, String(project.owner_id || "") === String(currentUserId));
+            if (directItem) {
+              directList.appendChild(directItem);
+              if (typeof window.__updateDirectProjectEmptyState === "function") {
+                window.__updateDirectProjectEmptyState();
+              }
+            }
+          }
+        } else if (typeof window.__insertProjectSidebarLocal === "function") {
           window.__insertProjectSidebarLocal(project, isOwner);
         }
         var divisionColor = "";
