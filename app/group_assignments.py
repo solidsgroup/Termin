@@ -1,22 +1,15 @@
 from app.extensions import db
-from app.models import Assignment, GroupMember, Project, ProjectMember, Task, User
+from app.models import Assignment, Project, ProjectMember, Task, User
 
 
 def group_assignment_candidate_users(task: Task) -> list[User]:
-    if not task or not task.group_id:
+    if not task or not task.project_id:
         return []
     user_ids: list[int] = []
     project = Project.query.get(task.project_id)
     if project and project.owner_id:
         user_ids.append(int(project.owner_id))
     user_ids.extend(int(row.user_id) for row in ProjectMember.query.filter_by(project_id=task.project_id).all() if row.user_id)
-    project_group_ids = [group_id for (group_id,) in db.session.query(Task.group_id).filter(Task.project_id == task.project_id, Task.group_id.isnot(None)).distinct().all()]
-    if project_group_ids:
-        user_ids.extend(
-            int(row.user_id)
-            for row in GroupMember.query.filter(GroupMember.group_id.in_(project_group_ids)).all()
-            if row.user_id
-        )
     seen: set[int] = set()
     users: list[User] = []
     for user_id in user_ids:

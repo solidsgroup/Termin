@@ -2356,8 +2356,6 @@ def assign_all_task_members(task_id: int):
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
-    if not task.group_id:
-        return {"error": "task is not in a group"}, 400
     task.assign_group_members = True
     changes = sync_group_task_assignments(task)
     db.session.commit()
