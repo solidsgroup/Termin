@@ -2099,6 +2099,60 @@
         flex: 1 1 auto;
       }
 
+      .discussion-setting-readonly {
+        width: auto;
+        min-width: 0;
+        flex: 1 1 auto;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: inherit;
+        letter-spacing: normal;
+        text-transform: none;
+      }
+
+      .discussion-setting-identity {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .discussion-setting-identity-avatar {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--ink);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex: 0 0 auto;
+        position: relative;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .discussion-setting-identity-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .discussion-setting-identity-avatar.has-photo .discussion-setting-identity-initial {
+        display: none;
+      }
+
+      .discussion-setting-identity-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       .discussion-setting-status-label {
         text-transform: none;
         letter-spacing: normal;
@@ -2291,6 +2345,7 @@
       }
 
       body[data-theme="light"] .discussion-setting-status,
+      body[data-theme="light"] .discussion-setting-readonly,
       body[data-theme="light"] .discussion-settings-assign-add input {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
       }

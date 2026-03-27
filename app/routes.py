@@ -318,10 +318,17 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         .all()
     )
     status_meta = task_status_meta(task, viewer_user_id=viewer_user_id)
+    creator = User.query.get(task.creator_user_id) if task.creator_user_id else None
     return {
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "creator": {
+            "id": creator.id,
+            "display_name": creator.display_name,
+            "email": creator.email,
+            "avatar_url": creator.avatar_url,
+        } if creator else None,
         "position": task.position,
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
@@ -538,6 +545,7 @@ def create_task():
     task = Task(
         project_id=project.id,
         group_id=group.id if group else None,
+        creator_user_id=user.id,
         position=_next_task_position(project.id, group.id if group else None),
         title=title,
         description=payload.get("description"),
@@ -694,6 +702,7 @@ def update_task(task_id: int):
     return {
         "id": task.id,
         "title": task.title,
+        "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "status": task.status,
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
@@ -724,6 +733,7 @@ def get_task(task_id: int):
         "project_id": task.project_id,
         "group_id": task.group_id,
         "title": task.title,
+        "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "link": task.link,
         "links": _info_payload_for(task).get("links", []),
         "status": task.status,
@@ -1623,6 +1633,7 @@ def duplicate_project(project_id: int):
         new_task = Task(
             project_id=copy.id,
             group_id=group_map.get(task.group_id),
+            creator_user_id=user.id,
             position=task.position,
             title=task.title,
             description=task.description,
@@ -1692,6 +1703,7 @@ def duplicate_group(group_id: int):
         new_task = Task(
             project_id=task.project_id,
             group_id=new_group.id,
+            creator_user_id=user.id,
             position=task.position,
             title=task.title,
             description=task.description,

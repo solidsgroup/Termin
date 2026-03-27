@@ -867,7 +867,7 @@
             </div>
 
             {% if project_ungrouped_tasks or project_can_manage %}
-              <div class="panel group ungrouped-table-shell" style="--group-color: {{ ctx.division_color or '#4cc9f0' }};" data-tree-ungrouped-board="{{ project.id }}">
+              <div class="panel group ungrouped-table-shell" style="--group-color: {{ project_color or '#4cc9f0' }};" data-tree-ungrouped-board="{{ project.id }}">
                 <table class="table tasks-table" data-project-id="{{ project.id }}" data-group-id="">
                   <colgroup>
                     <col style="width: 3%;">
@@ -1148,9 +1148,13 @@
   </div>
   <div class="discussion-pane" id="discussion-settings-pane" data-drawer-pane="settings">
     <div class="discussion-settings" id="discussion-settings">
-      <label class="discussion-setting-field">
-        <span data-settings-title-label>Title</span>
+      <label class="discussion-setting-field is-inline">
+        <span class="discussion-setting-label" data-settings-title-label>Title</span>
         <input id="task-settings-title" type="text" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </label>
+      <label class="discussion-setting-field is-inline" data-task-only>
+        <span class="discussion-setting-label">Creator</span>
+        <div id="task-settings-creator" class="discussion-setting-readonly discussion-setting-identity">Unknown</div>
       </label>
       <div class="discussion-settings-grid" data-task-only>
         <label class="discussion-setting-field is-inline">
@@ -2435,7 +2439,7 @@
                   '</div>') +
             '</div>' +
           '</div>' +
-          '<div class="panel group ungrouped-table-shell" style="--group-color: ' + (project.group_color || project.division_color || '#4cc9f0') + ';" data-tree-ungrouped-board="' + String(project.id) + '">' +
+          '<div class="panel group ungrouped-table-shell" style="--group-color: ' + (project.color || project.division_color || '#4cc9f0') + ';" data-tree-ungrouped-board="' + String(project.id) + '">' +
             '<table class="table tasks-table" data-project-id="' + String(project.id) + '" data-group-id="">' +
               '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
               '<thead><tr><th></th><th>Task<span class="col-resizer" data-col="1"></span></th><th>Due<span class="col-resizer" data-col="2"></span></th><th>Status<span class="col-resizer" data-col="3"></span></th><th>Assign<span class="col-resizer" data-col="4"></span></th></tr></thead>' +
@@ -7114,6 +7118,7 @@
     let taskDropPlaceholder = null;
     let activeTaskDropzone = null;
     let activeProjectDrop = null;
+    let activeTaskTreeSidebarDrop = null;
 
     const createTaskPlaceholder = () => {
       const row = document.createElement("tr");
@@ -7156,10 +7161,32 @@
     const clearTaskDropState = () => {
       document.querySelectorAll(".tasks-table.drag-target").forEach((table) => table.classList.remove("drag-target"));
       document.querySelectorAll(".project-drop-target.drag-over").forEach((item) => item.classList.remove("drag-over"));
+      document.querySelectorAll(".todo-tree-row.tree-drag-over").forEach((item) => item.classList.remove("tree-drag-over"));
       if (taskDropPlaceholder) taskDropPlaceholder.remove();
       taskDropPlaceholder = null;
       activeTaskDropzone = null;
       activeProjectDrop = null;
+      activeTaskTreeSidebarDrop = null;
+    };
+
+    const setTaskTreeSidebarDrop = (row, payload) => {
+      document.querySelectorAll(".todo-tree-row.tree-drag-over").forEach((item) => {
+        if (item !== row) item.classList.remove("tree-drag-over");
+      });
+      activeTaskTreeSidebarDrop = row && payload ? { row, payload } : null;
+      if (row) row.classList.add("tree-drag-over");
+    };
+
+    const getTaskTreeTargetTbody = (payload) => {
+      if (!payload || !payload.projectId) return null;
+      if (payload.groupId) {
+        return document.querySelector(
+          '.tasks-table[data-project-id="' + String(payload.projectId) + '"][data-group-id="' + String(payload.groupId) + '"] tbody[data-task-dropzone="1"]'
+        );
+      }
+      return document.querySelector(
+        '.tasks-table[data-project-id="' + String(payload.projectId) + '"][data-group-id=""] tbody[data-task-dropzone="1"]'
+      );
     };
 
     const findDropBeforeRow = (tbody, clientY) => {
@@ -7281,6 +7308,30 @@
 
     document.addEventListener("dragover", (event) => {
       if (!draggingTask) return;
+      const treeGroupRow = event.target.closest("[data-tree-group-row]");
+      if (treeGroupRow) {
+        event.preventDefault();
+        clearTaskDropState();
+        setTaskTreeSidebarDrop(treeGroupRow, {
+          projectId: Number(treeGroupRow.getAttribute("data-tree-project-id")),
+          groupId: Number(treeGroupRow.getAttribute("data-tree-group-row")),
+          beforeTaskId: null,
+        });
+        return;
+      }
+
+      const treeProjectRow = event.target.closest("[data-tree-project-row]");
+      if (treeProjectRow) {
+        event.preventDefault();
+        clearTaskDropState();
+        setTaskTreeSidebarDrop(treeProjectRow, {
+          projectId: Number(treeProjectRow.getAttribute("data-tree-project-row")),
+          groupId: null,
+          beforeTaskId: null,
+        });
+        return;
+      }
+
       const projectDrop = event.target.closest(".project-drop-target");
       if (projectDrop) {
         event.preventDefault();
@@ -7303,6 +7354,28 @@
 
     document.addEventListener("drop", (event) => {
       if (!draggingTask) return;
+
+      if (activeTaskTreeSidebarDrop && activeTaskTreeSidebarDrop.payload) {
+        event.preventDefault();
+        const payload = activeTaskTreeSidebarDrop.payload;
+        const targetTbody = getTaskTreeTargetTbody(payload);
+        if (targetTbody) {
+          const beforeRow = targetTbody.querySelector(".new-row");
+          movePlaceholderToZone(targetTbody, beforeRow);
+          applyTaskBlockMove(targetTbody, beforeRow);
+          persistTaskMove(payload, () => {
+            clearTaskDropState();
+          });
+        } else {
+          persistTaskMove(payload, () => {
+            clearTaskDropState();
+            if (typeof window.__refreshTreeProjectSnapshotLocal === "function" && payload.projectId) {
+              window.__refreshTreeProjectSnapshotLocal(payload.projectId);
+            }
+          });
+        }
+        return;
+      }
 
       const projectDrop = event.target.closest(".project-drop-target");
       if (projectDrop) {
@@ -7475,6 +7548,7 @@
       var draggingTaskId = null;
       var draggingGroupId = null;
       var taskPlaceholder = null;
+      var taskTreeSidebarDrop = null;
 
       function getTaskRows(taskId) {
         var rows = [];
@@ -7496,6 +7570,18 @@
         if (taskPlaceholder && taskPlaceholder.parentNode) {
           taskPlaceholder.parentNode.removeChild(taskPlaceholder);
         }
+        document.querySelectorAll(".todo-tree-row.tree-drag-over").forEach(function (el) {
+          el.classList.remove("tree-drag-over");
+        });
+        taskTreeSidebarDrop = null;
+      }
+
+      function getTreeTaskTargetTbody(payload) {
+        if (!payload || !payload.projectId) return null;
+        if (payload.groupId) {
+          return document.querySelector('.tasks-table[data-project-id="' + String(payload.projectId) + '"][data-group-id="' + String(payload.groupId) + '"] tbody[data-task-dropzone="1"]');
+        }
+        return document.querySelector('.tasks-table[data-project-id="' + String(payload.projectId) + '"][data-group-id=""] tbody[data-task-dropzone="1"]');
       }
 
       document.addEventListener("dragstart", function (event) {
@@ -7523,6 +7609,32 @@
 
       document.addEventListener("dragover", function (event) {
         if (draggingTaskId) {
+          var treeGroupRow = event.target.closest("[data-tree-group-row]");
+          if (treeGroupRow) {
+            event.preventDefault();
+            clearTaskPlaceholder();
+            treeGroupRow.classList.add("tree-drag-over");
+            taskTreeSidebarDrop = {
+              projectId: Number(treeGroupRow.getAttribute("data-tree-project-id")),
+              groupId: Number(treeGroupRow.getAttribute("data-tree-group-row")),
+              beforeTaskId: null,
+            };
+            return;
+          }
+
+          var treeProjectRow = event.target.closest("[data-tree-project-row]");
+          if (treeProjectRow) {
+            event.preventDefault();
+            clearTaskPlaceholder();
+            treeProjectRow.classList.add("tree-drag-over");
+            taskTreeSidebarDrop = {
+              projectId: Number(treeProjectRow.getAttribute("data-tree-project-row")),
+              groupId: null,
+              beforeTaskId: null,
+            };
+            return;
+          }
+
           var projectDrop = event.target.closest(".project-drop-target");
           if (projectDrop) {
             event.preventDefault();
@@ -7568,6 +7680,24 @@
 
       document.addEventListener("drop", function (event) {
         if (draggingTaskId) {
+          if (taskTreeSidebarDrop) {
+            event.preventDefault();
+            var targetTbody = getTreeTaskTargetTbody(taskTreeSidebarDrop);
+            if (targetTbody) {
+              var beforeTreeRow = targetTbody.querySelector(".new-row");
+              targetTbody.insertBefore(ensureTaskPlaceholder(), beforeTreeRow);
+            }
+            fetch("/api/tasks/" + draggingTaskId + "/move", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify(taskTreeSidebarDrop),
+            }).catch(function (error) {
+              console.error("legacy task move failed", error);
+            });
+            return;
+          }
+
           var projectDrop = event.target.closest(".project-drop-target");
           if (projectDrop) {
             event.preventDefault();
@@ -8904,8 +9034,40 @@
       var task = currentTaskData || {};
       var meta = taskStatusMeta(task);
       var effectiveStatus = taskMyStatus(task);
+      var creator = task.creator || null;
+      var creatorLabel = creator ? (creator.display_name || creator.email || "Unknown") : "Unknown";
       taskSettingsTitleEl.value = task.title || "";
       taskSettingsDueEl.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
+      if (taskSettingsCreatorEl) {
+        taskSettingsCreatorEl.innerHTML = "";
+        var avatar = document.createElement("span");
+        avatar.className = "discussion-setting-identity-avatar" + (creator && creator.avatar_url ? " has-photo" : "");
+        avatar.setAttribute("aria-hidden", "true");
+        var initial = document.createElement("span");
+        initial.className = "discussion-setting-identity-initial";
+        initial.textContent = creatorLabel.slice(0, 1).toUpperCase();
+        avatar.appendChild(initial);
+        if (creator && creator.avatar_url) {
+          var image = document.createElement("img");
+          image.src = creator.avatar_url;
+          image.alt = "avatar";
+          image.loading = "lazy";
+          image.decoding = "async";
+          image.referrerPolicy = "no-referrer";
+          image.onerror = function () {
+            avatar.classList.remove("has-photo");
+            this.remove();
+          };
+          avatar.appendChild(image);
+        }
+        var text = document.createElement("span");
+        text.className = "discussion-setting-identity-text";
+        text.textContent = creatorLabel;
+        taskSettingsCreatorEl.appendChild(avatar);
+        taskSettingsCreatorEl.appendChild(text);
+        taskSettingsCreatorEl.title = creator && creator.email && creator.display_name ? creator.email : "";
+      }
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = effectiveStatus;
         taskSettingsStatusEl.setAttribute("data-payload-field", meta.enabled ? "user_status" : "status");
@@ -8970,6 +9132,11 @@
       if (taskSettingsAssignmentsEl) {
         taskSettingsAssignmentsEl.style.display = "none";
         taskSettingsAssignmentsEl.innerHTML = "";
+      }
+      var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
+      if (taskSettingsCreatorEl) {
+        taskSettingsCreatorEl.textContent = "";
+        taskSettingsCreatorEl.title = "";
       }
       if (taskSettingsAssigneeEl) {
         taskSettingsAssigneeEl.value = "";

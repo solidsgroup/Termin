@@ -1861,6 +1861,7 @@ def create_task():
     task = Task(
         project_id=int(project_id),
         group_id=group.id if group else None,
+        creator_user_id=user.id,
         position=(db.session.query(db.func.max(Task.position)).filter_by(project_id=project.id, group_id=group.id if group else None).scalar() or 0) + 1,
         title=title,
         info=normalize_info_payload(None),

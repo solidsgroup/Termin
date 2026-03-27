@@ -137,6 +137,7 @@ class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
     group_id = db.Column(db.Integer, db.ForeignKey("groups.id"))
+    creator_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     position = db.Column(db.Integer, default=0, nullable=False)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
