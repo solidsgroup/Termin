@@ -68,18 +68,22 @@ def _can_access_task(user, task: Task) -> bool:
         return True
     if ProjectMember.query.filter_by(project_id=task.project_id, user_id=user.id).first():
         return True
-    if task.group_id and GroupMember.query.filter_by(group_id=task.group_id, user_id=user.id).first():
-        return True
-    return Assignment.query.filter_by(task_id=task.id, user_id=user.id).first() is not None
+    return (
+        db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == task.project_id, GroupMember.user_id == user.id)
+        .first()
+        is not None
+    )
 
 
 def _task_notification_user_ids(task: Task) -> set[int]:
     project = Project.query.get(task.project_id)
     user_ids = {project.owner_id} if project else set()
     user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=task.project_id).all())
-    if task.group_id:
-        user_ids.update(row.user_id for row in GroupMember.query.filter_by(group_id=task.group_id).all())
-    user_ids.update(row.user_id for row in Assignment.query.filter_by(task_id=task.id).all() if row.user_id)
+    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == task.project_id).all()]
+    if group_ids:
+        user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
     return {user_id for user_id in user_ids if user_id}
 
 
@@ -90,12 +94,6 @@ def _project_comment_user_ids(project_id: int) -> set[int]:
     group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
     if group_ids:
         user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
-        task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.project_id == project_id).all()]
-        if task_ids:
-            user_ids.update(
-                row.user_id
-                for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
-            )
     return {user_id for user_id in user_ids if user_id}
 
 
@@ -107,12 +105,6 @@ def _group_comment_user_ids(group_id: int) -> set[int]:
     user_ids = {project.owner_id} if project else set()
     user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=group.project_id).all())
     user_ids.update(row.user_id for row in GroupMember.query.filter_by(group_id=group_id).all())
-    task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.group_id == group_id).all()]
-    if task_ids:
-        user_ids.update(
-            row.user_id
-            for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
-        )
     return {user_id for user_id in user_ids if user_id}
 
 
@@ -125,12 +117,6 @@ def _project_update_user_ids(project_id: int) -> set[int]:
     group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
     if group_ids:
         user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
-        task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.project_id == project_id).all()]
-        if task_ids:
-            user_ids.update(
-                row.user_id
-                for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
-            )
     return {user_id for user_id in user_ids if user_id}
 
 
@@ -148,6 +134,15 @@ def _serialize_project_payload(project: Project) -> dict:
 
 def _serialize_project_payload_for_user(project: Project, user_id: int) -> dict:
     payload = _serialize_project_payload(project)
+    access = project_access_map(project.id)
+    current_access = access.get(user_id) or {}
+    other_member_ids = [member_id for member_id in access.keys() if int(member_id) != int(user_id)]
+    payload["can_manage"] = bool(
+        int(project.owner_id or 0) == int(user_id)
+        or current_access.get("project_member")
+    )
+    payload["is_shared_with_me"] = bool(int(project.owner_id or 0) != int(user_id))
+    payload["is_shared_out"] = bool(int(project.owner_id or 0) == int(user_id) and other_member_ids)
     if project.is_direct:
         peer_id = None
         if project.direct_user_a_id and int(project.direct_user_a_id) != int(user_id):
@@ -236,9 +231,6 @@ def project_access_map(project_id: int) -> dict[int, dict]:
                 "avatar_url": user.avatar_url,
                 "owner": False,
                 "project_member": False,
-                "partial": False,
-                "group_member": False,
-                "task_assignee": False,
             }
             access[user_id] = row
         return row
@@ -258,16 +250,7 @@ def project_access_map(project_id: int) -> dict[int, dict]:
         for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all():
             member = ensure(row.user_id)
             if member:
-                member["partial"] = True
-                member["group_member"] = True
-
-        task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.project_id == project_id).all()]
-        if task_ids:
-            for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all():
-                member = ensure(row.user_id)
-                if member:
-                    member["partial"] = True
-                    member["task_assignee"] = True
+                member["project_member"] = True
 
     return access
 
@@ -478,34 +461,15 @@ def _serialize_members(users) -> list[dict]:
 
 def project_members_payload(project_id: int) -> dict:
     members = list(project_access_map(project_id).values())
-    members.sort(key=lambda item: (0 if item.get("owner") else 1, 0 if item.get("project_member") else 1, (item.get("display_name") or item.get("email") or "").lower()))
+    members.sort(key=lambda item: (0 if item.get("owner") else 1, (item.get("display_name") or item.get("email") or "").lower()))
     return {"project_id": project_id, "members": members}
 
 
 def group_members_payload(group_id: int) -> dict:
-    from app.models import User
     group = Group.query.get(group_id)
     if not group:
         return {"group_id": group_id, "project_id": None, "members": []}
-    project = Project.query.get(group.project_id)
-    users = [User.query.get(project.owner_id)] if project else []
-    if project:
-        users.extend(User.query.get(row.user_id) for row in ProjectMember.query.filter_by(project_id=project.id).all())
-    users.extend(User.query.get(row.user_id) for row in GroupMember.query.filter_by(group_id=group_id).all())
-    task_ids = [task_id for (task_id,) in db.session.query(Task.id).filter(Task.group_id == group_id).all()]
-    if task_ids:
-        users.extend(
-            User.query.get(row.user_id)
-            for row in Assignment.query.filter(Assignment.task_id.in_(task_ids), Assignment.user_id.isnot(None)).all()
-        )
-    deduped = []
-    seen = set()
-    for user in users:
-        if not user or user.id in seen:
-            continue
-        seen.add(user.id)
-        deduped.append(user)
-    return {"group_id": group_id, "project_id": group.project_id, "members": _serialize_members(deduped)}
+    return {"group_id": group_id, "project_id": group.project_id, "members": list(project_access_map(group.project_id).values())}
 
 
 def task_presence_payload(task_id: int) -> dict:
@@ -740,9 +704,10 @@ def emit_project_created(project: Project, *, actor_user_id: int | None = None, 
                 socketio.emit("project_created", payload, room=sid)
 
 
-def emit_project_deleted(project_id: int, *, actor_user_id: int | None = None, task_ids: list[int] | None = None, recipient_user_ids: list[int] | None = None) -> None:
+def emit_project_deleted(project_id: int, *, actor_user_id: int | None = None, task_ids: list[int] | None = None, recipient_user_ids: list[int] | None = None, include_project_room: bool = True) -> None:
     payload = {"project_id": project_id, "task_ids": task_ids or [], "actor_user_id": actor_user_id}
-    socketio.emit("project_deleted", payload, room=project_room(project_id))
+    if include_project_room:
+        socketio.emit("project_deleted", payload, room=project_room(project_id))
     recipients = recipient_user_ids if recipient_user_ids is not None else list(_project_update_user_ids(project_id))
     for recipient_id in recipients:
         socketio.emit("project_deleted", payload, room=user_room(recipient_id))
@@ -864,10 +829,6 @@ def register_socket_handlers() -> None:
             or db.session.query(Group.id)
             .join(GroupMember, GroupMember.group_id == Group.id)
             .filter(Group.project_id == project_id, GroupMember.user_id == user.id)
-            .first()
-            or db.session.query(Task.id)
-            .join(Assignment, Assignment.task_id == Task.id)
-            .filter(Task.project_id == project_id, Assignment.user_id == user.id)
             .first()
         ):
             return

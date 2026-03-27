@@ -85,18 +85,10 @@ def _accessible_projects_for_user(user) -> list[Project]:
         .filter(GroupMember.user_id == user.id)
         .all()
     ]
-    assigned_task_project_ids = [
-        row.project_id
-        for row in db.session.query(Task.project_id)
-        .join(Assignment, Assignment.task_id == Task.id)
-        .filter(Assignment.user_id == user.id)
-        .all()
-    ]
     accessible_project_ids = list(
         {project.id for project in owned_projects}
         .union(member_project_ids)
         .union(member_group_project_ids)
-        .union(assigned_task_project_ids)
     )
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
 
@@ -386,23 +378,9 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
                 continue
             group_user_ids.setdefault(row.group_id, set()).add(row.user_id)
             flag = ensure_project_flag(group.project_id, row.user_id)
+            flag["project_member"] = True
             flag["group_member"] = True
             user_ids.add(row.user_id)
-
-        task_rows = db.session.query(Task.id, Task.project_id, Task.group_id).filter(Task.project_id.in_(project_ids)).all()
-        task_project_map = {task_id: project_id for task_id, project_id, _group_id in task_rows}
-        task_group_map = {task_id: group_id for task_id, _project_id, group_id in task_rows if group_id}
-        if task_group_map:
-            for row in Assignment.query.filter(Assignment.task_id.in_(list(task_group_map.keys())), Assignment.user_id.isnot(None)).all():
-                group_id = task_group_map.get(row.task_id)
-                project_id = task_project_map.get(row.task_id)
-                if row.user_id is None or not project_id:
-                    continue
-                flag = ensure_project_flag(project_id, row.user_id)
-                flag["task_assignee"] = True
-                if group_id:
-                    group_user_ids.setdefault(group_id, set()).add(row.user_id)
-                user_ids.add(row.user_id)
 
     user_map = {
         user.id: user
@@ -416,8 +394,6 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
             key=lambda user: (
                 0 if flags_by_user[user.id].get("owner") else 1,
                 0 if flags_by_user[user.id].get("project_member") else 1,
-                0 if flags_by_user[user.id].get("group_member") else 1,
-                0 if flags_by_user[user.id].get("task_assignee") else 1,
                 (user.display_name or user.email or "").lower(),
             )
         )
@@ -433,7 +409,7 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
             user_id
             for user_id, flags in project_flag_map.items()
             if flags.get("owner") or flags.get("project_member")
-        }.union(member_ids)
+        }
         viewers = [user_map[user_id] for user_id in combined_ids if user_id in user_map]
         viewers.sort(
             key=lambda user: (
@@ -865,12 +841,12 @@ def dashboard():
     github_project_id = github_sync_state.project_id if github_sync_state else None
     github_auto_sync_needed = bool(github_identity and github_identity.access_token and should_sync_github_issues(user.id))
     current_view = (request.args.get("view") or "project").strip().lower()
-    if current_view not in {"project", "todo"}:
+    if current_view not in {"project", "todo", "tree"}:
         current_view = "project"
     default_show_completed = "0" if current_view == "todo" else "1"
     show_completed = (request.args.get("show_completed") or default_show_completed).strip().lower() not in {"0", "false", "no", "off"}
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
-    member_project_ids = [
+    direct_member_project_ids = [
         m.project_id for m in ProjectMember.query.filter_by(user_id=user.id).all()
     ]
     member_group_project_ids = [
@@ -880,16 +856,10 @@ def dashboard():
         .filter(GroupMember.user_id == user.id)
         .all()
     ]
-    assigned_task_ids = [
-        a.task_id for a in Assignment.query.filter_by(user_id=user.id).filter(Assignment.task_id.isnot(None)).all()
-    ]
-    assigned_tasks = Task.query.filter(Task.id.in_(assigned_task_ids)).all() if assigned_task_ids else []
-    assigned_project_ids = [t.project_id for t in assigned_tasks]
+    member_project_ids = list(set(direct_member_project_ids).union(member_group_project_ids))
     accessible_project_ids = list(
         {p.id for p in owned_projects}
-        .union(assigned_project_ids)
         .union(member_project_ids)
-        .union(member_group_project_ids)
     )
     projects = (
         Project.query.filter(Project.id.in_(accessible_project_ids)).all()
@@ -973,76 +943,86 @@ def dashboard():
     manageable_group_ids: set[int] = set()
     selected_project_color = "#4cc9f0"
     is_github_project = False
+    tree_project_contexts = []
     manageable_project_ids = {project.id for project in owned_projects}.union(member_project_ids)
-    if selected_project:
-        is_github_project = bool(github_project_id and selected_project.id == github_project_id)
-        selected_pref = sidebar_pref_map.get(selected_project.id)
-        selected_project_color = division_color_map.get(selected_pref.division_id if selected_pref else None, "#4cc9f0")
-        is_owner = selected_project.owner_id == user.id
-        is_project_member = (
-            ProjectMember.query.filter_by(project_id=selected_project.id, user_id=user.id).first()
+
+    def build_project_context(project: Project) -> dict:
+        project_is_github = bool(github_project_id and project.id == github_project_id)
+        pref = sidebar_pref_map.get(project.id)
+        project_color = division_color_map.get(pref.division_id if pref else None, "#4cc9f0")
+        project_is_owner = project.owner_id == user.id
+        project_is_member = (
+            ProjectMember.query.filter_by(project_id=project.id, user_id=user.id).first()
             is not None
+            or (
+                db.session.query(Group.id)
+                .join(GroupMember, GroupMember.group_id == Group.id)
+                .filter(Group.project_id == project.id, GroupMember.user_id == user.id)
+                .first()
+                is not None
+            )
         )
-        can_manage_project = is_owner or is_project_member
-        if can_manage_project:
-            tasks = _task_ordering(Task.query.filter_by(project_id=selected_project.id)).all()
-            selected_status_map = task_status_meta_map(tasks, viewer_user_id=user.id)
-            if not show_completed:
-                tasks = [
-                    task for task in tasks
-                    if not _is_complete_status(effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=selected_status_map.get(task.id)))
-                ]
-            groups = Group.query.filter_by(project_id=selected_project.id).order_by(Group.position.asc(), Group.id.asc()).all()
-            tasks_by_group = {g.id: [] for g in groups}
-            for task in tasks:
-                if task.group_id and task.group_id in tasks_by_group:
-                    tasks_by_group[task.group_id].append(task)
-                else:
-                    ungrouped_tasks.append(task)
-            if is_github_project:
-                for grouped_tasks in tasks_by_group.values():
-                    grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
-                ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
-        else:
-            member_group_ids = [
-                m.group_id
-                for m in GroupMember.query.join(Group).filter(
-                    GroupMember.user_id == user.id, Group.project_id == selected_project.id
+        project_can_manage = project_is_owner or project_is_member
+        project_manageable_group_ids: set[int] = set()
+        project_tasks: list[Task] = []
+        project_groups: list[Group] = []
+        project_tasks_by_group: dict[int, list[Task]] = {}
+        project_ungrouped_tasks: list[Task] = []
+        project_tasks = _task_ordering(Task.query.filter_by(project_id=project.id)).all()
+        project_status_map = task_status_meta_map(project_tasks, viewer_user_id=user.id)
+        if not show_completed:
+            project_tasks = [
+                task for task in project_tasks
+                if not _is_complete_status(
+                    effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=project_status_map.get(task.id))
                 )
             ]
-            manageable_group_ids = {group_id for group_id in member_group_ids if group_id}
-            group_tasks = _task_ordering(Task.query.filter(Task.group_id.in_(member_group_ids))).all() if member_group_ids else []
-            tasks = list(
-                {
-                    t.id: t
-                    for t in group_tasks + [t for t in assigned_tasks if t.project_id == selected_project.id]
-                }.values()
-            )
-            tasks.sort(key=lambda task: (task.position, task.id))
-            selected_status_map = task_status_meta_map(tasks, viewer_user_id=user.id)
-            if not show_completed:
-                tasks = [
-                    task for task in tasks
-                    if not _is_complete_status(effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=selected_status_map.get(task.id)))
-                ]
-            group_ids = sorted({group_id for group_id in member_group_ids if group_id}.union({t.group_id for t in tasks if t.group_id}))
-            groups = (
-                Group.query.filter(Group.id.in_(group_ids))
-                .order_by(Group.position.asc(), Group.id.asc())
-                .all()
-                if group_ids
-                else []
-            )
-            tasks_by_group = {g.id: [] for g in groups}
-            for task in tasks:
-                if task.group_id and task.group_id in tasks_by_group:
-                    tasks_by_group[task.group_id].append(task)
-                else:
-                    ungrouped_tasks.append(task)
-            if is_github_project:
-                for grouped_tasks in tasks_by_group.values():
-                    grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
-                ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
+        project_groups = Group.query.filter_by(project_id=project.id).order_by(Group.position.asc(), Group.id.asc()).all()
+        project_tasks_by_group = {group.id: [] for group in project_groups}
+        for task in project_tasks:
+            if task.group_id and task.group_id in project_tasks_by_group:
+                project_tasks_by_group[task.group_id].append(task)
+            else:
+                project_ungrouped_tasks.append(task)
+
+        if project_is_github:
+            for grouped_tasks in project_tasks_by_group.values():
+                grouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
+            project_ungrouped_tasks.sort(key=lambda task: (task.created_at, task.id), reverse=True)
+
+        return {
+            "project": project,
+            "groups": project_groups,
+            "tasks": project_tasks,
+            "tasks_by_group": project_tasks_by_group,
+            "ungrouped_tasks": project_ungrouped_tasks,
+            "can_manage_project": project_can_manage,
+            "manageable_group_ids": project_manageable_group_ids,
+            "is_owner": project_is_owner,
+            "is_project_member": project_is_member,
+            "color": project_color,
+            "is_github_project": project_is_github,
+            "division_id": pref.division_id if pref else None,
+            "project_info": load_info_payload(project.info, project.link),
+            "group_info_by_id": {
+                group.id: load_info_payload(group.info, group.link)
+                for group in project_groups
+            },
+            "display_name": _project_display_name_for_user(project, user.id),
+        }
+
+    if selected_project:
+        selected_project_context = build_project_context(selected_project)
+        is_github_project = selected_project_context["is_github_project"]
+        selected_project_color = selected_project_context["color"]
+        is_owner = selected_project_context["is_owner"]
+        is_project_member = selected_project_context["is_project_member"]
+        can_manage_project = selected_project_context["can_manage_project"]
+        manageable_group_ids = selected_project_context["manageable_group_ids"]
+        tasks = selected_project_context["tasks"]
+        groups = selected_project_context["groups"]
+        tasks_by_group = selected_project_context["tasks_by_group"]
+        ungrouped_tasks = selected_project_context["ungrouped_tasks"]
     assignments_by_task = {}
     group_assignment_members_by_task = {}
     info_by_task = {}
@@ -1053,29 +1033,45 @@ def dashboard():
     user_map = dict(viewer_user_map)
     direct_project_peers = {project.id: _direct_peer_for_user(project, user.id) for project in direct_projects}
     project_display_names = {project.id: _project_display_name_for_user(project, user.id) for project in projects}
+    shared_project_ids = {
+        project.id
+        for project in projects
+        if not project.is_direct and int(project.owner_id or 0) != int(user.id)
+    }
+    shared_group_ids = {
+        group.id
+        for group in Group.query.filter(Group.project_id.in_(shared_project_ids if shared_project_ids else [-1])).all()
+    } if shared_project_ids else set()
+    shared_out_project_ids = {
+        project.id
+        for project in projects
+        if project.id not in shared_project_ids
+        and any(int(viewer.id) != int(user.id) for viewer in project_viewers.get(project.id, []))
+    }
+    shared_out_group_ids = {
+        group.id
+        for group in Group.query.filter(Group.project_id.in_(shared_out_project_ids if shared_out_project_ids else [-1])).all()
+    }
     selected_project_display_name = project_display_names.get(selected_project.id, selected_project.name) if selected_project else ""
+    tree_groups_by_project: dict[int, list[Group]] = {}
+    if current_view == "tree":
+        tree_source_projects = standard_projects + direct_projects
+        tree_project_contexts = [build_project_context(project) for project in tree_source_projects]
+        tree_groups_by_project = {
+            context["project"].id: context["groups"]
+            for context in tree_project_contexts
+        }
     today = now_utc.date()
     todo_items = []
     todo_tasks = []
     todo_assignee_options = []
     if current_view == "todo":
         project_ids = [p.id for p in projects]
-        visible_group_ids = {
-            row.group_id
-            for row in GroupMember.query.join(Group, Group.id == GroupMember.group_id)
-            .filter(GroupMember.user_id == user.id, Group.project_id.in_(project_ids if project_ids else [-1]))
-            .all()
-        } if project_ids else set()
         visible_task_ids = set()
-        if manageable_project_ids:
+        if project_ids:
             visible_task_ids.update(
-                row.id for row in Task.query.filter(Task.project_id.in_(manageable_project_ids)).all()
+                row.id for row in Task.query.filter(Task.project_id.in_(project_ids)).all()
             )
-        if visible_group_ids:
-            visible_task_ids.update(
-                row.id for row in Task.query.filter(Task.group_id.in_(visible_group_ids)).all()
-            )
-        visible_task_ids.update(task_id for task_id in assigned_task_ids if task_id)
         todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
         todo_status_map = task_status_meta_map(todo_tasks, viewer_user_id=user.id)
         if not show_completed:
@@ -1150,7 +1146,14 @@ def dashboard():
                 item["task"].id,
             )
         )
-    visible_tasks = list({t.id: t for t in list(todo_tasks) + list(tasks)}.values())
+    visible_tasks = list({
+        task.id: task
+        for task in (
+            list(todo_tasks)
+            + list(tasks)
+            + [task for context in tree_project_contexts for task in context["tasks"]]
+        )
+    }.values())
     task_status_payloads = task_status_meta_map(visible_tasks, viewer_user_id=user.id)
     if visible_tasks:
         assignment_rows = Assignment.query.filter(Assignment.task_id.in_([t.id for t in visible_tasks])).all()
@@ -1210,7 +1213,16 @@ def dashboard():
         [task.id for task in list(todo_tasks) + list(tasks)],
         user_map,
     )
-    visible_dashboard_task_ids = {task.id for task in (todo_tasks if current_view == "todo" else tasks)}
+    visible_dashboard_task_ids = {
+        task.id
+        for task in (
+            todo_tasks
+            if current_view == "todo"
+            else [task for context in tree_project_contexts for task in context["tasks"]]
+            if current_view == "tree"
+            else tasks
+        )
+    }
     comment_counts = {}
     if visible_dashboard_task_ids:
         comment_counts = {
@@ -1353,7 +1365,13 @@ def dashboard():
         direct_projects=direct_projects,
         direct_project_peers=direct_project_peers,
         project_display_names=project_display_names,
+        shared_project_ids=shared_project_ids,
+        shared_group_ids=shared_group_ids,
+        shared_out_project_ids=shared_out_project_ids,
+        shared_out_group_ids=shared_out_group_ids,
         selected_project_display_name=selected_project_display_name,
+        tree_project_contexts=tree_project_contexts,
+        tree_groups_by_project=tree_groups_by_project,
         todo_groups_by_date=todo_groups_by_date,
         todo_assignee_options=todo_assignee_options,
         github_task_meta=github_task_meta,

@@ -15,6 +15,7 @@ from app.group_assignments import group_assignment_candidate_users, serialize_gr
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 from app.realtime import (
+    _serialize_group_payload,
     _serialize_project_payload_for_user,
     emit_assignment_updated,
     emit_division_created,
@@ -35,6 +36,8 @@ from app.realtime import (
     emit_project_comment_created,
     emit_project_comment_deleted,
     emit_project_comment_updated,
+    emit_project_created,
+    emit_project_deleted,
     emit_project_members_updated,
     emit_sidebar_reordered,
     is_user_viewing_project,
@@ -57,7 +60,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
-from app.task_status import set_task_user_status, task_status_meta
+from app.task_status import effective_task_status_for_user, set_task_user_status, task_status_meta, task_status_meta_map
 import secrets
 
 from app.models import (
@@ -160,26 +163,16 @@ def sync_github():
 def _can_access_task(user, task: Task) -> bool:
     if not task:
         return False
-    if Project.query.filter_by(id=task.project_id, owner_id=user.id).first():
-        return True
-    if ProjectMember.query.filter_by(project_id=task.project_id, user_id=user.id).first():
-        return True
-    if task.group_id and GroupMember.query.filter_by(group_id=task.group_id, user_id=user.id).first():
-        return True
-    return Assignment.query.filter_by(task_id=task.id, user_id=user.id).first() is not None
+    return _can_access_project(user, task.project_id)
 
 
 def _task_notification_user_ids(task: Task) -> set[int]:
     project = Project.query.get(task.project_id)
     user_ids = {project.owner_id} if project else set()
     user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=task.project_id).all())
-    if task.group_id:
-        user_ids.update(row.user_id for row in GroupMember.query.filter_by(group_id=task.group_id).all())
-    user_ids.update(
-        row.user_id
-        for row in Assignment.query.filter_by(task_id=task.id).all()
-        if row.user_id
-    )
+    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == task.project_id).all()]
+    if group_ids:
+        user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
     return {user_id for user_id in user_ids if user_id}
 
 
@@ -252,6 +245,44 @@ def _serialize_assignment_row(assignment: Assignment) -> dict:
     }
 
 
+def _account_user_has_project_access(project_id: int, account_user_id: int | None) -> bool:
+    if not account_user_id:
+        return False
+    project = Project.query.get(project_id)
+    if project and int(project.owner_id or 0) == int(account_user_id):
+        return True
+    if ProjectMember.query.filter_by(project_id=project_id, user_id=account_user_id).first():
+        return True
+    return (
+        db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == project_id, GroupMember.user_id == account_user_id)
+        .first()
+        is not None
+    )
+
+
+def _assignment_requires_project_share_payload(project: Project | None, account_user: User | None) -> dict | None:
+    if not project or not account_user:
+        return None
+    if _account_user_has_project_access(project.id, account_user.id):
+        return None
+    return {
+        "error": "project share required",
+        "requires_project_member": True,
+        "project": {
+            "id": project.id,
+            "name": project.name,
+        },
+        "user": {
+            "id": account_user.id,
+            "email": account_user.email,
+            "display_name": account_user.display_name,
+            "avatar_url": account_user.avatar_url,
+        },
+    }
+
+
 def _merge_comment_links(item, body: str) -> bool:
     candidates = []
     for match in URL_PATTERN.findall(body or ""):
@@ -305,17 +336,21 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
 
 
 def _can_manage_project(user, project_id: int) -> bool:
-    return Project.query.filter_by(id=project_id, owner_id=user.id).first() is not None or (
-        ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first() is not None
+    if Project.query.filter_by(id=project_id, owner_id=user.id).first() is not None:
+        return True
+    if ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first() is not None:
+        return True
+    return (
+        db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == project_id, GroupMember.user_id == user.id)
+        .first()
+        is not None
     )
 
 
 def _can_manage_task_bucket(user, project_id: int, group_id: int | None) -> bool:
-    if _can_manage_project(user, project_id):
-        return True
-    if group_id is None:
-        return False
-    return GroupMember.query.filter_by(group_id=group_id, user_id=user.id).first() is not None
+    return _can_manage_project(user, project_id)
 
 
 def _can_access_project(user, project_id: int) -> bool:
@@ -331,14 +366,6 @@ def _can_access_project(user, project_id: int) -> bool:
         is not None
     ):
         return True
-    if (
-        db.session.query(Task.id)
-        .join(Assignment, Assignment.task_id == Task.id)
-        .filter(Task.project_id == project_id, Assignment.user_id == user.id)
-        .first()
-        is not None
-    ):
-        return True
     return False
 
 
@@ -346,19 +373,7 @@ def _can_access_group(user, group_id: int) -> bool:
     group = Group.query.get(group_id)
     if not group:
         return False
-    if _can_access_project(user, group.project_id):
-        return True
-    if GroupMember.query.filter_by(group_id=group_id, user_id=user.id).first():
-        return True
-    if (
-        db.session.query(Task.id)
-        .join(Assignment, Assignment.task_id == Task.id)
-        .filter(Task.group_id == group_id, Assignment.user_id == user.id)
-        .first()
-        is not None
-    ):
-        return True
-    return False
+    return _can_access_project(user, group.project_id)
 
 
 def _accessible_projects_for_user(user) -> list[Project]:
@@ -371,18 +386,10 @@ def _accessible_projects_for_user(user) -> list[Project]:
         .filter(GroupMember.user_id == user.id)
         .all()
     ]
-    assigned_task_project_ids = [
-        row.project_id
-        for row in db.session.query(Task.project_id)
-        .join(Assignment, Assignment.task_id == Task.id)
-        .filter(Assignment.user_id == user.id)
-        .all()
-    ]
     accessible_project_ids = list(
         {project.id for project in owned_projects}
         .union(member_project_ids)
         .union(member_group_project_ids)
-        .union(assigned_task_project_ids)
     )
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
 
@@ -544,6 +551,9 @@ def create_task():
     if assignee_email:
         email = assignee_email.strip().lower()
         account_user = find_user_by_email(email)
+        project_share_required = _assignment_requires_project_share_payload(project, account_user)
+        if project_share_required:
+            return project_share_required, 200
         existing_assignment = _existing_assignment_for_target(
             task_id=task.id,
             account_user_id=account_user.id if account_user else None,
@@ -741,6 +751,58 @@ def get_project(project_id: int):
         "name": project.name,
         "links": _info_payload_for(project).get("links", []),
         "created_at": project.created_at.isoformat() if project.created_at else None,
+    }, 200
+
+
+@api_bp.get("/projects/<int:project_id>/tree_snapshot")
+@login_required
+def get_project_tree_snapshot(project_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+
+    show_completed = (request.args.get("show_completed") or "1") == "1"
+    groups = Group.query.filter_by(project_id=project.id).order_by(Group.position.asc(), Group.id.asc()).all()
+    tasks = (
+        Task.query.filter_by(project_id=project.id)
+        .order_by(Task.position.asc(), Task.id.asc())
+        .all()
+    )
+    status_map = task_status_meta_map(tasks, viewer_user_id=user.id) if tasks else {}
+    if not show_completed:
+        tasks = [
+            task
+            for task in tasks
+            if (effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=status_map.get(task.id)) or "").strip().lower()
+            not in {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
+        ]
+    tasks_by_group: dict[int, list[dict]] = {group.id: [] for group in groups}
+    ungrouped_tasks: list[dict] = []
+    for task in tasks:
+        row = _serialize_task_row(task, viewer_user_id=user.id)
+        if task.group_id and task.group_id in tasks_by_group:
+            tasks_by_group[task.group_id].append(row)
+        else:
+            ungrouped_tasks.append(row)
+
+    return {
+        "project": _serialize_project_payload_for_user(project, user.id),
+        "can_manage_project": bool(_can_manage_project(user, project.id)),
+        "groups": [
+            {
+                "id": group.id,
+                "project_id": group.project_id,
+                "name": group.name,
+                "position": group.position,
+                "links": _info_payload_for(group).get("links", []),
+                "tasks": tasks_by_group.get(group.id, []),
+            }
+            for group in groups
+        ],
+        "ungrouped_tasks": ungrouped_tasks,
     }, 200
 
 
@@ -1788,9 +1850,15 @@ def add_project_member(project_id: int):
     if existing:
         return {"status": "ok"}, 200
     db.session.add(ProjectMember(project_id=project_id, user_id=user_id))
+    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
+    if group_ids:
+        GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
+    emit_project_created(Project.query.get(project_id), actor_user_id=user.id, recipient_user_id=user_id)
     emit_project_members_updated(project_id, actor_user_id=user.id)
+    for group_id in group_ids:
+        emit_group_members_updated(group_id, actor_user_id=user.id)
     return {"status": "ok"}, 201
 
 
@@ -1810,14 +1878,19 @@ def add_group_member(group_id: int):
     member_user = User.query.get(user_id)
     if not member_user:
         return {"error": "user not found"}, 404
-    existing = GroupMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+    existing = ProjectMember.query.filter_by(project_id=group.project_id, user_id=user_id).first()
     if existing:
         return {"status": "ok"}, 200
-    db.session.add(GroupMember(group_id=group_id, user_id=user_id))
+    db.session.add(ProjectMember(project_id=group.project_id, user_id=user_id))
+    group_ids = [item_id for (item_id,) in db.session.query(Group.id).filter(Group.project_id == group.project_id).all()]
+    if group_ids:
+        GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
-    _sync_group_mode_tasks(group_id, actor_user_id=user.id)
-    emit_group_members_updated(group_id, actor_user_id=user.id)
+    _sync_project_group_mode_tasks(group.project_id, actor_user_id=user.id)
+    emit_project_created(Project.query.get(group.project_id), actor_user_id=user.id, recipient_user_id=user_id)
     emit_project_members_updated(group.project_id, actor_user_id=user.id)
+    for item_id in group_ids:
+        emit_group_members_updated(item_id, actor_user_id=user.id)
     return {"status": "ok"}, 201
 
 
@@ -1834,13 +1907,11 @@ def list_project_members(project_id: int):
     for member in members:
         if member.get("owner"):
             member["access_label"] = "Owner"
-        elif member.get("project_member"):
-            member["access_label"] = "Full"
         else:
-            member["access_label"] = "Partial"
-        member["can_promote"] = (not member.get("owner")) and (not member.get("project_member"))
-        member["can_demote"] = (not member.get("owner")) and bool(member.get("project_member")) and bool(member.get("partial"))
-    members.sort(key=lambda item: (0 if item.get("owner") else 1, 0 if item.get("project_member") else 1, (item.get("display_name") or item.get("email") or "").lower()))
+            member["access_label"] = "Shared"
+        member["can_promote"] = False
+        member["can_demote"] = False
+    members.sort(key=lambda item: (0 if item.get("owner") else 1, (item.get("display_name") or item.get("email") or "").lower()))
     return {"members": members}, 200
 
 
@@ -1854,55 +1925,9 @@ def list_group_members(group_id: int):
     if not _can_manage_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
 
-    project = Project.query.get(group.project_id)
-    members = []
-    if project:
-        owner = User.query.get(project.owner_id)
-        if owner:
-            members.append(
-                {
-                    "id": owner.id,
-                    "email": owner.email,
-                    "display_name": owner.display_name,
-                    "avatar_url": owner.avatar_url,
-                    "owner": True,
-                }
-            )
-    project_member_rows = ProjectMember.query.filter_by(project_id=group.project_id).all()
-    for row in project_member_rows:
-        member_user = User.query.get(row.user_id)
-        if member_user:
-            members.append(
-                {
-                    "id": member_user.id,
-                    "email": member_user.email,
-                    "display_name": member_user.display_name,
-                    "avatar_url": member_user.avatar_url,
-                    "project_member": True,
-                }
-            )
-    group_member_rows = GroupMember.query.filter_by(group_id=group_id).all()
-    for row in group_member_rows:
-        member_user = User.query.get(row.user_id)
-        if member_user:
-            members.append(
-                {
-                    "id": member_user.id,
-                    "email": member_user.email,
-                    "display_name": member_user.display_name,
-                    "avatar_url": member_user.avatar_url,
-                    "group_member": True,
-                }
-            )
-    # de-dup by user id preserving first occurrence
-    seen = set()
-    unique = []
-    for m in members:
-        if m["id"] in seen:
-            continue
-        seen.add(m["id"])
-        unique.append(m)
-    return {"members": unique}, 200
+    members = list(project_access_map(group.project_id).values())
+    members.sort(key=lambda item: (0 if item.get("owner") else 1, (item.get("display_name") or item.get("email") or "").lower()))
+    return {"members": members}, 200
 
 
 @api_bp.delete("/projects/<int:project_id>/members/<int:user_id>")
@@ -1912,9 +1937,15 @@ def remove_project_member(project_id: int, user_id: int):
     if not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).delete()
+    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
+    if group_ids:
+        GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
+    emit_project_deleted(project_id, actor_user_id=user.id, recipient_user_ids=[user_id], include_project_room=False)
     emit_project_members_updated(project_id, actor_user_id=user.id)
+    for group_id in group_ids:
+        emit_group_members_updated(group_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -1942,9 +1973,14 @@ def update_project_member_scope(project_id: int, user_id: int):
     else:
         if existing:
             db.session.delete(existing)
+        group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
+        if group_ids:
+            GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
     emit_project_members_updated(project_id, actor_user_id=user.id)
+    for group_id in [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]:
+        emit_group_members_updated(group_id, actor_user_id=user.id)
     return {"status": "ok"}, 200
 
 
@@ -1957,11 +1993,16 @@ def remove_group_member(group_id: int, user_id: int):
         return {"error": "group not found"}, 404
     if not _can_manage_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
-    GroupMember.query.filter_by(group_id=group_id, user_id=user_id).delete()
+    ProjectMember.query.filter_by(project_id=group.project_id, user_id=user_id).delete()
+    group_ids = [item_id for (item_id,) in db.session.query(Group.id).filter(Group.project_id == group.project_id).all()]
+    if group_ids:
+        GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
-    _sync_group_mode_tasks(group_id, actor_user_id=user.id)
-    emit_group_members_updated(group_id, actor_user_id=user.id)
+    _sync_project_group_mode_tasks(group.project_id, actor_user_id=user.id)
+    emit_project_deleted(group.project_id, actor_user_id=user.id, recipient_user_ids=[user_id], include_project_room=False)
     emit_project_members_updated(group.project_id, actor_user_id=user.id)
+    for item_id in group_ids:
+        emit_group_members_updated(item_id, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -1991,6 +2032,90 @@ def reorder_groups():
     db.session.commit()
     emit_group_reordered(project.id, order_ids, actor_user_id=user.id)
     return {"status": "ok"}, 200
+
+
+@api_bp.post("/groups/<int:group_id>/move")
+@login_required
+def move_group(group_id: int):
+    payload = request.get_json(silent=True) or {}
+    user = current_user()
+    target_project_id = payload.get("project_id")
+    before_group_id = payload.get("before_group_id")
+
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not target_project_id:
+        return {"error": "project_id is required"}, 400
+
+    try:
+        target_project_id = int(target_project_id)
+    except (TypeError, ValueError):
+        return {"error": "invalid project_id"}, 400
+
+    target_project = Project.query.get(target_project_id)
+    if not target_project:
+        return {"error": "project not found"}, 404
+
+    source_project_id = group.project_id
+    if not _can_access_project(user, source_project_id):
+        return {"error": "unauthorized"}, 403
+    if not _can_access_project(user, target_project_id):
+        return {"error": "unauthorized"}, 403
+
+    before_group = None
+    if before_group_id:
+        try:
+            before_group_id = int(before_group_id)
+        except (TypeError, ValueError):
+            return {"error": "invalid before_group_id"}, 400
+        before_group = Group.query.get(before_group_id)
+        if not before_group:
+            return {"error": "before_group not found"}, 404
+        if before_group.id == group.id:
+            before_group = None
+        elif before_group.project_id != target_project_id:
+            return {"error": "before_group project mismatch"}, 400
+
+    if source_project_id == target_project_id:
+        siblings = [row for row in Group.query.filter_by(project_id=target_project_id).order_by(Group.position.asc(), Group.id.asc()).all() if row.id != group.id]
+    else:
+        siblings = Group.query.filter_by(project_id=target_project_id).order_by(Group.position.asc(), Group.id.asc()).all()
+
+    insert_at = len(siblings)
+    if before_group:
+        for idx, sibling in enumerate(siblings):
+            if sibling.id == before_group.id:
+                insert_at = idx
+                break
+
+    old_task_rows = Task.query.filter_by(group_id=group.id).all()
+    old_task_ids = [task.id for task in old_task_rows]
+
+    if source_project_id != target_project_id:
+        source_groups = [row for row in Group.query.filter_by(project_id=source_project_id).order_by(Group.position.asc(), Group.id.asc()).all() if row.id != group.id]
+        for idx, sibling in enumerate(source_groups, start=1):
+            sibling.position = idx
+        group.project_id = target_project_id
+        for task in old_task_rows:
+            task.project_id = target_project_id
+
+    siblings.insert(insert_at, group)
+    for idx, sibling in enumerate(siblings, start=1):
+        sibling.position = idx
+
+    db.session.commit()
+
+    if source_project_id != target_project_id:
+        emit_group_deleted(group.id, source_project_id, actor_user_id=user.id, task_ids=old_task_ids)
+        emit_group_created(group, actor_user_id=user.id)
+        for task in old_task_rows:
+            emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=group.id, actor_user_id=user.id)
+    else:
+        emit_group_reordered(target_project_id, [row.id for row in siblings], actor_user_id=user.id)
+        emit_group_updated(group, actor_user_id=user.id)
+
+    return {"status": "ok", "group": {"id": group.id, "project_id": group.project_id}}, 200
 
 
 @api_bp.post("/sidebar/reorder")
@@ -2085,8 +2210,11 @@ def create_assignment():
         return {"error": "unauthorized"}, 403
 
     account_user = find_user_by_email(email)
+    project = Project.query.get(task.project_id) if task else None
+    project_share_required = _assignment_requires_project_share_payload(project, account_user)
+    if project_share_required:
+        return project_share_required, 200
     if not account_user:
-        project = Project.query.get(task.project_id) if task else None
         get_or_create_collaborator_profile(
             email=email,
             default_calendar_opt_in=project.default_invitee_calendar_opt_in if project else False,

@@ -1,13 +1,20 @@
 {% extends "base.html" %}
-{% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, top_level=False, color=None) %}
+{% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
   {% set project_color = color or '#2a3442' %}
+  {% set is_shared_project = shared_project_ids and project.id in shared_project_ids %}
+  {% set is_shared_out_project = shared_out_project_ids and project.id in shared_out_project_ids %}
   <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}" draggable="true" data-sidebar-project="{{ project.id }}">
     {% set viewers = project_viewers.get(project.id, []) %}
     {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
     <div class="project-item-top">
       <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
         <strong data-project-title="{{ project.id }}">{{ project.name }}</strong>
+        {% if is_shared_project %}
+          <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
+        {% elif is_shared_out_project %}
+          <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
+        {% endif %}
       </a>
       {% if shared_viewers %}
         <div class="avatar-stack" data-presence-project-id="{{ project.id }}" data-project-members="{{ project.id }}">
@@ -170,7 +177,7 @@
     {% endif %}
   </span>
 {% endmacro %}
-{% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) %}
+{% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, project_name) %}
   {% if task_list %}
     {% for task in task_list %}
       {% set task_info = info_by_task.get(task.id, {"html": "", "attachments": []}) %}
@@ -210,13 +217,13 @@
               {% endfor %}
             </span>
             <span class="task-pill">
-              <button class="task-pill-segment" type="button" data-open-settings="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project_display_name|e if selected_project else '' }}" onclick='return window.__openSettings({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project_display_name if selected_project else "")|tojson }});'>
+              <button class="task-pill-segment" type="button" data-open-settings="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ project_name|e }}" onclick='return window.__openSettings({{ task.id|tojson }}, {{ task.title|tojson }}, {{ project_name|tojson }});'>
                 <i class="fa-solid fa-sliders" aria-hidden="true"></i>
               </button>
-              <button class="task-pill-segment" type="button" data-open-links="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project_display_name|e if selected_project else '' }}" onclick='return window.__openLinks({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project_display_name if selected_project else "")|tojson }});'>
+              <button class="task-pill-segment" type="button" data-open-links="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ project_name|e }}" onclick='return window.__openLinks({{ task.id|tojson }}, {{ task.title|tojson }}, {{ project_name|tojson }});'>
                 <i class="fa-solid fa-link" aria-hidden="true"></i>
               </button>
-              <button class="task-pill-segment comment-button{% if task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ selected_project_display_name|e if selected_project else '' }}" onclick='return window.__openDiscussion({{ task.id|tojson }}, {{ task.title|tojson }}, {{ (selected_project_display_name if selected_project else "")|tojson }});'>
+              <button class="task-pill-segment comment-button{% if task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ project_name|e }}" onclick='return window.__openDiscussion({{ task.id|tojson }}, {{ task.title|tojson }}, {{ project_name|tojson }});'>
                 <i class="fa-regular fa-comments" aria-hidden="true"></i>
                 <span data-comment-count="{{ task.id }}">{{ comment_counts.get(task.id, 0) }}</span>
               </button>
@@ -278,7 +285,7 @@
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
 <div class="layout"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout>
-  <aside class="sidebar{% if current_view == 'todo' %} todo-tree{% endif %}" {% if current_view == 'todo' %}data-todo-tree{% endif %}>
+  <aside class="sidebar{% if current_view in ['todo', 'tree'] %} todo-tree{% endif %}" {% if current_view == 'todo' %}data-todo-tree{% elif current_view == 'tree' %}data-tree-sidebar{% endif %}>
     {% if current_view == 'todo' %}
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
       <div class="sidebar-heading-row">
@@ -408,6 +415,126 @@
           </div>
         </div>
       </div>
+    {% elif current_view == 'tree' %}
+      <div class="sidebar-split-shell" data-sidebar-split-shell>
+        <div class="sidebar-split-pane sidebar-split-pane-top" data-sidebar-split-pane="top">
+          <div class="todo-sidebar-section is-top">
+            <div class="sidebar-heading-row todo-sidebar-subhead">
+              <h3 style="margin: 0;">Structure</h3>
+            </div>
+          </div>
+          <div class="todo-tree-list tree-select-list" data-tree-select-list>
+            {% for division in divisions %}
+              <div class="todo-tree-node" data-tree-division-node="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
+                <div class="todo-tree-row" data-division-context="{{ division.id }}" data-division-color="{{ division.color or '#4cc9f0' }}" data-tree-division-row="{{ division.id }}">
+                  <button class="tree-select-button" type="button" data-tree-select-type="division" data-tree-select-id="{{ division.id }}">
+                    <span class="todo-tree-label" style="color: {{ division.color or '#4cc9f0' }};">{{ division.name }}</span>
+                  </button>
+                  <button class="todo-tree-toggle" type="button" data-tree-toggle-division="{{ division.id }}" aria-label="Toggle division">▾</button>
+                </div>
+                <div class="todo-tree-children">
+                  {% for project in projects_by_division.get(division.id, []) %}
+                    <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-division-id="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
+                      {% set tree_can_manage_project = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
+                      <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" draggable="true">
+                        <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
+                          <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
+                          {% if shared_project_ids and project.id in shared_project_ids %}
+                            <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
+                          {% elif shared_out_project_ids and project.id in shared_out_project_ids %}
+                            <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
+                          {% endif %}
+                        </button>
+                        <button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                      </div>
+                      <div class="todo-tree-children todo-tree-groups">
+                        {% for group in tree_groups_by_project.get(project.id, []) %}
+                          <div class="todo-tree-row todo-tree-group-row" data-tree-group-node="{{ group.id }}" data-tree-project-id="{{ project.id }}" data-tree-group-row="{{ group.id }}" draggable="true">
+                        <button class="tree-select-button" type="button" data-tree-select-type="group" data-tree-select-id="{{ group.id }}" data-tree-project-id="{{ project.id }}">
+                          <span class="todo-tree-label">{{ group.name }}</span>
+                        </button>
+                          </div>
+                        {% else %}
+                          <div class="todo-tree-empty">No groups</div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+            {% if unassigned_projects %}
+              <div class="todo-tree-node" data-tree-division-node="none" style="--division-color: #2a3442;">
+                <div class="todo-tree-row" data-tree-division-row="none">
+                  <button class="tree-select-button" type="button" data-tree-select-type="division" data-tree-select-id="none">
+                    <span class="todo-tree-label">Other Projects</span>
+                  </button>
+                  <button class="todo-tree-toggle" type="button" data-tree-toggle-division="none" aria-label="Toggle other projects">▾</button>
+                </div>
+                <div class="todo-tree-children">
+                  {% for project in unassigned_projects if not project.is_direct %}
+                    <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-division-id="none">
+                      {% set tree_can_manage_project = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
+                      <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" draggable="true">
+                        <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
+                          <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
+                          {% if shared_project_ids and project.id in shared_project_ids %}
+                            <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
+                          {% elif shared_out_project_ids and project.id in shared_out_project_ids %}
+                            <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
+                          {% endif %}
+                        </button>
+                        <button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                      </div>
+                      <div class="todo-tree-children todo-tree-groups">
+                        {% for group in tree_groups_by_project.get(project.id, []) %}
+                          <div class="todo-tree-row todo-tree-group-row" data-tree-group-node="{{ group.id }}" data-tree-project-id="{{ project.id }}" data-tree-group-row="{{ group.id }}" draggable="true">
+                            <button class="tree-select-button" type="button" data-tree-select-type="group" data-tree-select-id="{{ group.id }}" data-tree-project-id="{{ project.id }}">
+                              <span class="todo-tree-label">{{ group.name }}</span>
+                            </button>
+                          </div>
+                        {% else %}
+                          <div class="todo-tree-empty">No groups</div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="sidebar-split-divider" data-sidebar-splitter role="separator" aria-orientation="horizontal" aria-label="Resize structure and direct panels"></div>
+        <div class="sidebar-split-pane sidebar-split-pane-bottom" data-sidebar-split-pane="bottom">
+          <div class="todo-sidebar-section">
+            <div class="sidebar-heading-row todo-sidebar-subhead">
+              <h3 style="margin: 0;">Direct</h3>
+              <button class="sidebar-mini-add" type="button" data-open-direct-project-modal aria-label="Create direct task space">+</button>
+            </div>
+            <div class="todo-tree-list tree-select-list" data-tree-direct-list>
+              {% for project in direct_projects %}
+                {% set peer = direct_project_peers.get(project.id) %}
+                <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-direct-project="{{ project.id }}">
+                  <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if project.owner_id == user.id else 0 }}" data-project-direct="1" data-tree-project-row="{{ project.id }}" draggable="true">
+                    <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
+                      <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
+                      <span class="avatar-stack is-direct is-tree-direct" data-presence-project-id="{{ project.id }}">
+                        <span class="avatar-chip"{% if peer %} data-user-id="{{ peer.id }}"{% endif %} title="{{ project_display_names.get(project.id, project.name) }}">
+                          {% if peer and peer.avatar_url %}
+                            <img src="{{ peer.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+                          {% else %}
+                            {{ (project_display_names.get(project.id, project.name) or 'D')[:1]|upper }}
+                          {% endif %}
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
     {% else %}
       <div class="sidebar-split-shell" data-sidebar-split-shell>
         <div class="sidebar-split-pane sidebar-split-pane-top" data-sidebar-split-pane="top">
@@ -428,7 +555,7 @@
             {% for item in top_level_items %}
               <div class="sidebar-stack-item" data-sidebar-item="{{ item.type }}:{{ item.id }}">
                 {% if item.type == "project" %}
-                  {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, True, None) }}
+                  {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, True, None) }}
                 {% else %}
                   <div class="sidebar-division" style="--division-color: {{ item.division.color or '#4cc9f0' }}; color: {{ item.division.color or '#4cc9f0' }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ item.division.color or '#4cc9f0' }}">
                     <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
@@ -436,7 +563,7 @@
                     </div>
                     <div class="project-list">
                       {% for project in projects_by_division.get(item.division.id, []) %}
-                        {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, False, item.division.color) }}
+                        {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, False, item.division.color) }}
                       {% endfor %}
                     </div>
                   </div>
@@ -595,11 +722,211 @@
           </div>
         {% endfor %}
       </div>
+    {% elif current_view == 'tree' %}
+      <div class="tree-board" data-tree-board>
+        {% for ctx in tree_project_contexts %}
+          {% set project = ctx.project %}
+          {% set project_groups = ctx.groups %}
+          {% set project_tasks_by_group = ctx.tasks_by_group %}
+          {% set project_ungrouped_tasks = ctx.ungrouped_tasks %}
+          {% set project_can_manage = ctx.can_manage_project %}
+          {% set project_manageable_group_ids = ctx.manageable_group_ids %}
+          {% set project_color = ctx.color %}
+          {% set project_info_ctx = ctx.project_info %}
+          {% set project_group_info = ctx.group_info_by_id %}
+          {% set project_display_name = ctx.display_name %}
+          {% set project_is_github = ctx.is_github_project %}
+          {% set viewers = project_viewers.get(project.id, []) %}
+          {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
+          <div class="tree-project-board" data-tree-project-board="{{ project.id }}" data-tree-division-id="{% if project.is_direct %}direct{% else %}{{ ctx.division_id if ctx.division_id is not none else 'none' }}{% endif %}">
+            <div class="panel">
+              <div class="group-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <h3 data-selected-project-title="{{ project.id }}"><span data-selected-project-name>{{ project_display_name }}</span>{% if shared_project_ids and project.id in shared_project_ids %}<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>{% elif shared_out_project_ids and project.id in shared_out_project_ids %}<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>{% endif %}</h3>
+                  <span class="task-link-badges" data-entity-link-badges="project:{{ project.id }}">
+                    {% for link in project_info_ctx.links or [] %}
+                      {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
+                      {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
+                      <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
+                        <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                      </a>
+                    {% endfor %}
+                  </span>
+                  <span class="task-pill" aria-label="Project settings links and messages">
+                    <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="{{ project.id }}" data-entity-title="{{ project_display_name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+                    <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="{{ project.id }}" data-entity-title="{{ project_display_name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+                    <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="{{ project.id }}" data-entity-title="{{ project_display_name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:{{ project.id }}">0</span></button>
+                  </span>
+                </div>
+                {% if not project.is_direct %}
+                  <div class="project-header-share-tools">
+                    <button class="project-share-trigger" type="button" data-open-share-project="{{ project.id }}" aria-label="Share project" title="Share project">
+                      <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+                    </button>
+                    {% if shared_viewers %}
+                      <div class="share-avatars project-header-avatars" data-presence-project-id="{{ project.id }}" data-project-members="{{ project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                        {% for u in shared_viewers[:6] %}
+                          <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
+                            {% if u.avatar_url %}
+                              <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+                            {% else %}
+                              {{ (u.display_name or u.email)[0]|upper }}
+                            {% endif %}
+                          </span>
+                        {% endfor %}
+                        {% if shared_viewers|length > 6 %}
+                          <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+
+            {% for group in project_groups %}
+              <div class="group-block" data-group-id="{{ group.id }}" data-tree-group-board="{{ group.id }}">
+                <div class="group-insert-wrap{% if not project_can_manage or project_is_github %} disabled{% endif %}">
+                  <div class="group-insert" data-project-id="{{ project.id }}">
+                    <div class="group-insert-line"></div>
+                    <button class="group-insert-btn" type="button" title="Add group">+</button>
+                  </div>
+                </div>
+                <div class="panel group" style="--group-color: {{ project_color or '#4cc9f0' }};">
+                  <div class="group-header" {% if project_can_manage and not project_is_github %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
+                    <h3 class="group-title">
+                      <span class="group-title-text{% if project_can_manage and not project_is_github %} editable{% endif %}" {% if project_can_manage and not project_is_github %}contenteditable="true"{% endif %} data-group-id="{{ group.id }}" data-field="name">{{ group.name }}</span>
+                      <span class="task-link-badges" data-entity-link-badges="group:{{ group.id }}">
+                        {% for link in project_group_info.get(group.id, {}).links or [] %}
+                          {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
+                          {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
+                          <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
+                            <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                          </a>
+                        {% endfor %}
+                      </span>
+                      <span class="task-pill" aria-label="Group settings links and messages" contenteditable="false">
+                        <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ project_display_name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+                        <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ project_display_name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+                        <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ project_display_name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:{{ group.id }}">0</span></button>
+                      </span>
+                    </h3>
+                  </div>
+                  <table class="table tasks-table" data-project-id="{{ project.id }}" data-group-id="{{ group.id }}">
+                    <colgroup>
+                      <col style="width: 3%;">
+                      <col style="width: 47%;">
+                      <col style="width: 16%;">
+                      <col style="width: 14%;">
+                      <col style="width: 20%;">
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th>Task<span class="col-resizer" data-col="1"></span></th>
+                        <th>Due<span class="col-resizer" data-col="2"></span></th>
+                        <th>Status<span class="col-resizer" data-col="3"></span></th>
+                        <th>Assign<span class="col-resizer" data-col="4"></span></th>
+                      </tr>
+                    </thead>
+                    <tbody data-task-dropzone="1">
+                      {% set group_tasks = project_tasks_by_group.get(group.id, []) %}
+                      {{ render_tasks(group_tasks, assignments_by_task, user_map, project_can_manage, project_manageable_group_ids, info_by_task, github_task_meta, project_display_name) }}
+                      {% if (project_can_manage or group.id in project_manageable_group_ids) and not project_is_github %}
+                        <tr class="new-row">
+                          <td></td>
+                          <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
+                          <td>
+                            <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
+                              <div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div>
+                              <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+                            </div>
+                          </td>
+                          <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
+                          <td>
+                            <div class="assignments">
+                              <span class="assign-action">
+                                <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
+                                <button class="assign-add-btn" type="button" title="Assign">+</button>
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      {% endif %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            {% endfor %}
+
+            <div class="group-insert-wrap{% if not project_can_manage or project_is_github %} disabled{% endif %}" data-tree-ungrouped-wrap="{{ project.id }}">
+              <div class="group-insert" data-project-id="{{ project.id }}">
+                <div class="group-insert-line"></div>
+                <button class="group-insert-btn" type="button" title="Add group">+</button>
+              </div>
+            </div>
+
+            {% if project_ungrouped_tasks or project_can_manage %}
+              <div class="panel group ungrouped-table-shell" style="--group-color: {{ ctx.division_color or '#4cc9f0' }};" data-tree-ungrouped-board="{{ project.id }}">
+                <table class="table tasks-table" data-project-id="{{ project.id }}" data-group-id="">
+                  <colgroup>
+                    <col style="width: 3%;">
+                    <col style="width: 47%;">
+                    <col style="width: 16%;">
+                    <col style="width: 14%;">
+                    <col style="width: 20%;">
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>Task<span class="col-resizer" data-col="1"></span></th>
+                      <th>Due<span class="col-resizer" data-col="2"></span></th>
+                      <th>Status<span class="col-resizer" data-col="3"></span></th>
+                      <th>Assign<span class="col-resizer" data-col="4"></span></th>
+                    </tr>
+                  </thead>
+                  <tbody data-task-dropzone="1">
+                    {{ render_tasks(project_ungrouped_tasks, assignments_by_task, user_map, project_can_manage, project_manageable_group_ids, info_by_task, github_task_meta, project_display_name) }}
+                    {% if project_can_manage and not project_is_github %}
+                      <tr class="new-row">
+                        <td></td>
+                        <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
+                        <td>
+                          <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
+                            <div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div>
+                            <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+                          </div>
+                        </td>
+                        <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
+                        <td>
+                          <div class="assignments">
+                            <span class="assign-action">
+                              <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
+                              <button class="assign-add-btn" type="button" title="Assign">+</button>
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="panel">
+            <h3>No projects</h3>
+            <p class="footer-note">No visible projects yet.</p>
+          </div>
+        {% endfor %}
+      </div>
     {% elif selected_project %}
       <div class="panel">
         <div class="group-header">
+          {% set viewers = project_viewers.get(selected_project.id, []) %}
+          {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
           <div style="display: flex; align-items: center; gap: 8px;">
-            <h3 data-selected-project-title="{{ selected_project.id }}">{{ selected_project_display_name }}</h3>
+            <h3 data-selected-project-title="{{ selected_project.id }}"><span data-selected-project-name>{{ selected_project_display_name }}</span></h3>
             <span class="task-link-badges" data-entity-link-badges="project:{{ selected_project.id }}">
               {% for link in project_info.links or [] %}
                 {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
@@ -616,6 +943,29 @@
             </span>
           </div>
           <div style="display: inline-flex; gap: 8px; align-items: center;">
+            {% if not selected_project.is_direct %}
+              <div class="project-header-share-tools">
+                <button class="project-share-trigger" type="button" data-open-share-project="{{ selected_project.id }}" aria-label="Share project" title="Share project">
+                  <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+                </button>
+                {% if shared_viewers %}
+                  <div class="share-avatars project-header-avatars" data-presence-project-id="{{ selected_project.id }}" data-project-members="{{ selected_project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                    {% for u in shared_viewers[:6] %}
+                      <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
+                        {% if u.avatar_url %}
+                          <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+                        {% else %}
+                          {{ (u.display_name or u.email)[0]|upper }}
+                        {% endif %}
+                      </span>
+                    {% endfor %}
+                    {% if shared_viewers|length > 6 %}
+                      <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
             <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
           </div>
         </div>
@@ -648,24 +998,6 @@
                   <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ selected_project.name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:{{ group.id }}">0</span></button>
                 </span>
               </h3>
-              {% set viewers = group_viewers.get(group.id, []) %}
-              {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
-              {% if shared_viewers %}
-                <div class="share-avatars" data-presence-project-id="{{ group.project_id }}" data-group-members="{{ group.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-                  {% for u in shared_viewers[:6] %}
-                    <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
-                      {% if u.avatar_url %}
-                        <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
-                      {% else %}
-                        {{ (u.display_name or u.email)[0]|upper }}
-                      {% endif %}
-                    </span>
-                  {% endfor %}
-                  {% if shared_viewers|length > 6 %}
-                    <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
-                  {% endif %}
-                </div>
-              {% endif %}
             </div>
             <table class="table tasks-table" data-project-id="{{ selected_project.id }}" data-group-id="{{ group.id }}">
             <colgroup>
@@ -686,7 +1018,7 @@
             </thead>
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
-              {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) }}
+              {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name) }}
 	              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project %}
 	                <tr class="new-row">
 	                    <td></td>
@@ -728,10 +1060,7 @@
       </div>
 
       {% if ungrouped_tasks or can_manage_project %}
-        <div class="panel">
-          <div class="group-header">
-            <h3 class="group-title">Ungrouped</h3>
-          </div>
+        <div class="panel group ungrouped-table-shell" style="--group-color: {{ selected_project_color or '#4cc9f0' }};">
           <table class="table tasks-table" data-project-id="{{ selected_project.id }}" data-group-id="">
             <colgroup>
               <col style="width: 3%;">
@@ -750,7 +1079,7 @@
               </tr>
             </thead>
             <tbody data-task-dropzone="1">
-              {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta) }}
+              {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name) }}
 	              {% if can_manage_project and not is_github_project %}
 	                <tr class="new-row">
 	                    <td></td>
@@ -1754,6 +2083,23 @@
           node.textContent = name;
         });
         document.querySelectorAll('[data-selected-project-title="' + projectId + '"]').forEach(function (node) {
+          var textHolder = node.querySelector && node.querySelector("[data-selected-project-name]");
+          if (textHolder) {
+            textHolder.textContent = name;
+            return;
+          }
+          if (node.childNodes && node.childNodes.length) {
+            var textNode = Array.prototype.find.call(node.childNodes, function (child) {
+              return child && child.nodeType === Node.TEXT_NODE;
+            });
+            if (textNode) {
+              textNode.textContent = name;
+              return;
+            }
+          }
+          node.textContent = name;
+        });
+        document.querySelectorAll('[data-tree-select-type="project"][data-tree-select-id="' + projectId + '"] .todo-tree-label').forEach(function (node) {
           node.textContent = name;
         });
         document.querySelectorAll('[data-project-name]').forEach(function (node) {
@@ -1786,6 +2132,9 @@
 
       function setGroupNameLocal(groupId, name) {
         document.querySelectorAll('.group-title-text[data-group-id="' + groupId + '"]').forEach(function (node) {
+          node.textContent = name;
+        });
+        document.querySelectorAll('[data-tree-select-type="group"][data-tree-select-id="' + groupId + '"] .todo-tree-label').forEach(function (node) {
           node.textContent = name;
         });
         document.querySelectorAll('.group-header[data-group-context="' + groupId + '"] [data-entity-title]').forEach(function (node) {
@@ -1843,20 +2192,65 @@
 
       function removeProjectLocal(projectId) {
         var currentProject = document.querySelector('[data-project-context="' + projectId + '"]');
-        if (!currentProject) return false;
-        var topWrapper = currentProject.closest('.sidebar-stack-item[data-sidebar-item="project:' + projectId + '"]');
-        if (topWrapper) {
-          topWrapper.remove();
-        } else {
-          currentProject.remove();
+        var removed = false;
+        if (currentProject) {
+          var treeProjectNode = currentProject.closest('[data-tree-project-node="' + projectId + '"]');
+          if (treeProjectNode) {
+            treeProjectNode.remove();
+          } else {
+            var topWrapper = currentProject.closest('.sidebar-stack-item[data-sidebar-item="project:' + projectId + '"]');
+            if (topWrapper) {
+              topWrapper.remove();
+            } else {
+              currentProject.remove();
+            }
+          }
+          removed = true;
         }
-        if (document.querySelector('[data-selected-project-title="' + projectId + '"]')) {
-          window.location.href = "/";
+        document.querySelectorAll('.todo-tree-node.is-project[data-project-id="' + projectId + '"]').forEach(function (node) {
+          if (node.isConnected) {
+            node.remove();
+            removed = true;
+          }
+        });
+        document.querySelectorAll('[data-tree-project-node="' + projectId + '"]').forEach(function (node) {
+          if (node.isConnected) {
+            node.remove();
+            removed = true;
+          }
+        });
+        document.querySelectorAll('[data-tree-project-id="' + projectId + '"]').forEach(function (node) {
+          var projectNode = node.closest('[data-tree-project-node]');
+          if (projectNode && projectNode.isConnected) {
+            projectNode.remove();
+          } else {
+            node.remove();
+          }
+          removed = true;
+        });
+        document.querySelectorAll('[data-tree-project-board="' + projectId + '"]').forEach(function (node) {
+          node.remove();
+          removed = true;
+        });
+        var selectedHeader = document.querySelector('[data-selected-project-title="' + projectId + '"]');
+        if (selectedHeader) {
+          var url = new URL(window.location.href);
+          var currentView = url.searchParams.get("view") || "project";
+          if (currentView === "tree" || currentView === "todo") {
+            url.searchParams.delete("project_id");
+            url.searchParams.delete("open_discussion_task_id");
+            window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+          } else {
+            url.searchParams.delete("project_id");
+            url.searchParams.delete("open_discussion_task_id");
+            window.location.href = url.pathname + url.search + url.hash;
+            return true;
+          }
         }
         if (typeof updateDirectProjectEmptyState === "function") {
           updateDirectProjectEmptyState();
         }
-        return true;
+        return removed;
       }
 
       function removeGroupLocal(groupId) {
@@ -1928,7 +2322,20 @@
 
       function buildProjectItemNode(project, divisionColor, canManage) {
         if (!project || !project.id) return null;
+        function escapeProjectText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
         var projectColor = divisionColor || "#2a3442";
+        var shareIconHtml = project.is_shared_with_me
+          ? '<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>'
+          : project.is_shared_out
+            ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
+            : '';
         var wrapper = document.createElement("div");
         wrapper.className = "project-item project-drop-target";
         wrapper.style.setProperty("--project-color", projectColor);
@@ -1941,10 +2348,500 @@
         wrapper.innerHTML =
           '<div class="project-item-top">' +
             '<a href="/?project_id=' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
-              '<strong data-project-title="' + String(project.id) + '">' + escapeHtml(project.name || "Project") + '</strong>' +
+              '<strong data-project-title="' + String(project.id) + '">' + escapeProjectText(project.name || "Project") + '</strong>' +
+              shareIconHtml +
             '</a>' +
+            '<div class="avatar-stack" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"></div>' +
           '</div>';
         return wrapper;
+      }
+
+      function buildTreeProjectNode(project, canManage) {
+        if (!project || !project.id) return null;
+        function escapeTreeText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var shareIconHtml = project.is_shared_with_me
+          ? '<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>'
+          : project.is_shared_out
+            ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
+            : '';
+        var node = document.createElement("div");
+        node.className = "todo-tree-node is-project";
+        node.setAttribute("data-tree-project-node", String(project.id));
+        node.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
+        node.innerHTML =
+          '<div class="todo-tree-row" data-project-context="' + String(project.id) + '" data-project-manage="' + (canManage ? "1" : "0") + '" data-tree-project-row="' + String(project.id) + '" draggable="true">' +
+            '<button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="' + String(project.id) + '" data-tree-project-id="' + String(project.id) + '">' +
+              '<span class="todo-tree-label">' + escapeTreeText(project.display_name || project.name || "Project") + '</span>' +
+              shareIconHtml +
+            '</button>' +
+            '<button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="' + String(project.id) + '" aria-label="Toggle project groups">▸</button>' +
+          '</div>' +
+          '<div class="todo-tree-children todo-tree-groups">' +
+            '<div class="todo-tree-empty">No groups</div>' +
+          '</div>';
+        return node;
+      }
+
+      function renderTreeEntityLinkBadges(links) {
+        if (typeof window.__renderTaskLinkBadges === "function") {
+          return window.__renderTaskLinkBadges(links || []);
+        }
+        return "";
+      }
+
+      function buildTreeProjectBoard(project, canManage) {
+        if (!project || !project.id) return null;
+        function escapeTreeText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var shareIconHtml = project.is_shared_with_me
+          ? '<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>'
+          : project.is_shared_out
+            ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
+            : '';
+        var board = document.createElement("div");
+        board.className = "tree-project-board";
+        board.setAttribute("data-tree-project-board", String(project.id));
+        board.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
+        board.innerHTML =
+          '<div class="panel">' +
+            '<div class="group-header">' +
+              '<div style="display: flex; align-items: center; gap: 8px;">' +
+                '<h3 data-selected-project-title="' + String(project.id) + '"><span data-selected-project-name>' + escapeTreeText(project.display_name || project.name || "Project") + '</span>' + shareIconHtml + '</h3>' +
+                '<span class="task-link-badges" data-entity-link-badges="project:' + String(project.id) + '">' + renderTreeEntityLinkBadges(project.links || []) + '</span>' +
+                '<span class="task-pill" aria-label="Project settings links and messages">' +
+                  '<button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="' + String(project.id) + '" data-entity-title="' + escapeTreeText(project.display_name || project.name || "Project") + '"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>' +
+                  '<button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="' + String(project.id) + '" data-entity-title="' + escapeTreeText(project.display_name || project.name || "Project") + '"><i class="fa-solid fa-link" aria-hidden="true"></i></button>' +
+                  '<button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="' + String(project.id) + '" data-entity-title="' + escapeTreeText(project.display_name || project.name || "Project") + '"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:' + String(project.id) + '">0</span></button>' +
+                '</span>' +
+              '</div>' +
+              (project.is_direct
+                ? ''
+                : '<div class="project-header-share-tools">' +
+                    '<button class="project-share-trigger" type="button" data-open-share-project="' + String(project.id) + '" aria-label="Share project" title="Share project"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i></button>' +
+                    '<div class="share-avatars project-header-avatars" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"></div>' +
+                  '</div>') +
+            '</div>' +
+          '</div>' +
+          '<div class="panel group ungrouped-table-shell" style="--group-color: ' + (project.group_color || project.division_color || '#4cc9f0') + ';" data-tree-ungrouped-board="' + String(project.id) + '">' +
+            '<table class="table tasks-table" data-project-id="' + String(project.id) + '" data-group-id="">' +
+              '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
+              '<thead><tr><th></th><th>Task<span class="col-resizer" data-col="1"></span></th><th>Due<span class="col-resizer" data-col="2"></span></th><th>Status<span class="col-resizer" data-col="3"></span></th><th>Assign<span class="col-resizer" data-col="4"></span></th></tr></thead>' +
+              '<tbody data-task-dropzone="1">' +
+                (canManage
+                  ? '<tr class="new-row">' +
+                      '<td></td>' +
+                      '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
+                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" disabled tabindex="-1" /></div></td>' +
+                      '<td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>' +
+                      '<td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>' +
+                    '</tr>'
+                  : '') +
+              '</tbody>' +
+            '</table>' +
+          '</div>';
+        return board;
+      }
+
+      function buildTreeGroupNode(project, group, canManage) {
+        if (!project || !project.id || !group || !group.id) return null;
+        function escapeTreeText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var row = document.createElement("div");
+        row.className = "todo-tree-row todo-tree-group-row";
+        row.setAttribute("data-tree-group-node", String(group.id));
+        row.setAttribute("data-tree-project-id", String(project.id));
+        row.setAttribute("data-tree-group-row", String(group.id));
+        if (canManage) {
+          row.setAttribute("draggable", "true");
+        }
+        row.innerHTML =
+          '<button class="tree-select-button" type="button" data-tree-select-type="group" data-tree-select-id="' + String(group.id) + '" data-tree-project-id="' + String(project.id) + '">' +
+            '<span class="todo-tree-label">' + escapeTreeText(group.name || "Group") + '</span>' +
+          '</button>';
+        return row;
+      }
+
+      function buildTreeGroupBlock(project, group, canManage) {
+        if (!project || !project.id || !group || !group.id) return null;
+        function escapeTreeText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var projectId = String(project.id);
+        var projectName = project.display_name || project.name || "Project";
+        var projectColor = "#4cc9f0";
+        var block = document.createElement("div");
+        block.className = "group-block";
+        block.setAttribute("data-group-id", String(group.id));
+        block.setAttribute("data-tree-group-board", String(group.id));
+        if (group.position !== undefined && group.position !== null) {
+          block.setAttribute("data-group-position", String(group.position));
+        }
+        block.innerHTML =
+          '<div class="group-insert-wrap' + (canManage ? "" : " disabled") + '">' +
+            '<div class="group-insert" data-project-id="' + projectId + '">' +
+              '<div class="group-insert-line"></div>' +
+              '<button class="group-insert-btn" type="button" title="Add group">+</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="panel group" style="--group-color: ' + projectColor + ';">' +
+            '<div class="group-header"' + (canManage ? ' draggable="true" data-drag-group="' + String(group.id) + '"' : '') + ' data-group-context="' + String(group.id) + '">' +
+              '<h3 class="group-title">' +
+                '<span class="group-title-text' + (canManage ? ' editable' : '') + '"' + (canManage ? ' contenteditable="true"' : '') + ' data-group-id="' + String(group.id) + '" data-field="name">' + escapeTreeText(group.name || "Group") + '</span>' +
+                '<span class="task-link-badges" data-entity-link-badges="group:' + String(group.id) + '">' + renderTreeEntityLinkBadges(group.links || []) + '</span>' +
+                '<span class="task-pill" aria-label="Group settings links and messages" contenteditable="false">' +
+                  '<button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="group" data-entity-id="' + String(group.id) + '" data-entity-title="' + escapeTreeText(group.name || "Group") + '" data-entity-project="' + escapeTreeText(projectName) + '"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>' +
+                  '<button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="' + String(group.id) + '" data-entity-title="' + escapeTreeText(group.name || "Group") + '" data-entity-project="' + escapeTreeText(projectName) + '"><i class="fa-solid fa-link" aria-hidden="true"></i></button>' +
+                  '<button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="' + String(group.id) + '" data-entity-title="' + escapeTreeText(group.name || "Group") + '" data-entity-project="' + escapeTreeText(projectName) + '"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:' + String(group.id) + '">0</span></button>' +
+                '</span>' +
+              '</h3>' +
+            '</div>' +
+            '<table class="table tasks-table" data-project-id="' + projectId + '" data-group-id="' + String(group.id) + '">' +
+              '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
+              '<thead><tr><th></th><th>Task<span class="col-resizer" data-col="1"></span></th><th>Due<span class="col-resizer" data-col="2"></span></th><th>Status<span class="col-resizer" data-col="3"></span></th><th>Assign<span class="col-resizer" data-col="4"></span></th></tr></thead>' +
+              '<tbody data-task-dropzone="1">' +
+                (canManage
+                  ? '<tr class="new-row">' +
+                      '<td></td>' +
+                      '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
+                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" disabled tabindex="-1" /></div></td>' +
+                      '<td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>' +
+                      '<td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>' +
+                    '</tr>'
+                  : '') +
+              '</tbody>' +
+            '</table>' +
+          '</div>';
+        return block;
+      }
+
+      function populateTreeTaskTable(table, tasks) {
+        if (!table) return;
+        var tbody = table.querySelector("tbody[data-task-dropzone='1']");
+        if (!tbody) return;
+        var newRow = tbody.querySelector(".new-row");
+        Array.prototype.slice.call(tbody.querySelectorAll('tr:not(.new-row)')).forEach(function (row) {
+          row.remove();
+        });
+        (tasks || []).forEach(function (task) {
+          var assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
+          if (typeof window.__insertTaskRow !== "function") return;
+          var row = window.__insertTaskRow(
+            table,
+            task.id,
+            task.title || "",
+            task.info || (typeof window.__emptyTaskInfo === "function" ? window.__emptyTaskInfo() : {}),
+            task.due_at || "",
+            assignment
+          );
+          if (!row) return;
+          if (!row.parentNode) {
+            if (newRow) {
+              tbody.insertBefore(row, newRow);
+            } else {
+              tbody.appendChild(row);
+            }
+          }
+          if (task.position !== undefined && task.position !== null) {
+            row.setAttribute("data-task-position", String(task.position));
+          }
+          if (typeof window.__applyTaskRowUpdate === "function") {
+            window.__applyTaskRowUpdate(task);
+          }
+          var dueInput = row.querySelector('.due-input[data-task-id="' + task.id + '"]');
+          if (dueInput) {
+            dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+            if (typeof window.__updateDueDisplay === "function") {
+              window.__updateDueDisplay(dueInput);
+            }
+          }
+          if (typeof window.__renderTaskAssignments === "function") {
+            window.__renderTaskAssignments(task.id, task.assignments || []);
+          }
+        });
+      }
+
+      function applyTreeProjectSnapshotLocal(snapshot) {
+        if (!snapshot || !snapshot.project || !snapshot.project.id) return false;
+        var project = snapshot.project;
+        var canManage = !!project.can_manage;
+        var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        var treeBoard = document.querySelector("[data-tree-board]");
+        if (!treeSidebar || !treeBoard) return false;
+
+        var targetDivision = treeSidebar.querySelector('[data-tree-division-node="' + divisionId + '"]');
+        if (!targetDivision && divisionId === "none") {
+          targetDivision = ensureTreeOtherProjectsNode();
+        }
+        if (!targetDivision) return false;
+
+        var existingNode = treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]');
+        if (existingNode) existingNode.remove();
+        var existingBoard = treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]');
+        if (existingBoard) existingBoard.remove();
+
+        var node = buildTreeProjectNode(project, canManage);
+        if (!node) return false;
+        node.classList.remove("is-collapsed");
+        var projectToggle = node.querySelector('[data-tree-toggle-project="' + String(project.id) + '"]');
+        if (projectToggle) {
+          projectToggle.textContent = "▾";
+        }
+        var groupsContainer = node.querySelector(".todo-tree-groups");
+        if (groupsContainer) {
+          groupsContainer.innerHTML = "";
+          if (Array.isArray(snapshot.groups) && snapshot.groups.length) {
+            snapshot.groups.forEach(function (group) {
+              var groupNode = buildTreeGroupNode(project, group, canManage);
+              if (groupNode) groupsContainer.appendChild(groupNode);
+            });
+          } else {
+            var empty = document.createElement("div");
+            empty.className = "todo-tree-empty";
+            empty.textContent = "No groups";
+            groupsContainer.appendChild(empty);
+          }
+        }
+        var divisionChildren = targetDivision.querySelector(".todo-tree-children");
+        if (!divisionChildren) return false;
+        divisionChildren.appendChild(node);
+
+        try {
+          var nextState = loadState() || {};
+          nextState.expanded = nextState.expanded || {};
+          nextState.expanded.projects = nextState.expanded.projects || {};
+          nextState.expanded.projects[String(project.id)] = true;
+          saveState(nextState);
+        } catch (err) {}
+
+        var board = buildTreeProjectBoard(project, canManage);
+        if (!board) return false;
+        var ungroupedWrap = board.querySelector('[data-tree-ungrouped-wrap="' + project.id + '"]');
+        var ungroupedBoard = board.querySelector('[data-tree-ungrouped-board="' + project.id + '"]');
+        var insertBeforeNode = ungroupedWrap || ungroupedBoard;
+        (snapshot.groups || []).forEach(function (group) {
+          var groupBlock = buildTreeGroupBlock(project, group, canManage);
+          if (!groupBlock) return;
+          if (insertBeforeNode) {
+            board.insertBefore(groupBlock, insertBeforeNode);
+          } else {
+            board.appendChild(groupBlock);
+          }
+          populateTreeTaskTable(groupBlock.querySelector(".tasks-table"), group.tasks || []);
+        });
+        if (ungroupedBoard) {
+          populateTreeTaskTable(ungroupedBoard.querySelector(".tasks-table"), snapshot.ungrouped_tasks || []);
+          if (!canManage && (!snapshot.ungrouped_tasks || !snapshot.ungrouped_tasks.length)) {
+            ungroupedBoard.remove();
+            if (ungroupedWrap) ungroupedWrap.remove();
+          } else if (canManage) {
+            var ungroupedTable = ungroupedBoard.querySelector(".tasks-table");
+            if (ungroupedTable && typeof bindNewTaskRow === "function") {
+              bindNewTaskRow(ungroupedTable);
+            }
+          }
+        }
+        board.querySelectorAll('.tasks-table[data-group-id]').forEach(function (table) {
+          if (canManage && typeof bindNewTaskRow === "function") {
+            bindNewTaskRow(table);
+          }
+        });
+        treeBoard.appendChild(board);
+        if (typeof window.__refreshTreeSelectionState === "function") {
+          window.__refreshTreeSelectionState();
+        }
+        return true;
+      }
+
+      function insertTreeProjectSnapshotLocal(projectId, projectData) {
+        var normalizedProjectId = String(projectId || (projectData && projectData.id) || "");
+        if (!normalizedProjectId) return Promise.resolve(false);
+        var url = "/api/projects/" + encodeURIComponent(normalizedProjectId) + "/tree_snapshot?show_completed=" + encodeURIComponent((new URL(window.location.href)).searchParams.get("show_completed") || "1");
+        return fetch(url, { credentials: "same-origin" })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (data) {
+              return { ok: res.ok, data: data || {} };
+            });
+          })
+          .then(function (result) {
+            if (!result.ok || !result.data || !result.data.project) {
+              if (projectData) {
+                return insertTreeProjectLocal(projectData, !!(projectData && projectData.can_manage));
+              }
+              return false;
+            }
+            if (typeof result.data.can_manage_project === "boolean") {
+              result.data.project.can_manage = !!result.data.can_manage_project;
+            }
+            var applied = applyTreeProjectSnapshotLocal(result.data);
+            if (!applied && projectData) {
+              return insertTreeProjectLocal(projectData, !!(projectData && projectData.can_manage));
+            }
+            return applied;
+          })
+          .catch(function () {
+            if (projectData) {
+              return insertTreeProjectLocal(projectData, !!(projectData && projectData.can_manage));
+            }
+            return false;
+          });
+      }
+
+      function isTreeRealtimeView() {
+        return !!document.querySelector("[data-tree-sidebar]") && !!document.querySelector("[data-tree-board]");
+      }
+
+      function refreshTreeProjectSnapshotLocal(projectId, projectData) {
+        if (!isTreeRealtimeView()) return Promise.resolve(false);
+        return insertTreeProjectSnapshotLocal(projectId, projectData);
+      }
+
+      function ensureTreeTaskVisible(task) {
+        if (!task || !task.id || !task.project_id) return;
+        if (!isTreeRealtimeView()) return;
+        var board = document.querySelector('[data-tree-project-board="' + String(task.project_id) + '"]');
+        var row = document.querySelector('[data-task-row-id="' + String(task.id) + '"]');
+        if (board && row) return;
+        refreshTreeProjectSnapshotLocal(task.project_id);
+      }
+
+      function ensureTreeOtherProjectsNode() {
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        if (!treeSidebar) return null;
+        var existing = treeSidebar.querySelector('[data-tree-division-node="none"]');
+        if (existing) return existing;
+        var list = treeSidebar.querySelector("[data-tree-select-list]");
+        if (!list) return null;
+        var node = document.createElement("div");
+        node.className = "todo-tree-node";
+        node.setAttribute("data-tree-division-node", "none");
+        node.style.setProperty("--division-color", "#2a3442");
+        node.innerHTML =
+          '<div class="todo-tree-row" data-tree-division-row="none">' +
+            '<button class="tree-select-button" type="button" data-tree-select-type="division" data-tree-select-id="none">' +
+              '<span class="todo-tree-label">Other Projects</span>' +
+            '</button>' +
+            '<button class="todo-tree-toggle" type="button" data-tree-toggle-division="none" aria-label="Toggle other projects">▾</button>' +
+          '</div>' +
+          '<div class="todo-tree-children"></div>';
+        list.appendChild(node);
+        return node;
+      }
+
+      function ensureTreeDirectList() {
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        if (!treeSidebar) return null;
+        var existing = treeSidebar.querySelector('[data-tree-direct-list]');
+        if (existing) return existing;
+        var shell = document.createElement("div");
+        shell.className = "todo-sidebar-section";
+        shell.innerHTML =
+          '<div class="sidebar-heading-row todo-sidebar-subhead">' +
+            '<h3 style="margin: 0;">Direct</h3>' +
+            '<button class="sidebar-mini-add" type="button" data-open-direct-project-modal aria-label="Create direct task space">+</button>' +
+          '</div>' +
+          '<div class="todo-tree-list tree-select-list" data-tree-direct-list></div>';
+        treeSidebar.appendChild(shell);
+        shell.querySelectorAll("[data-open-direct-project-modal]").forEach(function (button) {
+          button.addEventListener("click", function (event) {
+            event.preventDefault();
+            if (typeof window.__openDirectProjectModal === "function") {
+              window.__openDirectProjectModal();
+            }
+          });
+        });
+        return shell.querySelector('[data-tree-direct-list]');
+      }
+
+      function insertTreeDirectProjectLocal(project, canManage) {
+        if (!project || !project.id || !project.is_direct) return false;
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        if (!treeSidebar) return false;
+        var inserted = false;
+        if (!treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]')) {
+          var directList = ensureTreeDirectList();
+          var node = directList ? buildTreeDirectProjectNode(project, canManage) : null;
+          if (directList && node) {
+            directList.appendChild(node);
+            inserted = true;
+          }
+        } else {
+          inserted = true;
+        }
+        var treeBoard = document.querySelector("[data-tree-board]");
+        if (treeBoard && !treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]')) {
+          var board = buildTreeProjectBoard(project, canManage);
+          if (board) {
+            treeBoard.appendChild(board);
+            inserted = true;
+          }
+        }
+        if (typeof window.__refreshTreeSelectionState === "function") {
+          window.__refreshTreeSelectionState();
+        }
+        return inserted;
+      }
+
+      function insertTreeProjectLocal(project, canManage) {
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        if (!treeSidebar || !project || !project.id) return false;
+        if (project.is_direct) {
+          return insertTreeDirectProjectLocal(project, canManage);
+        }
+        var inserted = false;
+        if (!treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]')) {
+          var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
+          var targetDivision = treeSidebar.querySelector('[data-tree-division-node="' + divisionId + '"]');
+          if (!targetDivision && divisionId === "none") {
+            targetDivision = ensureTreeOtherProjectsNode();
+          }
+          if (targetDivision) {
+            var children = targetDivision.querySelector(".todo-tree-children");
+            var node = children ? buildTreeProjectNode(project, canManage) : null;
+            if (children && node) {
+              children.appendChild(node);
+              inserted = true;
+            }
+          }
+        } else {
+          inserted = true;
+        }
+        var treeBoard = document.querySelector("[data-tree-board]");
+        if (treeBoard && !treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]')) {
+          var board = buildTreeProjectBoard(project, canManage);
+          if (board) {
+            treeBoard.appendChild(board);
+            inserted = true;
+          }
+        }
+        if (typeof window.__refreshTreeSelectionState === "function") {
+          window.__refreshTreeSelectionState();
+        }
+        return inserted;
       }
 
       function updateDirectProjectEmptyState() {
@@ -2019,6 +2916,34 @@
             '<span class="avatar-stack is-direct" data-presence-project-id="' + String(project.id) + '"><span class="avatar-chip"' + (project.direct_peer && project.direct_peer.id ? ' data-user-id="' + String(project.direct_peer.id) + '"' : '') + ' title="' + escapeDirectText(label) + '">' + avatarHtml + '</span></span>' +
           '</div>';
         return wrapper;
+      }
+
+      function buildTreeDirectProjectNode(project, canManage) {
+        if (!project || !project.id) return null;
+        function escapeTreeDirectText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var label = project.display_name || project.name || "Direct";
+        var avatarHtml = project.direct_peer && project.direct_peer.avatar_url
+          ? '<img src="' + escapeTreeDirectText(project.direct_peer.avatar_url) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />'
+          : escapeTreeDirectText((label || "D").charAt(0).toUpperCase());
+        var node = document.createElement("div");
+        node.className = "todo-tree-node is-project";
+        node.setAttribute("data-tree-project-node", String(project.id));
+        node.setAttribute("data-tree-direct-project", String(project.id));
+        node.innerHTML =
+          '<div class="todo-tree-row" data-project-context="' + String(project.id) + '" data-project-manage="' + (canManage ? "1" : "0") + '" data-project-direct="1" data-tree-project-row="' + String(project.id) + '" draggable="true">' +
+            '<button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="' + String(project.id) + '" data-tree-project-id="' + String(project.id) + '">' +
+              '<span class="todo-tree-label">' + escapeTreeDirectText(label) + '</span>' +
+              '<span class="avatar-stack is-direct is-tree-direct" data-presence-project-id="' + String(project.id) + '"><span class="avatar-chip"' + (project.direct_peer && project.direct_peer.id ? ' data-user-id="' + String(project.direct_peer.id) + '"' : '') + ' title="' + escapeTreeDirectText(label) + '">' + avatarHtml + '</span></span>' +
+            '</button>' +
+          '</div>';
+        return node;
       }
 
       function buildDivisionNode(division) {
@@ -2296,6 +3221,10 @@
       window.__removeDivisionLocal = removeDivisionLocal;
       window.__moveProjectSidebarLocal = moveProjectSidebarLocal;
       window.__insertProjectSidebarLocal = insertProjectSidebarLocal;
+      window.__insertTreeProjectLocal = insertTreeProjectLocal;
+      window.__insertTreeProjectSnapshotLocal = insertTreeProjectSnapshotLocal;
+      window.__refreshTreeProjectSnapshotLocal = refreshTreeProjectSnapshotLocal;
+      window.__ensureTreeTaskVisible = ensureTreeTaskVisible;
       window.__insertDivisionSidebarLocal = insertDivisionSidebarLocal;
       window.__applySidebarOrderLocal = applySidebarOrderLocal;
       window.__updateTodoDivisionNode = updateTodoDivisionNode;
@@ -2365,7 +3294,9 @@
           var action = button.getAttribute("data-action");
           var show = type === "division"
             ? action === "rename" || action === "delete" || action === "color"
-            : (action === "move" ? type === "project" : action !== "color");
+            : action === "share"
+              ? type === "project"
+              : (action === "move" ? type === "project" : action !== "color");
           button.style.display = show ? "" : "none";
         });
       }
@@ -2743,9 +3674,7 @@
       if (!shareModal || !shareInput || !shareSuggest || !shareTitle || !shareList) return;
 
       function membersUrl(context) {
-        return context.type === "project"
-          ? "/api/projects/" + context.id + "/members"
-          : "/api/groups/" + context.id + "/members";
+        return "/api/projects/" + context.id + "/members";
       }
 
       function closeShareModal() {
@@ -2789,10 +3718,10 @@
               name.textContent = user.display_name || user.email;
               labels.appendChild(name);
 
-              if (user.owner || user.project_member || user.group_member || user.access_label) {
+              if (user.owner || user.project_member || user.access_label) {
                 var tag = document.createElement("div");
                 tag.className = "muted";
-                tag.textContent = user.owner ? "Owner" : (shareContext.type === "project" ? (user.access_label || (user.project_member ? "Full" : "Partial")) : (user.project_member ? "Project" : "Group"));
+                tag.textContent = user.owner ? "Owner" : (user.access_label || "Shared");
                 labels.appendChild(tag);
               }
 
@@ -2803,42 +3732,6 @@
               if (!user.owner) {
                 var actions = document.createElement("div");
                 actions.className = "share-actions";
-
-                if (shareContext.type === "project" && user.can_promote) {
-                  var promote = document.createElement("button");
-                  promote.className = "btn link";
-                  promote.type = "button";
-                  promote.textContent = "Make full";
-                  promote.addEventListener("click", function () {
-                    fetch("/api/projects/" + shareContext.id + "/members/" + user.id + "/scope", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      credentials: "same-origin",
-                      body: JSON.stringify({ scope: "full" }),
-                    }).then(function () {
-                      loadShareMembers();
-                    });
-                  });
-                  actions.appendChild(promote);
-                }
-
-                if (shareContext.type === "project" && user.can_demote) {
-                  var demote = document.createElement("button");
-                  demote.className = "btn link";
-                  demote.type = "button";
-                  demote.textContent = "Make partial";
-                  demote.addEventListener("click", function () {
-                    fetch("/api/projects/" + shareContext.id + "/members/" + user.id + "/scope", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      credentials: "same-origin",
-                      body: JSON.stringify({ scope: "partial" }),
-                    }).then(function () {
-                      loadShareMembers();
-                    });
-                  });
-                  actions.appendChild(demote);
-                }
 
                 var remove = document.createElement("button");
                 remove.className = "btn link";
@@ -2920,8 +3813,8 @@
 	      }
 
       window.__openShareModal = function (context) {
-        shareContext = { type: context.type, id: String(context.id) };
-        shareTitle.textContent = context.type === "project" ? "Share Project" : "Share Group";
+        shareContext = { type: "project", id: String(context.id) };
+        shareTitle.textContent = "Share Project";
         if (shareStatus) shareStatus.textContent = "";
         shareModal.style.display = "flex";
         shareInput.focus();
@@ -3896,8 +4789,31 @@
         credentials: "same-origin",
         body: JSON.stringify({ target_type: targetType, target_id: Number(targetId), email }),
       })
-        .then((res) => res.json().catch(() => ({})))
-        .then((data) => {
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, status: res.status, data })))
+        .then((result) => {
+          if (result.data && result.data.requires_project_member) {
+            const project = result.data.project || {};
+            const shareUser = result.data.user || {};
+            const label = shareUser.display_name || shareUser.email || "This user";
+            const shouldAdd = window.confirm(label + " must be added to " + (project.name || "this project") + " before assignment.\n\nAdd them to the project?");
+            if (!shouldAdd || !project.id || !shareUser.id) {
+              return result.data;
+            }
+            return fetch("/api/projects/" + Number(project.id) + "/members", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({ user_id: Number(shareUser.id) }),
+            })
+              .then((shareRes) => shareRes.json().catch(() => ({})).then((shareData) => ({ ok: shareRes.ok, data: shareData })))
+              .then((shareResult) => {
+                if (!shareResult.ok) {
+                  throw new Error((shareResult.data && shareResult.data.error) || "Could not add user to project");
+                }
+                return createAssignment(targetType, targetId, email, container);
+              });
+          }
+          const data = result.data || {};
           if (data && data.id) {
             insertAssignmentBadge(container, data);
           }
@@ -5278,7 +6194,9 @@
           ? action === "rename" || action === "delete" || action === "color"
           : type === "direct_project"
             ? action === "delete"
-            : (action === "move" ? type === "project" : action !== "color");
+            : action === "share"
+              ? type === "project"
+              : (action === "move" ? type === "project" : action !== "color");
         button.style.display = show ? "" : "none";
       });
     };
@@ -5319,8 +6237,8 @@
 
     const openShareModal = (context) => {
       if (!shareModal) return;
-      shareContext = context;
-      shareTitle.textContent = context.type === "project" ? "Share Project" : "Share Group";
+      shareContext = { type: "project", id: context.id };
+      shareTitle.textContent = "Share Project";
       shareInput.value = "";
       shareSuggestResults = [];
       shareSuggestActiveIndex = -1;
@@ -5433,7 +6351,10 @@
             throw new Error(result.data && result.data.error ? result.data.error : "Failed to create direct space");
           }
           closeDirectProjectModal();
-          window.location.href = "/?project_id=" + encodeURIComponent(result.data.project.id);
+          var nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.set("project_id", String(result.data.project.id));
+          nextUrl.searchParams.delete("open_discussion_task_id");
+          window.location.href = nextUrl.pathname + nextUrl.search + nextUrl.hash;
         })
         .catch((error) => {
           if (directProjectStatus) directProjectStatus.textContent = error.message || "Unable to create direct space.";
@@ -5630,13 +6551,58 @@
         node.textContent = name;
       });
       document.querySelectorAll(`[data-selected-project-title="${projectId}"]`).forEach((node) => {
+        const textHolder = node.querySelector && node.querySelector("[data-selected-project-name]");
+        if (textHolder) {
+          textHolder.textContent = name;
+          return;
+        }
+        const textNode = Array.from(node.childNodes || []).find((child) => child && child.nodeType === Node.TEXT_NODE);
+        if (textNode) {
+          textNode.textContent = name;
+          return;
+        }
         node.textContent = name;
       });
+      document.querySelectorAll(`[data-tree-select-type="project"][data-tree-select-id="${projectId}"] .todo-tree-label`).forEach((node) => {
+        node.textContent = name;
+      });
+      document.querySelectorAll("[data-project-name]").forEach((node) => {
+        const inTodo = node.closest && node.closest(".todo-item");
+        const inTable = node.closest && node.closest(".tasks-table");
+        if (inTodo) {
+          const item = node.closest(".todo-item");
+          if (item && String(item.getAttribute("data-project-id") || "") === String(projectId)) {
+            node.setAttribute("data-project-name", name);
+          }
+          return;
+        }
+        if (inTable) {
+          if (String(inTable.getAttribute("data-project-id") || "") === String(projectId)) {
+            node.setAttribute("data-project-name", name);
+          }
+          return;
+        }
+        node.setAttribute("data-project-name", name);
+      });
+      document.querySelectorAll(`[data-entity-type="project"][data-entity-id="${projectId}"]`).forEach((node) => {
+        node.setAttribute("data-entity-title", name);
+      });
+      if (document.querySelector(`[data-selected-project-title="${projectId}"]`)) {
+        document.querySelectorAll("[data-entity-project]").forEach((node) => {
+          node.setAttribute("data-entity-project", name);
+        });
+      }
     };
 
     const setGroupNameLocal = (groupId, name) => {
       document.querySelectorAll(`.group-title-text[data-group-id="${groupId}"]`).forEach((node) => {
         node.textContent = name;
+      });
+      document.querySelectorAll(`[data-tree-select-type="group"][data-tree-select-id="${groupId}"] .todo-tree-label`).forEach((node) => {
+        node.textContent = name;
+      });
+      document.querySelectorAll(`.group-header[data-group-context="${groupId}"] [data-entity-title]`).forEach((node) => {
+        node.setAttribute("data-entity-title", name);
       });
     };
 
@@ -5734,6 +6700,9 @@
         }
         if (action === "color") {
           const divisionNode = document.querySelector(`[data-sidebar-division="${id}"]`);
+          if (!divisionNode) {
+            divisionNode = document.querySelector(`[data-division-context="${id}"]`);
+          }
           const currentColor = divisionNode ? (divisionNode.getAttribute("data-division-color") || "#4cc9f0") : "#4cc9f0";
           if (colorSubmenu) {
             colorSubmenu.setAttribute("data-division-id", id);
@@ -5833,10 +6802,7 @@
 
     const submitShare = (userId) => {
       if (!shareContext || !userId) return;
-      const url =
-        shareContext.type === "project"
-          ? `/api/projects/${shareContext.id}/members`
-          : `/api/groups/${shareContext.id}/members`;
+      const url = `/api/projects/${shareContext.id}/members`;
       fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5856,10 +6822,7 @@
 
     const loadShareMembers = () => {
       if (!shareContext || !shareList) return;
-      const url =
-        shareContext.type === "project"
-          ? `/api/projects/${shareContext.id}/members`
-          : `/api/groups/${shareContext.id}/members`;
+      const url = `/api/projects/${shareContext.id}/members`;
       fetch(url, { credentials: "same-origin" })
         .then((res) => res.json().catch(() => ({ members: [] })))
           .then((data) => {
@@ -5890,20 +6853,10 @@
               tag.className = "muted";
               tag.textContent = "Owner";
               metaWrap.appendChild(tag);
-            } else if (shareContext.type === "project") {
+            } else {
               const tag = document.createElement("div");
               tag.className = "muted";
-              tag.textContent = u.access_label || (u.project_member ? "Full" : "Partial");
-              metaWrap.appendChild(tag);
-            } else if (u.project_member) {
-              const tag = document.createElement("div");
-              tag.className = "muted";
-              tag.textContent = "Project";
-              metaWrap.appendChild(tag);
-            } else if (u.group_member) {
-              const tag = document.createElement("div");
-              tag.className = "muted";
-              tag.textContent = "Group";
+              tag.textContent = u.access_label || "Shared";
               metaWrap.appendChild(tag);
             }
             meta.appendChild(avatar);
@@ -5912,44 +6865,12 @@
             if (!u.owner) {
               const actions = document.createElement("div");
               actions.className = "share-actions";
-              if (shareContext.type === "project" && u.can_promote) {
-                const promote = document.createElement("button");
-                promote.className = "btn link";
-                promote.type = "button";
-                promote.textContent = "Make full";
-                promote.addEventListener("click", () => {
-                  fetch(`/api/projects/${shareContext.id}/members/${u.id}/scope`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ scope: "full" }),
-                  }).then(() => loadShareMembers());
-                });
-                actions.appendChild(promote);
-              }
-              if (shareContext.type === "project" && u.can_demote) {
-                const demote = document.createElement("button");
-                demote.className = "btn link";
-                demote.type = "button";
-                demote.textContent = "Make partial";
-                demote.addEventListener("click", () => {
-                  fetch(`/api/projects/${shareContext.id}/members/${u.id}/scope`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ scope: "partial" }),
-                  }).then(() => loadShareMembers());
-                });
-                actions.appendChild(demote);
-              }
               const remove = document.createElement("button");
               remove.className = "btn link";
               remove.type = "button";
               remove.textContent = "Remove";
               remove.addEventListener("click", () => {
-                const deleteUrl =
-                  shareContext.type === "project"
-                    ? `/api/projects/${shareContext.id}/members/${u.id}`
-                    : `/api/groups/${shareContext.id}/members/${u.id}`;
-                fetch(deleteUrl, { method: "DELETE" }).then(() => loadShareMembers());
+                fetch(`/api/projects/${shareContext.id}/members/${u.id}`, { method: "DELETE" }).then(() => loadShareMembers());
               });
               actions.appendChild(remove);
               row.appendChild(actions);
@@ -6915,15 +7836,101 @@
       document.addEventListener("keydown", requestPermission, true);
     }
 
-    function shouldSuppressDesktopNotification(item) {
-      if (!item) return true;
-      if (document.visibilityState === "visible") {
-        if (item.kind === "comment" && currentEntityType === "task" && activeDrawerTab === "messages" && String(currentTaskId || "") === String(item.task_id || "")) {
-          return true;
-        }
+    function notificationEntityName(type, id) {
+      if (!type || !id) return "";
+      if (type === "project") {
+        var projectNode = document.querySelector('[data-project-title="' + String(id) + '"]');
+        return projectNode ? projectNode.textContent.trim() : "";
+      }
+      if (type === "group") {
+        var groupNode = document.querySelector('.group-title-text[data-group-id="' + String(id) + '"]');
+        return groupNode ? groupNode.textContent.trim() : "";
+      }
+      return "";
+    }
+
+    var latestNotificationState = {
+      notifications: [],
+      regular_notifications: [],
+      message_notifications: [],
+      unread_total: 0,
+      unread_regular_total: 0,
+      unread_message_total: 0,
+      unread_task_ids: [],
+      unread_comment_task_ids: [],
+    };
+    var liveMessageNotifications = [];
+
+    function isActivelyViewingMessageItem(item) {
+      if (!item) return false;
+      if (document.visibilityState !== "visible") return false;
+      if (typeof document.hasFocus === "function" && !document.hasFocus()) return false;
+      var drawerOpen = drawer && drawer.classList && drawer.classList.contains("open");
+      if (!drawerOpen || activeDrawerTab !== "messages") return false;
+      if ((item.kind || "") !== "comment") return false;
+      if (item.task_id && currentEntityType === "task" && String(currentTaskId || "") === String(item.task_id || "")) {
+        return true;
+      }
+      if (item.project_id && currentEntityType === "project" && String(currentEntityId || "") === String(item.project_id || "")) {
+        return true;
+      }
+      if (item.group_id && currentEntityType === "group" && String(currentEntityId || "") === String(item.group_id || "")) {
         return true;
       }
       return false;
+    }
+
+    function mergeNotificationState(data) {
+      var base = data || latestNotificationState || {};
+      var serverMessages = Array.isArray(base.message_notifications) ? base.message_notifications.slice() : [];
+      var serverKeys = new Set(serverMessages.map(function (item) {
+        return [
+          String(item.kind || ""),
+          String(item.task_id || ""),
+          String(item.project_id || ""),
+          String(item.group_id || ""),
+        ].join("|");
+      }));
+      var extraMessages = liveMessageNotifications.filter(function (item) {
+        var key = [
+          String(item.kind || ""),
+          String(item.task_id || ""),
+          String(item.project_id || ""),
+          String(item.group_id || ""),
+        ].join("|");
+        return !serverKeys.has(key);
+      });
+      var mergedMessages = extraMessages.concat(serverMessages);
+      return {
+        notifications: (Array.isArray(base.regular_notifications) ? base.regular_notifications : []).concat(mergedMessages),
+        regular_notifications: Array.isArray(base.regular_notifications) ? base.regular_notifications : [],
+        message_notifications: mergedMessages,
+        unread_total: Number(base.unread_regular_total || 0) + mergedMessages.length,
+        unread_regular_total: Number(base.unread_regular_total || 0),
+        unread_message_total: mergedMessages.length,
+        unread_task_ids: Array.isArray(base.unread_task_ids) ? base.unread_task_ids : [],
+        unread_comment_task_ids: Array.isArray(base.unread_comment_task_ids) ? base.unread_comment_task_ids : [],
+      };
+    }
+
+    function addLiveMessageNotification(item) {
+      if (!item) return;
+      liveMessageNotifications = liveMessageNotifications.filter(function (row) {
+        return !(String(row.kind || "") === String(item.kind || "") &&
+          String(row.task_id || "") === String(item.task_id || "") &&
+          String(row.project_id || "") === String(item.project_id || "") &&
+          String(row.group_id || "") === String(item.group_id || ""));
+      });
+      liveMessageNotifications.unshift(item);
+      if (liveMessageNotifications.length > 30) {
+        liveMessageNotifications = liveMessageNotifications.slice(0, 30);
+      }
+      applyNotificationState(latestNotificationState || {});
+    }
+
+    function shouldSuppressDesktopNotification(item) {
+      if (!item) return true;
+      return isActivelyViewingMessageItem(item);
     }
 
     function desktopNotificationTitle(item, kind) {
@@ -6999,14 +8006,30 @@
         storePendingNotificationFocus(latest);
         var href = notificationHref(latest);
         var currentUrl = window.location.pathname + window.location.search;
-        if ((latest.kind || batch.kind) === "comment" && latest.task_id && href === currentUrl) {
-          var button = document.querySelector('[data-open-discussion="' + latest.task_id + '"]');
-          if (button) {
+        if ((latest.kind || batch.kind) === "comment" && href === currentUrl) {
+          if (latest.task_id) {
+            var button = document.querySelector('[data-open-discussion="' + latest.task_id + '"]');
+            if (button) {
+              loadEntityComments(
+                "task",
+                latest.task_id,
+                button.getAttribute("data-task-title"),
+                button.getAttribute("data-project-name")
+              );
+            }
+          } else if (latest.group_id) {
             loadEntityComments(
-              "task",
-              latest.task_id,
-              button.getAttribute("data-task-title"),
-              button.getAttribute("data-project-name")
+              "group",
+              latest.group_id,
+              notificationEntityName("group", latest.group_id) || "Group",
+              latest.project_id ? (notificationEntityName("project", latest.project_id) || "") : ""
+            );
+          } else if (latest.project_id) {
+            loadEntityComments(
+              "project",
+              latest.project_id,
+              notificationEntityName("project", latest.project_id) || "Project",
+              ""
             );
           }
         } else if (href !== currentUrl) {
@@ -7415,13 +8438,15 @@
     }
 
     function storePendingNotificationFocus(item) {
-      if (!item || !item.task_id) return;
+      if (!item || (!item.task_id && !item.project_id && !item.group_id)) return;
       try {
-        sessionStorage.setItem("termin:pending-notification-focus", JSON.stringify({
-          task_id: String(item.task_id),
+        var payload = {
+          task_id: item.task_id ? String(item.task_id) : "",
           project_id: item.project_id ? String(item.project_id) : "",
+          group_id: item.group_id ? String(item.group_id) : "",
           kind: item.kind || "task_update",
-        }));
+        };
+        sessionStorage.setItem("termin:pending-notification-focus", JSON.stringify(payload));
       } catch (err) {}
     }
 
@@ -7606,6 +8631,7 @@
         })
         .join("");
     }
+    window.__renderTaskLinkBadges = renderTaskLinkBadges;
 
     function renderSettingsAssignmentRows(assignments) {
       if (currentTaskData && currentTaskData.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
@@ -7974,8 +9000,37 @@
       })
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (data) {
-            return { ok: res.ok, data: data };
+            return { ok: res.ok, status: res.status, data: data };
           });
+        })
+        .then(function (result) {
+          if (result && result.data && result.data.requires_project_member) {
+            var project = result.data.project || {};
+            var shareUser = result.data.user || {};
+            var label = shareUser.display_name || shareUser.email || "This user";
+            var shouldAdd = window.confirm(label + " must be added to " + (project.name || "this project") + " before assignment.\n\nAdd them to the project?");
+            if (!shouldAdd || !project.id || !shareUser.id) {
+              return result;
+            }
+            return fetch("/api/projects/" + Number(project.id) + "/members", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({ user_id: Number(shareUser.id) }),
+            })
+              .then(function (shareRes) {
+                return shareRes.json().catch(function () { return {}; }).then(function (shareData) {
+                  return { ok: shareRes.ok, data: shareData };
+                });
+              })
+              .then(function (shareResult) {
+                if (!shareResult.ok) {
+                  return { ok: false, data: shareResult.data || { error: "Could not add user to project" } };
+                }
+                return createSettingsAssignment(email);
+              });
+          }
+          return result;
         });
     }
 
@@ -8288,6 +9343,43 @@
       });
     }
 
+    function applyProjectShareIndicators(projectId, members) {
+      var currentUser = String(currentUserId || "");
+      var memberList = Array.isArray(members) ? members : [];
+      var isSharedWithMe = memberList.some(function (member) {
+        return String(member.id || "") === currentUser && !member.owner;
+      });
+      var isSharedOut = !isSharedWithMe && memberList.some(function (member) {
+        return String(member.id || "") !== currentUser;
+      });
+      var iconHtml = isSharedWithMe
+        ? '<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>'
+        : isSharedOut
+          ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
+          : "";
+
+      document.querySelectorAll('[data-project-context="' + projectId + '"] a').forEach(function (anchor) {
+        anchor.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
+        if (iconHtml) {
+          anchor.insertAdjacentHTML("beforeend", iconHtml);
+        }
+      });
+
+      document.querySelectorAll('[data-tree-select-type="project"][data-tree-select-id="' + projectId + '"]').forEach(function (button) {
+        button.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
+        if (iconHtml) {
+          button.insertAdjacentHTML("beforeend", iconHtml);
+        }
+      });
+
+      document.querySelectorAll('[data-selected-project-title="' + projectId + '"]').forEach(function (header) {
+        header.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
+        if (iconHtml) {
+          header.insertAdjacentHTML("beforeend", iconHtml);
+        }
+      });
+    }
+
     function applyAssignmentUpdate(payload) {
       if (!payload || !payload.assignment) return false;
       var assignment = payload.assignment;
@@ -8557,6 +9649,7 @@
               notification_id: item.id,
               task_id: item.task_id,
               project_id: item.project_id || "",
+              group_id: item.group_id || "",
               kind: item.kind || kind,
             })) + '\' data-notification-href="' + escapeHtml(notificationHref(item)) + '">' +
               '<div class="notifications-title">' + escapeHtml(title) + '</div>' +
@@ -8576,14 +9669,16 @@
     }
 
     function applyNotificationState(data) {
-      primeDesktopNotifications(data || {});
-      setNotificationCount('regular', Number(data.unread_regular_total || 0));
-      setNotificationCount('message', Number(data.unread_message_total || 0));
-      renderNotificationMenu('regular', data.regular_notifications || []);
-      renderNotificationMenu('message', data.message_notifications || []);
-      showDesktopNotifications('regular', data.regular_notifications || []);
-      showDesktopNotifications('message', data.message_notifications || []);
-      var unreadTaskIds = new Set((data.unread_comment_task_ids || []).map(function (id) { return String(id); }));
+      latestNotificationState = Object.assign({}, latestNotificationState, data || {});
+      var merged = mergeNotificationState(latestNotificationState);
+      primeDesktopNotifications(merged || {});
+      setNotificationCount('regular', Number(merged.unread_regular_total || 0));
+      setNotificationCount('message', Number(merged.unread_message_total || 0));
+      renderNotificationMenu('regular', merged.regular_notifications || []);
+      renderNotificationMenu('message', merged.message_notifications || []);
+      showDesktopNotifications('regular', merged.regular_notifications || []);
+      showDesktopNotifications('message', merged.message_notifications || []);
+      var unreadTaskIds = new Set((merged.unread_comment_task_ids || []).map(function (id) { return String(id); }));
       document.querySelectorAll("[data-open-discussion]").forEach(function (button) {
         var taskId = String(button.getAttribute("data-open-discussion"));
         button.classList.toggle("has-unread", unreadTaskIds.has(taskId));
@@ -9419,6 +10514,14 @@
       });
     });
     document.addEventListener("click", function (event) {
+      var shareProjectButton = event.target.closest("[data-open-share-project]");
+      if (shareProjectButton) {
+        event.preventDefault();
+        if (typeof window.__openShareModal === "function") {
+          window.__openShareModal({ type: "project", id: shareProjectButton.getAttribute("data-open-share-project") });
+        }
+        return;
+      }
       var discussionButton = event.target.closest("[data-open-discussion]");
       if (discussionButton) {
         event.preventDefault();
@@ -9601,18 +10704,34 @@
           }).catch(function () {});
         }
         var currentUrl = window.location.pathname + window.location.search;
-        if (payload && payload.kind === 'comment' && payload.task_id) {
+        if (payload && payload.kind === 'comment') {
           if (href !== currentUrl) {
             window.location.href = href;
             return;
           }
-          var button = document.querySelector('[data-open-discussion="' + payload.task_id + '"]');
-          if (button) {
+          if (payload.task_id) {
+            var button = document.querySelector('[data-open-discussion="' + payload.task_id + '"]');
+            if (button) {
+              loadEntityComments(
+                "task",
+                payload.task_id,
+                button.getAttribute('data-task-title'),
+                button.getAttribute('data-project-name')
+              );
+            }
+          } else if (payload.group_id) {
             loadEntityComments(
-              "task",
-              payload.task_id,
-              button.getAttribute('data-task-title'),
-              button.getAttribute('data-project-name')
+              "group",
+              payload.group_id,
+              notificationEntityName("group", payload.group_id) || "Group",
+              payload.project_id ? (notificationEntityName("project", payload.project_id) || "") : ""
+            );
+          } else if (payload.project_id) {
+            loadEntityComments(
+              "project",
+              payload.project_id,
+              notificationEntityName("project", payload.project_id) || "Project",
+              ""
             );
           }
           return;
@@ -9871,18 +10990,38 @@
       if (!pendingNotificationFocus.project_id || String(pendingNotificationFocus.project_id) === String(currentProjectParam)) {
         window.setTimeout(function () {
           if (pendingNotificationFocus.kind === "comment") {
-            var pendingButton = document.querySelector('[data-open-discussion="' + pendingNotificationFocus.task_id + '"]');
-            if (pendingButton) {
+            if (pendingNotificationFocus.task_id) {
+              var pendingButton = document.querySelector('[data-open-discussion="' + pendingNotificationFocus.task_id + '"]');
+              if (pendingButton) {
+                loadEntityComments(
+                  "task",
+                  pendingNotificationFocus.task_id,
+                  pendingButton.getAttribute("data-task-title"),
+                  pendingButton.getAttribute("data-project-name")
+                );
+                return;
+              }
+            } else if (pendingNotificationFocus.group_id) {
               loadEntityComments(
-                "task",
-                pendingNotificationFocus.task_id,
-                pendingButton.getAttribute("data-task-title"),
-                pendingButton.getAttribute("data-project-name")
+                "group",
+                pendingNotificationFocus.group_id,
+                notificationEntityName("group", pendingNotificationFocus.group_id) || "Group",
+                pendingNotificationFocus.project_id ? (notificationEntityName("project", pendingNotificationFocus.project_id) || "") : ""
+              );
+              return;
+            } else if (pendingNotificationFocus.project_id) {
+              loadEntityComments(
+                "project",
+                pendingNotificationFocus.project_id,
+                notificationEntityName("project", pendingNotificationFocus.project_id) || "Project",
+                ""
               );
               return;
             }
           }
-          pulseTask(pendingNotificationFocus.task_id);
+          if (pendingNotificationFocus.task_id) {
+            pulseTask(pendingNotificationFocus.task_id);
+          }
         }, 40);
       }
     }
@@ -9932,6 +11071,9 @@
             if (!task) return;
             applyTaskRowUpdate(task);
             renderTaskAssignments(task.id, task.assignments || []);
+            if (typeof window.__ensureTreeTaskVisible === "function") {
+              window.__ensureTreeTaskVisible(task);
+            }
             if (String(currentTaskId || "") === String(task.id)) {
               currentTaskData = Object.assign({}, currentTaskData || {}, task);
               renderTaskSettings();
@@ -9943,6 +11085,9 @@
             if (!task) return;
             renderTaskAssignments(task.id, task.assignments || []);
             applyTaskRowUpdate(task);
+            if (typeof window.__ensureTreeTaskVisible === "function") {
+              window.__ensureTreeTaskVisible(task);
+            }
             if (String(currentTaskId || "") === String(task.id)) {
               currentTaskData = task;
               currentEntityLinks = task.links || (task.link ? [task.link] : []);
@@ -9956,6 +11101,7 @@
       socket.on("project_members_updated", function (data) {
         if (!data || !data.project_id) return;
         updateMemberAvatars('[data-project-members="' + data.project_id + '"]', data.members || [], 6);
+        applyProjectShareIndicators(String(data.project_id), data.members || []);
       });
 
       socket.on("group_members_updated", function (data) {
@@ -10001,6 +11147,28 @@
       socket.on("project_comment_created", function (data) {
         if (!data || !data.project_id || !data.comment) return;
         setCommentCount("project", data.project_id, Number(data.comment_count || 0));
+        var projectCommentAuthorId = data.comment && data.comment.author ? data.comment.author.id : data.comment.user_id;
+        if (String(projectCommentAuthorId || "") !== String(currentUserId || "")) {
+          var projectNotificationItem = {
+            id: "live-project-comment:" + String(data.project_id) + ":" + String(data.comment.id),
+            project_id: data.project_id,
+            group_id: "",
+            task_id: "",
+            task_title: "Project chat",
+            project_name: notificationEntityName("project", data.project_id) || "Project",
+            kind: "comment",
+            pinned: false,
+            read: false,
+            sender_name: (data.comment.author && (data.comment.author.display_name || data.comment.author.email)) || "New message",
+            preview: data.comment.body || "New comment",
+            comment_preview: data.comment.body || "New comment",
+            unread_count: 1,
+            created_at: data.comment.created_at || new Date().toISOString(),
+          };
+          if (!isActivelyViewingMessageItem(projectNotificationItem)) {
+            addLiveMessageNotification(projectNotificationItem);
+          }
+        }
         if (currentEntityType !== "project" || String(currentEntityId || "") !== String(data.project_id)) return;
         var inserted = upsertComment(data.comment);
         var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {
@@ -10034,6 +11202,35 @@
       socket.on("group_comment_created", function (data) {
         if (!data || !data.group_id || !data.comment) return;
         setCommentCount("group", data.group_id, Number(data.comment_count || 0));
+        var groupCommentAuthorId = data.comment && data.comment.author ? data.comment.author.id : data.comment.user_id;
+        if (String(groupCommentAuthorId || "") !== String(currentUserId || "")) {
+          var groupRow = document.querySelector('.group-header[data-group-context="' + String(data.group_id) + '"]');
+          var groupProjectId = groupRow ? groupRow.closest(".panel.group, .group-block") : null;
+          var inferredProjectId = "";
+          if (groupRow) {
+            var table = groupRow.parentNode ? groupRow.parentNode.querySelector(".tasks-table[data-project-id]") : null;
+            inferredProjectId = table ? (table.getAttribute("data-project-id") || "") : "";
+          }
+          var groupNotificationItem = {
+            id: "live-group-comment:" + String(data.group_id) + ":" + String(data.comment.id),
+            project_id: inferredProjectId,
+            group_id: data.group_id,
+            task_id: "",
+            task_title: notificationEntityName("group", data.group_id) || "Group chat",
+            project_name: inferredProjectId ? (notificationEntityName("project", inferredProjectId) || "Project") : "",
+            kind: "comment",
+            pinned: false,
+            read: false,
+            sender_name: (data.comment.author && (data.comment.author.display_name || data.comment.author.email)) || "New message",
+            preview: data.comment.body || "New comment",
+            comment_preview: data.comment.body || "New comment",
+            unread_count: 1,
+            created_at: data.comment.created_at || new Date().toISOString(),
+          };
+          if (!isActivelyViewingMessageItem(groupNotificationItem)) {
+            addLiveMessageNotification(groupNotificationItem);
+          }
+        }
         if (currentEntityType !== "group" || String(currentEntityId || "") !== String(data.group_id)) return;
         var inserted = upsertComment(data.comment);
         var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {
@@ -10067,8 +11264,9 @@
       socket.on("project_updated", function (data) {
         if (!data || !data.project) return;
         var project = data.project;
+        var projectLabel = project.display_name || project.name || "Project";
         if (typeof window.__setProjectNameLocal === "function") {
-          window.__setProjectNameLocal(String(project.id), project.name || "Project");
+          window.__setProjectNameLocal(String(project.id), projectLabel);
         }
         if (typeof syncEntityLinkBadges === "function") {
           syncEntityLinkBadges("project", project.id, project.links || []);
@@ -10087,7 +11285,7 @@
           window.__updateTodoProjectNode(project, project.division_id || "none", divisionColor);
         }
         if (typeof window.__updateTodoItemProjectMeta === "function") {
-          window.__updateTodoItemProjectMeta(String(project.id), project.name || "Project", project.division_id || "none", divisionColor);
+          window.__updateTodoItemProjectMeta(String(project.id), projectLabel, project.division_id || "none", divisionColor);
         }
         if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
         if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
@@ -10097,11 +11295,14 @@
       socket.on("project_created", function (data) {
         if (!data || !data.project) return;
         var project = data.project;
-        var isOwner = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
-        if (project.is_direct && typeof window.__ensureDirectProjectList === "function" && typeof window.__buildDirectProjectItemNode === "function") {
+        var canManage = !!project.can_manage;
+        var isTreeView = !!document.querySelector("[data-tree-sidebar]") && !!document.querySelector("[data-tree-board]");
+        if (project.is_direct && isTreeView && typeof window.__insertTreeProjectLocal === "function") {
+          window.__insertTreeProjectLocal(project, canManage);
+        } else if (project.is_direct && typeof window.__ensureDirectProjectList === "function" && typeof window.__buildDirectProjectItemNode === "function") {
           var directList = window.__ensureDirectProjectList();
           if (directList && !directList.querySelector('[data-project-context="' + project.id + '"]')) {
-            var directItem = window.__buildDirectProjectItemNode(project, String(project.owner_id || "") === String(currentUserId));
+            var directItem = window.__buildDirectProjectItemNode(project, canManage);
             if (directItem) {
               directList.appendChild(directItem);
               if (typeof window.__updateDirectProjectEmptyState === "function") {
@@ -10109,8 +11310,12 @@
               }
             }
           }
+        } else if (isTreeView && typeof window.__insertTreeProjectSnapshotLocal === "function") {
+          window.__insertTreeProjectSnapshotLocal(project.id, project);
         } else if (typeof window.__insertProjectSidebarLocal === "function") {
-          window.__insertProjectSidebarLocal(project, isOwner);
+          if (!window.__insertProjectSidebarLocal(project, canManage) && typeof window.__insertTreeProjectLocal === "function") {
+            window.__insertTreeProjectLocal(project, canManage);
+          }
         }
         var divisionColor = "";
         if (project.division_id) {
@@ -10316,6 +11521,9 @@
             }
             applyTaskRowUpdate(freshTask);
             renderTaskAssignments(freshTask.id, freshTask.assignments || []);
+            if (typeof window.__ensureTreeTaskVisible === "function") {
+              window.__ensureTreeTaskVisible(freshTask);
+            }
           });
           return;
         }
@@ -10343,6 +11551,9 @@
             }
             applyTaskRowUpdate(freshTask);
             renderTaskAssignments(freshTask.id, freshTask.assignments || []);
+            if (typeof window.__ensureTreeTaskVisible === "function") {
+              window.__ensureTreeTaskVisible(freshTask);
+            }
           });
           return;
         }
@@ -10357,6 +11568,9 @@
             }
             applyTaskRowUpdate(freshTask);
             renderTaskAssignments(freshTask.id, freshTask.assignments || []);
+            if (typeof window.__ensureTreeTaskVisible === "function") {
+              window.__ensureTreeTaskVisible(freshTask);
+            }
           });
         }
       });
@@ -10397,6 +11611,487 @@
         })
         .catch(function () {});
     }
+
+    {% if current_view == 'tree' %}
+    (function () {
+      var treeSidebar = document.querySelector("[data-tree-sidebar]");
+      if (!treeSidebar) return;
+      var storageKey = "termin:tree-view:v1";
+      var currentSelection = null;
+
+      function projectBoards() {
+        return Array.from(document.querySelectorAll("[data-tree-project-board]"));
+      }
+
+      function selectionButtons() {
+        return Array.from(document.querySelectorAll("[data-tree-select-type]"));
+      }
+
+      function loadState() {
+        try {
+          var raw = localStorage.getItem(storageKey);
+          return raw ? JSON.parse(raw) : null;
+        } catch (err) {
+          return null;
+        }
+      }
+
+      function saveState(state) {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(state));
+        } catch (err) {}
+      }
+
+      function snapshotState(selection) {
+        var state = { expanded: { divisions: {}, projects: {} }, selection: selection || null };
+        document.querySelectorAll("[data-tree-division-node]").forEach(function (node) {
+          var id = String(node.getAttribute("data-tree-division-node"));
+          state.expanded.divisions[id] = !node.classList.contains("is-collapsed");
+        });
+        document.querySelectorAll("[data-tree-project-node]").forEach(function (node) {
+          var id = String(node.getAttribute("data-tree-project-node"));
+          state.expanded.projects[id] = !node.classList.contains("is-collapsed");
+        });
+        return state;
+      }
+
+      function applyCollapsedState(state) {
+        var next = state || {};
+        document.querySelectorAll("[data-tree-division-node]").forEach(function (node) {
+          var id = String(node.getAttribute("data-tree-division-node"));
+          var expanded = next.expanded && next.expanded.divisions && typeof next.expanded.divisions[id] === "boolean"
+            ? next.expanded.divisions[id]
+            : true;
+          node.classList.toggle("is-collapsed", !expanded);
+          var toggle = node.querySelector('[data-tree-toggle-division="' + id + '"]');
+          if (toggle) toggle.textContent = expanded ? "▾" : "▸";
+        });
+        document.querySelectorAll("[data-tree-project-node]").forEach(function (node) {
+          var id = String(node.getAttribute("data-tree-project-node"));
+          var expanded = next.expanded && next.expanded.projects && typeof next.expanded.projects[id] === "boolean"
+            ? next.expanded.projects[id]
+            : false;
+          node.classList.toggle("is-collapsed", !expanded);
+          var toggle = node.querySelector('[data-tree-toggle-project="' + id + '"]');
+          if (toggle) toggle.textContent = expanded ? "▾" : "▸";
+        });
+      }
+
+      function markSelection(selection) {
+        selectionButtons().forEach(function (button) {
+          button.classList.remove("is-active", "is-included");
+          var row = button.closest(".todo-tree-row");
+          if (row) row.classList.remove("is-active", "is-included");
+        });
+        if (!selection) return;
+        selectionButtons().forEach(function (button) {
+          var type = button.getAttribute("data-tree-select-type");
+          var id = String(button.getAttribute("data-tree-select-id"));
+          var projectId = String(button.getAttribute("data-tree-project-id") || "");
+          var row = button.closest(".todo-tree-row");
+          if (type === selection.type && id === String(selection.id)) {
+            button.classList.add("is-active");
+            if (row) row.classList.add("is-active");
+            return;
+          }
+          if (selection.type === "division") {
+            var divisionNode = button.closest("[data-tree-division-id]");
+            var nodeDivisionId = divisionNode ? String(divisionNode.getAttribute("data-tree-division-id")) : "";
+            if ((type === "project" || type === "group") && nodeDivisionId === String(selection.id)) {
+              button.classList.add("is-included");
+              if (row) row.classList.add("is-included");
+            }
+          } else if (selection.type === "project" && type === "group" && projectId === String(selection.id)) {
+            button.classList.add("is-included");
+            if (row) row.classList.add("is-included");
+          }
+        });
+      }
+
+      function applyBoardSelection(selection) {
+        projectBoards().forEach(function (board) {
+          board.hidden = true;
+          board.querySelectorAll("[data-tree-group-board]").forEach(function (groupBoard) {
+            groupBoard.hidden = false;
+          });
+          board.querySelectorAll("[data-tree-ungrouped-board], [data-tree-ungrouped-wrap]").forEach(function (node) {
+            node.hidden = false;
+          });
+        });
+        if (!selection) return;
+        if (selection.type === "division") {
+          projectBoards().forEach(function (board) {
+            if (String(board.getAttribute("data-tree-division-id")) === String(selection.id)) {
+              board.hidden = false;
+            }
+          });
+        } else if (selection.type === "project") {
+          var targetBoard = document.querySelector('[data-tree-project-board="' + selection.id + '"]');
+          if (targetBoard) targetBoard.hidden = false;
+        } else if (selection.type === "group") {
+          var projectButton = document.querySelector('[data-tree-select-type="group"][data-tree-select-id="' + selection.id + '"]');
+          var projectId = projectButton ? projectButton.getAttribute("data-tree-project-id") : null;
+          var board = projectId ? document.querySelector('[data-tree-project-board="' + projectId + '"]') : null;
+          if (board) {
+            board.hidden = false;
+            board.querySelectorAll("[data-tree-group-board]").forEach(function (groupBoard) {
+              groupBoard.hidden = String(groupBoard.getAttribute("data-tree-group-board")) !== String(selection.id);
+            });
+            board.querySelectorAll("[data-tree-ungrouped-board], [data-tree-ungrouped-wrap]").forEach(function (node) {
+              node.hidden = true;
+            });
+          }
+        }
+      }
+
+      function applySelection(selection) {
+        markSelection(selection);
+        applyBoardSelection(selection);
+        saveState(snapshotState(selection));
+      }
+
+      function treeBoardNeedsSnapshot(projectId, groupId) {
+        if (!projectId) return false;
+        var board = document.querySelector('[data-tree-project-board="' + String(projectId) + '"]');
+        if (!board) return true;
+        if (groupId) {
+          var groupBoard = board.querySelector('[data-tree-group-board="' + String(groupId) + '"]');
+          if (!groupBoard) return true;
+          if (!groupBoard.querySelector('[data-task-row-id]') && !groupBoard.querySelector('.new-row')) {
+            return true;
+          }
+          return false;
+        }
+        if (board.querySelector('.group-block')) return false;
+        if (board.querySelector('[data-task-row-id]')) return false;
+        if (board.querySelector('.new-row')) return false;
+        return true;
+      }
+
+      window.__refreshTreeSelectionState = function () {
+        applyCollapsedState(loadState() || {});
+        applySelection(currentSelection);
+      };
+
+      var draggingTreeProjectId = null;
+      var draggingTreeProjectRow = null;
+      var activeTreeProjectDrop = null;
+      var draggingTreeGroupId = null;
+      var draggingTreeGroupRow = null;
+      var activeTreeGroupDrop = null;
+
+      function clearTreeProjectDrop() {
+        if (activeTreeProjectDrop && activeTreeProjectDrop.row) {
+          activeTreeProjectDrop.row.classList.remove("tree-drag-over");
+        }
+        activeTreeProjectDrop = null;
+      }
+
+      function clearTreeGroupDrop() {
+        if (activeTreeGroupDrop && activeTreeGroupDrop.row) {
+          activeTreeGroupDrop.row.classList.remove("tree-drag-over");
+        }
+        activeTreeGroupDrop = null;
+      }
+
+      function setTreeProjectDrop(row, placement, targetDivisionId) {
+        if (activeTreeProjectDrop && activeTreeProjectDrop.row !== row) {
+          activeTreeProjectDrop.row.classList.remove("tree-drag-over");
+        }
+        activeTreeProjectDrop = row ? {
+          row: row,
+          placement: placement || "before",
+          targetDivisionId: targetDivisionId == null ? null : String(targetDivisionId),
+        } : null;
+        if (activeTreeProjectDrop) {
+          activeTreeProjectDrop.row.classList.add("tree-drag-over");
+        }
+      }
+
+      function setTreeGroupDrop(row, placement) {
+        if (activeTreeGroupDrop && activeTreeGroupDrop.row !== row) {
+          activeTreeGroupDrop.row.classList.remove("tree-drag-over");
+        }
+        activeTreeGroupDrop = row ? {
+          row: row,
+          placement: placement || "before",
+        } : null;
+        if (activeTreeGroupDrop) {
+          activeTreeGroupDrop.row.classList.add("tree-drag-over");
+        }
+      }
+
+      function clearTreeDragState() {
+        clearTreeProjectDrop();
+        clearTreeGroupDrop();
+        if (draggingTreeProjectRow) draggingTreeProjectRow.classList.remove("tree-dragging");
+        if (draggingTreeGroupRow) draggingTreeGroupRow.classList.remove("tree-dragging");
+        draggingTreeProjectId = null;
+        draggingTreeProjectRow = null;
+        draggingTreeGroupId = null;
+        draggingTreeGroupRow = null;
+      }
+
+      function moveTreeProjectRowLocal(projectId, targetProjectId, placement, targetDivisionId) {
+        var projectRow = document.querySelector('[data-tree-project-row="' + projectId + '"]');
+        if (!projectRow) return false;
+        if (targetProjectId) {
+          var targetRow = document.querySelector('[data-tree-project-row="' + targetProjectId + '"]');
+          if (!targetRow || targetRow === projectRow) return false;
+          if (placement === "after") {
+            targetRow.parentNode.insertBefore(projectRow, targetRow.nextSibling);
+          } else {
+            targetRow.parentNode.insertBefore(projectRow, targetRow);
+          }
+          return true;
+        }
+        if (targetDivisionId != null) {
+          var divisionNode = document.querySelector('[data-tree-division-node="' + targetDivisionId + '"]');
+          var children = divisionNode ? divisionNode.querySelector(".todo-tree-children") : null;
+          if (!children) return false;
+          children.appendChild(projectRow.closest("[data-tree-project-node]") || projectRow.parentNode);
+          return true;
+        }
+        return false;
+      }
+
+      function submitTreeProjectMove(projectId, targetProjectId, placement, targetDivisionId) {
+        var payload = targetProjectId
+          ? { target_project_id: Number(targetProjectId), placement: placement || "before" }
+          : { target_division_id: (targetDivisionId === "none" ? null : targetDivisionId), placement: "append" };
+        fetch("/api/projects/" + projectId + "/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        }).catch(function (error) {
+          console.error("tree project move failed", error);
+        });
+      }
+
+      function submitTreeGroupOrder(projectId) {
+        var projectBoard = document.querySelector('[data-tree-project-board="' + projectId + '"]');
+        if (!projectBoard) return;
+        var order = Array.from(projectBoard.querySelectorAll('.group-block[data-group-id]')).map(function (node) {
+          return node.getAttribute("data-group-id");
+        });
+        if (!order.length) return;
+        fetch("/api/groups/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ project_id: Number(projectId), order: order }),
+        }).catch(function (error) {
+          console.error("tree group reorder failed", error);
+        });
+      }
+
+      function submitTreeGroupMove(groupId, projectId, beforeGroupId) {
+        fetch("/api/groups/" + groupId + "/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            project_id: Number(projectId),
+            before_group_id: beforeGroupId ? Number(beforeGroupId) : null,
+          }),
+        }).catch(function (error) {
+          console.error("tree group move failed", error);
+        });
+      }
+
+      document.addEventListener("dragstart", function (event) {
+        var projectRow = event.target.closest("[data-tree-project-row]");
+        if (projectRow) {
+          draggingTreeProjectId = String(projectRow.getAttribute("data-tree-project-row"));
+          draggingTreeProjectRow = projectRow;
+          projectRow.classList.add("tree-dragging");
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", draggingTreeProjectId);
+          }
+          return;
+        }
+        var groupRow = event.target.closest("[data-tree-group-row]");
+        if (groupRow) {
+          draggingTreeGroupId = String(groupRow.getAttribute("data-tree-group-row"));
+          draggingTreeGroupRow = groupRow;
+          groupRow.classList.add("tree-dragging");
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", draggingTreeGroupId);
+          }
+        }
+      });
+
+      document.addEventListener("dragover", function (event) {
+        if (draggingTreeProjectId) {
+          var projectRow = event.target.closest("[data-tree-project-row]");
+          if (projectRow && String(projectRow.getAttribute("data-tree-project-row")) !== draggingTreeProjectId) {
+            event.preventDefault();
+            var rect = projectRow.getBoundingClientRect();
+            var placement = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+            setTreeProjectDrop(projectRow, placement, null);
+            clearTreeGroupDrop();
+            return;
+          }
+          var divisionRow = event.target.closest("[data-tree-division-row]");
+          if (divisionRow) {
+            event.preventDefault();
+            setTreeProjectDrop(divisionRow, "append", divisionRow.getAttribute("data-tree-division-row"));
+            clearTreeGroupDrop();
+            return;
+          }
+        }
+        if (draggingTreeGroupId) {
+          var groupRow = event.target.closest("[data-tree-group-row]");
+          if (!groupRow || String(groupRow.getAttribute("data-tree-group-row")) === draggingTreeGroupId) return;
+          event.preventDefault();
+          var groupRect = groupRow.getBoundingClientRect();
+          var groupPlacement = event.clientY > groupRect.top + groupRect.height / 2 ? "after" : "before";
+          setTreeGroupDrop(groupRow, groupPlacement);
+          clearTreeProjectDrop();
+        }
+      });
+
+      document.addEventListener("drop", function (event) {
+        if (draggingTreeProjectId && activeTreeProjectDrop) {
+          event.preventDefault();
+          var targetProjectId = activeTreeProjectDrop.row.getAttribute("data-tree-project-row");
+          var targetDivisionId = activeTreeProjectDrop.targetDivisionId;
+          var moved = false;
+          if (targetProjectId) {
+            var targetNode = activeTreeProjectDrop.row.closest("[data-tree-project-node]");
+            var sourceNode = draggingTreeProjectRow ? draggingTreeProjectRow.closest("[data-tree-project-node]") : null;
+            if (targetNode && sourceNode) {
+              if (activeTreeProjectDrop.placement === "after") {
+                targetNode.parentNode.insertBefore(sourceNode, targetNode.nextSibling);
+              } else {
+                targetNode.parentNode.insertBefore(sourceNode, targetNode);
+              }
+              moved = true;
+            }
+            submitTreeProjectMove(draggingTreeProjectId, targetProjectId, activeTreeProjectDrop.placement, null);
+          } else if (targetDivisionId != null) {
+            var divisionNode = document.querySelector('[data-tree-division-node="' + targetDivisionId + '"]');
+            var children = divisionNode ? divisionNode.querySelector(".todo-tree-children") : null;
+            var sourceProjectNode = draggingTreeProjectRow ? draggingTreeProjectRow.closest("[data-tree-project-node]") : null;
+            if (children && sourceProjectNode) {
+              children.appendChild(sourceProjectNode);
+              moved = true;
+            }
+            submitTreeProjectMove(draggingTreeProjectId, null, "append", targetDivisionId);
+          }
+          clearTreeDragState();
+          if (moved) {
+            saveState(snapshotState(currentSelection));
+          }
+          return;
+        }
+        if (draggingTreeGroupId && activeTreeGroupDrop) {
+          event.preventDefault();
+          var sourceRow = draggingTreeGroupRow;
+          var targetRow = activeTreeGroupDrop.row;
+          var sourceNode = sourceRow ? sourceRow.closest("[data-tree-group-node]") : null;
+          var targetNode = targetRow ? targetRow.closest("[data-tree-group-node]") : null;
+          if (sourceNode && targetNode && sourceNode !== targetNode) {
+            var sourceProjectId = sourceRow.getAttribute("data-tree-project-id");
+            var targetProjectId = targetRow.getAttribute("data-tree-project-id");
+            var beforeGroupId = activeTreeGroupDrop.placement === "before"
+              ? targetRow.getAttribute("data-tree-group-row")
+              : null;
+            if (activeTreeGroupDrop.placement === "after") {
+              targetNode.parentNode.insertBefore(sourceNode, targetNode.nextSibling);
+            } else {
+              targetNode.parentNode.insertBefore(sourceNode, targetNode);
+            }
+            sourceRow.setAttribute("data-tree-project-id", String(targetProjectId));
+            sourceNode.setAttribute("data-tree-project-id", String(targetProjectId));
+            var draggedBlock = document.querySelector('.group-block[data-group-id="' + draggingTreeGroupId + '"]');
+            var targetBlock = document.querySelector('.group-block[data-group-id="' + targetRow.getAttribute("data-tree-group-row") + '"]');
+            if (draggedBlock && targetBlock) {
+              if (activeTreeGroupDrop.placement === "after") {
+                targetBlock.parentNode.insertBefore(draggedBlock, targetBlock.nextSibling);
+              } else {
+                targetBlock.parentNode.insertBefore(draggedBlock, targetBlock);
+              }
+            }
+            if (String(sourceProjectId) === String(targetProjectId)) {
+              submitTreeGroupOrder(targetProjectId);
+            } else {
+              submitTreeGroupMove(draggingTreeGroupId, targetProjectId, beforeGroupId);
+            }
+            saveState(snapshotState(currentSelection));
+          }
+          clearTreeDragState();
+        }
+      });
+
+      document.addEventListener("dragend", function () {
+        clearTreeDragState();
+      });
+
+      document.addEventListener("click", function (event) {
+        var divisionToggle = event.target.closest("[data-tree-toggle-division]");
+        if (divisionToggle) {
+          var divisionNode = divisionToggle.closest("[data-tree-division-node]");
+          if (!divisionNode) return;
+          divisionNode.classList.toggle("is-collapsed");
+          divisionToggle.textContent = divisionNode.classList.contains("is-collapsed") ? "▸" : "▾";
+          saveState(snapshotState(currentSelection));
+          return;
+        }
+        var projectToggle = event.target.closest("[data-tree-toggle-project]");
+        if (projectToggle) {
+          var projectNode = projectToggle.closest("[data-tree-project-node]");
+          if (!projectNode) return;
+          projectNode.classList.toggle("is-collapsed");
+          projectToggle.textContent = projectNode.classList.contains("is-collapsed") ? "▸" : "▾";
+          saveState(snapshotState(currentSelection));
+          return;
+        }
+        var selectButton = event.target.closest("[data-tree-select-type]");
+        if (!selectButton) return;
+        currentSelection = {
+          type: String(selectButton.getAttribute("data-tree-select-type")),
+          id: String(selectButton.getAttribute("data-tree-select-id")),
+        };
+        applySelection(currentSelection);
+        if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+          if (currentSelection.type === "project") {
+            if (treeBoardNeedsSnapshot(currentSelection.id, null)) {
+              window.__refreshTreeProjectSnapshotLocal(currentSelection.id);
+            }
+          } else if (currentSelection.type === "group") {
+            var currentProjectId = String(selectButton.getAttribute("data-tree-project-id") || "");
+            if (currentProjectId && treeBoardNeedsSnapshot(currentProjectId, currentSelection.id)) {
+              window.__refreshTreeProjectSnapshotLocal(currentProjectId);
+            }
+          }
+        }
+      });
+
+      var state = loadState() || {};
+      applyCollapsedState(state);
+      if (state.selection && state.selection.type && state.selection.id) {
+        currentSelection = state.selection;
+      } else {
+        var selectedProjectId = {{ selected_project.id if selected_project else 'null' }};
+        if (selectedProjectId) {
+          currentSelection = { type: "project", id: String(selectedProjectId) };
+        } else {
+          var firstButton = document.querySelector("[data-tree-select-type]");
+          if (firstButton) {
+            currentSelection = {
+              type: String(firstButton.getAttribute("data-tree-select-type")),
+              id: String(firstButton.getAttribute("data-tree-select-id")),
+            };
+          }
+        }
+      }
+      applySelection(currentSelection);
+    })();
+    {% endif %}
 
     {% if current_view == 'todo' %}
     (function () {

@@ -684,6 +684,14 @@
         -ms-overflow-style: none;
       }
 
+      .sidebar.todo-tree .sidebar-split-pane {
+        overflow-x: visible;
+        width: calc(100% + 28px);
+        margin-left: -14px;
+        padding: 0 14px;
+        box-sizing: border-box;
+      }
+
       .sidebar-split-pane::-webkit-scrollbar {
         width: 0;
         height: 0;
@@ -722,6 +730,12 @@
 
       .sidebar.todo-tree {
         padding-bottom: 24px;
+      }
+
+      .sidebar.todo-tree .sidebar-split-pane > .todo-sidebar-section {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: 0;
       }
 
       .layout.sidebar-collapsed {
@@ -938,12 +952,19 @@
       }
 
       .todo-tree-row {
+        --tree-row-indent: 0px;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 2px;
         min-height: 20px;
-        width: 100%;
+        width: calc(100% + 28px + var(--tree-row-indent));
         margin-left: 0;
+        position: relative;
+        left: calc(-14px - var(--tree-row-indent));
+        padding: 0 14px 0 calc(14px + var(--tree-row-indent));
+        box-sizing: border-box;
+        border: none;
+        border-radius: 0;
       }
 
       .todo-tree-label-row {
@@ -963,6 +984,157 @@
         overflow: hidden;
         text-overflow: ellipsis;
         flex: 1 1 auto;
+      }
+
+      .tree-select-button {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        align-self: stretch;
+        width: 100%;
+        margin: 0 -14px 0 calc(-14px - var(--tree-row-indent, 0px));
+        padding: 2px 14px 2px calc(14px + var(--tree-row-indent, 0px));
+        border: 1px solid transparent;
+        border-radius: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .todo-tree-row[data-tree-division-row] .tree-select-button {
+        padding-left: 14px;
+      }
+
+      .tree-select-button:hover {
+        background: color-mix(in srgb, var(--panel) 72%, transparent);
+        border-color: color-mix(in srgb, var(--border) 88%, transparent);
+      }
+
+      .tree-select-button.is-active {
+        background: transparent;
+        border-color: transparent;
+      }
+
+      .tree-select-button.is-included {
+        background: transparent;
+        border-color: transparent;
+      }
+
+      .todo-tree-row.is-active {
+        background: var(--division-color, var(--accent));
+        border-color: transparent;
+        box-shadow: inset 3px 0 0 color-mix(in srgb, black 18%, var(--division-color, var(--accent)) 82%);
+      }
+
+      .todo-tree-row.is-included {
+        background: color-mix(in srgb, var(--division-color, var(--accent)) 12%, var(--panel) 88%);
+        border-color: transparent;
+        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--division-color, var(--accent)) 42%, var(--border) 58%);
+      }
+
+      .todo-tree-row.is-active .todo-tree-label {
+        font-weight: 700;
+        color: #fff !important;
+      }
+
+      .todo-tree-row.is-active .tree-select-button,
+      .todo-tree-row.is-active .tree-select-button .todo-tree-label,
+      .todo-tree-row.is-active .tree-select-button .shared-with-me-icon,
+      .todo-tree-row.is-active .todo-tree-toggle {
+        color: #fff;
+      }
+
+      .todo-tree-row.is-included .todo-tree-label {
+        color: color-mix(in srgb, var(--ink) 90%, var(--division-color, var(--accent)) 10%);
+      }
+
+      .todo-tree-group-row.is-active .todo-tree-label,
+      .todo-tree-group-row.is-included .todo-tree-label {
+        font-weight: 500;
+      }
+
+      .todo-tree-row.tree-drag-over {
+        background: color-mix(in srgb, var(--division-color, var(--accent)) 16%, transparent);
+        outline: 1px solid color-mix(in srgb, var(--division-color, var(--accent)) 55%, transparent);
+        outline-offset: -1px;
+      }
+
+      .todo-tree-row.tree-dragging {
+        opacity: 0.55;
+      }
+
+      body[data-theme="light"] .tree-select-button:hover {
+        background: color-mix(in srgb, white 84%, var(--panel) 16%);
+      }
+
+      body[data-theme="light"] .tree-select-button.is-active {
+        background: transparent;
+      }
+
+      body[data-theme="light"] .todo-tree-row.is-active {
+        background: var(--division-color, var(--accent));
+        box-shadow: inset 3px 0 0 color-mix(in srgb, black 18%, var(--division-color, var(--accent)) 82%);
+      }
+
+      body[data-theme="light"] .todo-tree-row.is-included {
+        background: color-mix(in srgb, white 82%, var(--division-color, var(--accent)) 18%);
+        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--division-color, var(--accent)) 54%, #ffffff 46%);
+      }
+
+      body[data-theme="light"] .todo-tree-row.is-active .todo-tree-label {
+        color: #fff !important;
+      }
+
+      body[data-theme="light"] .todo-tree-row.is-active .tree-select-button,
+      body[data-theme="light"] .todo-tree-row.is-active .tree-select-button .todo-tree-label,
+      body[data-theme="light"] .todo-tree-row.is-active .tree-select-button .shared-with-me-icon,
+      body[data-theme="light"] .todo-tree-row.is-active .todo-tree-toggle {
+        color: #fff;
+      }
+
+      body[data-theme="light"] .todo-tree-row.is-included .todo-tree-label {
+        color: color-mix(in srgb, #243447 82%, var(--division-color, var(--accent)) 18%);
+      }
+
+      .tree-board {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .tree-project-board[hidden] {
+        display: none !important;
+      }
+
+      .shared-with-me-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 5px;
+        color: var(--muted);
+        opacity: 0.78;
+        font-size: 11px;
+        vertical-align: middle;
+      }
+
+      body[data-theme="light"] .shared-with-me-icon {
+        color: color-mix(in srgb, var(--muted) 88%, #243447 12%);
+      }
+
+      .shared-with-me-icon.is-shared-in {
+        padding: 0;
+      }
+
+      .shared-with-me-icon.is-sharing-out {
+        padding: 0;
+      }
+
+      body[data-theme="light"] .shared-with-me-icon.is-sharing-out {
+        color: color-mix(in srgb, var(--muted) 88%, #243447 12%);
       }
 
       .todo-tree-checkbox {
@@ -1040,13 +1212,13 @@
       .todo-tree-children {
         display: flex;
         flex-direction: column;
-        gap: 4px;
-        margin: 4px 0 0 0;
+        gap: 0;
+        margin: 0;
         padding-left: 12px;
       }
 
       .todo-tree-node.is-project {
-        margin-top: 4px;
+        margin-top: 0;
       }
 
       .todo-tree-group-row .todo-tree-label {
@@ -1058,11 +1230,33 @@
       }
 
       .todo-tree-node.is-project > .todo-tree-row {
-        padding-left: 12px;
+        --tree-row-indent: 12px;
+      }
+
+      .todo-tree-node[data-tree-direct-project] > .todo-tree-row {
+        --tree-row-indent: 0px;
+        min-height: 24px;
+      }
+
+      .todo-tree-node[data-tree-direct-project] .tree-select-button {
+        padding-top: 3px;
+        padding-bottom: 3px;
+      }
+
+      .avatar-stack.is-tree-direct {
+        margin-left: auto;
+        min-width: 20px;
+        padding-right: 0;
+      }
+
+      .avatar-stack.is-tree-direct .avatar-chip {
+        width: 18px;
+        height: 18px;
+        font-size: 10px;
       }
 
       .todo-tree-group-row {
-        padding-left: 24px;
+        --tree-row-indent: 24px;
       }
 
       .todo-tree-group-row .todo-tree-label-row {
@@ -2953,6 +3147,48 @@
         position: relative;
       }
 
+      .project-header-avatars {
+        margin-left: auto;
+        justify-content: flex-end;
+        min-height: 18px;
+      }
+
+      .project-header-avatars:empty {
+        display: none;
+      }
+
+      .project-header-share-tools {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      .project-share-trigger {
+        width: 22px;
+        height: 22px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--panel) 92%, white 8%);
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .project-share-trigger:hover {
+        color: var(--ink);
+        border-color: color-mix(in srgb, var(--accent) 38%, var(--border) 62%);
+        background: color-mix(in srgb, var(--accent) 10%, var(--panel) 90%);
+      }
+
+      body[data-theme="light"] .project-share-trigger {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        border-color: color-mix(in srgb, var(--border) 86%, white 14%);
+      }
+
       .avatar-stack {
         display: inline-flex;
         align-items: center;
@@ -3085,6 +3321,10 @@
       body[data-theme="light"] .panel.group .table {
         background: color-mix(in srgb, white 96%, var(--panel) 4%);
         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--border)) 28%, transparent);
+      }
+
+      .ungrouped-table-shell {
+        margin-top: 0;
       }
 
       .group-title {
@@ -4881,7 +5121,12 @@
       .direct-project-list {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 0;
+      }
+
+      .todo-sidebar-section .todo-tree-list.tree-select-list {
+        gap: 0;
+        margin-top: 6px;
       }
 
       .direct-project-item {
@@ -5323,6 +5568,7 @@
         {% if current_view is defined %}
           <div class="view-switcher">
             <a class="view-switch{% if current_view == 'project' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='project', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='project', show_completed=1 if show_completed else 0) }}{% endif %}">Project</a>
+            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='tree', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='tree', show_completed=1 if show_completed else 0) }}{% endif %}">Tree</a>
             <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo List</a>
           </div>
         {% endif %}
