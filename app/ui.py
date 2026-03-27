@@ -1751,18 +1751,7 @@ def create_project():
         )
     )
     db.session.commit()
-    max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
-    palette = _division_palette()
-    group = Group(
-        project_id=project.id,
-        name="General",
-        position=max_pos + 1,
-        color=palette[(max_pos) % len(palette)],
-    )
-    db.session.add(group)
-    db.session.commit()
     emit_project_created(project, actor_user_id=user.id, recipient_user_id=user.id)
-    emit_group_created(group, actor_user_id=user.id)
     emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     return redirect(url_for("ui.dashboard", project_id=project.id))
 

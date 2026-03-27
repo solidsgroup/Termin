@@ -2,19 +2,12 @@
 {% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
   {% set project_color = color or '#2a3442' %}
-  {% set is_shared_project = shared_project_ids and project.id in shared_project_ids %}
-  {% set is_shared_out_project = shared_out_project_ids and project.id in shared_out_project_ids %}
   <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}" draggable="true" data-sidebar-project="{{ project.id }}">
     {% set viewers = project_viewers.get(project.id, []) %}
     {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
     <div class="project-item-top">
       <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
         <strong data-project-title="{{ project.id }}">{{ project.name }}</strong>
-        {% if is_shared_project %}
-          <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
-        {% elif is_shared_out_project %}
-          <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
-        {% endif %}
       </a>
       {% if shared_viewers %}
         <div class="avatar-stack" data-presence-project-id="{{ project.id }}" data-project-members="{{ project.id }}">
@@ -421,6 +414,7 @@
           <div class="todo-sidebar-section is-top">
             <div class="sidebar-heading-row todo-sidebar-subhead">
               <h3 style="margin: 0;">Structure</h3>
+              <button class="sidebar-mini-add" type="button" data-tree-add-kind="division" aria-label="Create division">+</button>
             </div>
           </div>
           <div class="todo-tree-list tree-select-list" data-tree-select-list>
@@ -439,17 +433,21 @@
                       <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" draggable="true">
                         <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
                           <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
-                          {% if shared_project_ids and project.id in shared_project_ids %}
-                            <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
-                          {% elif shared_out_project_ids and project.id in shared_out_project_ids %}
-                            <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
-                          {% endif %}
                         </button>
-                        <button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                        {% if shared_project_ids and project.id in shared_project_ids %}
+                          <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
+                        {% elif shared_out_project_ids and project.id in shared_out_project_ids %}
+                          <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
+                        {% endif %}
+                        {% if tree_groups_by_project.get(project.id, []) %}
+                          <button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                        {% else %}
+                          <span class="todo-tree-toggle is-hidden" aria-hidden="true">▸</span>
+                        {% endif %}
                       </div>
                       <div class="todo-tree-children todo-tree-groups">
                         {% for group in tree_groups_by_project.get(project.id, []) %}
-                          <div class="todo-tree-row todo-tree-group-row" data-tree-group-node="{{ group.id }}" data-tree-project-id="{{ project.id }}" data-tree-group-row="{{ group.id }}" draggable="true">
+                          <div class="todo-tree-row todo-tree-group-row" data-tree-group-node="{{ group.id }}" data-tree-project-id="{{ project.id }}" data-tree-group-row="{{ group.id }}" data-group-context="{{ group.id }}" data-group-manage="{{ 1 if tree_can_manage_project else 0 }}" draggable="true">
                         <button class="tree-select-button" type="button" data-tree-select-type="group" data-tree-select-id="{{ group.id }}" data-tree-project-id="{{ project.id }}">
                           <span class="todo-tree-label">{{ group.name }}</span>
                         </button>
@@ -478,17 +476,21 @@
                       <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" draggable="true">
                         <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
                           <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
-                          {% if shared_project_ids and project.id in shared_project_ids %}
-                            <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
-                          {% elif shared_out_project_ids and project.id in shared_out_project_ids %}
-                            <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
-                          {% endif %}
                         </button>
-                        <button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                        {% if shared_project_ids and project.id in shared_project_ids %}
+                          <span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
+                        {% elif shared_out_project_ids and project.id in shared_out_project_ids %}
+                          <span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
+                        {% endif %}
+                        {% if tree_groups_by_project.get(project.id, []) %}
+                          <button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                        {% else %}
+                          <span class="todo-tree-toggle is-hidden" aria-hidden="true">▸</span>
+                        {% endif %}
                       </div>
                       <div class="todo-tree-children todo-tree-groups">
                         {% for group in tree_groups_by_project.get(project.id, []) %}
-                          <div class="todo-tree-row todo-tree-group-row" data-tree-group-node="{{ group.id }}" data-tree-project-id="{{ project.id }}" data-tree-group-row="{{ group.id }}" draggable="true">
+                          <div class="todo-tree-row todo-tree-group-row" data-tree-group-node="{{ group.id }}" data-tree-project-id="{{ project.id }}" data-tree-group-row="{{ group.id }}" data-group-context="{{ group.id }}" data-group-manage="{{ 1 if tree_can_manage_project else 0 }}" draggable="true">
                             <button class="tree-select-button" type="button" data-tree-select-type="group" data-tree-select-id="{{ group.id }}" data-tree-project-id="{{ project.id }}">
                               <span class="todo-tree-label">{{ group.name }}</span>
                             </button>
@@ -793,7 +795,7 @@
                   </div>
                 </div>
                 <div class="panel group" style="--group-color: {{ project_color or '#4cc9f0' }};">
-                  <div class="group-header" {% if project_can_manage and not project_is_github %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
+                  <div class="group-header" {% if project_can_manage and not project_is_github %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}" data-group-manage="{{ 1 if (project_can_manage and not project_is_github) else 0 }}">
                     <h3 class="group-title">
                       <span class="group-title-text{% if project_can_manage and not project_is_github %} editable{% endif %}" {% if project_can_manage and not project_is_github %}contenteditable="true"{% endif %} data-group-id="{{ group.id }}" data-field="name">{{ group.name }}</span>
                       <span class="task-link-badges" data-entity-link-badges="group:{{ group.id }}">
@@ -980,7 +982,7 @@
             </div>
           </div>
           <div class="panel group" style="--group-color: {{ selected_project_color or '#4cc9f0' }};">
-            <div class="group-header" {% if can_manage_project and not is_github_project %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}">
+            <div class="group-header" {% if can_manage_project and not is_github_project %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}" data-group-manage="{{ 1 if (can_manage_project and not is_github_project) else 0 }}">
               <h3 class="group-title">
                 <span class="group-title-text{% if can_manage_project and not is_github_project %} editable{% endif %}" {% if can_manage_project and not is_github_project %}contenteditable="true"{% endif %} data-group-id="{{ group.id }}" data-field="name">{{ group.name }}</span>
                 <span class="task-link-badges" data-entity-link-badges="group:{{ group.id }}">
@@ -1196,6 +1198,9 @@
 </aside>
 
 <div id="context-menu" class="context-menu">
+  <button data-action="add-project">Add Project</button>
+  <button data-action="add-group">Add Group</button>
+  <button data-action="promote-project">Promote to Project</button>
   <button data-action="rename">Rename</button>
   <button data-action="move">Move</button>
   <div class="context-menu-submenu">
@@ -2259,13 +2264,30 @@
 
       function removeGroupLocal(groupId) {
         var block = document.querySelector('.group-block[data-group-id="' + groupId + '"]');
-        if (!block) return false;
-        var insertWrap = block.previousElementSibling;
-        if (insertWrap && insertWrap.classList.contains("group-insert-wrap")) {
-          insertWrap.remove();
+        var removed = false;
+        if (block) {
+          var insertWrap = block.previousElementSibling;
+          if (insertWrap && insertWrap.classList.contains("group-insert-wrap")) {
+            insertWrap.remove();
+          }
+          block.remove();
+          removed = true;
         }
-        block.remove();
-        return true;
+        var treeRow = document.querySelector('[data-tree-group-row="' + groupId + '"]');
+        if (treeRow) {
+          var groupsContainer = treeRow.closest(".todo-tree-groups");
+          var projectNode = treeRow.closest("[data-tree-project-node]");
+          treeRow.remove();
+          removed = true;
+          if (groupsContainer && !groupsContainer.querySelector("[data-tree-group-row]")) {
+            var empty = document.createElement("div");
+            empty.className = "todo-tree-empty";
+            empty.textContent = "No groups";
+            groupsContainer.appendChild(empty);
+          }
+          syncTreeProjectToggle(projectNode);
+        }
+        return removed;
       }
 
       function removeDivisionLocal(divisionId) {
@@ -2335,11 +2357,6 @@
             .replace(/'/g, "&#39;");
         }
         var projectColor = divisionColor || "#2a3442";
-        var shareIconHtml = project.is_shared_with_me
-          ? '<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>'
-          : project.is_shared_out
-            ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
-            : '';
         var wrapper = document.createElement("div");
         wrapper.className = "project-item project-drop-target";
         wrapper.style.setProperty("--project-color", projectColor);
@@ -2353,7 +2370,6 @@
           '<div class="project-item-top">' +
             '<a href="/?project_id=' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
               '<strong data-project-title="' + String(project.id) + '">' + escapeProjectText(project.name || "Project") + '</strong>' +
-              shareIconHtml +
             '</a>' +
             '<div class="avatar-stack" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"></div>' +
           '</div>';
@@ -2375,6 +2391,7 @@
           : project.is_shared_out
             ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
             : '';
+        var hasGroups = Number(project.group_count || 0) > 0;
         var node = document.createElement("div");
         node.className = "todo-tree-node is-project";
         node.setAttribute("data-tree-project-node", String(project.id));
@@ -2383,13 +2400,41 @@
           '<div class="todo-tree-row" data-project-context="' + String(project.id) + '" data-project-manage="' + (canManage ? "1" : "0") + '" data-tree-project-row="' + String(project.id) + '" draggable="true">' +
             '<button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="' + String(project.id) + '" data-tree-project-id="' + String(project.id) + '">' +
               '<span class="todo-tree-label">' + escapeTreeText(project.display_name || project.name || "Project") + '</span>' +
-              shareIconHtml +
             '</button>' +
-            '<button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="' + String(project.id) + '" aria-label="Toggle project groups">▸</button>' +
+            shareIconHtml +
+            (hasGroups
+              ? '<button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="' + String(project.id) + '" aria-label="Toggle project groups">▸</button>'
+              : '<span class="todo-tree-toggle is-hidden" aria-hidden="true">▸</span>') +
           '</div>' +
           '<div class="todo-tree-children todo-tree-groups">' +
             '<div class="todo-tree-empty">No groups</div>' +
           '</div>';
+        return node;
+      }
+
+      function buildTreeDivisionNode(division) {
+        if (!division || !division.id) return null;
+        function escapeDivisionText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var color = division.color || "#4cc9f0";
+        var node = document.createElement("div");
+        node.className = "todo-tree-node";
+        node.setAttribute("data-tree-division-node", String(division.id));
+        node.style.setProperty("--division-color", color);
+        node.innerHTML =
+          '<div class="todo-tree-row" data-division-context="' + String(division.id) + '" data-division-color="' + escapeDivisionText(color) + '" data-tree-division-row="' + String(division.id) + '">' +
+            '<button class="tree-select-button" type="button" data-tree-select-type="division" data-tree-select-id="' + String(division.id) + '">' +
+              '<span class="todo-tree-label" style="color: ' + escapeDivisionText(color) + ';">' + escapeDivisionText(division.name || "Division") + '</span>' +
+            '</button>' +
+            '<button class="todo-tree-toggle" type="button" data-tree-toggle-division="' + String(division.id) + '" aria-label="Toggle division">▾</button>' +
+          '</div>' +
+          '<div class="todo-tree-children"></div>';
         return node;
       }
 
@@ -2459,6 +2504,40 @@
         return board;
       }
 
+      function syncTreeProjectToggle(projectNode) {
+        if (!projectNode) return;
+        var row = projectNode.querySelector(".todo-tree-row");
+        var groupsContainer = projectNode.querySelector(".todo-tree-groups");
+        if (!row || !groupsContainer) return;
+        var hasGroups = !!groupsContainer.querySelector("[data-tree-group-row]");
+        var toggle = row.querySelector("[data-tree-toggle-project]");
+        var placeholder = row.querySelector(".todo-tree-toggle.is-hidden");
+        if (hasGroups) {
+          if (placeholder) placeholder.remove();
+          if (!toggle) {
+            toggle = document.createElement("button");
+            toggle.className = "todo-tree-toggle is-project-toggle";
+            toggle.type = "button";
+            toggle.setAttribute("data-tree-toggle-project", String(projectNode.getAttribute("data-tree-project-node") || ""));
+            toggle.setAttribute("aria-label", "Toggle project groups");
+            toggle.textContent = projectNode.classList.contains("is-collapsed") ? "▸" : "▾";
+            row.appendChild(toggle);
+          }
+        } else {
+          if (toggle) {
+            toggle.remove();
+            projectNode.classList.remove("is-collapsed");
+          }
+          if (!placeholder) {
+            placeholder = document.createElement("span");
+            placeholder.className = "todo-tree-toggle is-hidden";
+            placeholder.setAttribute("aria-hidden", "true");
+            placeholder.textContent = "▸";
+            row.appendChild(placeholder);
+          }
+        }
+      }
+
       function buildTreeGroupNode(project, group, canManage) {
         if (!project || !project.id || !group || !group.id) return null;
         function escapeTreeText(value) {
@@ -2474,6 +2553,8 @@
         row.setAttribute("data-tree-group-node", String(group.id));
         row.setAttribute("data-tree-project-id", String(project.id));
         row.setAttribute("data-tree-group-row", String(group.id));
+        row.setAttribute("data-group-context", String(group.id));
+        row.setAttribute("data-group-manage", canManage ? "1" : "0");
         if (canManage) {
           row.setAttribute("draggable", "true");
         }
@@ -2512,7 +2593,7 @@
             '</div>' +
           '</div>' +
           '<div class="panel group" style="--group-color: ' + projectColor + ';">' +
-            '<div class="group-header"' + (canManage ? ' draggable="true" data-drag-group="' + String(group.id) + '"' : '') + ' data-group-context="' + String(group.id) + '">' +
+            '<div class="group-header"' + (canManage ? ' draggable="true" data-drag-group="' + String(group.id) + '"' : '') + ' data-group-context="' + String(group.id) + '" data-group-manage="' + (canManage ? "1" : "0") + '">' +
               '<h3 class="group-title">' +
                 '<span class="group-title-text' + (canManage ? ' editable' : '') + '"' + (canManage ? ' contenteditable="true"' : '') + ' data-group-id="' + String(group.id) + '" data-field="name">' + escapeTreeText(group.name || "Group") + '</span>' +
                 '<span class="task-link-badges" data-entity-link-badges="group:' + String(group.id) + '">' + renderTreeEntityLinkBadges(group.links || []) + '</span>' +
@@ -2629,6 +2710,7 @@
             empty.textContent = "No groups";
             groupsContainer.appendChild(empty);
           }
+          syncTreeProjectToggle(node);
         }
         var divisionChildren = targetDivision.querySelector(".todo-tree-children");
         if (!divisionChildren) return false;
@@ -3021,6 +3103,49 @@
         return true;
       }
 
+      function insertTreeDivisionLocal(division) {
+        if (!division || !division.id) return false;
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        if (!treeSidebar) return false;
+        if (treeSidebar.querySelector('[data-tree-division-node="' + String(division.id) + '"]')) return false;
+        var list = treeSidebar.querySelector("[data-tree-select-list]");
+        if (!list) return false;
+        var node = buildTreeDivisionNode(division);
+        if (!node) return false;
+        list.appendChild(node);
+        if (typeof window.__refreshTreeSelectionState === "function") {
+          window.__refreshTreeSelectionState();
+        }
+        return true;
+      }
+
+      function insertTreeGroupLocal(group) {
+        if (!group || !group.id || !group.project_id) return false;
+        var projectNode = document.querySelector('[data-tree-project-node="' + String(group.project_id) + '"]');
+        if (!projectNode) return false;
+        var groupsContainer = projectNode.querySelector(".todo-tree-groups");
+        if (!groupsContainer) return false;
+        var empty = groupsContainer.querySelector(".todo-tree-empty");
+        if (empty) empty.remove();
+        if (groupsContainer.querySelector('[data-tree-group-row="' + String(group.id) + '"]')) return true;
+        var canManage = (projectNode.querySelector('[data-project-manage="1"]') || projectNode.querySelector('.todo-tree-row[data-project-manage="1"]')) ? true : false;
+        var project = {
+          id: group.project_id,
+        };
+        var row = buildTreeGroupNode(project, group, canManage);
+        if (!row) return false;
+        groupsContainer.appendChild(row);
+        var board = document.querySelector('[data-tree-project-board="' + String(group.project_id) + '"]');
+        syncTreeProjectToggle(projectNode);
+        if (board && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+          window.__refreshTreeProjectSnapshotLocal(group.project_id);
+        }
+        if (typeof window.__refreshTreeSelectionState === "function") {
+          window.__refreshTreeSelectionState();
+        }
+        return true;
+      }
+
       function applySidebarOrderLocal(order) {
         if (!Array.isArray(order) || !order.length) return false;
         var stack = document.querySelector("[data-sidebar-stack]");
@@ -3230,6 +3355,8 @@
       window.__refreshTreeProjectSnapshotLocal = refreshTreeProjectSnapshotLocal;
       window.__ensureTreeTaskVisible = ensureTreeTaskVisible;
       window.__insertDivisionSidebarLocal = insertDivisionSidebarLocal;
+      window.__insertTreeDivisionLocal = insertTreeDivisionLocal;
+      window.__insertTreeGroupLocal = insertTreeGroupLocal;
       window.__applySidebarOrderLocal = applySidebarOrderLocal;
       window.__updateTodoDivisionNode = updateTodoDivisionNode;
       window.__updateTodoProjectNode = updateTodoProjectNode;
@@ -3297,10 +3424,16 @@
         Array.prototype.forEach.call(contextMenu.querySelectorAll("[data-action]"), function (button) {
           var action = button.getAttribute("data-action");
           var show = type === "division"
-            ? action === "rename" || action === "delete" || action === "color"
+            ? action === "rename" || action === "delete" || action === "color" || action === "add-project"
             : action === "share"
               ? type === "project"
-              : (action === "move" ? type === "project" : action !== "color");
+              : action === "promote-project"
+                ? type === "group"
+              : action === "add-group"
+                ? type === "project"
+                : action === "add-project"
+                  ? false
+                  : (action === "move" ? type === "project" : action !== "color");
           button.style.display = show ? "" : "none";
         });
       }
@@ -3504,7 +3637,7 @@
           if (projectItem.getAttribute("data-project-manage") !== "1") return;
           currentContext = { type: "project", id: projectItem.getAttribute("data-project-context") };
         } else if (groupHeader) {
-          if (!canManageProject) return;
+          if (groupHeader.getAttribute("data-group-manage") !== "1") return;
           currentContext = { type: "group", id: groupHeader.getAttribute("data-group-context") };
         } else if (divisionHeader) {
           currentContext = { type: "division", id: divisionHeader.getAttribute("data-division-context") };
@@ -3550,33 +3683,9 @@
         var id = currentContext.id;
         var contextType = currentContext.type;
         if (action === "rename") {
-          var name = window.prompt("New name");
-          if (!name || !name.trim()) return;
-          var renameUrl = contextType === "project"
-            ? "/api/projects/" + id
-            : contextType === "group"
-              ? "/api/groups/" + id
-              : "/api/divisions/" + id;
-          fetch(renameUrl, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: JSON.stringify({ name: name.trim() }),
-          })
-            .then(function (res) { return res.json().catch(function () { return {}; }); })
-            .then(function (data) {
-              if (!data || !data.id) throw new Error("Failed to rename item");
-              if (contextType === "project") {
-                setProjectNameLocal(String(data.id), data.name);
-              } else if (contextType === "group") {
-                setGroupNameLocal(String(data.id), data.name);
-              } else {
-                setDivisionNameLocal(String(data.id), data.name);
-              }
-            })
-            .catch(function (error) {
-              console.error("rename failed", error);
-            });
+          if (typeof window.__openNameModal === "function") {
+            window.__openNameModal({ mode: "rename", type: contextType, id: id });
+          }
         } else if (action === "color") {
           var divisionNode = document.querySelector('[data-sidebar-division="' + id + '"]');
           var currentColor = divisionNode ? (divisionNode.getAttribute("data-division-color") || "#4cc9f0") : "#4cc9f0";
@@ -3586,6 +3695,21 @@
           return;
         } else if (action === "move") {
           promptProjectDivisionMove(id);
+        } else if (action === "add-project") {
+          if (typeof window.__submitTreeQuickCreate === "function") {
+            window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
+          }
+        } else if (action === "add-group") {
+          if (typeof window.__submitTreeQuickCreate === "function") {
+            window.__submitTreeQuickCreate("group", id);
+          }
+        } else if (action === "promote-project") {
+          fetch("/api/groups/" + id + "/promote", {
+            method: "POST",
+            credentials: "same-origin",
+          }).catch(function (error) {
+            console.error("promote group failed", error);
+          });
         } else if (action === "share") {
           var shareContext = { type: contextType, id: id };
           hideContextMenu();
@@ -4206,18 +4330,41 @@
         var wrapper = groupInsert.closest(".group-insert");
         var projectId = wrapper ? wrapper.getAttribute("data-project-id") : "";
         if (!projectId) return;
-        var name = window.prompt("Group name");
-        if (!name || !name.trim()) return;
-        fetch("/groups", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          credentials: "same-origin",
-          body: new URLSearchParams({ name: name.trim(), project_id: projectId }).toString(),
-        }).then(function () {
-          window.location.href = "/?project_id=" + encodeURIComponent(projectId);
-        });
+        if (typeof window.__openNameModal === "function") {
+          window.__openNameModal({ mode: "create", type: "group", targetId: projectId });
+        }
       }
     });
+  })();
+</script>
+
+<script>
+  (function () {
+    function submitTreeQuickCreate(kind, targetId) {
+      if (typeof window.__openNameModal === "function") {
+        window.__openNameModal({ mode: "create", type: kind, targetId: targetId || "" });
+      }
+    }
+
+    document.addEventListener("click", function (event) {
+      var quickAdd = event.target.closest("[data-tree-add-kind]");
+      if (!quickAdd) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var kind = quickAdd.getAttribute("data-tree-add-kind");
+      if (kind === "division") {
+        submitTreeQuickCreate("division", "");
+        return;
+      }
+      if (kind === "project") {
+        submitTreeQuickCreate("project", quickAdd.getAttribute("data-tree-division-id") || "");
+        return;
+      }
+      if (kind === "group") {
+        submitTreeQuickCreate("group", quickAdd.getAttribute("data-tree-project-id") || "");
+      }
+    });
+    window.__submitTreeQuickCreate = submitTreeQuickCreate;
   })();
 </script>
 
@@ -4442,18 +4589,9 @@
 
     function submitSidebarInsert(kind, position) {
       if (!position) return;
-      var name = window.prompt(kind === "division" ? "Division name" : "Project name");
-      if (!name || !name.trim()) return;
-      var payload = new URLSearchParams({ name: name.trim(), insert_position: position });
-      var url = kind === "division" ? "/divisions" : "/projects";
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        credentials: "same-origin",
-        body: payload.toString(),
-      }).then(function (response) {
-        window.location.href = response.url || window.location.href;
-      });
+      if (typeof window.__openNameModal === "function") {
+        window.__openNameModal({ mode: "create", type: kind, insertPosition: position });
+      }
     }
 
     document.addEventListener("click", function (event) {
@@ -5925,15 +6063,9 @@
         const wrapper = groupInsert.closest(".group-insert");
         const projectId = wrapper ? wrapper.getAttribute("data-project-id") : "";
         if (!projectId) return;
-        const name = prompt("Group name");
-        if (!name || !name.trim()) return;
-        fetch("/groups", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ name: name.trim(), project_id: projectId }),
-        }).then(() => {
-          window.location.href = `/?project_id=${projectId}`;
-        });
+        if (typeof window.__openNameModal === "function") {
+          window.__openNameModal({ mode: "create", type: "group", targetId: projectId });
+        }
         return;
       }
 
@@ -6195,9 +6327,15 @@
       contextMenu.querySelectorAll("[data-action]").forEach((button) => {
         const action = button.getAttribute("data-action");
         const show = type === "division"
-          ? action === "rename" || action === "delete" || action === "color"
+          ? action === "rename" || action === "delete" || action === "color" || action === "add-project"
           : type === "direct_project"
             ? action === "delete"
+            : action === "promote-project"
+              ? type === "group"
+            : action === "add-group"
+              ? type === "project"
+              : action === "add-project"
+                ? false
             : action === "share"
               ? type === "project"
               : (action === "move" ? type === "project" : action !== "color");
@@ -6417,8 +6555,13 @@
     const getEntityName = (type, id) => {
       if (!type || !id) return "";
       if (type === "project") {
-        const node = document.querySelector(`[data-project-title="${id}"]`);
-        return node ? node.textContent.trim() : "";
+        const headerNode = document.querySelector(`[data-project-title="${id}"]`);
+        if (headerNode) return headerNode.textContent.trim();
+        const selectedNode = document.querySelector(`[data-selected-project-title="${id}"] [data-selected-project-name]`);
+        if (selectedNode) return selectedNode.textContent.trim();
+        const treeNode = document.querySelector(`[data-tree-select-type="project"][data-tree-select-id="${id}"] .todo-tree-label`);
+        if (treeNode) return treeNode.textContent.trim();
+        return "";
       }
       if (type === "group") {
         const node = document.querySelector(`.group-title-text[data-group-id="${id}"]`);
@@ -6431,51 +6574,114 @@
       return "";
     };
 
-    const openRenameModal = (type, id) => {
+    const formatEntityLabel = (type) => {
+      if (!type) return "Item";
+      return String(type)
+        .split("_")
+        .map((part) => part ? (part.charAt(0).toUpperCase() + part.slice(1)) : "")
+        .join(" ");
+    };
+
+    const openNameModal = ({ mode, type, id = "", name = "", targetId = "", insertPosition = "" }) => {
       if (!renameModal || !renameInput || !renameTitle) return;
-      renameModal.setAttribute("data-rename-type", type);
+      renameModal.setAttribute("data-name-mode", mode || "rename");
+      renameModal.setAttribute("data-rename-type", type || "");
       renameModal.setAttribute("data-rename-id", String(id || ""));
-      renameTitle.textContent = `Rename ${type}`;
-      renameInput.value = getEntityName(type, id) || "";
+      renameModal.setAttribute("data-create-target-id", String(targetId || ""));
+      renameModal.setAttribute("data-create-insert-position", String(insertPosition || ""));
+      const titlePrefix = mode === "create" ? "Create" : "Rename";
+      const label = formatEntityLabel(type);
+      renameTitle.textContent = `${titlePrefix} ${label}`;
+      renameInput.value = mode === "rename" ? (name || getEntityName(type, id) || "") : (name || "");
+      renameInput.placeholder = mode === "create" ? `Enter ${label.toLowerCase()} name` : "Enter a name";
+      if (renameSave) renameSave.textContent = mode === "create" ? "Create" : "Save";
       renameStatus.textContent = "";
       renameModal.style.display = "flex";
       renameInput.focus();
       renameInput.select();
     };
+    window.__openNameModal = openNameModal;
+
+    const openRenameModal = (type, id) => {
+      openNameModal({ mode: "rename", type, id });
+    };
 
     const closeRenameModal = () => {
       if (!renameModal) return;
       renameModal.style.display = "none";
+      renameModal.removeAttribute("data-name-mode");
       renameModal.removeAttribute("data-rename-type");
       renameModal.removeAttribute("data-rename-id");
+      renameModal.removeAttribute("data-create-target-id");
+      renameModal.removeAttribute("data-create-insert-position");
       if (renameInput) renameInput.value = "";
       if (renameStatus) renameStatus.textContent = "";
+      if (renameSave) renameSave.textContent = "Save";
     };
 
     const submitRenameModal = () => {
       if (!renameModal || !renameInput) return;
+      const mode = renameModal.getAttribute("data-name-mode") || "rename";
       const type = renameModal.getAttribute("data-rename-type");
       const id = renameModal.getAttribute("data-rename-id");
+      const targetId = renameModal.getAttribute("data-create-target-id") || "";
+      const insertPosition = renameModal.getAttribute("data-create-insert-position") || "";
       const name = renameInput.value.trim();
-      if (!type || !id || !name) return;
-      const url =
-        type === "project"
-          ? `/api/projects/${id}`
-          : type === "group"
-            ? `/api/groups/${id}`
-            : `/api/divisions/${id}`;
+      if (!type || !name) return;
       renameSave && (renameSave.disabled = true);
-      fetch(url, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      })
-        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
-        .then((result) => {
-          if (!result.ok || !result.data || !result.data.id) {
-            throw new Error("Failed to rename");
+      let request;
+      if (mode === "create") {
+        const payload = new URLSearchParams({ name });
+        let url = "";
+        if (type === "division") {
+          if (insertPosition) payload.set("insert_position", insertPosition);
+          url = "/divisions";
+        } else if (type === "project") {
+          if (targetId && targetId !== "none") payload.set("division_id", targetId);
+          if (insertPosition) payload.set("insert_position", insertPosition);
+          url = "/projects";
+        } else if (type === "group") {
+          if (!targetId) {
+            renameSave && (renameSave.disabled = false);
+            return;
           }
+          payload.set("project_id", targetId);
+          url = "/groups";
+        } else {
+          renameSave && (renameSave.disabled = false);
+          return;
+        }
+        request = fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          credentials: "same-origin",
+          body: payload.toString(),
+        }).then((res) => res.text().catch(() => "").then(() => ({ ok: res.ok, data: {} })));
+      } else {
+        if (!id) {
+          renameSave && (renameSave.disabled = false);
+          return;
+        }
+        const url =
+          type === "project"
+            ? `/api/projects/${id}`
+            : type === "group"
+              ? `/api/groups/${id}`
+              : `/api/divisions/${id}`;
+        request = fetch(url, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+      }
+      request.then((result) => {
+        if (!result.ok) {
+          throw new Error(mode === "create" ? "Failed to create" : "Failed to rename");
+        }
+        if (mode === "rename") {
           const data = result.data;
+          if (!data || !data.id) throw new Error("Failed to rename");
           if (type === "project") {
             setProjectNameLocal(String(data.id), data.name);
           } else if (type === "group") {
@@ -6483,14 +6689,15 @@
           } else {
             setDivisionNameLocal(String(data.id), data.name);
           }
-          closeRenameModal();
-        })
-        .catch(() => {
-          if (renameStatus) renameStatus.textContent = "Rename failed.";
-        })
-        .finally(() => {
-          if (renameSave) renameSave.disabled = false;
-        });
+        }
+        closeRenameModal();
+      })
+      .catch(() => {
+        if (renameStatus) renameStatus.textContent = mode === "create" ? "Create failed." : "Rename failed.";
+      })
+      .finally(() => {
+        if (renameSave) renameSave.disabled = false;
+      });
     };
 
     const infoEndpointBase = (context) =>
@@ -6659,7 +6866,7 @@
         event.preventDefault();
         currentContext = { type: isDirect ? "direct_project" : "project", id: projectItem.getAttribute("data-project-context") };
       } else if (groupHeader) {
-        if (!{{ 'true' if can_manage_project else 'false' }}) return;
+        if (groupHeader.getAttribute("data-group-manage") !== "1") return;
         event.preventDefault();
         currentContext = { type: "group", id: groupHeader.getAttribute("data-group-context") };
       } else if (divisionHeader) {
@@ -6717,6 +6924,20 @@
         }
         if (action === "move") {
           promptProjectDivisionMove(id);
+        }
+        if (action === "add-project" && typeof window.__submitTreeQuickCreate === "function") {
+          window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
+        }
+        if (action === "add-group" && typeof window.__submitTreeQuickCreate === "function") {
+          window.__submitTreeQuickCreate("group", id);
+        }
+        if (action === "promote-project") {
+          fetch(`/api/groups/${id}/promote`, {
+            method: "POST",
+            credentials: "same-origin",
+          }).catch((error) => {
+            console.error("promote group failed", error);
+          });
         }
         if (action === "share") {
           openShareModal({ type: contextType, id });
@@ -9525,24 +9746,10 @@
           ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
           : "";
 
-      document.querySelectorAll('[data-project-context="' + projectId + '"] a').forEach(function (anchor) {
-        anchor.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
-        if (iconHtml) {
-          anchor.insertAdjacentHTML("beforeend", iconHtml);
-        }
-      });
-
       document.querySelectorAll('[data-tree-select-type="project"][data-tree-select-id="' + projectId + '"]').forEach(function (button) {
         button.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
         if (iconHtml) {
           button.insertAdjacentHTML("beforeend", iconHtml);
-        }
-      });
-
-      document.querySelectorAll('[data-selected-project-title="' + projectId + '"]').forEach(function (header) {
-        header.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
-        if (iconHtml) {
-          header.insertAdjacentHTML("beforeend", iconHtml);
         }
       });
     }
@@ -11542,6 +11749,9 @@
       socket.on("group_created", function (data) {
         if (!data || !data.group) return;
         var group = data.group;
+        if (typeof window.__insertTreeGroupLocal === "function") {
+          window.__insertTreeGroupLocal(group);
+        }
         var firstTable = document.querySelector(".tasks-table");
         var selectedProjectId = firstTable ? firstTable.getAttribute("data-project-id") : null;
         if (selectedProjectId && String(selectedProjectId) === String(group.project_id)) {
@@ -11619,6 +11829,9 @@
         var division = data.division;
         if (typeof window.__insertDivisionSidebarLocal === "function") {
           window.__insertDivisionSidebarLocal(division);
+        }
+        if (typeof window.__insertTreeDivisionLocal === "function") {
+          window.__insertTreeDivisionLocal(division);
         }
         if (typeof window.__addDivisionOptionLocal === "function") {
           window.__addDivisionOptionLocal(division);

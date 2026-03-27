@@ -1727,6 +1727,81 @@ def duplicate_group(group_id: int):
     }, 201
 
 
+@api_bp.post("/groups/<int:group_id>/promote")
+@login_required
+def promote_group_to_project(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    source_project = Project.query.get(group.project_id)
+    if not source_project:
+        return {"error": "project not found"}, 404
+    if not _can_manage_project(user, source_project.id):
+        return {"error": "unauthorized"}, 403
+
+    new_project = Project(
+        name=group.name,
+        owner_id=source_project.owner_id,
+        division_id=None,
+        position=0,
+        default_owner_calendar_opt_in=source_project.default_owner_calendar_opt_in,
+        default_invitee_calendar_opt_in=source_project.default_invitee_calendar_opt_in,
+    )
+    db.session.add(new_project)
+    db.session.flush()
+
+    member_rows = ProjectMember.query.filter_by(project_id=source_project.id).all()
+    member_user_ids = {row.user_id for row in member_rows if row.user_id and int(row.user_id) != int(new_project.owner_id)}
+    for member_user_id in sorted(member_user_ids):
+        db.session.add(ProjectMember(project_id=new_project.id, user_id=member_user_id))
+
+    pref_user_ids = {source_project.owner_id}
+    pref_user_ids.update(member_user_ids)
+    for pref_user_id in list(pref_user_ids):
+        source_pref = ProjectSidebarPreference.query.filter_by(user_id=pref_user_id, project_id=source_project.id).first()
+        if not source_pref:
+            continue
+        pref_position = insert_project_position(pref_user_id, source_pref.division_id, (source_pref.position or 0) + 1)
+        db.session.add(
+            ProjectSidebarPreference(
+                user_id=pref_user_id,
+                project_id=new_project.id,
+                division_id=source_pref.division_id,
+                position=pref_position,
+            )
+        )
+
+    moved_tasks = Task.query.filter_by(group_id=group.id).order_by(Task.position.asc(), Task.id.asc()).all()
+    old_group_id = group.id
+    source_project_id = source_project.id
+    for index, task in enumerate(moved_tasks):
+        task.project_id = new_project.id
+        task.group_id = None
+        task.position = index
+
+    db.session.delete(group)
+    db.session.commit()
+
+    emit_project_created(new_project, actor_user_id=user.id)
+    emit_group_deleted(old_group_id, source_project_id, actor_user_id=user.id, task_ids=[])
+    for task in moved_tasks:
+        emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=old_group_id, actor_user_id=user.id)
+    for pref_user_id in pref_user_ids:
+        emit_sidebar_reordered(pref_user_id, _sidebar_order_tokens(User.query.get(pref_user_id)), actor_user_id=user.id)
+
+    new_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=new_project.id).first()
+    return {
+        "project": {
+            "id": new_project.id,
+            "name": new_project.name,
+            "division_id": new_pref.division_id if new_pref else None,
+        },
+        "moved_task_ids": [task.id for task in moved_tasks],
+        "old_group_id": old_group_id,
+    }, 201
+
+
 @api_bp.get("/users")
 @login_required
 def list_users():
@@ -1795,16 +1870,7 @@ def create_direct_project():
         if not ProjectMember.query.filter_by(project_id=project.id, user_id=target_user.id).first():
             db.session.add(ProjectMember(project_id=project.id, user_id=target_user.id))
         db.session.flush()
-        palette = ["#4cc9f0", "#f72585", "#f8961e", "#43aa8b", "#577590"]
-        group = Group(
-            project_id=project.id,
-            name="General",
-            position=1,
-            color=palette[project.id % len(palette)],
-        )
-        db.session.add(group)
         db.session.commit()
-        emit_group_created(group, actor_user_id=user.id)
         emit_project_created(project, actor_user_id=user.id, recipient_user_id=user.id)
         emit_project_created(project, actor_user_id=user.id, recipient_user_id=target_user.id)
         created = True

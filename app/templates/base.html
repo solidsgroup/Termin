@@ -1009,6 +1009,15 @@
         padding-left: 14px;
       }
 
+      .todo-tree-row[data-tree-project-row] > .shared-with-me-icon {
+        margin-left: auto;
+      }
+
+      .todo-tree-row[data-tree-project-row] .todo-tree-toggle,
+      .todo-tree-row[data-tree-division-row] .todo-tree-toggle {
+        margin-left: 8px;
+      }
+
       .tree-select-button:hover {
         background: color-mix(in srgb, var(--panel) 72%, transparent);
         border-color: color-mix(in srgb, var(--border) 88%, transparent);
@@ -1044,6 +1053,7 @@
       .todo-tree-row.is-active .tree-select-button,
       .todo-tree-row.is-active .tree-select-button .todo-tree-label,
       .todo-tree-row.is-active .tree-select-button .shared-with-me-icon,
+      .todo-tree-row.is-active .shared-with-me-icon,
       .todo-tree-row.is-active .todo-tree-toggle {
         color: #fff;
       }
@@ -3504,6 +3514,10 @@
         background: rgba(239, 68, 68, 0.22);
       }
 
+      body[data-theme="light"] .btn:not(.secondary):not(.link) {
+        color: #fff;
+      }
+
       .context-menu {
         position: fixed;
         background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
@@ -3617,6 +3631,12 @@
       }
 
       body[data-theme="light"] #direct-project-input {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        color: var(--ink);
+      }
+
+      body[data-theme="light"] #rename-input {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
         border-color: color-mix(in srgb, var(--border) 88%, white 12%);
         color: var(--ink);
