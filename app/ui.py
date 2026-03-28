@@ -435,6 +435,12 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
 def _render_account_page(user: User, *, section: str = "emails", error: str | None = None, message: str | None = None):
     emails = list_user_emails(user.id)
     identities = list_external_identities(user.id)
+    first_identity = identities[0] if identities else None
+    default_display_name = (
+        (first_identity.display_name or first_identity.email or first_identity.provider_user_id)
+        if first_identity
+        else (user.email or None)
+    )
     pending = EmailVerification.query.filter(
         EmailVerification.user_id == user.id,
         EmailVerification.consumed_at.is_(None),
@@ -451,6 +457,7 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         github_sync_state=github_sync_state,
         title="Settings",
         account_section=section,
+        default_display_name=default_display_name,
         error=error,
         merge_message=message,
     )
@@ -849,11 +856,16 @@ def dashboard():
     github_sync_state = github_sync_state_for_user(user.id)
     github_project_id = github_sync_state.project_id if github_sync_state else None
     github_auto_sync_needed = bool(github_identity and github_identity.access_token and should_sync_github_issues(user.id))
-    current_view = (request.args.get("view") or "project").strip().lower()
-    if current_view not in {"project", "todo", "tree"}:
-        current_view = "project"
+    current_view = (request.args.get("view") or "tree").strip().lower()
+    if current_view == "project":
+        current_view = "tree"
+    if current_view not in {"todo", "tree"}:
+        current_view = "tree"
     default_show_completed = "0" if current_view == "todo" else "1"
-    show_completed = (request.args.get("show_completed") or default_show_completed).strip().lower() not in {"0", "false", "no", "off"}
+    if current_view == "tree":
+        show_completed = True
+    else:
+        show_completed = (request.args.get("show_completed") or default_show_completed).strip().lower() not in {"0", "false", "no", "off"}
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
     direct_member_project_ids = [
         m.project_id for m in ProjectMember.query.filter_by(user_id=user.id).all()
@@ -1054,6 +1066,15 @@ def dashboard():
     user_map = dict(viewer_user_map)
     direct_project_peers = {project.id: _direct_peer_for_user(project, user.id) for project in direct_projects}
     project_display_names = {project.id: _project_display_name_for_user(project, user.id) for project in projects}
+    project_hierarchy_meta = {}
+    for project in projects:
+        pref = sidebar_pref_map.get(project.id) if not project.is_direct else None
+        division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
+        project_hierarchy_meta[project.id] = {
+            "division_name": division.name if division else None,
+            "division_color": (division.color or "#4cc9f0") if division else None,
+            "project_name": project_display_names.get(project.id, project.name),
+        }
     shared_project_ids = {
         project.id
         for project in projects
@@ -1406,6 +1427,7 @@ def dashboard():
         dashboard_notice=dashboard_notice,
         tree_selection_type=tree_selection_type,
         tree_selection_id=tree_selection_id,
+        project_hierarchy_meta=project_hierarchy_meta,
     )
 
 
@@ -1525,6 +1547,20 @@ def update_account_experience():
     user.theme_mode = theme_mode
     db.session.commit()
     return _render_account_page(user, section="experience", message="Theme updated.")
+
+
+@ui_bp.post("/account/display-name")
+@login_required
+def update_account_display_name():
+    user = current_user()
+    display_name = (request.form.get("display_name") or "").strip()
+    user.display_name = display_name or None
+    db.session.commit()
+    if user.display_name:
+        message = "Display name updated."
+    else:
+        message = "Display name cleared. Default name will be used."
+    return _render_account_page(user, section="emails", message=message)
 
 
 @ui_bp.get("/admin")

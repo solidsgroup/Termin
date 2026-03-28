@@ -401,6 +401,20 @@ def _accessible_projects_for_user(user) -> list[Project]:
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
 
 
+def _project_display_name_for_user(project: Project, user_id: int) -> str:
+    if project and getattr(project, "is_direct", False):
+        peer_id = None
+        if project.direct_user_a_id and int(project.direct_user_a_id) != int(user_id):
+            peer_id = project.direct_user_a_id
+        elif project.direct_user_b_id and int(project.direct_user_b_id) != int(user_id):
+            peer_id = project.direct_user_b_id
+        if peer_id:
+            peer = User.query.get(peer_id)
+            if peer:
+                return peer.display_name or peer.email or project.name
+    return project.name if project else ""
+
+
 def _sidebar_order_tokens(user) -> list[str]:
     accessible_projects = _accessible_projects_for_user(user)
     divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
@@ -732,6 +746,7 @@ def get_task(task_id: int):
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "group_name": (Group.query.get(task.group_id).name if task.group_id else None),
         "title": task.title,
         "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "link": task.link,
@@ -1891,6 +1906,142 @@ def list_users():
             }
         )
     return {"results": results}
+
+
+@api_bp.get("/tasks/search")
+@login_required
+def search_tasks():
+    user = current_user()
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return {"results": []}
+    accessible_projects = _accessible_projects_for_user(user)
+    accessible_project_ids = [project.id for project in accessible_projects]
+    if not accessible_project_ids:
+        return {"results": []}
+    project_map = {project.id: project for project in accessible_projects}
+    sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
+    pref_map = sidebar_preference_map(user.id, [project for project in accessible_projects if not project.is_direct], sidebar_divisions)
+    division_map = {division.id: division for division in sidebar_divisions}
+    group_map = {
+        group.id: group
+        for group in Group.query.filter(Group.project_id.in_(accessible_project_ids)).all()
+    }
+    needle = f"%{q}%"
+    tasks = (
+        Task.query
+        .join(Project, Project.id == Task.project_id)
+        .outerjoin(Group, Group.id == Task.group_id)
+        .filter(Task.project_id.in_(accessible_project_ids))
+        .filter(
+            or_(
+                Task.title.ilike(needle),
+                Project.name.ilike(needle),
+                Group.name.ilike(needle),
+            )
+        )
+        .order_by(Task.created_at.desc(), Task.id.desc())
+        .limit(12)
+        .all()
+    )
+    groups = (
+        Group.query
+        .join(Project, Project.id == Group.project_id)
+        .filter(Group.project_id.in_(accessible_project_ids))
+        .filter(
+            or_(
+                Group.name.ilike(needle),
+                Project.name.ilike(needle),
+            )
+        )
+        .order_by(Group.id.desc())
+        .limit(8)
+        .all()
+    )
+    projects = (
+        Project.query
+        .filter(Project.id.in_(accessible_project_ids))
+        .filter(Project.name.ilike(needle))
+        .order_by(Project.id.desc())
+        .limit(8)
+        .all()
+    )
+    results = []
+    for task in tasks:
+        project = project_map.get(task.project_id)
+        group = group_map.get(task.group_id) if task.group_id else None
+        project_name = _project_display_name_for_user(project, user.id)
+        pref = pref_map.get(task.project_id)
+        division = division_map.get(pref.division_id) if pref and pref.division_id else None
+        show_project_label = bool(project and not project.is_direct and division)
+        results.append(
+            {
+                "entity_type": "task",
+                "id": task.id,
+                "title": task.title,
+                "project_id": task.project_id,
+                "project_name": project_name,
+                "group_id": task.group_id,
+                "group_name": group.name if group else None,
+                "division_name": division.name if division else None,
+                "show_project_label": show_project_label,
+                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "status": task.status,
+            }
+        )
+    for group in groups:
+        project = project_map.get(group.project_id)
+        project_name = _project_display_name_for_user(project, user.id)
+        pref = pref_map.get(group.project_id)
+        division = division_map.get(pref.division_id) if pref and pref.division_id else None
+        show_project_label = bool(project and not project.is_direct and division)
+        results.append(
+            {
+                "entity_type": "group",
+                "id": group.id,
+                "title": group.name,
+                "project_id": group.project_id,
+                "project_name": project_name,
+                "group_id": group.id,
+                "group_name": group.name,
+                "division_name": division.name if division else None,
+                "show_project_label": show_project_label,
+                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "status": None,
+            }
+        )
+    for project in projects:
+        project_name = _project_display_name_for_user(project, user.id)
+        pref = pref_map.get(project.id)
+        division = division_map.get(pref.division_id) if pref and pref.division_id else None
+        show_project_label = bool(project and not project.is_direct and division)
+        results.append(
+            {
+                "entity_type": "project",
+                "id": project.id,
+                "title": project_name,
+                "project_id": project.id,
+                "project_name": project_name,
+                "group_id": None,
+                "group_name": None,
+                "division_name": division.name if division else None,
+                "show_project_label": show_project_label,
+                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "status": None,
+            }
+        )
+    type_rank = {"project": 0, "group": 1, "task": 2}
+    deduped = []
+    seen: set[tuple[str, int]] = set()
+    for item in sorted(results, key=lambda item: (type_rank.get(item["entity_type"], 9), str(item["title"] or "").lower(), -int(item["id"]))):
+        key = (str(item["entity_type"]), int(item["id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+        if len(deduped) >= 20:
+            break
+    return {"results": deduped}
 
 
 @api_bp.post("/direct-projects")

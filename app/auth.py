@@ -28,9 +28,36 @@ def _can_self_bootstrap_account(email: str | None) -> bool:
     return normalize_email(email) == OWNER_BOOTSTRAP_EMAIL
 
 
-def _provider_login_error(message: str):
+def _provider_login_error(message: str, *, kind: str | None = None):
     session["auth_error"] = message
+    if kind:
+        session["auth_error_kind"] = kind
+    else:
+        session.pop("auth_error_kind", None)
     return redirect(url_for("auth.login"))
+
+
+def _microsoft_login_error(exc: Exception | None = None):
+    detail = " ".join(
+        [
+            str(request.args.get("error") or ""),
+            str(request.args.get("error_description") or ""),
+            str(exc or ""),
+        ]
+    ).lower()
+    if (
+        "admin consent" in detail
+        or "need admin approval" in detail
+        or "consent" in detail
+        or "aadsts65001" in detail
+        or "aadsts90094" in detail
+        or "unverified" in detail
+    ):
+        return _provider_login_error(
+            "Your Microsoft organization blocked consent for Termin. Try Google, GitHub, or your password instead, or ask your Microsoft 365 admin to approve the app.",
+            kind="microsoft_consent",
+        )
+    return _provider_login_error("Microsoft sign-in failed. Try Google, GitHub, or your password instead.", kind="microsoft_generic")
 
 
 def _public_url(endpoint: str, **values) -> str:
@@ -289,6 +316,7 @@ def login_required(fn):
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     error = session.pop("auth_error", None)
+    error_kind = session.pop("auth_error_kind", None)
     if request.method == "POST":
         email = request.form.get("email")
         password = request.form.get("password") or ""
@@ -319,7 +347,7 @@ def login():
     if session.get("oauth_link_user_id"):
         error = error or "Finish linking your provider account from the Account page."
 
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, error_kind=error_kind)
 
 
 @auth_bp.get("/logout")
@@ -493,7 +521,10 @@ def connect_microsoft():
 
 @auth_bp.get("/auth/microsoft/callback")
 def microsoft_callback():
-    token = oauth.microsoft.authorize_access_token(claims_options={})
+    try:
+        token = oauth.microsoft.authorize_access_token(claims_options={})
+    except Exception as exc:
+        return _microsoft_login_error(exc)
     provider_user_id, email, display_name, avatar_url = _microsoft_profile(token)
 
     try:
@@ -533,7 +564,7 @@ def microsoft_callback():
             expires_in=token.get("expires_in"),
         )
     except ValueError as exc:
-        return _provider_login_error(str(exc))
+        return _microsoft_login_error(exc)
 
     return redirect(url_for("ui.dashboard"))
 

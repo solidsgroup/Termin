@@ -624,11 +624,11 @@
                 <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else 'none' }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
                   <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
                   <div class="todo-project-meta">
-                    <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
+                    <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='tree', show_completed=1, tree_select_type='project', tree_select_id=item.project.id) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
                       {{ project_display_names.get(item.project.id, item.project.name) }}
                     </a>
                     {% if item.group %}
-                      <a class="todo-group-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='project', show_completed=1 if show_completed else 0) }}#group-{{ item.group.id }}" title="Open {{ item.group.name }}">
+                      <a class="todo-group-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='tree', show_completed=1, tree_select_type='group', tree_select_id=item.group.id) }}" title="Open {{ item.group.name }}">
                         {{ item.group.name }}
                       </a>
                     {% endif %}
@@ -968,7 +968,9 @@
                 {% endif %}
               </div>
             {% endif %}
-            <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
+            {% if current_view != 'tree' %}
+              <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -1126,7 +1128,7 @@
   <div class="discussion-header">
     <div>
       <div class="discussion-title" id="discussion-title">Discussion</div>
-      <div class="discussion-subtitle" id="discussion-subtitle">Task comments and decisions</div>
+      <div class="discussion-subtitle" id="discussion-subtitle"></div>
       <div class="discussion-tabs" id="drawer-header-tabs">
         <button class="discussion-tab" type="button" data-drawer-tab="settings">Settings</button>
         <button class="discussion-tab" type="button" data-drawer-tab="links">Links</button>
@@ -1134,7 +1136,6 @@
       </div>
     </div>
     <div class="discussion-header-actions">
-      <button class="btn secondary discussion-follow-link" type="button" id="discussion-follow-link" hidden>Follow link</button>
       <button class="icon-button" type="button" id="discussion-close" title="Close discussion">×</button>
     </div>
   </div>
@@ -8115,7 +8116,6 @@
     var inputEl = document.getElementById("discussion-input");
     var sendEl = document.getElementById("discussion-send");
     var closeEls = [document.getElementById("discussion-close"), document.getElementById("discussion-cancel")].filter(Boolean);
-    var followLinkEl = document.getElementById("discussion-follow-link");
     var titleEl = document.getElementById("discussion-title");
     var subtitleEl = document.getElementById("discussion-subtitle");
     var presenceEl = document.getElementById("discussion-presence");
@@ -8151,54 +8151,43 @@
     var currentUserId = {{ user.id|tojson }};
     var currentUserEmail = {{ user.email|tojson }};
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
+    var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
 
-    function discussionFollowPayload() {
-      if (currentEntityType === "task" && currentTaskData && currentTaskData.project_id) {
-        return {
-          project_id: String(currentTaskData.project_id),
-          group_id: currentTaskData.group_id ? String(currentTaskData.group_id) : "",
-          task_id: currentTaskId ? String(currentTaskId) : "",
-          kind: "comment",
-        };
-      }
-      if (currentEntityType === "group" && currentEntityId) {
-        var groupProjectId =
-          (currentEntityData && currentEntityData.project_id ? String(currentEntityData.project_id) : "");
-        if (!groupProjectId) return null;
-        return {
-          project_id: groupProjectId,
-          group_id: String(currentEntityId),
-          task_id: "",
-          kind: "comment",
-        };
-      }
-      if (currentEntityType === "project" && currentEntityId) {
-        return {
-          project_id: String(currentEntityId),
-          group_id: "",
-          task_id: "",
-          kind: "comment",
-        };
-      }
-      return null;
+    function drawerEscapeHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
     }
 
-    function discussionFollowHref() {
-      if (currentEntityType === "task" && currentTaskId) {
-        return "/follow/task/" + encodeURIComponent(String(currentTaskId));
-      }
-      if (currentEntityType === "group" && currentEntityId) {
-        return "/follow/group/" + encodeURIComponent(String(currentEntityId));
-      }
-      if (currentEntityType === "project" && currentEntityId) {
-        return "/follow/project/" + encodeURIComponent(String(currentEntityId));
-      }
-      return "";
+    function hierarchyMetaForProject(projectId) {
+      return (projectId && projectHierarchyMeta && projectHierarchyMeta[String(projectId)])
+        || (projectId && projectHierarchyMeta && projectHierarchyMeta[projectId])
+        || null;
     }
 
-    function updateDiscussionFollowButton() {
-      if (!followLinkEl) return;
-      followLinkEl.hidden = !discussionFollowHref();
+    function setDiscussionSubtitle(projectId, groupName) {
+      if (!subtitleEl) return;
+      var meta = hierarchyMetaForProject(projectId);
+      var parts = [];
+      if (meta && meta.division_name) {
+        parts.push(
+          '<span class="discussion-subtitle-division" style="color: ' + drawerEscapeHtml(meta.division_color || "#4cc9f0") + ';">' +
+          drawerEscapeHtml(meta.division_name) +
+          "</span>"
+        );
+      }
+      if (meta && meta.project_name) {
+        if (parts.length) parts.push('<span class="discussion-subtitle-sep">·</span>');
+        parts.push('<span>' + drawerEscapeHtml(meta.project_name) + '</span>');
+      }
+      if (groupName) {
+        if (parts.length) parts.push('<span class="discussion-subtitle-sep">·</span>');
+        parts.push('<span>' + drawerEscapeHtml(groupName) + '</span>');
+      }
+      subtitleEl.innerHTML = parts.length ? parts.join("") : "";
     }
     var currentUserAvatarUrl = {{ (user.avatar_url or "")|tojson }};
     var latestTaskFetchById = {};
@@ -9827,21 +9816,20 @@
       currentTaskTitle = taskTitle || "";
       currentProjectName = projectName || "";
       titleEl.textContent = currentTaskTitle || "Task";
-      subtitleEl.textContent = projectName ? projectName + " · Task details" : "Task details";
-      updateDiscussionFollowButton();
+      setDiscussionSubtitle("", "");
       fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           currentTaskData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
-          updateDiscussionFollowButton();
+          setDiscussionSubtitle(data && data.project_id, data && data.group_name);
           renderTaskSettings();
           renderEntityLinkState();
         })
         .catch(function () {
           currentTaskData = null;
           currentEntityLinks = [];
-          updateDiscussionFollowButton();
+          setDiscussionSubtitle("", "");
           renderTaskSettings();
           renderEntityLinkState();
         });
@@ -9861,13 +9849,12 @@
       var titleFallback = entityType === "project" ? "Project" : "Group";
       titleEl.textContent = currentTaskTitle || titleFallback;
       if (entityType === "project") {
-        subtitleEl.textContent = "Project details";
+        setDiscussionSubtitle(entityId, "");
       } else if (entityType === "group") {
-        subtitleEl.textContent = projectName ? projectName + " · Group details" : "Group details";
+        setDiscussionSubtitle("", currentTaskTitle || "");
       } else {
-        subtitleEl.textContent = "Task details";
+        setDiscussionSubtitle("", "");
       }
-      updateDiscussionFollowButton();
       if (entityType === "task") {
         loadTaskMeta(entityId, entityTitle, projectName);
         return;
@@ -9880,14 +9867,22 @@
         .then(function (data) {
           currentEntityData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
-          updateDiscussionFollowButton();
+          if (entityType === "project") {
+            setDiscussionSubtitle(data && data.id, "");
+          } else {
+            setDiscussionSubtitle(data && data.project_id, (data && data.name) || currentTaskTitle || "");
+          }
           renderEntitySettings();
           renderEntityLinkState();
         })
         .catch(function () {
           currentEntityData = null;
           currentEntityLinks = [];
-          updateDiscussionFollowButton();
+          if (entityType === "project") {
+            setDiscussionSubtitle(entityId, "");
+          } else {
+            setDiscussionSubtitle("", currentTaskTitle || "");
+          }
           renderEntitySettings();
           renderEntityLinkState();
         });
@@ -10637,7 +10632,6 @@
       renderTaskSettings();
       renderEntityLinkState();
       renderDiscussionPresence([]);
-      updateDiscussionFollowButton();
       syncTaskRoom(null);
       closeMultiStatusMenu();
     }
@@ -11300,13 +11294,6 @@
     closeEls.forEach(function (button) {
       button.addEventListener("click", closeDrawer);
     });
-    if (followLinkEl) {
-      followLinkEl.addEventListener("click", function () {
-        var href = discussionFollowHref();
-        if (!href) return;
-        window.location.href = href;
-      });
-    }
     if (copyTaskPermalinkEl) {
       copyTaskPermalinkEl.addEventListener("click", function () {
         var permalink = taskPermalinkForCurrentDrawer();

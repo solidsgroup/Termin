@@ -1657,6 +1657,10 @@
         margin-bottom: -1px;
       }
 
+      .view-search {
+        position: relative;
+      }
+
       .view-switch {
         padding: 16px 18px 12px;
         border-bottom: 2px solid transparent;
@@ -1677,6 +1681,126 @@
         color: var(--ink);
         border-bottom-color: var(--accent);
         background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+      }
+
+      .view-search-trigger {
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .view-search.is-open .view-search-trigger {
+        color: var(--ink);
+        border-bottom-color: var(--accent);
+        background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+      }
+
+      .view-search-menu {
+        position: absolute;
+        top: calc(100% + 10px);
+        left: 0;
+        width: min(420px, 72vw);
+        display: none;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(12, 16, 24, 0.96);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+        backdrop-filter: blur(18px);
+        z-index: 60;
+      }
+
+      .view-search.is-open .view-search-menu {
+        display: flex;
+      }
+
+      .view-search-input {
+        width: 100%;
+      }
+
+      .view-search-results {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: min(56vh, 420px);
+        overflow-y: auto;
+      }
+
+      .view-search-empty {
+        padding: 10px 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .view-search-result {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .view-search-result:hover,
+      .view-search-result:focus-visible {
+        outline: none;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .view-search-result-icon {
+        width: 18px;
+        flex: 0 0 18px;
+        color: var(--muted);
+        text-align: center;
+        padding-top: 2px;
+      }
+
+      .view-search-result-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .view-search-result-title {
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .view-search-result-meta {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .view-search-division-tag {
+        color: var(--view-search-project-color, var(--accent));
+        font-weight: 700;
+      }
+
+      .view-search-meta-sep {
+        opacity: 0.6;
+      }
+
+      body[data-theme="light"] .view-search-menu {
+        border-color: rgba(15, 23, 42, 0.12);
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+      }
+
+      body[data-theme="light"] .view-search-result:hover,
+      body[data-theme="light"] .view-search-result:focus-visible {
+        background: rgba(37, 99, 235, 0.08);
       }
 
       .todo-board {
@@ -1831,17 +1955,16 @@
         margin-top: 4px;
       }
 
+      .discussion-subtitle-sep {
+        opacity: 0.7;
+        margin: 0 4px;
+      }
+
       .discussion-header-actions {
         display: inline-flex;
         align-items: center;
         gap: 8px;
         flex: 0 0 auto;
-      }
-
-      .discussion-follow-link {
-        padding: 6px 10px;
-        line-height: 1;
-        white-space: nowrap;
       }
 
       .discussion-presence {
@@ -5655,9 +5778,19 @@
       <div class="header-center">
         {% if current_view is defined %}
           <div class="view-switcher">
-            <a class="view-switch{% if current_view == 'project' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='project', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='project', show_completed=1 if show_completed else 0) }}{% endif %}">Project</a>
-            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='tree', show_completed=1 if show_completed else 0) }}{% else %}{{ url_for('ui.dashboard', view='tree', show_completed=1 if show_completed else 0) }}{% endif %}">Tree</a>
+            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='tree', show_completed=1) }}{% else %}{{ url_for('ui.dashboard', view='tree', show_completed=1) }}{% endif %}">Tree</a>
             <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo List</a>
+            <div class="view-search" data-task-search>
+              <button class="view-switch view-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" data-task-search-trigger aria-label="Search" title="Search">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              </button>
+              <div class="view-search-menu" data-task-search-menu>
+                <input class="view-search-input" type="search" placeholder="Search tasks…" data-task-search-input />
+                <div class="view-search-results" data-task-search-results>
+                  <div class="view-search-empty">Type at least 2 characters.</div>
+                </div>
+              </div>
+            </div>
           </div>
         {% endif %}
       </div>
@@ -5679,7 +5812,7 @@
                         class="notifications-open"
                         type="button"
                         data-notification-open='{{ {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id}|tojson|forceescape }}'
-                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='project', show_completed=1 if show_completed else 0) if item.project_id else url_for('ui.dashboard', show_completed=1 if show_completed else 0) }}"
+                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='tree', show_completed=1) if item.project_id else url_for('ui.dashboard', view='tree', show_completed=1) }}"
                       >
                         <div class="notifications-title">{{ item.task_title }}</div>
                         <div class="notifications-copy">
@@ -5717,7 +5850,7 @@
                         class="notifications-open"
                         type="button"
                         data-notification-open='{{ {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id, "kind": item.kind}|tojson|forceescape }}'
-                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='project', show_completed=1 if show_completed else 0) if item.project_id else url_for('ui.dashboard', show_completed=1 if show_completed else 0) }}"
+                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='tree', show_completed=1) if item.project_id else url_for('ui.dashboard', view='tree', show_completed=1) }}"
                       >
                         <div class="notifications-title">{{ item.sender_name }}</div>
                         <div class="notifications-copy">
@@ -5835,6 +5968,12 @@
         const accountShell = document.querySelector("[data-account-menu]");
         const accountTrigger = document.querySelector("[data-account-trigger]");
         const notificationShells = Array.from(document.querySelectorAll("[data-notifications-menu]"));
+        const taskSearchShell = document.querySelector("[data-task-search]");
+        const taskSearchTrigger = document.querySelector("[data-task-search-trigger]");
+        const taskSearchInput = document.querySelector("[data-task-search-input]");
+        const taskSearchResults = document.querySelector("[data-task-search-results]");
+        let taskSearchRequest = 0;
+        let taskSearchTimer = null;
         if (accountShell && accountTrigger) {
           const closeMenu = () => {
             accountShell.classList.remove("is-open");
@@ -5861,6 +6000,142 @@
           document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") {
               closeMenu();
+            }
+          });
+        }
+
+        if (taskSearchShell && taskSearchTrigger && taskSearchInput && taskSearchResults) {
+          const escapeHtml = (value) =>
+            String(value || "")
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#39;");
+
+          const closeTaskSearch = () => {
+            taskSearchShell.classList.remove("is-open");
+            taskSearchTrigger.setAttribute("aria-expanded", "false");
+          };
+
+          const openTaskSearch = () => {
+            taskSearchShell.classList.add("is-open");
+            taskSearchTrigger.setAttribute("aria-expanded", "true");
+            window.setTimeout(() => taskSearchInput.focus(), 0);
+          };
+
+          const renderTaskSearchResults = (results, query) => {
+            if (!results.length) {
+              taskSearchResults.innerHTML = '<div class="view-search-empty">No matching results.</div>';
+              return;
+            }
+            const iconMarkupByType = {
+              project: '<i class="fa-solid fa-cubes" aria-hidden="true"></i>',
+              group: '<i class="fa-solid fa-cube" aria-hidden="true"></i>',
+              task: '<i class="fa-regular fa-square" aria-hidden="true"></i>'
+            };
+            taskSearchResults.innerHTML = results.map((item) => {
+              const metaBits = [];
+              if (item.division_name) {
+                metaBits.push(
+                  '<span class="view-search-division-tag" style="--view-search-project-color: ' + escapeHtml(item.project_color || "") + ';">' +
+                  escapeHtml(item.division_name) +
+                  '</span>'
+                );
+              }
+              if (item.entity_type !== "project" && item.show_project_label && item.project_name) {
+                if (metaBits.length) metaBits.push('<span class="view-search-meta-sep">·</span>');
+                metaBits.push('<span>' + escapeHtml(item.project_name) + '</span>');
+              }
+              if (item.entity_type !== "group" && item.group_name) {
+                if (metaBits.length) metaBits.push('<span class="view-search-meta-sep">·</span>');
+                metaBits.push('<span>' + escapeHtml(item.group_name) + '</span>');
+              } else if (!metaBits.length && item.entity_type === "task" && item.project_name) {
+                metaBits.push('<span>' + escapeHtml(item.project_name) + '</span>');
+              }
+              return (
+                '<button class="view-search-result" type="button" ' +
+                'data-task-search-type="' + escapeHtml(item.entity_type || "task") + '" ' +
+                'data-task-search-open="' + escapeHtml(item.id) + '" ' +
+                'data-task-search-title="' + escapeHtml(item.title) + '" ' +
+                'data-task-search-project="' + escapeHtml(item.project_name || "") + '">' +
+                '<span class="view-search-result-icon">' + (iconMarkupByType[item.entity_type] || '<i class="fa-regular fa-square" aria-hidden="true"></i>') + '</span>' +
+                '<span class="view-search-result-copy">' +
+                '<span class="view-search-result-title">' + escapeHtml(item.title) + '</span>' +
+                '<span class="view-search-result-meta">' + metaBits.join("") + '</span>' +
+                '</span>' +
+                '</button>'
+              );
+            }).join("");
+          };
+
+          const runTaskSearch = (query) => {
+            const trimmed = String(query || "").trim();
+            if (trimmed.length < 2) {
+              taskSearchResults.innerHTML = '<div class="view-search-empty">Type at least 2 characters.</div>';
+              return;
+            }
+            const requestId = ++taskSearchRequest;
+            taskSearchResults.innerHTML = '<div class="view-search-empty">Searching…</div>';
+            fetch("/api/tasks/search?q=" + encodeURIComponent(trimmed), { credentials: "same-origin" })
+              .then((res) => res.json().catch(() => ({})))
+              .then((data) => {
+                if (requestId !== taskSearchRequest) return;
+                renderTaskSearchResults(data.results || [], trimmed);
+              })
+              .catch(() => {
+                if (requestId !== taskSearchRequest) return;
+                taskSearchResults.innerHTML = '<div class="view-search-empty">Could not load results.</div>';
+              });
+          };
+
+          taskSearchTrigger.addEventListener("click", (event) => {
+            event.preventDefault();
+            if (taskSearchShell.classList.contains("is-open")) {
+              closeTaskSearch();
+            } else {
+              openTaskSearch();
+            }
+          });
+
+          taskSearchInput.addEventListener("input", () => {
+            if (taskSearchTimer) window.clearTimeout(taskSearchTimer);
+            taskSearchTimer = window.setTimeout(() => runTaskSearch(taskSearchInput.value), 120);
+          });
+
+          taskSearchResults.addEventListener("click", (event) => {
+            const button = event.target.closest("[data-task-search-open]");
+            if (!button) return;
+            event.preventDefault();
+            const taskId = button.getAttribute("data-task-search-open");
+            const entityType = button.getAttribute("data-task-search-type") || "task";
+            const taskTitle = button.getAttribute("data-task-search-title") || "";
+            const projectName = button.getAttribute("data-task-search-project") || "";
+            closeTaskSearch();
+            if (entityType === "task" && typeof window.__openSettings === "function") {
+              window.__openSettings(taskId, taskTitle, projectName);
+              return;
+            }
+            if ((entityType === "project" || entityType === "group") && typeof window.__openEntity === "function") {
+              window.__openEntity("settings", entityType, taskId, taskTitle, projectName);
+              return;
+            }
+            window.location.href = entityType === "project"
+              ? "/follow/project/" + encodeURIComponent(taskId)
+              : entityType === "group"
+                ? "/follow/group/" + encodeURIComponent(taskId)
+                : "/follow/task/" + encodeURIComponent(taskId);
+          });
+
+          document.addEventListener("click", (event) => {
+            if (!taskSearchShell.contains(event.target)) {
+              closeTaskSearch();
+            }
+          });
+
+          document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              closeTaskSearch();
             }
           });
         }

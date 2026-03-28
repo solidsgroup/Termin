@@ -9,6 +9,11 @@
     </div>
     {% if error %}
       <div class="auth-error" role="alert">{{ error }}</div>
+      {% if error_kind == "microsoft_consent" %}
+        <div class="footer-note" style="margin-top: 10px;">
+          Fallback options: use Google, GitHub, or your Termin password. If you need Microsoft specifically, ask your Microsoft 365 / Entra admin to approve Termin for your organization.
+        </div>
+      {% endif %}
     {% endif %}
     <form method="post" class="auth-form">
       <div class="auth-field">
