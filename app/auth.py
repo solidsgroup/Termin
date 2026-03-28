@@ -259,10 +259,16 @@ def _github_primary_email(token: dict) -> str | None:
 
 
 def _microsoft_profile(token: dict) -> tuple[str | None, str | None, str | None, str | None]:
-    profile = oauth.microsoft.get("https://graph.microsoft.com/v1.0/me", token=token).json()
-    provider_user_id = profile.get("id")
-    email = profile.get("mail") or profile.get("userPrincipalName")
-    display_name = profile.get("displayName") or email
+    claims = {}
+    try:
+        claims = oauth.microsoft.parse_id_token(token) or {}
+    except Exception:
+        claims = {}
+    if not claims:
+        claims = token.get("userinfo") or {}
+    provider_user_id = claims.get("sub") or claims.get("oid")
+    email = claims.get("email") or claims.get("preferred_username")
+    display_name = claims.get("name") or email
     avatar_url = None
     return provider_user_id, email, display_name, avatar_url
 

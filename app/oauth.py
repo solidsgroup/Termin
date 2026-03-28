@@ -30,5 +30,5 @@ def init_oauth(app):
         client_id=app.config.get("MICROSOFT_CLIENT_ID"),
         client_secret=app.config.get("MICROSOFT_CLIENT_SECRET"),
         server_metadata_url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
-        client_kwargs={"scope": "openid email profile offline_access User.Read"},
+        client_kwargs={"scope": "openid email profile offline_access"},
     )
