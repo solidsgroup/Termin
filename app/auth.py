@@ -258,6 +258,15 @@ def _github_primary_email(token: dict) -> str | None:
     return None
 
 
+def _microsoft_profile(token: dict) -> tuple[str | None, str | None, str | None, str | None]:
+    profile = oauth.microsoft.get("https://graph.microsoft.com/v1.0/me", token=token).json()
+    provider_user_id = profile.get("id")
+    email = profile.get("mail") or profile.get("userPrincipalName")
+    display_name = profile.get("displayName") or email
+    avatar_url = None
+    return provider_user_id, email, display_name, avatar_url
+
+
 def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -449,6 +458,67 @@ def github_callback():
 
         _login_with_provider(
             provider="github",
+            provider_user_id=provider_user_id,
+            email=email,
+            display_name=display_name,
+            avatar_url=avatar_url,
+            access_token=token.get("access_token"),
+            refresh_token=token.get("refresh_token"),
+            expires_in=token.get("expires_in"),
+        )
+    except ValueError as exc:
+        return _provider_login_error(str(exc))
+
+    return redirect(url_for("ui.dashboard"))
+
+
+@auth_bp.get("/login/microsoft")
+def login_microsoft():
+    redirect_uri = _public_url("auth.microsoft_callback")
+    return oauth.microsoft.authorize_redirect(redirect_uri)
+
+
+@auth_bp.get("/connect/microsoft")
+@login_required
+def connect_microsoft():
+    session["oauth_link_user_id"] = session.get("user_id")
+    redirect_uri = _public_url("auth.microsoft_callback")
+    return oauth.microsoft.authorize_redirect(redirect_uri)
+
+
+@auth_bp.get("/auth/microsoft/callback")
+def microsoft_callback():
+    token = oauth.microsoft.authorize_access_token()
+    provider_user_id, email, display_name, avatar_url = _microsoft_profile(token)
+
+    try:
+        if session.get("collaborator_claim_token"):
+            _claim_collaborator_with_provider(
+                provider="microsoft",
+                provider_user_id=provider_user_id,
+                email=email,
+                display_name=display_name,
+                avatar_url=avatar_url,
+                access_token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                expires_in=token.get("expires_in"),
+            )
+            return redirect(url_for("ui.dashboard"))
+        if session.get("oauth_link_user_id"):
+            _link_provider_account(
+                provider="microsoft",
+                provider_user_id=provider_user_id,
+                email=email,
+                display_name=display_name,
+                avatar_url=avatar_url,
+                access_token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                expires_in=token.get("expires_in"),
+            )
+            return redirect(url_for("ui.account"))
+
+        _login_with_provider(
+            provider="microsoft",
             provider_user_id=provider_user_id,
             email=email,
             display_name=display_name,

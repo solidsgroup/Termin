@@ -2256,7 +2256,7 @@ def claim_collaborator_password(token: str):
 
 @ui_bp.get("/collaborators/<token>/claim/<provider>")
 def claim_collaborator_provider(token: str, provider: str):
-    if provider not in {"google", "github"}:
+    if provider not in {"google", "github", "microsoft"}:
         return redirect(url_for("ui.collaborator_portal", token=token))
     collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
     if not collaborator:

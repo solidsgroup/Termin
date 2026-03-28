@@ -24,3 +24,11 @@ def init_oauth(app):
         api_base_url="https://api.github.com/",
         client_kwargs={"scope": "read:user user:email repo"},
     )
+
+    oauth.register(
+        name="microsoft",
+        client_id=app.config.get("MICROSOFT_CLIENT_ID"),
+        client_secret=app.config.get("MICROSOFT_CLIENT_SECRET"),
+        server_metadata_url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
+        client_kwargs={"scope": "openid email profile offline_access User.Read"},
+    )

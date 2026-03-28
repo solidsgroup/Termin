@@ -41,6 +41,8 @@
                     <i class="fa-brands fa-github" aria-hidden="true"></i>
                   {% elif identity.provider == "google" %}
                     <i class="fa-brands fa-google" aria-hidden="true"></i>
+                  {% elif identity.provider == "microsoft" %}
+                    <i class="fa-brands fa-microsoft" aria-hidden="true"></i>
                   {% else %}
                     <i class="fa-solid fa-link" aria-hidden="true"></i>
                   {% endif %}
@@ -69,6 +71,7 @@
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px;">
           <a class="btn" href="{{ url_for('auth.connect_google') }}">Link Google</a>
+          <a class="btn secondary" href="{{ url_for('auth.connect_microsoft') }}">Link Microsoft</a>
           <a class="btn secondary" href="{{ url_for('auth.connect_github') }}">Link GitHub</a>
         </div>
       </div>
