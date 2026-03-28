@@ -816,6 +816,10 @@
         border-top: 0;
       }
 
+      .todo-sidebar-subhead.is-top {
+        margin-top: 6px;
+      }
+
       .todo-filter-row {
         display: grid;
         grid-template-columns: 14px minmax(0, 1fr);
@@ -824,6 +828,10 @@
         min-height: 22px;
         width: 100%;
         cursor: pointer;
+      }
+
+      .todo-tree-completed-options {
+        gap: 0;
       }
 
       .todo-sidebar-subhead h3 {
@@ -1796,6 +1804,12 @@
         border-color: rgba(15, 23, 42, 0.12);
         background: rgba(255, 255, 255, 0.98);
         box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+      }
+
+      body[data-theme="light"] .view-search-input {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        color: var(--ink);
       }
 
       body[data-theme="light"] .view-search-result:hover,
@@ -5779,7 +5793,7 @@
         {% if current_view is defined %}
           <div class="view-switcher">
             <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='tree', show_completed=1) }}{% else %}{{ url_for('ui.dashboard', view='tree', show_completed=1) }}{% endif %}">Tree</a>
-            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo List</a>
+            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo</a>
             <div class="view-search" data-task-search>
               <button class="view-switch view-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" data-task-search-trigger aria-label="Search" title="Search">
                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>

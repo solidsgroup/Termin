@@ -862,7 +862,7 @@ def dashboard():
     if current_view not in {"todo", "tree"}:
         current_view = "tree"
     default_show_completed = "0" if current_view == "todo" else "1"
-    if current_view == "tree":
+    if current_view in {"tree", "todo"}:
         show_completed = True
     else:
         show_completed = (request.args.get("show_completed") or default_show_completed).strip().lower() not in {"0", "false", "no", "off"}
