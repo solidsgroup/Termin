@@ -504,6 +504,15 @@
         color: color-mix(in srgb, var(--ink) 90%, #334155 10%);
       }
 
+      body[data-theme="light"] .admin-content input[type="text"],
+      body[data-theme="light"] .admin-content input[type="email"],
+      body[data-theme="light"] .admin-content input[type="password"],
+      body[data-theme="light"] .admin-content input[type="search"] {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        color: var(--ink);
+      }
+
       .account-email-actions {
         flex: 0 0 auto;
       }
@@ -3861,6 +3870,14 @@
         color: var(--ink);
         font-family: inherit;
         font-size: 12px;
+      }
+
+      body[data-theme="light"] #account-display-name,
+      body[data-theme="light"] #account-email,
+      body[data-theme="light"] #merge-email {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        color: var(--ink);
       }
 
       ul { padding-left: 18px; }

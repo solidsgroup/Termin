@@ -66,7 +66,11 @@
                     {{ identity.display_name or identity.provider|title }}
                   </div>
                   <div class="footer-note">
-                    {{ identity.email or identity.provider_user_id }}
+                    {% if identity.provider == "github" %}
+                      {{ identity.provider_user_id or identity.email }}
+                    {% else %}
+                      {{ identity.email or identity.provider_user_id }}
+                    {% endif %}
                   </div>
                 </div>
               </div>
