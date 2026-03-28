@@ -259,13 +259,12 @@ def _github_primary_email(token: dict) -> str | None:
 
 
 def _microsoft_profile(token: dict) -> tuple[str | None, str | None, str | None, str | None]:
-    claims = {}
-    try:
-        claims = oauth.microsoft.parse_id_token(token) or {}
-    except Exception:
-        claims = {}
+    claims = token.get("userinfo") or {}
     if not claims:
-        claims = token.get("userinfo") or {}
+        try:
+            claims = oauth.microsoft.parse_id_token(token, claims_options={}) or {}
+        except Exception:
+            claims = {}
     provider_user_id = claims.get("sub") or claims.get("oid")
     email = claims.get("email") or claims.get("preferred_username")
     display_name = claims.get("name") or email
@@ -494,7 +493,7 @@ def connect_microsoft():
 
 @auth_bp.get("/auth/microsoft/callback")
 def microsoft_callback():
-    token = oauth.microsoft.authorize_access_token()
+    token = oauth.microsoft.authorize_access_token(claims_options={})
     provider_user_id, email, display_name, avatar_url = _microsoft_profile(token)
 
     try:
