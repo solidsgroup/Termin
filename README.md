@@ -1,7 +1,8 @@
-# Termin
-![Termin logo](logo/termin.svg)
+<p align="center">
+  <img src="logo/termin-light-full.svg" alt="Termin logo" width="420" />
+</p>
 
-**Termin** is a lightweight, calendar-first project and task collaboration platform. It combines direct messaging-style spaces, shared projects, and todo boards with real-time sync powered by WebSockets, Markdown + MathJax descriptions, and drag-and-drop organization.
+**Termin** is a lightweight, calendar-first project and task collaboration platform built for academia. It combines direct messaging-style spaces, shared projects, and todo boards with real-time sync powered by WebSockets, Markdown + MathJax descriptions, and drag-and-drop organization—covering the teaching, research, and service triad plus the unique workflows involved in managing students on grant-funded projects.
 
 ![Status badge](https://img.shields.io/badge/status-internal-blue)
 
