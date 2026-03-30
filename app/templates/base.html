@@ -3042,16 +3042,20 @@
         padding: 0 var(--todo-cell-pad) 0 0;
       }
 
-      .todo-item-title {
-        flex: 1 1 auto;
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--ink);
-        min-width: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
+        .todo-item-title {
+          flex: 1 1 auto;
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--ink);
+          min-width: 0;
+          white-space: normal;
+          overflow: hidden;
+          text-overflow: initial;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          line-clamp: 2;
+        }
 
       .todo-item-main .github-task-link {
         flex: 1 1 auto;
@@ -6319,12 +6323,18 @@
         }
 
         .todo-item {
+          display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
           grid-template-areas:
-            "main controls"
-            "footer footer";
+            "main meta"
+            "controls controls";
           gap: 6px 10px;
           padding: 8px 10px;
+          align-items: start;
+        }
+
+        .todo-resize-handle {
+          display: none;
         }
 
         .todo-project-meta,
@@ -6335,14 +6345,59 @@
           padding: 0;
         }
 
-        .todo-project-meta {
-          display: none;
+        .todo-item-main {
+          order: 1 !important;
+          grid-area: main;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: center;
+          gap: 3px;
+          padding-right: 0;
+          min-width: 0;
         }
 
-        .todo-item-main {
-          align-items: center;
-          gap: 6px;
-          padding-right: 0;
+        .todo-project-meta {
+          grid-area: meta;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          justify-content: flex-end;
+          align-self: start;
+          justify-self: end;
+          gap: 2px;
+          font-size: 11px;
+          line-height: 1.2;
+          color: var(--muted);
+          min-width: max-content;
+          width: max-content;
+          max-width: 40%;
+          text-align: right;
+        }
+
+        .todo-project-name,
+        .todo-group-name {
+          display: block;
+          min-width: 0;
+          max-width: 100%;
+          color: inherit;
+          text-decoration: none;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-align: right;
+          margin-left: auto;
+        }
+
+        .todo-project-meta a {
+          pointer-events: none;
+          cursor: default;
+        }
+
+        .todo-group-name::before {
+          content: "·";
+          margin-right: 6px;
+          opacity: 0.65;
         }
 
         .todo-item-main .task-link-badges {
@@ -6356,69 +6411,56 @@
         }
 
         .todo-item-controls {
+          order: 2;
           grid-area: controls;
-          justify-self: end;
-          align-self: start;
-          display: flex;
-          width: auto;
-          max-width: 100%;
-          overflow: visible;
-        }
-
-        .todo-item-controls .todo-control-assignees,
-        .todo-item-controls .todo-assignments,
-        .todo-item-controls .github-assignments {
-          width: auto;
-          max-width: 100%;
-          justify-content: flex-end;
-          overflow: visible;
-          flex-wrap: nowrap;
-          gap: 4px;
+          display: grid;
+          grid-template-columns: auto auto minmax(0, 1fr) auto;
+          grid-template-areas: "status due spacer assign";
+          align-items: center;
+          column-gap: 8px;
         }
 
         .todo-item-controls .todo-control-cluster {
-          grid-area: footer;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          width: 100%;
-          max-width: 100%;
-          gap: 8px;
-          margin-top: 2px;
-          font-size: 11px;
+          display: contents;
         }
 
         .todo-item-controls .todo-control-due {
-          order: 2;
-          flex: 0 0 auto;
-          justify-content: flex-end;
+          grid-area: due;
+          width: auto;
           min-width: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-self: start;
         }
 
         .todo-item-controls .todo-control-status {
-          order: 1;
-          flex: 0 1 auto;
-          justify-content: flex-start;
+          grid-area: status;
+          width: auto;
           min-width: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-self: start;
         }
 
         .todo-due-cell .due-summary {
           width: auto;
           min-width: 0;
           max-width: 100%;
-          padding: 0;
-          min-height: 0;
-          height: auto;
-          border: 0;
-          background: transparent;
+          height: 22px;
+          min-height: 22px;
+          padding: 0 8px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.03);
           box-shadow: none;
         }
 
         .todo-due-cell .due-summary-label {
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           width: auto;
-          height: auto;
+          height: 100%;
           gap: 4px;
           font-size: 11px;
           color: var(--muted);
@@ -6427,6 +6469,11 @@
 
         .todo-due-cell .due-summary-label i {
           font-size: 11px;
+        }
+
+        body[data-theme="light"] .todo-due-cell .due-summary {
+          background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+          border-color: color-mix(in srgb, var(--border) 88%, white 12%);
         }
 
         .todo-assignments .badge,
@@ -6457,12 +6504,32 @@
         }
 
         .todo-item-controls {
-          display: grid;
-          grid-template-columns: auto;
-          grid-template-areas:
-            "controls"
-            "footer";
-          gap: 6px;
+          gap: 0;
+        }
+
+        .todo-item-controls .todo-control-assignees,
+        .todo-item-controls .todo-assignments,
+        .todo-item-controls .github-assignments {
+          grid-area: assign;
+          width: auto;
+          max-width: 132px;
+          justify-self: end;
+          justify-content: flex-end;
+          overflow: visible;
+          flex-wrap: nowrap;
+          gap: 4px;
+        }
+
+        .todo-item-controls .todo-control-assignees,
+        .todo-item-controls .todo-assignments,
+        .todo-item-controls .github-assignments,
+        .todo-due-cell .due-summary,
+        .todo-item-controls .todo-control-status [data-task-status-host] > .task-status-multi-button,
+        .todo-item-controls .todo-control-status [data-task-status-host] > .status-editable,
+        .todo-item-controls .todo-control-status .status-editable {
+          min-height: 22px;
+          height: 22px;
+          align-items: center;
         }
 
         .todo-item-controls > * {

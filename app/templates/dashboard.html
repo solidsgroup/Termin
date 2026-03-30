@@ -4390,7 +4390,9 @@
       var createdValue = input.getAttribute("data-created-at");
       if (label) {
         if (cell && cell.closest(".todo-item")) {
-          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span>' + escapeHtml(formatDueCompactLabel(dueValue, createdValue)) + '</span>';
+          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span></span>';
+          var compactText = label.querySelector("span");
+          if (compactText) compactText.textContent = formatDueCompactLabel(dueValue, createdValue);
         } else {
           label.textContent = formatDueSummary(dueValue, createdValue);
         }
