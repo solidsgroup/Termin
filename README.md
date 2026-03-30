@@ -1,50 +1,50 @@
 # Termin
+![Termin logo](logo/termin.svg)
 
-Lightweight project management web service with calendar-first collaboration.
+**Termin** is a lightweight, calendar-first project and task collaboration platform. It combines direct messaging-style spaces, shared projects, and todo boards with real-time sync powered by WebSockets, Markdown + MathJax descriptions, and drag-and-drop organization.
 
-## Goals
-- Assign tasks without requiring accounts for collaborators.
-- Support Google Calendar with real-time sync.
-- Provide optional multi-user logins for students/teams.
+![Status badge](https://img.shields.io/badge/status-internal-blue)
 
-## Architecture Outline
-- Flask API with SQLAlchemy + Alembic.
-- OAuth for Google + Microsoft accounts.
-- Magic-link invites for non-account collaborators.
-- Calendar sync via:
-  - Google Calendar push notifications (watch channels).
+## Key Features
+- real-time collaboration with per-user status tracking, Markdown+MathJax descriptions, and socket-driven updates
+- direct (1:1) task spaces that pair two people with optional group assignments
+- todo list + tree views that load client-side data, support keyboard navigation, and render shared metadata
+- OAuth for Google/GitHub/Microsoft, magic-link invites, and email/collaborator workflows
+- SQLite-backed persistence suitable for Render/any deploy with optional Postgres later
 
-## Local Setup
-1. Install dependencies for your system Python.
-2. Set env vars in `.env` (see below).
-3. Run `python3 app.py`.
+## Architecture & Stack
+- Flask + SQLAlchemy + Alembic migrations
+- Socket.IO for live updates and notifications
+- OAuth integrations (Google, GitHub, Microsoft) with connected accounts and primary email sync
+- HTML/JS frontend served from Flask templates (dashboard/tree/todo views) with helper scripts for drag/drop, MathJax, and assignment UI
+- Persistent SQLite for Render-friendly deploys (switchable to Postgres or another RDBMS)
+
+## Local Setup (development)
+1. Create virtualenv: `python3 -m venv .venv && source .venv/bin/activate`
+2. Install Python deps: `pip install -r requirements.txt`
+3. Copy `.env.example` to `.env` (create one if missing) and fill in secrets.
+4. Initialize the database: `flask db upgrade` or run `python3 app.py` and let it auto-run migrations.
+5. Start the server: `python3 app.py` (development reload hooked into Flask).
+6. Open `http://localhost:5000/` and use the onboarding flow.
 
 The app will check the database on startup and apply migrations if needed.
 
-## Env Vars
+## Environment Variables
 - `SECRET_KEY`
-- `DATABASE_URL` (default: sqlite at `instance/app.db`)
-- `PUBLIC_BASE_URL`
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+- `DATABASE_URL` (default: `sqlite:///instance/app.db`)
+- `PUBLIC_BASE_URL` (for links, notifications)
+- OAuth credentials: `GOOGLE_CLIENT_ID`/`SECRET`, `GITHUB_CLIENT_ID`/`SECRET`, `MICROSOFT_CLIENT_ID`/`SECRET`
 - `GOOGLE_WEBHOOK_SECRET`
-- `MAIL_PROVIDER`, `GOOGLE_WORKSPACE_SENDER`, `GOOGLE_SERVICE_ACCOUNT_FILE`
-- `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME`, `MAIL_REPLY_TO_POLICY` (`none` by default)
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`
+- Mail settings: `MAIL_PROVIDER`, `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME`, `SMTP_*`
+- `DEV_MAILBOX_ENABLED`, `DEV_MAILBOX_CAPTURE_ONLY` for local testing
 
-## OAuth Redirect URIs
+## OAuth Redirect URIs (development)
 - Google: `http://localhost:5000/auth/google/callback`
 - GitHub: `http://localhost:5000/auth/github/callback`
+- Microsoft: `http://localhost:5000/auth/microsoft/callback`
 
 ## Render Deploy
-This repo includes [render.yaml](./render.yaml) for a first hosted test deploy on Render.
-
-Current Render shape:
-- Python web service
-- Gunicorn web server
-- Persistent disk mounted at `instance/`
-- SQLite stored at `instance/app.db`
-- Startup checks/migrations run before Gunicorn starts
+Use the provided [render.yaml](./render.yaml) to create a Blueprint deploy on Render. The service runs Gunicorn, mounts `/opt/render/project/src/instance` with SQLite, and executes migrations before launch.
 
 Recommended first deploy flow:
 1. In Render, create a new Blueprint from this repo.
@@ -63,26 +63,21 @@ Notes:
 
 When you later move to Postgres/object storage, you can switch to a cleaner stateless deployment model.
 
-## Routes (Current)
+## Notable Routes
 - `GET /health`
-- `GET /api/me`
-- `POST /api/tasks`
-- `POST /webhooks/google/calendar`
- - `GET /login`
- - `GET /login/google`
- - `GET /`
- - `GET /invites/<token>`
+- `GET /api/me`, `POST /api/tasks`, `/api/comments`, `/api/direct-projects`
+- `/api/users?q=`, `/api/projects/<id>`, `/api/groups/<id>` for the tree view
+- OAuth: `/login`, `/login/google`, `/login/microsoft`, `/auth/*` callbacks
+- `/webhooks/google/calendar` for push notifications
 
-## Next Implementation Steps
-- Create calendar events on task assignment.
-- Subscribe to calendar webhooks for real-time updates.
-- Wire emails for magic-link invites.
-- UI for calendar sync status and assignment activity.
+## Current Workstreams
+- Markdown + MathJax descriptions in settings and comments.
+- Enhanced direct project UX with self-spaces and group assignment syncing.
+- Tree view with drag-and-drop & context menus.
+- Notifications with desktop prompts and multi-server Electron prototypes.
 
-## DB Migrations
-If you already initialized the DB, run:
-1. `flask db migrate -m "add assignments and invite links"`
-2. `flask db upgrade`
+## Database Migrations
+Use `flask db migrate` / `flask db upgrade` (Alembic). You can also drop and let `app.py` auto-migrate if the schema converges.
 
 ## Calendar Sync Notes
 - Uses the primary calendar for now.
