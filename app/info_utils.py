@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from werkzeug.utils import secure_filename
 
 
-ALLOWED_TAGS = {"a", "b", "blockquote", "br", "code", "em", "i", "li", "ol", "p", "pre", "strong", "u", "ul"}
+ALLOWED_TAGS = {"a", "b", "blockquote", "br", "code", "em", "h1", "h2", "h3", "h4", "h5", "h6", "i", "li", "ol", "p", "pre", "strong", "u", "ul"}
 ALLOWED_ATTRS = {"a": {"href", "target", "rel"}}
 
 

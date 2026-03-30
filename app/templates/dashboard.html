@@ -1198,7 +1198,33 @@
   </div>
   <div class="discussion-pane" id="discussion-settings-pane" data-drawer-pane="settings">
     <div class="discussion-settings" id="discussion-settings">
-      <label class="discussion-setting-field is-inline">
+      <label class="discussion-setting-field discussion-setting-field--description" aria-live="polite">
+        <div class="discussion-description-wrapper" data-description-wrapper>
+          <div
+            class="discussion-description-display"
+            data-description-display
+            tabindex="0"
+            role="button"
+            aria-label="Edit description"
+          >
+            <div class="discussion-description-rendered" data-description-rendered></div>
+            <div class="discussion-description-empty" data-description-empty>No description yet — click to add one.</div>
+          </div>
+          <div class="discussion-description-editor" data-description-editor>
+            <div class="discussion-description-format">
+              <span>Description format</span>
+              <select id="task-settings-description-format" autocomplete="termin-nope-description-format">
+                <option value="markdown">Markdown</option>
+                <option value="plain">Plain text</option>
+                <option value="restructuredtext">reStructuredText</option>
+                <option value="html">HTML</option>
+              </select>
+          </div>
+          <textarea id="task-settings-description" rows="4" autocomplete="termin-nope-description" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </label>
+      <label class="discussion-setting-field is-inline" data-settings-title-field>
         <span class="discussion-setting-label" data-settings-title-label>Title</span>
         <input id="task-settings-title" type="text" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
       </label>
@@ -6302,6 +6328,9 @@
     initColumnResizers();
 
     const dashboardUserId = {{ user.id|tojson }};
+    const dashboardUserDisplayName = {{ (user.display_name or user.email)|tojson }};
+    const dashboardUserEmail = {{ user.email|tojson }};
+    const dashboardUserAvatar = {{ (user.avatar_url or "")|tojson }};
     const divisionOptions = {{ division_options|tojson }};
     const contextMenu = document.getElementById("context-menu");
     const colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
@@ -6539,7 +6568,15 @@
       fetch(`/api/users?q=${encodeURIComponent(q || "")}`, { credentials: "same-origin" })
         .then((res) => res.json().catch(() => ({})))
         .then((data) => {
-          directProjectResults = Array.isArray(data.results) ? data.results : [];
+          const results = Array.isArray(data.results) ? data.results : [];
+          const me = {
+            id: dashboardUserId,
+            display_name: dashboardUserDisplayName,
+            email: dashboardUserEmail,
+            avatar_url: dashboardUserAvatar,
+          };
+          directProjectResults = results.filter((item) => Number(item.id) !== Number(me.id));
+          directProjectResults.unshift(me);
           directProjectActiveIndex = directProjectResults.length ? 0 : -1;
           renderDirectProjectSuggestions();
         })
@@ -8173,6 +8210,13 @@
     var taskSettingsPerUserStatusEl = document.getElementById("task-settings-per-user-status");
     var taskSettingsAssignmentsEl = document.getElementById("task-settings-assignments");
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
+    var descriptionWrapperEl = drawer.querySelector("[data-description-wrapper]");
+    var descriptionDisplayEl = drawer.querySelector("[data-description-display]");
+    var descriptionRenderedEl = drawer.querySelector("[data-description-rendered]");
+    var descriptionEmptyEl = drawer.querySelector("[data-description-empty]");
+    var taskSettingsDescriptionEl = document.getElementById("task-settings-description");
+    var taskSettingsDescriptionFormatEl = document.getElementById("task-settings-description-format");
+    var taskSettingsTitleFieldEl = drawer.querySelector("[data-settings-title-field]");
     var taskSettingsMetaEl = document.getElementById("task-settings-meta");
     var taskOnlyEls = Array.prototype.slice.call(drawer.querySelectorAll("[data-task-only]"));
     var settingsTitleLabelEl = drawer.querySelector("[data-settings-title-label]");
@@ -8185,6 +8229,7 @@
     var currentEntityLinks = [];
     var currentTaskData = null;
     var currentEntityData = null;
+    var currentEntityIsDirect = false;
     var activeDrawerTab = "messages";
     var commentSnapshot = "";
     var onlineUserProjectMap = new Map();
@@ -8204,6 +8249,62 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+    }
+
+    function typesetMathNodes(nodes) {
+      if (!nodes || !window.MathJax || !MathJax.typesetPromise) return;
+      var elements = [];
+      if (Array.isArray(nodes) || nodes instanceof NodeList) {
+        elements = Array.from(nodes);
+      } else if (nodes instanceof Node) {
+        elements = [nodes];
+      } else {
+        return;
+      }
+      elements = elements.filter(function (el) { return el; });
+      if (!elements.length) return;
+      MathJax.typesetPromise(elements).catch(function (err) {
+        console.error("MathJax typeset failed", err);
+      });
+    }
+
+    function setDescriptionRendered(html) {
+      if (!descriptionRenderedEl) return;
+      var trimmed = html ? String(html).trim() : "";
+      descriptionRenderedEl.innerHTML = trimmed || "";
+      if (descriptionEmptyEl) {
+        descriptionEmptyEl.hidden = !!trimmed;
+      }
+      typesetMathNodes(descriptionRenderedEl);
+    }
+
+    function showDescriptionEditor() {
+      if (!descriptionWrapperEl) return;
+      if (descriptionEditing) return;
+      descriptionWrapperEl.classList.add("is-editing");
+      descriptionEditing = true;
+      if (taskSettingsDescriptionEl) {
+        taskSettingsDescriptionEl.focus();
+      }
+    }
+
+    function hideDescriptionEditor() {
+      if (!descriptionWrapperEl) return;
+      descriptionWrapperEl.classList.remove("is-editing");
+      descriptionEditing = false;
+    }
+
+    function descriptionFormatFallbackForEntity(entityType) {
+      if (entityType === "project") return DEFAULT_PROJECT_DESCRIPTION_FORMAT;
+      if (entityType === "group") return DEFAULT_GROUP_DESCRIPTION_FORMAT;
+      return DEFAULT_TASK_DESCRIPTION_FORMAT;
+    }
+
+    function normalizeDescriptionFormat(value, fallback) {
+      var normalized = (value || "").toString().trim().toLowerCase();
+      if (!normalized) return fallback;
+      if (DESCRIPTION_FORMAT_OPTIONS.indexOf(normalized) === -1) return fallback;
+      return normalized;
     }
 
     function hierarchyMetaForProject(projectId) {
@@ -8246,6 +8347,11 @@
     var desktopNotificationQueues = Object.create(null);
     var desktopNotificationFlushTimers = Object.create(null);
     var desktopNotificationDisplayState = Object.create(null);
+    var DESCRIPTION_FORMAT_OPTIONS = ["plain", "markdown", "restructuredtext", "html"];
+    var DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown";
+    var DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown";
+    var DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown";
+    var descriptionEditing = false;
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -8719,13 +8825,26 @@
 	      }
     }
 
-    function renderCommentBody(value) {
+    function autoLinkText(value) {
+      if (!value) return "";
       return escapeHtml(value).replace(
         /(https?:\/\/[^\s<]+)/g,
         function (url) {
           return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + "</a>";
         }
       );
+    }
+
+    function renderCommentBody(value) {
+      if (!value) return "";
+      if (typeof value === "object") {
+        var rendered = value.rendered_body || value.body || "";
+        if (rendered) {
+          return rendered;
+        }
+        value = rendered;
+      }
+      return autoLinkText(value);
     }
 
     function relativeTime(value) {
@@ -9440,6 +9559,10 @@
     function renderTaskSettings() {
       if (currentEntityType !== "task") return;
       if (!taskSettingsTitleEl || !taskSettingsDueEl || !taskSettingsStatusEl || !taskSettingsMetaEl) return;
+      drawer.setAttribute("data-is-direct", "0");
+      if (taskSettingsTitleFieldEl) {
+        taskSettingsTitleFieldEl.hidden = false;
+      }
       var task = currentTaskData || {};
       var meta = taskStatusMeta(task);
       var effectiveStatus = taskMyStatus(task);
@@ -9507,9 +9630,16 @@
         taskSettingsAssigneeEl.setAttribute("data-assign-input", "task");
         taskSettingsAssigneeEl.setAttribute("data-target-id", currentTaskId || "");
       }
+      if (taskSettingsDescriptionEl) {
+        taskSettingsDescriptionEl.value = task.description || "";
+      }
+      if (taskSettingsDescriptionFormatEl) {
+        taskSettingsDescriptionFormatEl.value = task.description_format || DEFAULT_TASK_DESCRIPTION_FORMAT;
+      }
       var bits = [];
       if (currentProjectName) bits.push(currentProjectName);
       if (task.created_at) bits.push("Created " + String(task.created_at).slice(0, 10));
+      setDescriptionRendered((task && task.rendered_description) || "");
       taskSettingsMetaEl.textContent = bits.join(" · ");
     }
 
@@ -9520,6 +9650,11 @@
       }
       if (!taskSettingsTitleEl || !taskSettingsMetaEl) return;
       var entity = currentEntityData || {};
+      currentEntityIsDirect = currentEntityType === "project" && !!entity.is_direct;
+      if (taskSettingsTitleFieldEl) {
+        taskSettingsTitleFieldEl.hidden = currentEntityIsDirect;
+      }
+      drawer.setAttribute("data-is-direct", currentEntityIsDirect ? "1" : "0");
       taskSettingsTitleEl.value = entity.name || currentTaskTitle || "";
       if (taskSettingsDueEl) taskSettingsDueEl.value = "";
       if (taskSettingsStatusEl) {
@@ -9552,9 +9687,17 @@
         taskSettingsAssigneeEl.setAttribute("data-assign-input", "");
         taskSettingsAssigneeEl.setAttribute("data-target-id", "");
       }
+      var entityDescriptionFallback = descriptionFormatFallbackForEntity(currentEntityType);
+      if (taskSettingsDescriptionEl) {
+        taskSettingsDescriptionEl.value = entity.description || "";
+      }
+      if (taskSettingsDescriptionFormatEl) {
+        taskSettingsDescriptionFormatEl.value = entity.description_format || entityDescriptionFallback;
+      }
       var bits = [];
       if (currentEntityType === "group" && currentProjectName) bits.push(currentProjectName);
       if (entity.created_at) bits.push("Created " + String(entity.created_at).slice(0, 10));
+      setDescriptionRendered((entity && entity.rendered_description) || "");
       taskSettingsMetaEl.textContent = bits.join(" · ");
     }
     window.__getCurrentTaskData = function () {
@@ -9674,8 +9817,23 @@
     }
     window.__fetchTaskSnapshot = fetchTaskSnapshot;
 
+    function descriptionPayloadForEntity() {
+      var payload = {};
+      if (taskSettingsDescriptionEl) {
+        payload.description = taskSettingsDescriptionEl.value || "";
+      }
+      if (taskSettingsDescriptionFormatEl) {
+        payload.description_format = normalizeDescriptionFormat(
+          taskSettingsDescriptionFormatEl.value || "",
+          descriptionFormatFallbackForEntity(currentEntityType)
+        );
+      }
+      return payload;
+    }
+
     function persistEntitySettings() {
       if (!currentEntityId) return Promise.resolve();
+      var descriptionPayload = descriptionPayloadForEntity();
       if (currentEntityType === "task") {
         var perUserEnabled = !!(taskSettingsPerUserStatusEl && taskSettingsPerUserStatusEl.checked);
         var statusPayloadField = perUserEnabled
@@ -9685,6 +9843,8 @@
           title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
           due_at: taskSettingsDueEl ? taskSettingsDueEl.value : "",
           per_user_status_enabled: perUserEnabled,
+          description: descriptionPayload.description,
+          description_format: descriptionPayload.description_format,
         };
         if (!perUserEnabled) {
           payload[statusPayloadField] = taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "").trim() : "";
@@ -9696,28 +9856,33 @@
           body: JSON.stringify(payload),
         })
           .then(function (res) { return res.json().catch(function () { return {}; }); })
-          .then(function (data) {
-            if (!data || !data.id) return;
-            currentTaskData = Object.assign({}, currentTaskData || {}, data);
-            applyTaskRowUpdate(currentTaskData);
-            renderTaskSettings();
-          })
+        .then(function (data) {
+          if (!data || !data.id) return;
+          currentTaskData = Object.assign({}, currentTaskData || {}, data);
+          applyTaskRowUpdate(currentTaskData);
+          descriptionEditing = false;
+          hideDescriptionEditor();
+          renderTaskSettings();
+        })
           .catch(function (err) { console.error('persistEntitySettings failed', err); });
       }
       var nameValue = taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "";
       var endpoint = currentEntityType === "project"
         ? '/api/projects/' + currentEntityId
         : '/api/groups/' + currentEntityId;
+      var payload = Object.assign({ name: nameValue }, descriptionPayload);
       return fetch(endpoint, {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nameValue }),
+        body: JSON.stringify(payload),
       })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data || !data.id) return;
           currentEntityData = Object.assign({}, currentEntityData || {}, data);
+          descriptionEditing = false;
+          hideDescriptionEditor();
           renderEntitySettings();
           document.querySelectorAll('[data-open-entity][data-entity-type="' + currentEntityType + '"][data-entity-id="' + currentEntityId + '"]').forEach(function (button) {
             button.setAttribute("data-entity-title", data.name || "");
@@ -10309,7 +10474,7 @@
               '<button class="discussion-comment-action" type="button" data-comment-unread="' + escapeHtml(comment.id) + '" title="Mark unread from here" aria-label="Mark unread from here"><i class="fa-regular fa-envelope" aria-hidden="true"></i></button>' +
             '</div>' +
           '</div>' +
-          '<div class="discussion-comment-body">' + renderCommentBody(comment.body) + '</div>' +
+        '<div class="discussion-comment-body" data-comment-raw="' + escapeHtml(comment.body || "") + '">' + renderCommentBody(comment) + '</div>' +
         '</div>'
       );
     }
@@ -10320,7 +10485,7 @@
       if (!comment || comment.querySelector('.discussion-comment-editor')) return;
       var bodyEl = comment.querySelector('.discussion-comment-body');
       if (!bodyEl) return;
-      var currentBody = bodyEl.textContent || "";
+      var currentBody = bodyEl.dataset.commentRaw || bodyEl.textContent || "";
       bodyEl.dataset.originalBody = currentBody;
       bodyEl.innerHTML =
         '<div class="discussion-comment-editor">' +
@@ -10632,6 +10797,10 @@
       var existing = listEl.querySelector('[data-comment-id="' + comment.id + '"]');
       if (existing) {
         existing.outerHTML = renderComment(comment);
+        var updatedBody = listEl.querySelector('[data-comment-id="' + comment.id + '"] .discussion-comment-body');
+        if (updatedBody) {
+          typesetMathNodes(updatedBody);
+        }
         return false;
       }
       var empty = listEl.querySelector(".footer-note");
@@ -10639,6 +10808,10 @@
         listEl.innerHTML = "";
       }
       listEl.insertAdjacentHTML("beforeend", renderComment(comment));
+      var insertedBody = listEl.querySelector('[data-comment-id="' + comment.id + '"] .discussion-comment-body');
+      if (insertedBody) {
+        typesetMathNodes(insertedBody);
+      }
       return true;
     }
 
@@ -10952,6 +11125,7 @@
             listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
           } else {
             listEl.innerHTML = comments.map(renderComment).join("");
+            typesetMathNodes(listEl.querySelectorAll(".discussion-comment-body"));
           }
           setCommentCount(entityType, entityId, comments.length);
           if (entityType === "task") {
@@ -11483,6 +11657,50 @@
     }
     if (taskSettingsAssigneeEl) {
       bindSettingsAssignmentInput();
+    }
+    if (descriptionDisplayEl) {
+      descriptionDisplayEl.addEventListener("click", function (event) {
+        event.preventDefault();
+        showDescriptionEditor();
+      });
+      descriptionDisplayEl.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          showDescriptionEditor();
+        }
+      });
+    }
+    document.addEventListener("click", function (event) {
+      if (!descriptionEditing || !descriptionWrapperEl) return;
+      if (event.target && descriptionWrapperEl.contains(event.target)) {
+        return;
+      }
+      hideDescriptionEditor();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (!descriptionEditing || !descriptionWrapperEl) return;
+      if (event.key === "Escape") {
+        hideDescriptionEditor();
+      }
+    });
+    if (descriptionWrapperEl) {
+      descriptionWrapperEl.addEventListener("focusout", function (event) {
+        if (
+          !descriptionEditing ||
+          !descriptionWrapperEl ||
+          (event.relatedTarget && descriptionWrapperEl.contains(event.relatedTarget))
+        ) {
+          return;
+        }
+        persistEntitySettings();
+      });
+    }
+    // Description editor is always visible now.
+    if (taskSettingsDescriptionEl) {
+      // Persist when the entire description region loses focus instead.
+    }
+    if (taskSettingsDescriptionFormatEl) {
+      taskSettingsDescriptionFormatEl.addEventListener("change", persistEntitySettings);
     }
     (function () {
       var statusMenu = document.getElementById("status-menu");

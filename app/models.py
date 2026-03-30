@@ -77,6 +77,8 @@ class Project(db.Model):
     default_invitee_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     info = db.Column(db.Text)
     link = db.Column(db.String(1024))
+    description = db.Column(db.Text)
+    description_format = db.Column(db.String(32), default="markdown")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -121,6 +123,8 @@ class Group(db.Model):
     color = db.Column(db.String(32))
     info = db.Column(db.Text)
     link = db.Column(db.String(1024))
+    description = db.Column(db.Text)
+    description_format = db.Column(db.String(32), default="markdown")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -141,6 +145,7 @@ class Task(db.Model):
     position = db.Column(db.Integer, default=0, nullable=False)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
+    description_format = db.Column(db.String(32), default="plain")
     info = db.Column(db.Text)
     link = db.Column(db.String(1024))
     due_at = db.Column(db.DateTime)

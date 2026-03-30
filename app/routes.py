@@ -1,4 +1,5 @@
 from datetime import datetime
+from html import escape
 from pathlib import Path
 import re
 from urllib.parse import urlparse
@@ -6,6 +7,7 @@ from sqlalchemy import or_
 
 from flask import Blueprint, current_app, request, send_from_directory
 
+from markdown import markdown as render_markdown
 from app.auth import login_required
 from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
@@ -13,7 +15,7 @@ from app.extensions import db
 from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, search_users_by_identity
-from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
+from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
 from app.realtime import (
     _serialize_group_payload,
     _serialize_project_payload_for_user,
@@ -80,14 +82,56 @@ from app.models import (
     ProjectComment,
     GroupComment,
 )
-from app.utils import current_user, is_admin as user_is_admin
+from app.utils import current_user, display_name_for_user, is_admin as user_is_admin
 
 
 api_bp = Blueprint("api", __name__)
 
 
 URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
+DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
+DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
+DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown"
 
+
+def _coerce_description_format(value: str | None, default: str) -> str | None:
+    if value is None:
+        return default
+    normalized = (str(value) or "").strip().lower()
+    if not normalized:
+        return default
+    if normalized not in DESCRIPTION_FORMAT_OPTIONS:
+        return None
+    return normalized
+
+
+def _render_description(description: str | None, description_format: str | None, default_format: str) -> str:
+    if not description:
+        return ""
+    fmt = (description_format or default_format or "").strip().lower()
+    if fmt == "markdown":
+        rendered = render_markdown(description, extensions=["extra", "sane_lists"])
+        return sanitize_info_html(rendered)
+    if fmt == "html":
+        return sanitize_info_html(description)
+    escaped = escape(description)
+    paragraphs = []
+    for block in re.split(r"\\n\\s*\\n", escaped.strip()):
+        if not block:
+            continue
+        paragraphs.append(f"<p>{block.replace('\\n', '<br />')}</p>")
+    return "".join(paragraphs)
+
+
+def _render_comment_body(body: str | None) -> str:
+    if not body:
+        return ""
+    rendered = render_markdown(body, extensions=["extra", "sane_lists"])
+    return sanitize_info_html(rendered)
+DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
+DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
+DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
 
 @api_bp.get("/me")
 @login_required
@@ -187,7 +231,7 @@ def _serialize_task_comment(comment: TaskComment, author: User | None, collabora
             "kind": "collaborator",
         }
     else:
-        label = (author.display_name or author.email) if author else "Unknown user"
+        label = display_name_for_user(author) or "Unknown user"
         author_payload = {
             "id": author.id if author else None,
             "display_name": label,
@@ -201,6 +245,7 @@ def _serialize_task_comment(comment: TaskComment, author: User | None, collabora
         "user_id": comment.user_id,
         "collaborator_id": comment.collaborator_id,
         "body": comment.body,
+        "rendered_body": _render_comment_body(comment.body),
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat(),
         "author": author_payload,
@@ -208,7 +253,7 @@ def _serialize_task_comment(comment: TaskComment, author: User | None, collabora
 
 
 def _serialize_simple_comment(comment, author: User | None, *, project_id: int | None = None, group_id: int | None = None) -> dict:
-    label = (author.display_name or author.email) if author else "Unknown user"
+    label = display_name_for_user(author) or "Unknown user"
     author_payload = {
         "id": author.id if author else None,
         "display_name": label,
@@ -220,6 +265,7 @@ def _serialize_simple_comment(comment, author: User | None, *, project_id: int |
         "id": comment.id,
         "user_id": comment.user_id,
         "body": comment.body,
+        "rendered_body": _render_comment_body(comment.body),
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat(),
         "author": author_payload,
@@ -337,6 +383,13 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "status_meta": status_meta,
+        "description": task.description,
+        "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
+        "rendered_description": _render_description(
+            task.description,
+            task.description_format,
+            DEFAULT_TASK_DESCRIPTION_FORMAT,
+        ),
         "info": info,
         "assignments": [_serialize_assignment_row(row) for row in assignments],
     }
@@ -656,6 +709,8 @@ def update_task(task_id: int):
     info = payload.get("info")
     per_user_status_enabled = payload.get("per_user_status_enabled")
     assign_group_members = payload.get("assign_group_members")
+    description = payload.get("description")
+    description_format = payload.get("description_format")
 
     if title is not None:
         task.title = title.strip()
@@ -705,6 +760,13 @@ def update_task(task_id: int):
                 task.due_at = datetime.fromisoformat(due_at)
             except ValueError:
                 return {"error": "Invalid due_at format"}, 400
+    if description is not None:
+        task.description = description
+    if description_format is not None:
+        normalized = _coerce_description_format(description_format, DEFAULT_TASK_DESCRIPTION_FORMAT)
+        if normalized is None:
+            return {"error": "invalid description_format"}, 400
+        task.description_format = normalized
     db.session.commit()
     queue_task_notifications(task, exclude_user_id=user.id, kind="task_update")
     db.session.commit()
@@ -729,6 +791,9 @@ def update_task(task_id: int):
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
+        "description": task.description,
+        "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
+        "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
     }, 200
 
 
@@ -756,9 +821,13 @@ def get_task(task_id: int):
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "status_meta": task_status_meta(task, viewer_user_id=user.id),
+        "description": task.description,
+        "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
+        "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "created_at": task.created_at.isoformat() if task.created_at else None,
+        "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
     }, 200
 
 
@@ -775,6 +844,10 @@ def get_project(project_id: int):
         "id": project.id,
         "name": project.name,
         "links": _info_payload_for(project).get("links", []),
+        "description": project.description,
+        "description_format": project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
+        "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),
+        "is_direct": bool(project.is_direct),
         "created_at": project.created_at.isoformat() if project.created_at else None,
     }, 200
 
@@ -845,6 +918,9 @@ def get_group(group_id: int):
         "project_id": group.project_id,
         "name": group.name,
         "links": _info_payload_for(group).get("links", []),
+        "description": group.description,
+        "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
+        "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
         "created_at": group.created_at.isoformat() if group.created_at else None,
     }, 200
 
@@ -1284,7 +1360,9 @@ def update_group(group_id: int):
     name = payload.get("name")
     link = payload.get("link")
     links = payload.get("links")
-    if name is None and links is None and link is None:
+    description = payload.get("description")
+    description_format = payload.get("description_format")
+    if name is None and links is None and link is None and description is None and description_format is None:
         return {"error": "name or links is required"}, 400
 
     group = Group.query.get(group_id)
@@ -1296,6 +1374,13 @@ def update_group(group_id: int):
 
     if name is not None:
         group.name = name.strip() or group.name
+    if description is not None:
+        group.description = description
+    if description_format is not None:
+        normalized = _coerce_description_format(description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT)
+        if normalized is None:
+            return {"error": "invalid description_format"}, 400
+        group.description_format = normalized
     info_payload = _info_payload_for(group)
     if links is None and link is not None:
         stripped_link = link.strip()
@@ -1306,7 +1391,14 @@ def update_group(group_id: int):
         group.info = normalize_info_payload(info_payload, group.link)
     db.session.commit()
     emit_group_updated(group, actor_user_id=user.id)
-    return {"id": group.id, "name": group.name, "links": _info_payload_for(group).get("links", [])}, 200
+    return {
+        "id": group.id,
+        "name": group.name,
+        "links": _info_payload_for(group).get("links", []),
+        "description": group.description,
+        "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
+        "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
+    }, 200
 
 
 @api_bp.patch("/projects/<int:project_id>")
@@ -1318,11 +1410,22 @@ def update_project(project_id: int):
     division_id = payload.get("division_id", "__missing__")
     link = payload.get("link")
     links = payload.get("links")
-    if name is None and division_id == "__missing__" and links is None and link is None:
+    description = payload.get("description")
+    description_format = payload.get("description_format")
+    if (
+        name is None
+        and division_id == "__missing__"
+        and links is None
+        and link is None
+        and description is None
+        and description_format is None
+    ):
         return {"error": "name, links, or division_id is required"}, 400
     if name is not None and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if (links is not None or link is not None) and not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    if (description is not None or description_format is not None) and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if division_id != "__missing__" and not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
@@ -1376,6 +1479,13 @@ def update_project(project_id: int):
                 resequence_top_level_items(user.id)
             elif old_division_id != division.id:
                 resequence_division_projects(user.id, old_division_id, exclude_project_id=project.id)
+    if description is not None:
+        project.description = description
+    if description_format is not None:
+        normalized = _coerce_description_format(description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT)
+        if normalized is None:
+            return {"error": "invalid description_format"}, 400
+        project.description_format = normalized
     db.session.commit()
     emit_project_updated(project, actor_user_id=user.id)
     if division_id != "__missing__":
@@ -1386,6 +1496,9 @@ def update_project(project_id: int):
         "name": project.name,
         "division_id": current_pref.division_id if current_pref else None,
         "links": _info_payload_for(project).get("links", []),
+        "description": project.description,
+        "description_format": project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
+        "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),
     }, 200
 
 
@@ -1901,7 +2014,7 @@ def list_users():
             {
                 "id": u.id,
                 "email": u.email,
-                "display_name": u.display_name,
+                "display_name": display_name_for_user(u),
                 "avatar_url": u.avatar_url,
             }
         )
@@ -2054,8 +2167,6 @@ def create_direct_project():
         target_user_id = int(target_user_id)
     except (TypeError, ValueError):
         return {"error": "user_id is required"}, 400
-    if int(target_user_id) == int(user.id):
-        return {"error": "cannot create a direct space with yourself"}, 400
     target_user = User.query.get(target_user_id)
     if not target_user:
         return {"error": "user not found"}, 404
@@ -2070,8 +2181,9 @@ def create_direct_project():
     if not project:
         label_a = user.display_name or user.email or f"User {user.id}"
         label_b = target_user.display_name or target_user.email or f"User {target_user.id}"
+        project_name = label_a if int(user.id) == int(target_user.id) else f"{label_a} · {label_b}"
         project = Project(
-            name=f"{label_a} · {label_b}",
+            name=project_name,
             owner_id=user.id,
             is_direct=True,
             direct_user_a_id=user_a_id,

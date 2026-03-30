@@ -8,6 +8,20 @@
     <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" data-base-favicon="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [["$", "$"], ["\\(", "\\)"]],
+          displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+        },
+        options: {
+          renderActions: {
+            addMenu: [],
+          },
+        },
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <style>
       :root {
         --bg: #0b0d12;
@@ -2248,6 +2262,162 @@
         flex: 1 1 auto;
       }
 
+      .discussion-setting-field--description {
+        text-transform: none;
+        letter-spacing: normal;
+        color: var(--ink);
+        margin-bottom: 4px;
+      }
+
+      .discussion-setting-field--description .discussion-description {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      #discussion-drawer[data-is-direct="1"] .discussion-setting-field[data-settings-title-field] {
+        display: none;
+      }
+
+      .discussion-description-format {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 11px;
+        color: var(--muted);
+        gap: 12px;
+      }
+
+      .discussion-description-format select {
+        flex: 0 0 180px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        padding: 8px 10px;
+        font: inherit;
+        appearance: none;
+      }
+
+      .discussion-description textarea {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        box-sizing: border-box;
+        min-height: 120px;
+        border: 1px solid color-mix(in srgb, var(--border) 80%, var(--ink) 20%);
+        border-radius: 10px;
+        padding: 14px 16px;
+        font: inherit;
+        background: color-mix(in srgb, var(--panel-alt) 80%, var(--panel) 20%);
+        color: var(--ink);
+        resize: vertical;
+        transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+      }
+      .discussion-description textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+
+      .discussion-description-wrapper {
+        position: relative;
+      }
+
+      .discussion-description-display {
+        min-height: 40px;
+        margin: 0;
+        cursor: pointer;
+        overflow: hidden;
+        transition: background 140ms ease;
+      }
+
+      .discussion-description-display:focus {
+        outline: none;
+      }
+      .discussion-description-display:hover {
+        background: color-mix(in srgb, var(--accent) 10%, var(--panel) 90%);
+      }
+
+      .discussion-description-rendered {
+        color: var(--ink);
+        line-height: 1.4;
+        text-transform: none;
+        font-family: inherit;
+      }
+
+      .discussion-description-rendered h1,
+      .discussion-description-rendered h2,
+      .discussion-description-rendered h3 {
+        margin-top: 1rem;
+        margin-bottom: 0.4rem;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      .discussion-description-rendered h1 {
+        font-size: 1.3rem;
+      }
+
+      .discussion-description-rendered h2 {
+        font-size: 1.15rem;
+        color: color-mix(in srgb, var(--ink) 75%, var(--muted) 25%);
+      }
+
+      .discussion-description-rendered h3 {
+        font-size: 1rem;
+        color: var(--muted);
+      }
+
+      .discussion-description-rendered p {
+        margin: 0.25rem 0;
+      }
+
+      .discussion-description-rendered ul,
+      .discussion-description-rendered ol {
+        margin: 0.25rem 0 0.25rem 1.2rem;
+      }
+
+      .discussion-comment-body ul,
+      .discussion-comment-body ol {
+        margin: 0;
+        padding-left: 1.2rem;
+      }
+
+      .discussion-comment-body ul li,
+      .discussion-comment-body ol li {
+        margin: 0;
+        padding: 0;
+        line-height: 1.35;
+      }
+
+      .discussion-description-empty {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 8px;
+        text-transform: none;
+        font-family: inherit;
+      }
+
+      .discussion-description-editor {
+        display: none;
+        margin-top: 10px;
+        border: 2px dashed color-mix(in srgb, var(--accent) 60%, var(--border) 40%);
+        border-radius: 10px;
+        padding: 12px;
+        background: color-mix(in srgb, var(--accent) 10%, var(--panel) 90%);
+        border-left-width: 6px;
+        border-left-color: color-mix(in srgb, var(--accent) 88%, var(--border) 12%);
+      }
+
+      .discussion-description-wrapper.is-editing .discussion-description-display {
+        display: none;
+      }
+
+      .discussion-description-wrapper.is-editing .discussion-description-editor {
+        display: block;
+      }
+
       .discussion-setting-status {
         width: 100%;
         border: 1px solid var(--border);
@@ -2516,6 +2686,11 @@
       body[data-theme="light"] .discussion-setting-status,
       body[data-theme="light"] .discussion-setting-readonly,
       body[data-theme="light"] .discussion-settings-assign-add input {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      }
+
+      body[data-theme="light"] .discussion-description-format select,
+      body[data-theme="light"] .discussion-description textarea {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
       }
 

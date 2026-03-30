@@ -53,7 +53,7 @@ from app.sidebar_layout import (
     top_level_sidebar_items,
 )
 from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
-from app.utils import current_user
+from app.utils import current_user, display_name_for_user
 from app.utils import is_admin as user_is_admin
 
 
@@ -71,7 +71,7 @@ def _direct_peer_for_user(project: Project, user_id: int) -> User | None:
 def _project_display_name_for_user(project: Project, user_id: int) -> str:
     peer = _direct_peer_for_user(project, user_id)
     if peer:
-        return peer.display_name or peer.email or project.name
+        return display_name_for_user(peer) or project.name
     return project.name
 
 

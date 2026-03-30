@@ -122,6 +122,11 @@ def _store_external_identity(
         refresh_token=refresh_token,
         token_expires_at=token_expires_at,
     )
+    if display_name:
+        normalized_display_name = display_name.strip()
+        if normalized_display_name and (not user.display_name or user.display_name == user.email):
+            user.display_name = normalized_display_name
+            db.session.flush()
 
 
 def _link_provider_account(

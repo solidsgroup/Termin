@@ -1,5 +1,7 @@
 from datetime import datetime
 from collections import defaultdict
+from html import escape
+from markdown import markdown as render_markdown
 from sqlalchemy import or_
 
 from flask import request
@@ -8,7 +10,7 @@ from flask_socketio import emit, join_room, leave_room
 from app.extensions import db, socketio
 
 from app.group_assignments import serialize_group_assignment_members
-from app.info_utils import load_info_payload
+from app.info_utils import load_info_payload, sanitize_info_html
 from app.models import (
     Assignment,
     CollaboratorProfile,
@@ -25,7 +27,7 @@ from app.models import (
     User,
 )
 from app.task_status import task_status_meta
-from app.utils import current_user
+from app.utils import current_user, display_name_for_user
 
 _handlers_registered = False
 _sid_user = {}
@@ -120,6 +122,23 @@ def _project_update_user_ids(project_id: int) -> set[int]:
     return {user_id for user_id in user_ids if user_id}
 
 
+def _render_description(description: str | None, description_format: str | None, default_format: str) -> str:
+    if not description:
+        return ""
+    fmt = (description_format or default_format or "").strip().lower()
+    if fmt == "markdown":
+        rendered = render_markdown(description, extensions=["extra", "sane_lists"])
+        return sanitize_info_html(rendered)
+    if fmt == "html":
+        return sanitize_info_html(description)
+    paragraphs = []
+    for block in re.split(r"\n\s*\n", escape(description).strip()):
+        if not block:
+            continue
+        paragraphs.append(f"<p>{block.replace('\\n', '<br />')}</p>")
+    return "".join(paragraphs)
+
+
 def _serialize_project_payload(project: Project) -> dict:
     info_payload = load_info_payload(getattr(project, "info", None), getattr(project, "link", None))
     return {
@@ -129,6 +148,8 @@ def _serialize_project_payload(project: Project) -> dict:
         "links": info_payload.get("links", []),
         "division_id": project.division_id,
         "is_direct": bool(getattr(project, "is_direct", False)),
+        "description": project.description,
+        "description_format": project.description_format or "markdown",
     }
 
 
@@ -154,18 +175,21 @@ def _serialize_project_payload_for_user(project: Project, user_id: int) -> dict:
             {
                 "id": peer.id,
                 "email": peer.email,
-                "display_name": peer.display_name,
+                "display_name": display_name_for_user(peer),
                 "avatar_url": peer.avatar_url,
             }
             if peer
             else None
         )
-        payload["display_name"] = (peer.display_name or peer.email) if peer else project.name
+        payload["display_name"] = display_name_for_user(peer) if peer else project.name
         payload["division_id"] = None
     else:
         pref = ProjectSidebarPreference.query.filter_by(user_id=user_id, project_id=project.id).first()
         if pref:
             payload["division_id"] = pref.division_id
+    payload["description"] = project.description
+    payload["description_format"] = project.description_format or "markdown"
+    payload["rendered_description"] = _render_description(project.description, project.description_format, "markdown")
     return payload
 
 
@@ -178,6 +202,8 @@ def _serialize_group_payload(group: Group) -> dict:
         "color": group.color,
         "position": group.position,
         "links": info_payload.get("links", []),
+        "description": group.description,
+        "description_format": group.description_format or "markdown",
     }
 
 
