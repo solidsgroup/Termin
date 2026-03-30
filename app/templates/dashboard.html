@@ -228,7 +228,7 @@
             <div class="due-summary{% if not task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if task.due_at %}Due {{ task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
               <span class="due-summary-label">{{ render_due_summary(task, now_utc) }}</span>
             </div>
-            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
           </div>
         </td>
         <td>
@@ -718,7 +718,7 @@
                         <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
                           <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
                         </div>
-                        <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+                        <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-due-mode="{{ todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
                       </div>
                       {% if github_meta %}
                         <div class="todo-control todo-control-status">
@@ -885,7 +885,7 @@
                           <td>
                             <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
                               <div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div>
-                              <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+                              <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
                             </div>
                           </td>
                           <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
@@ -940,7 +940,7 @@
                         <td>
                           <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
                             <div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div>
-                            <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+                            <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
                           </div>
                         </td>
                         <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
@@ -1078,7 +1078,7 @@
 	                        <div class="due-summary is-fallback" data-due-summary title="Created today">
 	                          <span class="due-summary-label">Created today</span>
 	                        </div>
-	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
 	                      </div>
 	                    </td>
 	                    <td>
@@ -1139,7 +1139,7 @@
 	                        <div class="due-summary is-fallback" data-due-summary title="Created today">
 	                          <span class="due-summary-label">Created today</span>
 	                        </div>
-	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" value="" disabled tabindex="-1" />
+	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
 	                      </div>
 	                    </td>
 	                    <td>
@@ -1235,7 +1235,14 @@
       <div class="discussion-settings-grid" data-task-only>
         <label class="discussion-setting-field is-inline">
           <span class="discussion-setting-label">Due</span>
-          <input id="task-settings-due" type="date" />
+          <div class="discussion-setting-due-wrap">
+            <select id="task-settings-due-mode">
+              <option value="none">No Date</option>
+              <option value="asap">ASAP</option>
+              <option value="date">Date</option>
+            </select>
+            <input id="task-settings-due" type="date" />
+          </div>
         </label>
         <label class="discussion-setting-field is-inline">
           <span class="discussion-setting-label" id="task-settings-status-label">Status</span>
@@ -1261,6 +1268,9 @@
         </div>
       </div>
       <div class="discussion-settings-meta" id="task-settings-meta"></div>
+      <div class="discussion-settings-danger" data-task-only>
+        <button class="btn danger" type="button" id="task-settings-delete">Delete Task</button>
+      </div>
     </div>
   </div>
   <div class="discussion-pane" id="discussion-links-pane" data-drawer-pane="links">
@@ -1828,7 +1838,7 @@
             "</span>" +
           '</div>' +
         '</td>' +
-        '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" /></div></td>' +
+        '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" /></div></td>' +
         '<td><div data-task-status-host="' + taskId + '"><div class="editable status-editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></div></td>' +
         '<td>' +
           '<div class="assignments">' +
@@ -2660,7 +2670,7 @@
                   ? '<tr class="new-row">' +
                       '<td></td>' +
                       '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
-                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" disabled tabindex="-1" /></div></td>' +
+                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>' +
                       '<td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>' +
                       '<td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>' +
                     '</tr>'
@@ -2779,7 +2789,7 @@
                   ? '<tr class="new-row">' +
                       '<td></td>' +
                       '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
-                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" value="" disabled tabindex="-1" /></div></td>' +
+                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>' +
                       '<td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>' +
                       '<td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>' +
                     '</tr>'
@@ -4354,7 +4364,8 @@
   (function () {
     var isTodoView = {{ 'true' if current_view == 'todo' else 'false' }};
 
-    function formatDueSummary(dueValue, createdValue) {
+    function formatDueSummary(dueValue, createdValue, dueMode) {
+      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
       var today = new Date();
       var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       if (dueValue) {
@@ -4375,7 +4386,8 @@
       return "Created today";
     }
 
-    function formatDueCompactLabel(dueValue, createdValue) {
+    function formatDueCompactLabel(dueValue, createdValue, dueMode) {
+      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
       if (dueValue) return dueValue;
       if (createdValue) return createdValue;
       return "Today";
@@ -4388,17 +4400,20 @@
       var label = summary ? summary.querySelector(".due-summary-label") : null;
       var dueValue = (input.value || "").trim();
       var createdValue = input.getAttribute("data-created-at");
+      var dueMode = input.getAttribute("data-due-mode");
       if (label) {
         if (cell && cell.closest(".todo-item")) {
           label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span></span>';
           var compactText = label.querySelector("span");
-          if (compactText) compactText.textContent = formatDueCompactLabel(dueValue, createdValue);
+          if (compactText) compactText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode);
         } else {
-          label.textContent = formatDueSummary(dueValue, createdValue);
+          label.textContent = formatDueSummary(dueValue, createdValue, dueMode);
         }
       }
       if (summary) {
-        summary.title = dueValue ? "Due " + dueValue : "Created " + (createdValue || new Date().toISOString().slice(0, 10));
+        summary.title = String(dueMode || "").toLowerCase() === "asap"
+          ? "ASAP"
+          : (dueValue ? "Due " + dueValue : "Created " + (createdValue || new Date().toISOString().slice(0, 10)));
         summary.classList.toggle("is-fallback", !dueValue);
       }
     }
@@ -5380,7 +5395,7 @@
             </span>
           </div>
         </td>
-        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
+        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-due-mode="${info && info.meta && info.meta.due_mode ? info.meta.due_mode : (due ? "date" : "none")}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
         <td><div data-task-status-host="${id}"><div class="editable status-editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></div></td>
         <td>
           <div class="assignments">
@@ -5575,7 +5590,7 @@
 	              <tr class="new-row">
 	                <td></td>
 	                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
-	                <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" value="" disabled tabindex="-1" /></div></td>
+	                <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>
 	                <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
 	                <td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>
 	              </tr>` : ""}
@@ -5760,7 +5775,8 @@
       collapseInlineAssignInput(input);
     };
 
-    const formatDueSummary = (dueValue, createdValue) => {
+    const formatDueSummary = (dueValue, createdValue, dueMode) => {
+      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
       const today = new Date();
       const nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       if (dueValue) {
@@ -5788,15 +5804,18 @@
       if (!summary) return;
       const dueValue = input.value.trim();
       const createdValue = input.getAttribute("data-created-at");
+      const dueMode = input.getAttribute("data-due-mode");
       const label = summary.querySelector(".due-summary-label");
       if (label) {
         if (dueCell && dueCell.closest(".todo-item")) {
-          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
+          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>' + (String(dueMode || "").toLowerCase() === "asap" ? '<span>ASAP</span>' : '');
         } else {
-          label.textContent = formatDueSummary(dueValue, createdValue);
+          label.textContent = formatDueSummary(dueValue, createdValue, dueMode);
         }
       }
-      summary.title = dueValue ? `Due ${dueValue}` : `Created ${createdValue || new Date().toISOString().slice(0, 10)}`;
+      summary.title = String(dueMode || "").toLowerCase() === "asap"
+        ? "ASAP"
+        : (dueValue ? `Due ${dueValue}` : `Created ${createdValue || new Date().toISOString().slice(0, 10)}`);
       summary.classList.toggle("is-fallback", !dueValue);
     };
 
@@ -5807,6 +5826,7 @@
       const dueCell = input.closest("[data-due-cell]");
       const isTodo = dueCell && dueCell.getAttribute("data-todo-due") === "1";
       const summary = dueCell ? dueCell.querySelector("[data-due-summary]") : null;
+      if (summary) summary.classList.add("is-active");
       if (!isTodo) {
         if (summary) summary.classList.add("hidden");
         input.classList.remove("hidden");
@@ -5830,12 +5850,73 @@
         input.click();
       }
     };
+    window.__showDueInput = showDueInput;
+
+    function closeDueModeMenu() {
+      if (window.__activeDueMenuInput) {
+        const activeCell = window.__activeDueMenuInput.closest("[data-due-cell]");
+        const activeSummary = activeCell ? activeCell.querySelector("[data-due-summary]") : null;
+        if (activeSummary) activeSummary.classList.remove("is-active");
+      }
+      if (window.__activeDueMenuEl && window.__activeDueMenuEl.parentNode) {
+        window.__activeDueMenuEl.parentNode.removeChild(window.__activeDueMenuEl);
+      }
+      window.__activeDueMenuEl = null;
+      window.__activeDueMenuInput = null;
+    }
+    window.__closeDueModeMenu = closeDueModeMenu;
+
+    function openDueModeMenu(input) {
+      if (!input) return false;
+      const dueCell = input.closest("[data-due-cell]");
+      if (!dueCell) return false;
+      closeDueModeMenu();
+      const summary = dueCell.querySelector("[data-due-summary]");
+      if (summary) summary.classList.add("is-active");
+      const currentMode = String(input.getAttribute("data-due-mode") || (input.value ? "date" : "none")).toLowerCase();
+      const menu = document.createElement("div");
+      const dueRect = dueCell.getBoundingClientRect();
+      menu.className = "todo-assignee-menu";
+      menu.style.position = "fixed";
+      menu.style.width = "min(260px, calc(100vw - 24px))";
+      menu.style.maxWidth = "calc(100vw - 24px)";
+      menu.style.top = Math.round(dueCell.getBoundingClientRect().bottom + 6) + "px";
+      menu.style.zIndex = "600";
+      menu.innerHTML =
+        '<div class="todo-assignee-actions" style="margin:0;">' +
+          '<button class="btn secondary' + (currentMode === "none" ? ' is-active' : '') + '" type="button" data-due-mode-action="none">No Date</button>' +
+          '<button class="btn secondary' + (currentMode === "asap" ? ' is-active' : '') + '" type="button" data-due-mode-action="asap">ASAP</button>' +
+          '<button class="btn secondary' + (currentMode === "date" ? ' is-active' : '') + '" type="button" data-due-mode-action="date">Date</button>' +
+        '</div>' +
+        '<div data-due-mode-date-wrap style="margin-top:8px;">' +
+          '<input type="date" data-due-mode-date-input style="width:100%; border:1px solid var(--border); background:color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%); color:var(--ink); border-radius:10px; padding:7px 10px; font:inherit; font-size:13px;" value="' + (input.value || "") + '" />' +
+        '</div>';
+      document.body.appendChild(menu);
+      var menuWidth = Math.min(260, Math.max(180, menu.offsetWidth || 260));
+      var left = Math.round(dueRect.right - menuWidth);
+      left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
+      menu.style.left = left + "px";
+      var embeddedDateInput = menu.querySelector("[data-due-mode-date-input]");
+      if (embeddedDateInput) {
+        embeddedDateInput.addEventListener("change", function () {
+          input.setAttribute("data-due-mode", "date");
+          input.value = embeddedDateInput.value || "";
+          if (typeof window.__applyDueInput === "function") {
+            window.__applyDueInput(input);
+          }
+          closeDueModeMenu();
+        });
+      }
+      window.__activeDueMenuEl = menu;
+      window.__activeDueMenuInput = input;
+      return false;
+    }
 
     window.__openDueInput = (cell) => {
       if (!cell) return false;
       const input = cell.querySelector(".due-input");
       if (!input) return false;
-      showDueInput(input);
+      openDueModeMenu(input);
       return false;
     };
 
@@ -5845,12 +5926,14 @@
       const summary = dueCell ? dueCell.querySelector("[data-due-summary]") : null;
       input.classList.add("hidden");
       if (summary) summary.classList.remove("hidden");
+      if (summary && !window.__activeDueMenuEl) summary.classList.remove("is-active");
     };
 
     const applyDueInput = (input) => {
       if (!input) return;
       const taskId = input.getAttribute("data-task-id");
       const value = input.value.trim();
+      const dueMode = String(input.getAttribute("data-due-mode") || (value ? "date" : "none")).toLowerCase();
       if (value && !isValidDate(value)) {
         setInvalid(input, true, "Use YYYY-MM-DD");
         return;
@@ -5862,16 +5945,17 @@
         fetch(`/api/tasks/${taskId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ due_at: value || null }),
+          body: JSON.stringify({ due_at: value || null, due_mode: dueMode }),
         });
         if (typeof moveTodoItemIfNeeded === "function") {
           var todoItem = input.closest(".todo-item");
           if (todoItem) {
-            moveTodoItemIfNeeded(String(taskId), value || "", input.getAttribute("data-created-at"));
+            moveTodoItemIfNeeded(String(taskId), value || "", input.getAttribute("data-created-at"), dueMode);
           }
         }
       }
     };
+    window.__applyDueInput = applyDueInput;
 
 	    const bindDueInput = (input) => {
 	      if (!input) return;
@@ -5884,7 +5968,7 @@
         dueCell.dataset.bound = "1";
         dueCell.addEventListener("click", (event) => {
           if (event.target === input) return;
-          showDueInput(input);
+          openDueModeMenu(input);
         });
       }
       input.addEventListener("change", () => applyDueInput(input));
@@ -6277,6 +6361,13 @@
       if (deleteBtn) {
         const taskId = deleteBtn.getAttribute("data-delete-task");
         if (!taskId) return;
+        const closeDeletedTaskDrawer = () => {
+          const openDrawer = document.getElementById("discussion-drawer");
+          if (!openDrawer) return;
+          if (String(openDrawer.getAttribute("data-open-task-id") || "") !== String(taskId)) return;
+          openDrawer.classList.remove("open");
+          openDrawer.setAttribute("data-open-task-id", "");
+        };
         fetch(`/api/tasks/${taskId}`, { method: "DELETE" })
           .then((res) => res.json().catch(() => ({})))
           .then((data) => {
@@ -6292,11 +6383,13 @@
                   if (data2.status !== "deleted") return;
                   const row = document.querySelector(`[data-task-row-id='${taskId}']`);
                   if (row) row.remove();
+                  closeDeletedTaskDrawer();
                 });
             }
             if (data.status !== "deleted") return;
             const row = document.querySelector(`[data-task-row-id='${taskId}']`);
             if (row) row.remove();
+            closeDeletedTaskDrawer();
           });
         return;
       }
@@ -8376,7 +8469,9 @@
     var linksActionsEl = document.getElementById("discussion-links-actions");
     var linksListEl = document.getElementById("discussion-links-list");
     var copyTaskPermalinkEl = document.getElementById("copy-task-permalink");
+    var taskSettingsDeleteEl = document.getElementById("task-settings-delete");
     var taskSettingsTitleEl = document.getElementById("task-settings-title");
+    var taskSettingsDueModeEl = document.getElementById("task-settings-due-mode");
     var taskSettingsDueEl = document.getElementById("task-settings-due");
     var taskSettingsStatusEl = document.getElementById("task-settings-status");
     var taskSettingsStatusLabelEl = document.getElementById("task-settings-status-label");
@@ -8422,6 +8517,20 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+    }
+
+    function taskDueModeValue(task) {
+      var mode = String((task && task.due_mode) || "").trim().toLowerCase();
+      if (mode === "asap" || mode === "date") return mode;
+      if (task && task.due_at) return "date";
+      return "none";
+    }
+
+    function syncTaskSettingsDueControl() {
+      if (!taskSettingsDueModeEl || !taskSettingsDueEl) return;
+      var mode = String(taskSettingsDueModeEl.value || "none");
+      taskSettingsDueEl.hidden = mode !== "date";
+      taskSettingsDueEl.disabled = mode !== "date";
     }
 
     function typesetMathNodes(nodes) {
@@ -9158,7 +9267,7 @@
       return !!document.querySelector("[data-todo-tree]");
     }
 
-    function todoBucketFor(dueValue, createdValue) {
+    function todoBucketFor(dueValue, createdValue, dueMode) {
       var today = new Date();
       var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       var dueDate = dueValue ? new Date(dueValue + "T00:00:00") : null;
@@ -9176,33 +9285,37 @@
       var nextMonthStart = new Date(nowDay.getFullYear(), nowDay.getMonth() + 1, 1);
       var monthAfterNextStart = new Date(nowDay.getFullYear(), nowDay.getMonth() + 2, 1);
 
+      if (String(dueMode || "").toLowerCase() === "asap" && !dueDay) {
+        return { key: "asap", label: "ASAP", rank: 1 };
+      }
       if (!dueDay) {
         return { key: "none", label: "No Due Date", rank: 9 };
       }
       if (dueDay < nowDay) return { key: "overdue", label: "Overdue", rank: 0 };
-      if (dueDay.getTime() === nowDay.getTime()) return { key: "today", label: "Today", rank: 1 };
+      if (dueDay.getTime() === nowDay.getTime()) return { key: "today", label: "Today", rank: 2 };
       var tomorrow = new Date(nowDay);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      if (dueDay.getTime() === tomorrow.getTime()) return { key: "tomorrow", label: "Tomorrow", rank: 2 };
-      if (dueDay < nextWeekStart) return { key: "this_week", label: "This Week", rank: 3 };
-      if (dueDay < twoWeeksStart) return { key: "next_week", label: "Next Week", rank: 4 };
-      if (dueDay < threeWeeksStart) return { key: "two_weeks", label: "Two Weeks", rank: 5 };
-      if (dueDay < fourWeeksStart) return { key: "three_weeks", label: "Three Weeks", rank: 6 };
-      if (dueDay >= nextMonthStart && dueDay < monthAfterNextStart) return { key: "next_month", label: "Next Month", rank: 7 };
-      return { key: "later", label: "Later", rank: 8 };
+      if (dueDay.getTime() === tomorrow.getTime()) return { key: "tomorrow", label: "Tomorrow", rank: 3 };
+      if (dueDay < nextWeekStart) return { key: "this_week", label: "This Week", rank: 4 };
+      if (dueDay < twoWeeksStart) return { key: "next_week", label: "Next Week", rank: 5 };
+      if (dueDay < threeWeeksStart) return { key: "two_weeks", label: "Two Weeks", rank: 6 };
+      if (dueDay < fourWeeksStart) return { key: "three_weeks", label: "Three Weeks", rank: 7 };
+      if (dueDay >= nextMonthStart && dueDay < monthAfterNextStart) return { key: "next_month", label: "Next Month", rank: 8 };
+      return { key: "later", label: "Later", rank: 9 };
     }
 
     function todoBucketRank(key) {
       if (key === "overdue") return 0;
-      if (key === "today") return 1;
-      if (key === "tomorrow") return 2;
-      if (key === "this_week") return 3;
-      if (key === "next_week") return 4;
-      if (key === "two_weeks") return 5;
-      if (key === "three_weeks") return 6;
-      if (key === "next_month") return 7;
-      if (key === "later") return 8;
-      return 9;
+      if (key === "asap") return 1;
+      if (key === "today") return 2;
+      if (key === "tomorrow") return 3;
+      if (key === "this_week") return 4;
+      if (key === "next_week") return 5;
+      if (key === "two_weeks") return 6;
+      if (key === "three_weeks") return 7;
+      if (key === "next_month") return 8;
+      if (key === "later") return 9;
+      return 10;
     }
 
     function ensureTodoGroup(bucket) {
@@ -9222,12 +9335,13 @@
       return panel;
     }
 
-    function moveTodoItemIfNeeded(taskId, dueValue, createdValue) {
+    function moveTodoItemIfNeeded(taskId, dueValue, createdValue, dueMode) {
       var item = document.querySelector('.todo-item[data-task-id="' + taskId + '"]');
       if (!item) return;
       item.setAttribute("data-due-at", dueValue || "");
+      item.setAttribute("data-due-mode", dueMode || "none");
       if (createdValue) item.setAttribute("data-created-at", createdValue);
-      var bucket = todoBucketFor(dueValue, createdValue || item.getAttribute("data-created-at") || "");
+      var bucket = todoBucketFor(dueValue, createdValue || item.getAttribute("data-created-at") || "", dueMode || item.getAttribute("data-due-mode") || "");
       var currentGroup = item.closest(".todo-date-group");
       if (currentGroup && currentGroup.getAttribute("data-todo-date-key") === bucket.key) return;
       var targetGroup = ensureTodoGroup(bucket);
@@ -9742,7 +9856,11 @@
       var creator = task.creator || null;
       var creatorLabel = creator ? (creator.display_name || creator.email || "Unknown") : "Unknown";
       taskSettingsTitleEl.value = task.title || "";
+      if (taskSettingsDueModeEl) {
+        taskSettingsDueModeEl.value = taskDueModeValue(task);
+      }
       taskSettingsDueEl.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      syncTaskSettingsDueControl();
       var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
       if (taskSettingsCreatorEl) {
         taskSettingsCreatorEl.innerHTML = "";
@@ -9829,7 +9947,9 @@
       }
       drawer.setAttribute("data-is-direct", currentEntityIsDirect ? "1" : "0");
       taskSettingsTitleEl.value = entity.name || currentTaskTitle || "";
+      if (taskSettingsDueModeEl) taskSettingsDueModeEl.value = "none";
       if (taskSettingsDueEl) taskSettingsDueEl.value = "";
+      syncTaskSettingsDueControl();
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = "";
         taskSettingsStatusEl.setAttribute("data-payload-field", "status");
@@ -10014,7 +10134,10 @@
           : "status";
         var payload = {
           title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
-          due_at: taskSettingsDueEl ? taskSettingsDueEl.value : "",
+          due_at: taskSettingsDueModeEl && taskSettingsDueModeEl.value !== "date"
+            ? ""
+            : (taskSettingsDueEl ? taskSettingsDueEl.value : ""),
+          due_mode: taskSettingsDueModeEl ? taskSettingsDueModeEl.value : "none",
           per_user_status_enabled: perUserEnabled,
           description: descriptionPayload.description,
           description_format: descriptionPayload.description_format,
@@ -10482,6 +10605,7 @@
       var matched = false;
       var normalizedTitle = task.title || "";
       var normalizedDue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var normalizedDueMode = task.due_mode || (normalizedDue ? "date" : "none");
       var myStatus = taskMyStatus(task);
       var aggregateState = taskAggregateStatusState(task);
 
@@ -10528,13 +10652,14 @@
         matched = true;
         input.value = normalizedDue;
         input.dataset.originalValue = normalizedDue;
+        input.setAttribute("data-due-mode", task.due_mode || (normalizedDue ? "date" : "none"));
         if (typeof window.__updateDueDisplay === "function") {
           window.__updateDueDisplay(input);
         }
       });
       var todoItem = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
       if (todoItem && typeof moveTodoItemIfNeeded === "function") {
-        moveTodoItemIfNeeded(String(task.id), normalizedDue, task.created_at ? String(task.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"));
+        moveTodoItemIfNeeded(String(task.id), normalizedDue, task.created_at ? String(task.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"), normalizedDueMode);
       }
       if (document.querySelector('[data-task-status-host="' + task.id + '"]')) {
         matched = true;
@@ -10924,7 +11049,7 @@
               <div class="due-summary${dueValue ? "" : " is-fallback"}" data-due-summary title="${dueValue ? "Due " + dueValue : "Created " + createdValue}">
                 <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
               </div>
-              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" value="${dueValue}" />
+              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${task.due_mode || (dueValue ? "date" : "none")}" value="${dueValue}" />
             </div>
             <div class="todo-control todo-control-status" title="${status}" aria-label="Status: ${status}"><div data-task-status-host="${task.id}">${renderTaskStatusCellHtml(task, { todo: true })}</div></div>
           </div>
@@ -11808,10 +11933,96 @@
       }, true);
     }
 
-    [taskSettingsTitleEl, taskSettingsDueEl, taskSettingsStatusEl].filter(Boolean).forEach(function (input) {
+    [taskSettingsTitleEl, taskSettingsDueEl, taskSettingsDueModeEl, taskSettingsStatusEl].filter(Boolean).forEach(function (input) {
       if (input === taskSettingsStatusEl) return;
+      if (input === taskSettingsDueModeEl) {
+        input.addEventListener('change', function () {
+          syncTaskSettingsDueControl();
+          persistEntitySettings();
+        });
+        return;
+      }
       input.addEventListener('change', persistEntitySettings);
       input.addEventListener('blur', persistEntitySettings);
+    });
+    syncTaskSettingsDueControl();
+
+    if (taskSettingsDeleteEl) {
+      taskSettingsDeleteEl.addEventListener("click", function () {
+        if (!currentTaskId) return;
+        var inlineDelete = document.querySelector('[data-delete-task="' + currentTaskId + '"]');
+        if (inlineDelete) {
+          inlineDelete.click();
+          return;
+        }
+        fetch('/api/tasks/' + currentTaskId, { method: "DELETE" })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (data.requires_confirm) {
+              var parts = [];
+              if (data.invite_count > 0) parts.push(data.invite_count + " sent links");
+              var message = "This task has " + parts.join(" and ") + ". Delete anyway?";
+              if (!confirm(message)) return;
+              return fetch('/api/tasks/' + currentTaskId + '?confirm=1', { method: "DELETE" })
+                .then(function (res2) { return res2.json().catch(function () { return {}; }); })
+                .then(function (data2) {
+                  if (data2.status !== "deleted") return;
+                  drawer.classList.remove("open");
+                });
+            }
+            if (data.status !== "deleted") return;
+            drawer.classList.remove("open");
+          });
+      });
+    }
+
+    document.addEventListener("click", function (event) {
+      if (!window.__activeDueMenuEl) return;
+      var action = event.target.closest("[data-due-mode-action]");
+      if (action && window.__activeDueMenuInput) {
+        event.preventDefault();
+        var mode = action.getAttribute("data-due-mode-action");
+        var targetInput = window.__activeDueMenuInput;
+        targetInput.setAttribute("data-due-mode", mode);
+        if (mode === "date") {
+          var dateInput = window.__activeDueMenuEl ? window.__activeDueMenuEl.querySelector("[data-due-mode-date-input]") : null;
+          if (dateInput) {
+            dateInput.value = targetInput.value || "";
+            window.setTimeout(function () {
+              dateInput.focus();
+              if (typeof dateInput.showPicker === "function") {
+                try {
+                  dateInput.showPicker();
+                } catch (err) {}
+              } else if (typeof dateInput.click === "function") {
+                dateInput.click();
+              }
+            }, 0);
+          }
+          return;
+        }
+        targetInput.value = "";
+        if (typeof window.__applyDueInput === "function") {
+          window.__applyDueInput(targetInput);
+        }
+        if (typeof window.__closeDueModeMenu === "function") {
+          window.__closeDueModeMenu();
+        }
+        return;
+      }
+      if (!event.target.closest(".todo-assignee-menu") && !event.target.closest("[data-due-cell]")) {
+        if (typeof window.__closeDueModeMenu === "function") {
+          window.__closeDueModeMenu();
+        }
+      }
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        if (typeof window.__closeDueModeMenu === "function") {
+          window.__closeDueModeMenu();
+        }
+      }
     });
     if (taskSettingsTitleEl) {
       taskSettingsTitleEl.addEventListener('keydown', function (event) {

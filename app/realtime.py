@@ -51,6 +51,18 @@ def project_room(project_id: int) -> str:
     return f"project:{project_id}"
 
 
+def _task_due_mode(task: Task | None) -> str:
+    if not task:
+        return "none"
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    mode = str(info_payload.get("meta", {}).get("due_mode") or "").strip().lower()
+    if mode in {"asap", "date"}:
+        return mode
+    if task.due_at:
+        return "date"
+    return "none"
+
+
 def _user_sids(user_id: int) -> list[str]:
     return [sid for sid, sid_user_id in _sid_user.items() if int(sid_user_id) == int(user_id)]
 
@@ -231,6 +243,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "status_meta": task_status_meta(task),
         "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
     }
 
@@ -643,6 +656,7 @@ def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_
             "link": task.link,
             "links": info_payload.get("links", []),
             "due_at": task.due_at.isoformat() if task.due_at else None,
+            "due_mode": _task_due_mode(task),
             "status": task.status,
             "per_user_status_enabled": bool(task.per_user_status_enabled),
             "assign_group_members": bool(task.assign_group_members),

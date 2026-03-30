@@ -11,6 +11,7 @@ from werkzeug.utils import secure_filename
 
 ALLOWED_TAGS = {"a", "b", "blockquote", "br", "code", "em", "h1", "h2", "h3", "h4", "h5", "h6", "i", "li", "ol", "p", "pre", "strong", "u", "ul"}
 ALLOWED_ATTRS = {"a": {"href", "target", "rel"}}
+ALLOWED_META_KEYS = {"due_mode"}
 
 
 class _InfoSanitizer(HTMLParser):
@@ -104,10 +105,21 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
             }
         )
 
-    if not html and not attachments and not links:
+    meta = {}
+    raw_meta = (payload or {}).get("meta")
+    if isinstance(raw_meta, dict):
+        for key, value in raw_meta.items():
+            if key not in ALLOWED_META_KEYS or value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            meta[key] = text
+
+    if not html and not attachments and not links and not meta:
         return None
 
-    return json.dumps({"html": html, "attachments": attachments, "links": links}, separators=(",", ":"))
+    return json.dumps({"html": html, "attachments": attachments, "links": links, "meta": meta}, separators=(",", ":"))
 
 
 def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> dict:
@@ -137,6 +149,17 @@ def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> 
         if parsed_legacy.scheme in {"http", "https"}:
             links.append(legacy_link)
     data["links"] = links
+    raw_meta = data.get("meta")
+    meta = {}
+    if isinstance(raw_meta, dict):
+        for key, value in raw_meta.items():
+            if key not in ALLOWED_META_KEYS or value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            meta[key] = text
+    data["meta"] = meta
     return data
 
 

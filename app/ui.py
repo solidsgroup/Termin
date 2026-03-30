@@ -1164,9 +1164,14 @@ def dashboard():
             project = project_map.get(task.project_id)
             if not project:
                 continue
+            task_info = load_info_payload(task.info, task.link)
+            due_mode = str(task_info.get("meta", {}).get("due_mode") or "").strip().lower()
             pref = sidebar_pref_map.get(project.id)
             division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
-            bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
+            if due_mode == "asap" and not task.due_at:
+                bucket_key, bucket_label, bucket_rank = ("asap", "ASAP", 1)
+            else:
+                bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
             todo_items.append(
                 {
                     "task": task,

@@ -889,6 +889,18 @@
         font-size: 11px;
       }
 
+      .todo-assignee-actions .btn.is-active {
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 68%, var(--border) 32%);
+        color: var(--ink);
+      }
+
+      body[data-theme="light"] .todo-assignee-actions .btn.is-active {
+        background: color-mix(in srgb, var(--accent) 14%, white 86%);
+        border-color: color-mix(in srgb, var(--accent) 44%, var(--border) 56%);
+        color: var(--ink);
+      }
+
       .todo-assignee-list {
         display: flex;
         flex-direction: column;
@@ -2303,6 +2315,34 @@
         flex: 1 1 auto;
       }
 
+      .discussion-setting-due-wrap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: min(100%, 320px);
+        flex: 1 1 auto;
+      }
+
+      .discussion-setting-due-wrap select,
+      .discussion-setting-field select {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: inherit;
+        letter-spacing: normal;
+        text-transform: none;
+      }
+
+      .discussion-setting-due-wrap select {
+        flex: 0 0 120px;
+      }
+
+      .discussion-setting-due-wrap input {
+        flex: 1 1 auto;
+      }
+
       .discussion-setting-field--description {
         text-transform: none;
         letter-spacing: normal;
@@ -2720,7 +2760,16 @@
         color: var(--muted);
       }
 
+      .discussion-settings-danger {
+        padding-top: 6px;
+      }
+
       body[data-theme="light"] .discussion-setting-field input {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      }
+
+      body[data-theme="light"] .discussion-setting-due-wrap select,
+      body[data-theme="light"] .discussion-setting-field select {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
       }
 
@@ -3893,6 +3942,17 @@
         background: rgba(239, 68, 68, 0.22);
       }
 
+      body[data-theme="light"] .btn.danger {
+        border-color: #dc2626;
+        background: #dc2626;
+        color: #fff;
+      }
+
+      body[data-theme="light"] .btn.danger:hover {
+        background: #b91c1c;
+        border-color: #b91c1c;
+      }
+
       body[data-theme="light"] .btn:not(.secondary):not(.link) {
         color: #fff;
       }
@@ -5015,6 +5075,12 @@
         transform: translateY(-1px);
       }
 
+      .due-summary.is-active {
+        border-color: rgba(76, 201, 240, 0.46);
+        background: rgba(76, 201, 240, 0.12);
+        color: var(--accent);
+      }
+
       .due-summary:focus-visible {
         outline: 2px solid rgba(76, 201, 240, 0.4);
         outline-offset: 2px;
@@ -5028,6 +5094,12 @@
 
       body[data-theme="light"] .due-summary.is-fallback {
         background: color-mix(in srgb, white 95%, var(--panel-alt) 5%);
+      }
+
+      body[data-theme="light"] .due-summary.is-active {
+        background: color-mix(in srgb, var(--accent) 12%, white 88%);
+        border-color: color-mix(in srgb, var(--accent) 42%, var(--border) 58%);
+        color: color-mix(in srgb, var(--accent-strong) 78%, #0f172a 22%);
       }
 
       .due-summary.is-fallback {
@@ -6118,6 +6190,33 @@
           box-sizing: border-box;
         }
 
+        .discussion-settings-grid .discussion-setting-field.is-inline {
+          justify-content: flex-start;
+        }
+
+        .discussion-setting-due-wrap {
+          width: auto;
+          min-width: 0;
+          max-width: 220px;
+          flex: 1 1 auto;
+          flex-wrap: nowrap;
+        }
+
+        .discussion-setting-due-wrap select,
+        .discussion-setting-due-wrap input {
+          min-width: 0;
+        }
+
+        .discussion-setting-due-wrap select {
+          flex: 0 0 96px;
+          width: 96px;
+        }
+
+        .discussion-setting-due-wrap input {
+          flex: 1 1 auto;
+          width: 0;
+        }
+
         .sidebar {
           display: none;
           border-right: none;
@@ -6612,6 +6711,24 @@
           flex: 0 0 22px;
         }
 
+        .todo-assignments .badge-icon .badge-x,
+        .github-assignments .badge-icon .badge-x {
+          display: none !important;
+        }
+
+        .todo-assignments .badge-icon[data-remove-assignment],
+        .github-assignments .badge-icon[data-remove-assignment] {
+          pointer-events: none;
+          cursor: default;
+        }
+
+        .todo-assignments .badge-icon .badge-initial,
+        .todo-assignments .badge-icon .badge-photo,
+        .github-assignments .badge-icon .badge-initial,
+        .github-assignments .badge-icon .badge-photo {
+          opacity: 1 !important;
+        }
+
         .todo-item-controls .assign-action,
         .todo-item-controls .assign-spacer {
           display: none;
@@ -6847,6 +6964,24 @@
           display: inline-flex;
           align-items: center;
           justify-content: center;
+        }
+
+        .tasks-table .assignments .badge-icon .badge-x,
+        .tasks-table .github-assignments .badge-icon .badge-x {
+          display: none !important;
+        }
+
+        .tasks-table .assignments .badge-icon[data-remove-assignment],
+        .tasks-table .github-assignments .badge-icon[data-remove-assignment] {
+          pointer-events: none;
+          cursor: default;
+        }
+
+        .tasks-table .assignments .badge-icon .badge-initial,
+        .tasks-table .assignments .badge-icon .badge-photo,
+        .tasks-table .github-assignments .badge-icon .badge-initial,
+        .tasks-table .github-assignments .badge-icon .badge-photo {
+          opacity: 1 !important;
         }
 
         .tasks-table .due-cell {

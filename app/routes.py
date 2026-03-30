@@ -93,6 +93,7 @@ DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
 DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown"
+TASK_DUE_MODE_OPTIONS = {"none", "date", "asap"}
 
 
 def _coerce_description_format(value: str | None, default: str) -> str | None:
@@ -129,9 +130,45 @@ def _render_comment_body(body: str | None) -> str:
         return ""
     rendered = render_markdown(body, extensions=["extra", "sane_lists"])
     return sanitize_info_html(rendered)
-DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
-DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
-DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
+
+
+def _task_due_mode(task: Task) -> str:
+    info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    mode = str(info.get("meta", {}).get("due_mode") or "").strip().lower()
+    if mode in {"asap", "date"}:
+        return mode
+    if task.due_at:
+        return "date"
+    return "none"
+
+
+def _normalize_due_mode(value: str | None, *, fallback: str = "date") -> str:
+    mode = (str(value or fallback).strip().lower() or fallback)
+    return mode if mode in TASK_DUE_MODE_OPTIONS else fallback
+
+
+def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bool, str | None]:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    mode = _normalize_due_mode(due_mode_raw, fallback="date" if due_at_raw else "none")
+    if mode == "none":
+        task.due_at = None
+        meta.pop("due_mode", None)
+    elif mode == "asap":
+        task.due_at = None
+        meta["due_mode"] = "asap"
+    else:
+        if due_at_raw == "":
+            task.due_at = None
+        elif due_at_raw:
+            try:
+                task.due_at = datetime.fromisoformat(due_at_raw)
+            except ValueError:
+                return False, "Invalid due_at format"
+        meta["due_mode"] = "date"
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    return True, None
 
 @api_bp.get("/me")
 @login_required
@@ -380,6 +417,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "position": task.position,
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
         "status": task.status,
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
@@ -581,6 +619,7 @@ def create_task():
     project_id = payload.get("project_id")
     group_id = payload.get("group_id")
     due_at = payload.get("due_at")
+    due_mode = payload.get("due_mode")
     assignee_email = payload.get("assignee_email")
 
     if not title or not project_id:
@@ -604,13 +643,6 @@ def create_task():
     if not _can_manage_task_bucket(user, project.id, group.id if group else None):
         return {"error": "unauthorized"}, 403
 
-    due_value = None
-    if due_at:
-        try:
-            due_value = datetime.fromisoformat(due_at)
-        except ValueError:
-            return {"error": "Invalid due_at format"}, 400
-
     task = Task(
         project_id=project.id,
         group_id=group.id if group else None,
@@ -619,9 +651,12 @@ def create_task():
         title=title,
         description=payload.get("description"),
         info=normalize_info_payload(payload.get("info"), payload.get("link")),
-        due_at=due_value,
+        due_at=None,
         owner_calendar_opt_in=project.default_owner_calendar_opt_in,
     )
+    ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
+    if not ok:
+        return {"error": error}, 400
     db.session.add(task)
     db.session.commit()
     assignment_payload = None
@@ -708,6 +743,7 @@ def update_task(task_id: int):
     user_status = payload.get("user_status")
     status_user_id = payload.get("status_user_id")
     due_at = payload.get("due_at")
+    due_mode = payload.get("due_mode")
     info = payload.get("info")
     per_user_status_enabled = payload.get("per_user_status_enabled")
     assign_group_members = payload.get("assign_group_members")
@@ -754,14 +790,10 @@ def update_task(task_id: int):
         task.info = normalize_info_payload(info_payload, task.link)
     elif links is not None:
         task.info = normalize_info_payload(info_payload, task.link)
-    if due_at is not None:
-        if due_at == "":
-            task.due_at = None
-        else:
-            try:
-                task.due_at = datetime.fromisoformat(due_at)
-            except ValueError:
-                return {"error": "Invalid due_at format"}, 400
+    if due_at is not None or due_mode is not None:
+        ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
+        if not ok:
+            return {"error": error}, 400
     if description is not None:
         task.description = description
     if description_format is not None:
@@ -792,6 +824,7 @@ def update_task(task_id: int):
         "links": info_payload.get("links", []),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "description": task.description,
         "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
