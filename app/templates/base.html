@@ -100,7 +100,10 @@
         backdrop-filter: blur(8px);
         position: sticky;
         top: 0;
-        z-index: 180;
+        z-index: 420;
+        overflow: visible;
+        height: auto;
+        max-height: none;
       }
 
       .header-brand {
@@ -146,6 +149,8 @@
         display: flex;
         align-items: center;
         gap: 10px;
+        position: relative;
+        z-index: 320;
       }
 
       header h1 {
@@ -156,6 +161,15 @@
       }
 
       @media (max-width: 720px) {
+        html,
+        body,
+        header,
+        main {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+
         .header-brand-logo {
           height: 28px;
         }
@@ -220,7 +234,7 @@
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
         padding: 10px;
         display: none;
-        z-index: 40;
+        z-index: 340;
         backdrop-filter: blur(10px);
       }
 
@@ -580,7 +594,7 @@
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
         padding: 10px;
         display: none;
-        z-index: 40;
+        z-index: 340;
         backdrop-filter: blur(10px);
       }
 
@@ -1686,6 +1700,33 @@
         align-items: stretch;
         gap: 0;
         margin-bottom: -1px;
+      }
+
+      .mobile-sidebar-trigger {
+        display: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--panel) 80%, transparent);
+        color: var(--ink);
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex: 0 0 auto;
+      }
+
+      .mobile-sidebar-trigger:hover {
+        border-color: rgba(76, 201, 240, 0.35);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+
+      .mobile-sidebar-backdrop {
+        display: none;
+      }
+
+      body.mobile-sidebar-open {
+        overflow: hidden;
       }
 
       .view-search {
@@ -4094,6 +4135,17 @@
         border-spacing: 0;
         border-radius: 10px;
         overflow: hidden;
+        position: relative;
+      }
+
+      .tasks-table::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border: 1px solid var(--grid);
+        border-radius: 10px;
+        pointer-events: none;
+        z-index: 3;
       }
 
       .table th, .table td {
@@ -5929,6 +5981,10 @@
           grid-template-columns: 1fr auto;
           align-items: center;
           padding: 0 16px;
+          height: auto;
+          max-height: none;
+          overflow-x: visible;
+          overflow-y: visible;
         }
 
         .header-brand,
@@ -5942,8 +5998,24 @@
           border-top: 1px solid rgba(255, 255, 255, 0.04);
         }
 
+        .mobile-sidebar-trigger {
+          display: inline-flex;
+          margin-right: 10px;
+        }
+
+        .header-center {
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
+          gap: 0;
+          min-width: 0;
+        }
+
         .view-switcher {
-          width: 100%;
+          flex: 1 1 auto;
+          width: auto;
+          min-width: 0;
+          margin-bottom: 0;
         }
 
         .view-switch {
@@ -5952,15 +6024,776 @@
           padding-top: 12px;
         }
 
+        .notifications-menu,
+        .account-menu,
+        .view-search-menu {
+          position: fixed;
+          top: var(--mobile-header-menu-top, var(--mobile-sidebar-top, 96px));
+          right: 12px;
+          width: min(320px, calc(100vw - 24px));
+          max-width: calc(100vw - 24px);
+          z-index: 520;
+        }
+
+        .view-search-menu {
+          left: 12px;
+          right: 12px;
+          width: auto;
+          max-height: calc(100dvh - var(--mobile-header-menu-top, var(--mobile-sidebar-top, 96px)) - 12px);
+        }
+
+        .account-trigger {
+          padding: 3px;
+          gap: 0;
+        }
+
+        .account-meta,
+        .account-chevron {
+          display: none;
+        }
+
+        .account-avatar {
+          width: 36px;
+          height: 36px;
+        }
+
+        .todo-item-main .task-pill,
+        .task-cell .task-pill {
+          display: none;
+        }
+
         .layout {
-          grid-template-columns: 1fr;
-          height: 100%;
+          display: block;
+          height: calc(100dvh - var(--mobile-sidebar-top, 96px));
+          min-height: 0;
+        }
+
+        main,
+        .layout,
+        .content {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+
+        main {
+          height: calc(100dvh - var(--mobile-sidebar-top, 96px));
+          min-height: 0;
+        }
+
+        .content > *,
+        .discussion-drawer > *,
+        .discussion-pane > *,
+        .discussion-settings,
+        .discussion-compose,
+        .discussion-list {
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .panel,
+        .group-block,
+        .ungrouped-table-shell,
+        .todo-board,
+        .todo-date-group {
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .discussion-drawer {
+          top: var(--mobile-sidebar-top, 96px);
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: auto;
+          height: calc(100dvh - var(--mobile-sidebar-top, 96px));
+          max-height: calc(100dvh - var(--mobile-sidebar-top, 96px));
+          max-width: none;
+          z-index: 260;
+          box-sizing: border-box;
         }
 
         .sidebar {
+          display: none;
           border-right: none;
-          border-bottom: 1px solid var(--border);
-          max-height: 40vh;
+          border-bottom: 0;
+          max-width: 100%;
+          overflow-x: hidden;
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          right: 0;
+          width: auto;
+          max-height: none;
+          z-index: 170;
+          transform: translateX(-100%);
+          opacity: 0;
+          pointer-events: none;
+          transition: transform 180ms ease, opacity 180ms ease;
+          box-shadow: none;
+          padding: var(--mobile-sidebar-top, 96px) 0 28px;
+          height: 100dvh;
+          box-sizing: border-box;
+          overflow-y: auto;
+        }
+
+        .content {
+          display: block;
+          box-sizing: border-box;
+          min-height: 0;
+          height: 100%;
+        }
+
+        .sidebar-collapse-handle {
+          display: none;
+        }
+
+        .sidebar.is-mobile-open,
+        .sidebar.is-mobile-closing {
+          display: block;
+        }
+
+        .sidebar.is-mobile-open {
+          transform: translateX(0);
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        .sidebar.is-mobile-closing {
+          transform: translateX(-100%);
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        .mobile-sidebar-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(11, 13, 18, 0.42);
+          backdrop-filter: blur(2px);
+          z-index: 160;
+          overflow: hidden;
+        }
+
+        .mobile-sidebar-backdrop.is-open {
+          display: block;
+        }
+
+        .sidebar.todo-tree .sidebar-split-pane {
+          width: 100%;
+          margin-left: 0;
+          padding: 0 0 0 0;
+          overflow-x: hidden;
+        }
+
+        .sidebar.todo-tree {
+          padding-top: 0;
+        }
+
+        .sidebar.todo-tree .sidebar-split-pane > .todo-sidebar-section:first-child,
+        .sidebar.todo-tree .todo-tree-list:first-child,
+        .sidebar.todo-tree .tree-select-list:first-child {
+          margin-top: 0;
+          padding-top: 0;
+        }
+
+        .sidebar .todo-sidebar-section.is-top,
+        .sidebar .todo-sidebar-subhead.is-top,
+        .sidebar .todo-tree-list,
+        .sidebar .tree-select-list,
+        .sidebar .sidebar-split-pane {
+          margin-top: 0;
+          padding-top: 0;
+        }
+
+        .sidebar .todo-tree-children {
+          padding-left: 0 !important;
+        }
+
+        .sidebar .todo-tree-node.is-project > .todo-tree-row {
+          --tree-row-indent: 12px !important;
+        }
+
+        .sidebar .todo-tree-group-row {
+          --tree-row-indent: 24px !important;
+        }
+
+        .sidebar .todo-tree-node[data-tree-direct-project] > .todo-tree-row,
+        .sidebar .todo-tree-row[data-tree-division-row] {
+          --tree-row-indent: 0px !important;
+        }
+
+        .sidebar .sidebar-heading-row.todo-sidebar-subhead,
+        .sidebar .sidebar-heading-row.direct-projects-heading {
+          padding-top: 8px;
+          padding-left: 18px;
+          padding-right: 18px;
+        }
+
+        .sidebar-split-shell {
+          height: 100%;
+          min-height: 100%;
+          grid-template-rows: minmax(0, 1fr) 12px minmax(0, 1fr);
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .sidebar-split-shell,
+        .sidebar-split-pane,
+        .todo-tree-list,
+        .tree-select-list,
+        .todo-tree-node {
+          max-width: 100%;
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+
+        body.mobile-sidebar-open main,
+        body.mobile-sidebar-open .layout,
+        body.mobile-sidebar-open .content {
+          overflow: hidden !important;
+        }
+
+        .todo-tree-row {
+          --tree-row-indent: 0px;
+          width: 100% !important;
+          left: 0 !important;
+          margin-left: 0 !important;
+          max-width: 100% !important;
+          min-height: 36px;
+          padding: 0 !important;
+        }
+
+        .tree-select-button {
+          width: 100% !important;
+          max-width: 100% !important;
+          margin: 0 !important;
+          padding: 7px 18px 7px calc(18px + var(--tree-row-indent, 0px)) !important;
+        }
+
+        .todo-tree-row[data-tree-project-row] .todo-tree-toggle,
+        .todo-tree-row[data-tree-division-row] .todo-tree-toggle {
+          margin-left: 0;
+          margin-right: 6px;
+        }
+
+        .todo-tree-row[data-tree-project-row] > .shared-with-me-icon {
+          margin-right: 6px;
+        }
+
+        .todo-tree-label-row,
+        .tree-select-button,
+        .todo-tree-label {
+          min-width: 0;
+        }
+
+        .todo-tree-label {
+          font-size: 15px;
+          font-weight: 600;
+        }
+
+        .todo-tree-toggle {
+          width: 24px;
+          height: 24px;
+          font-size: 14px;
+        }
+
+        .todo-tree-group-row .todo-tree-label {
+          font-size: 14px;
+        }
+
+        .sidebar-heading-row h3 {
+          font-size: 14px;
+        }
+
+        .todo-board,
+        .todo-date-group,
+        .todo-list,
+        .todo-item {
+          width: 100%;
+          max-width: 100%;
+        }
+
+        .todo-item {
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            "main controls"
+            "footer footer";
+          gap: 6px 10px;
+          padding: 8px 10px;
+        }
+
+        .todo-project-meta,
+        .todo-item-main,
+        .todo-item-controls {
+          width: 100%;
+          max-width: 100%;
+          padding: 0;
+        }
+
+        .todo-project-meta {
+          display: none;
+        }
+
+        .todo-item-main {
+          align-items: center;
+          gap: 6px;
+          padding-right: 0;
+        }
+
+        .todo-item-main .task-link-badges {
+          display: none;
+        }
+
+        .todo-item-title,
+        .todo-item-main .github-task-link span {
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .todo-item-controls {
+          grid-area: controls;
+          justify-self: end;
+          align-self: start;
+          display: flex;
+          width: auto;
+          max-width: 100%;
+          overflow: visible;
+        }
+
+        .todo-item-controls .todo-control-assignees,
+        .todo-item-controls .todo-assignments,
+        .todo-item-controls .github-assignments {
+          width: auto;
+          max-width: 100%;
+          justify-content: flex-end;
+          overflow: visible;
+          flex-wrap: nowrap;
+          gap: 4px;
+        }
+
+        .todo-item-controls .todo-control-cluster {
+          grid-area: footer;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          max-width: 100%;
+          gap: 8px;
+          margin-top: 2px;
+          font-size: 11px;
+        }
+
+        .todo-item-controls .todo-control-due {
+          order: 2;
+          flex: 0 0 auto;
+          justify-content: flex-end;
+          min-width: 0;
+        }
+
+        .todo-item-controls .todo-control-status {
+          order: 1;
+          flex: 0 1 auto;
+          justify-content: flex-start;
+          min-width: 0;
+        }
+
+        .todo-due-cell .due-summary {
+          width: auto;
+          min-width: 0;
+          max-width: 100%;
+          padding: 0;
+          min-height: 0;
+          height: auto;
+          border: 0;
+          background: transparent;
+          box-shadow: none;
+        }
+
+        .todo-due-cell .due-summary-label {
+          display: inline-flex;
+          align-items: center;
+          width: auto;
+          height: auto;
+          gap: 4px;
+          font-size: 11px;
+          color: var(--muted);
+          white-space: nowrap;
+        }
+
+        .todo-due-cell .due-summary-label i {
+          font-size: 11px;
+        }
+
+        .todo-assignments .badge,
+        .todo-assignments .badge.user,
+        .github-assignments .badge {
+          max-width: none;
+          padding: 0;
+          border: 0;
+          background: transparent;
+        }
+
+        .todo-assignments .badge-label,
+        .github-assignments .badge-label {
+          display: none;
+        }
+
+        .todo-assignments .badge-icon,
+        .todo-assignments .badge.user .badge-icon,
+        .github-assignments .badge-icon {
+          width: 22px;
+          height: 22px;
+          flex: 0 0 22px;
+        }
+
+        .todo-item-controls .assign-action,
+        .todo-item-controls .assign-spacer {
+          display: none;
+        }
+
+        .todo-item-controls {
+          display: grid;
+          grid-template-columns: auto;
+          grid-template-areas:
+            "controls"
+            "footer";
+          gap: 6px;
+        }
+
+        .todo-item-controls > * {
+          justify-self: stretch;
+        }
+
+        .panel.group,
+        .ungrouped-table-shell,
+        .panel,
+        .tasks-table {
+          overflow-x: auto;
+          max-width: 100%;
+        }
+
+        .table,
+        .tasks-table {
+          width: 100%;
+          max-width: 100%;
+          table-layout: auto;
+        }
+
+        .table th,
+        .table td {
+          white-space: normal;
+          word-break: break-word;
+        }
+
+        .tasks-table {
+          display: block !important;
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+
+        .tasks-table thead {
+          display: none;
+        }
+
+        .tasks-table tbody,
+        .tasks-table tbody tr {
+          display: block !important;
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] {
+          display: grid !important;
+          grid-template-columns: auto auto minmax(0, 1fr) auto;
+          grid-template-areas:
+            "title title title title"
+            "status due spacer assign";
+          column-gap: 8px;
+          row-gap: 6px;
+          padding: 10px;
+          border-bottom: 1px solid var(--grid);
+          width: 100% !important;
+          max-width: 100% !important;
+          box-sizing: border-box;
+          align-items: center;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] {
+          background: color-mix(in srgb, #f87171 10%, transparent);
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] {
+          background: rgba(16, 20, 27, 0.56);
+          opacity: 0.74;
+        }
+
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] {
+          background: color-mix(in srgb, white 86%, #fecaca 14%);
+        }
+
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] {
+          background: color-mix(in srgb, var(--success) 10%, white 90%);
+          opacity: 0.82;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] > td {
+          display: block !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          min-width: 0 !important;
+          padding: 0 !important;
+          border: 0 !important;
+          background: transparent !important;
+          box-sizing: border-box;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] > td:first-child {
+          display: none;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] .row-controls,
+        .tasks-table tbody tr[data-task-row-id] .task-drag-handle {
+          display: none !important;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] > td:nth-child(2) {
+          grid-area: title;
+          margin-bottom: 0;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] > td:nth-child(3) {
+          grid-area: due;
+          width: auto !important;
+          display: inline-flex !important;
+          align-items: center;
+          justify-self: start;
+          align-self: center;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] > td:nth-child(4) {
+          grid-area: status;
+          width: auto !important;
+          display: inline-flex !important;
+          align-items: center;
+          justify-self: start;
+          align-self: center;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] > td:nth-child(5) {
+          grid-area: assign;
+          display: inline-flex !important;
+          align-items: center;
+          justify-content: flex-end;
+          justify-self: end;
+          width: auto !important;
+          min-width: 0 !important;
+          max-width: 132px !important;
+        }
+
+        .tasks-table .task-cell {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .tasks-table .task-cell .task-link-badges,
+        .tasks-table .task-cell .task-pill {
+          display: none;
+        }
+
+        .tasks-table .task-cell .editable,
+        .tasks-table .task-cell .github-task-link {
+          min-width: 0;
+          font-size: 14px;
+          font-weight: 600;
+          flex: 1 1 auto;
+        }
+
+        .tasks-table .assignments,
+        .tasks-table .github-assignments {
+          width: auto;
+          max-width: 100%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: flex-end;
+          flex-wrap: nowrap;
+          overflow: visible;
+          gap: 4px;
+          min-height: 22px;
+        }
+
+        .tasks-table tbody tr[data-task-row-id] > td:nth-child(2) .task-cell + .task-link-badges + .task-pill,
+        .tasks-table tbody tr[data-task-row-id] > td:nth-child(2) .task-link-badges {
+          display: none;
+        }
+
+        .tasks-table .assignments .badge,
+        .tasks-table .assignments .badge.user,
+        .tasks-table .github-assignments .badge {
+          max-width: none;
+          padding: 0;
+          border: 0;
+          background: transparent;
+        }
+
+        .tasks-table .assignments .badge-label,
+        .tasks-table .github-assignments .badge-label,
+        .tasks-table .assignments .btn.link,
+        .tasks-table .assignments .assign-action,
+        .tasks-table .assignments .assign-spacer {
+          display: none;
+        }
+
+        .tasks-table .icon-button[data-delete-task] {
+          display: none !important;
+        }
+
+        .tasks-table .assignments .badge-icon,
+        .tasks-table .assignments .badge.user .badge-icon,
+        .tasks-table .github-assignments .badge-icon {
+          width: 22px;
+          height: 22px;
+          flex: 0 0 22px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .tasks-table .due-cell {
+          display: inline-flex;
+          align-items: center;
+          justify-content: flex-end;
+          width: auto;
+          min-height: 22px;
+        }
+
+        .tasks-table .due-summary {
+          width: auto;
+          min-width: 0;
+          height: 22px;
+          min-height: 22px;
+          padding: 0 8px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.03);
+          box-shadow: none;
+        }
+
+        .tasks-table .due-summary-label {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          color: var(--muted);
+          line-height: 1;
+          white-space: nowrap;
+        }
+
+        body[data-theme="light"] .tasks-table .due-summary {
+          background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+          border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        }
+
+        .tasks-table tbody tr[data-task-row-id] .editable[data-field="title"],
+        .tasks-table tbody tr[data-task-row-id] .github-task-link {
+          color: inherit;
+          text-decoration: none;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .editable[data-field="title"],
+        .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .github-task-link {
+          color: var(--muted);
+          text-decoration: line-through;
+          text-decoration-thickness: 1.5px;
+        }
+
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .editable[data-field="title"],
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .github-task-link {
+          color: color-mix(in srgb, var(--muted) 82%, #4b5563 18%);
+        }
+
+        .tasks-table td [data-task-status-host] > .task-status-multi-button,
+        .tasks-table td [data-task-status-host] > .status-editable,
+        .tasks-table .status-editable {
+          width: 84px;
+          min-width: 84px;
+          max-width: 84px;
+          min-height: 22px;
+          height: 22px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          vertical-align: middle;
+        }
+
+        .tasks-table tbody tr.new-row {
+          display: block !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          padding: 4px 10px 8px !important;
+          box-sizing: border-box;
+        }
+
+        .tasks-table tbody tr.new-row > td {
+          display: none !important;
+        }
+
+        .tasks-table tbody tr.new-row > td:nth-child(2) {
+          display: block !important;
+          position: relative;
+          width: 100% !important;
+          max-width: 100% !important;
+          padding: 0 !important;
+        }
+
+        .tasks-table tbody tr.new-row > td:nth-child(2)::before {
+          content: "+";
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          color: var(--muted);
+          font-size: 15px;
+          line-height: 1;
+          pointer-events: none;
+        }
+
+        .tasks-table tbody tr.new-row > td:nth-child(2) input[data-new-task="title"] {
+          width: 100% !important;
+          max-width: 100% !important;
+          height: 24px;
+          min-height: 24px;
+          padding: 0 !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+          background: transparent !important;
+          color: transparent !important;
+          caret-color: transparent;
+          outline: none !important;
+          box-shadow: none !important;
+          position: relative;
+          z-index: 1;
+        }
+
+        .tasks-table tbody tr.new-row > td:nth-child(2) input[data-new-task="title"]::placeholder {
+          color: transparent;
+        }
+
+        .tasks-table tbody tr.new-row > td:nth-child(2):focus-within::before {
+          color: var(--accent);
         }
       }
     </style>
@@ -5983,6 +6816,9 @@
       </div>
       <div class="header-center">
         {% if current_view is defined %}
+          <button class="mobile-sidebar-trigger" type="button" data-mobile-sidebar-trigger aria-label="Open navigation" aria-expanded="false">
+            <i class="fa-solid fa-bars" aria-hidden="true"></i>
+          </button>
           <div class="view-switcher">
             <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='tree', show_completed=1) }}{% else %}{{ url_for('ui.dashboard', view='tree', show_completed=1) }}{% endif %}">Tree</a>
             <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo</a>
@@ -6138,6 +6974,7 @@
         {% endif %}
       </div>
     </header>
+    <div class="mobile-sidebar-backdrop" data-mobile-sidebar-backdrop hidden></div>
     <main>
       {% block content %}{% endblock %}
     </main>
@@ -6148,6 +6985,101 @@
           el.setAttribute("autocapitalize", "off");
           el.setAttribute("spellcheck", "false");
         });
+
+        const mobileSidebar = document.querySelector(".layout > .sidebar");
+        const mobileSidebarTrigger = document.querySelector("[data-mobile-sidebar-trigger]");
+        const mobileSidebarBackdrop = document.querySelector("[data-mobile-sidebar-backdrop]");
+        const mobileSidebarMql = window.matchMedia ? window.matchMedia("(max-width: 900px)") : null;
+        const headerEl = document.querySelector("header");
+        let mobileSidebarCloseTimer = null;
+        const isMobileSidebarMode = () => !!(mobileSidebar && mobileSidebarMql && mobileSidebarMql.matches);
+        const syncMobileSidebarOffset = () => {
+          if (!headerEl) return;
+          const rect = headerEl.getBoundingClientRect();
+          const offset = Math.max(0, Math.round(rect.bottom));
+          document.documentElement.style.setProperty("--mobile-sidebar-top", `${offset}px`);
+          document.documentElement.style.setProperty("--mobile-header-menu-top", `${Math.max(0, offset - 2)}px`);
+        };
+        const closeMobileSidebar = () => {
+          if (!mobileSidebar) return;
+          if (mobileSidebarCloseTimer) {
+            window.clearTimeout(mobileSidebarCloseTimer);
+            mobileSidebarCloseTimer = null;
+          }
+          mobileSidebar.classList.remove("is-mobile-open");
+          mobileSidebar.classList.add("is-mobile-closing");
+          document.body.classList.remove("mobile-sidebar-open");
+          if (mobileSidebarBackdrop) {
+            mobileSidebarBackdrop.classList.remove("is-open");
+            mobileSidebarBackdrop.hidden = true;
+          }
+          if (mobileSidebarTrigger) {
+            mobileSidebarTrigger.setAttribute("aria-expanded", "false");
+          }
+          mobileSidebarCloseTimer = window.setTimeout(() => {
+            mobileSidebar.classList.remove("is-mobile-closing");
+            mobileSidebarCloseTimer = null;
+          }, 190);
+        };
+        const openMobileSidebar = () => {
+          if (!isMobileSidebarMode()) return;
+          if (mobileSidebarCloseTimer) {
+            window.clearTimeout(mobileSidebarCloseTimer);
+            mobileSidebarCloseTimer = null;
+          }
+          mobileSidebar.classList.remove("is-mobile-closing");
+          mobileSidebar.classList.add("is-mobile-open");
+          document.body.classList.add("mobile-sidebar-open");
+          if (mobileSidebarBackdrop) {
+            mobileSidebarBackdrop.hidden = false;
+            mobileSidebarBackdrop.classList.add("is-open");
+          }
+          if (mobileSidebarTrigger) {
+            mobileSidebarTrigger.setAttribute("aria-expanded", "true");
+          }
+        };
+        window.__closeMobileSidebar = closeMobileSidebar;
+        syncMobileSidebarOffset();
+        window.addEventListener("resize", syncMobileSidebarOffset);
+        if (mobileSidebarTrigger) {
+          mobileSidebarTrigger.addEventListener("click", (event) => {
+            event.preventDefault();
+            if (mobileSidebar && mobileSidebar.classList.contains("is-mobile-open")) {
+              closeMobileSidebar();
+            } else {
+              openMobileSidebar();
+            }
+          });
+        }
+        if (mobileSidebarBackdrop) {
+          mobileSidebarBackdrop.addEventListener("click", () => {
+            closeMobileSidebar();
+          });
+        }
+        if (mobileSidebar) {
+          mobileSidebar.addEventListener("click", (event) => {
+            if (!isMobileSidebarMode()) return;
+            if (event.target.closest("[data-tree-select-type], [data-project-href], .project-item a, .direct-project-item a")) {
+              window.setTimeout(closeMobileSidebar, 0);
+            }
+          });
+        }
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            closeMobileSidebar();
+          }
+        });
+        if (mobileSidebarMql) {
+          const syncMobileSidebarState = () => {
+            syncMobileSidebarOffset();
+            if (!mobileSidebarMql.matches) closeMobileSidebar();
+          };
+          if (mobileSidebarMql.addEventListener) {
+            mobileSidebarMql.addEventListener("change", syncMobileSidebarState);
+          } else if (mobileSidebarMql.addListener) {
+            mobileSidebarMql.addListener(syncMobileSidebarState);
+          }
+        }
 
         document.querySelectorAll("[data-copy-text]").forEach((el) => {
           el.addEventListener("click", async (event) => {

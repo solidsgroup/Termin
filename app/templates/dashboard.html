@@ -1924,6 +1924,90 @@
         });
     }
 
+    function isMobileTaskDrawerMode() {
+      return !!(window.matchMedia && window.matchMedia("(max-width: 860px)").matches);
+    }
+
+    function syncMobileTaskEditingState(root) {
+      var scope = root && root.querySelectorAll ? root : document;
+      scope.querySelectorAll(".editable[data-task-id]").forEach(function (cell) {
+        if (!Object.prototype.hasOwnProperty.call(cell.dataset, "desktopContenteditable")) {
+          cell.dataset.desktopContenteditable = cell.getAttribute("contenteditable") || "";
+        }
+        if (isMobileTaskDrawerMode()) {
+          cell.setAttribute("contenteditable", "false");
+        } else {
+          var original = cell.dataset.desktopContenteditable;
+          if (original) {
+            cell.setAttribute("contenteditable", original);
+          } else {
+            cell.removeAttribute("contenteditable");
+          }
+        }
+      });
+    }
+
+    function bindMobileTaskRowOpen() {
+      document.addEventListener("click", function (event) {
+        if (!isMobileTaskDrawerMode()) return;
+        if (event.defaultPrevented) return;
+        var row = event.target.closest("[data-task-row-id], .todo-item[data-task-id]");
+        if (!row) return;
+        if (event.target.closest("a, button, input, textarea, select, label, .assign-input, .due-input, [data-task-drag-handle], [contenteditable='true']")) {
+          return;
+        }
+        var selection = window.getSelection ? window.getSelection() : null;
+        if (selection && String(selection).trim()) return;
+        var discussionButton = row.querySelector("[data-open-discussion]");
+        var settingsButton = row.querySelector("[data-open-settings]");
+        var sourceButton = settingsButton || discussionButton;
+        if (!sourceButton) return;
+        event.preventDefault();
+        if (typeof window.__openTaskDrawer === "function") {
+          window.__openTaskDrawer(
+            (settingsButton && settingsButton.getAttribute("data-open-settings")) || sourceButton.getAttribute("data-open-discussion"),
+            sourceButton.getAttribute("data-task-title"),
+            sourceButton.getAttribute("data-project-name")
+          );
+        }
+      });
+
+      syncMobileTaskEditingState(document);
+      window.addEventListener("resize", function () {
+        syncMobileTaskEditingState(document);
+      });
+
+      if (window.matchMedia) {
+        var mobileTaskMql = window.matchMedia("(max-width: 860px)");
+        if (mobileTaskMql.addEventListener) {
+          mobileTaskMql.addEventListener("change", function () {
+            syncMobileTaskEditingState(document);
+          });
+        } else if (mobileTaskMql.addListener) {
+          mobileTaskMql.addListener(function () {
+            syncMobileTaskEditingState(document);
+          });
+        }
+      }
+
+      if (window.MutationObserver) {
+        var observer = new MutationObserver(function (mutations) {
+          mutations.forEach(function (mutation) {
+            mutation.addedNodes.forEach(function (node) {
+              if (!node || node.nodeType !== 1) return;
+              if (
+                (node.matches && node.matches(".editable[data-task-id], [data-task-row-id], .todo-item[data-task-id]")) ||
+                (node.querySelector && node.querySelector(".editable[data-task-id], [data-task-row-id], .todo-item[data-task-id]"))
+              ) {
+                syncMobileTaskEditingState(node);
+              }
+            });
+          });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+    }
+
     function initEditableFallback() {
       if (window.__editableFallbackReady) return;
       window.__editableFallbackReady = true;
@@ -1964,6 +2048,7 @@
       document.addEventListener("focusin", function (event) {
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
+        if (isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
         cell.dataset.originalValue = normalizeEditableText(cell);
         applyStatusState(cell, cell.dataset.originalValue);
         lastEditableCell = cell;
@@ -2021,6 +2106,7 @@
           return;
         }
         if (!cell || cell.tagName === "INPUT") return;
+        if (isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
         if (cell.classList.contains("status-editable")) {
           if (event.key === "Escape") {
             closeStatusMenu();
@@ -2085,6 +2171,7 @@
       document.addEventListener("paste", function (event) {
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
+        if (isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
         if (cell.classList.contains("status-editable")) {
           event.preventDefault();
           openStatusMenu(cell);
@@ -2102,6 +2189,7 @@
       document.addEventListener("focusout", function (event) {
         var cell = event.target.closest(".editable");
         if (!cell || cell.tagName === "INPUT") return;
+        if (isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
         lastEditableCell = cell;
         if (cell.classList.contains("status-editable")) {
           return;
@@ -2115,6 +2203,7 @@
       document.addEventListener("mousedown", function (event) {
         var statusCell = event.target.closest(".status-editable");
         if (statusCell) {
+          if (isMobileTaskDrawerMode() && statusCell.hasAttribute("data-task-id")) return;
           event.preventDefault();
           statusCell.focus();
           openStatusMenu(statusCell);
@@ -2127,8 +2216,10 @@
 
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", initEditableFallback);
+      document.addEventListener("DOMContentLoaded", bindMobileTaskRowOpen);
     } else {
       initEditableFallback();
+      bindMobileTaskRowOpen();
     }
   })();
 </script>
@@ -4284,6 +4375,12 @@
       return "Created today";
     }
 
+    function formatDueCompactLabel(dueValue, createdValue) {
+      if (dueValue) return dueValue;
+      if (createdValue) return createdValue;
+      return "Today";
+    }
+
     function updateDueDisplay(input) {
       if (!input) return;
       var cell = input.closest("[data-due-cell]");
@@ -4293,7 +4390,7 @@
       var createdValue = input.getAttribute("data-created-at");
       if (label) {
         if (cell && cell.closest(".todo-item")) {
-          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
+          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span>' + escapeHtml(formatDueCompactLabel(dueValue, createdValue)) + '</span>';
         } else {
           label.textContent = formatDueSummary(dueValue, createdValue);
         }
@@ -5411,7 +5508,7 @@
           if (!row && inserted) {
             row = document.querySelector(`[data-task-row-id='${data.id}']`);
           }
-          return { id: data.id, row };
+          return { id: data.id, row, task };
         });
     };
 
@@ -5907,6 +6004,7 @@
     document.addEventListener("keydown", (event) => {
       const cell = event.target.closest(".editable");
       if (!cell) return;
+      if (typeof isMobileTaskDrawerMode === "function" && isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
       if (event.defaultPrevented) return;
       if (event.key === "Enter") {
         event.preventDefault();
@@ -5924,6 +6022,7 @@
     document.addEventListener("focusout", (event) => {
       const cell = event.target.closest(".editable");
       if (!cell || cell.tagName === "INPUT") return;
+      if (typeof isMobileTaskDrawerMode === "function" && isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
       const taskId = cell.getAttribute("data-task-id");
       const groupId = cell.getAttribute("data-group-id");
       const field = cell.getAttribute("data-field");
@@ -5959,6 +6058,24 @@
       const dueInput = newRow.querySelector("[data-new-task='due_at']");
       const assigneeInput = newRow.querySelector("[data-new-task='assignee_email']");
       if (!titleInput) return;
+
+      const openCreatedTaskDrawer = (created) => {
+        if (!created || !created.id || typeof window.__openDiscussion !== "function") return;
+        const discussionButton = created.row
+          ? created.row.querySelector("[data-open-discussion]")
+          : document.querySelector(`[data-task-row-id='${created.id}'] [data-open-discussion]`);
+        const settingsButton = created.row
+          ? created.row.querySelector("[data-open-settings]")
+          : document.querySelector(`[data-task-row-id='${created.id}'] [data-open-settings]`);
+        const sourceButton = settingsButton || discussionButton;
+        const taskTitle = sourceButton
+          ? sourceButton.getAttribute("data-task-title")
+          : ((created.task && created.task.title) || "New task");
+        const projectName = sourceButton
+          ? sourceButton.getAttribute("data-project-name")
+          : "";
+        window.__openTaskDrawer(created.id, taskTitle, projectName);
+      };
 
       const syncNewTaskRowState = (row) => {
         if (!row) return;
@@ -6010,6 +6127,27 @@
             if (shouldFocusPlaceholder && typeof window.__focusNewTaskPlaceholder === "function") {
               window.__focusNewTaskPlaceholder(table);
             }
+          });
+      });
+
+      newRow.addEventListener("click", (event) => {
+        if (!(window.matchMedia && window.matchMedia("(max-width: 860px)").matches)) return;
+        if (event.defaultPrevented) return;
+        if (event.target.closest("button, a, select, textarea, label, .assign-input, .due-input")) return;
+        if (titleInput.dataset.creatingTask === "1") return;
+        event.preventDefault();
+        event.stopPropagation();
+        titleInput.value = "New task";
+        syncNewTaskRowState(newRow);
+        titleInput.dataset.creatingTask = "1";
+        createTaskFromRow(table, titleInput, dueInput, assigneeInput)
+          .then((created) => {
+            if (!created) return;
+            openCreatedTaskDrawer(created);
+          })
+          .finally(() => {
+            delete titleInput.dataset.creatingTask;
+            syncNewTaskRowState(newRow);
           });
       });
 
@@ -7407,37 +7545,70 @@
         console.warn("sidebar split restore failed", error);
       }
 
-      divider.addEventListener("mousedown", (event) => {
-        event.preventDefault();
+      const persistCurrentRatio = () => {
+        const total = topPane.getBoundingClientRect().height + bottomPane.getBoundingClientRect().height;
+        if (total <= 0) return;
+        const ratio = topPane.getBoundingClientRect().height / total;
+        try {
+          if (window.localStorage) window.localStorage.setItem(storageKey, String(ratio));
+        } catch (error) {
+          console.warn("sidebar split persist failed", error);
+        }
+      };
+
+      const setRatioFromClientY = (clientY) => {
         const shellRect = shell.getBoundingClientRect();
         const dividerHeight = divider.getBoundingClientRect().height || 12;
+        const usableHeight = Math.max(1, shellRect.height - dividerHeight);
+        const offset = clientY - shellRect.top - dividerHeight / 2;
+        const ratio = offset / usableHeight;
+        applyRatio(ratio);
+      };
+
+      divider.addEventListener("mousedown", (event) => {
+        event.preventDefault();
         shell.classList.add("is-dragging");
 
         const onMove = (moveEvent) => {
-          const usableHeight = Math.max(1, shellRect.height - dividerHeight);
-          const offset = moveEvent.clientY - shellRect.top - dividerHeight / 2;
-          const ratio = offset / usableHeight;
-          applyRatio(ratio);
+          setRatioFromClientY(moveEvent.clientY);
         };
 
         const onUp = () => {
           shell.classList.remove("is-dragging");
           document.removeEventListener("mousemove", onMove);
           document.removeEventListener("mouseup", onUp);
-          const total = topPane.getBoundingClientRect().height + bottomPane.getBoundingClientRect().height;
-          if (total > 0) {
-            const ratio = topPane.getBoundingClientRect().height / total;
-            try {
-              if (window.localStorage) window.localStorage.setItem(storageKey, String(ratio));
-            } catch (error) {
-              console.warn("sidebar split persist failed", error);
-            }
-          }
+          persistCurrentRatio();
         };
 
         document.addEventListener("mousemove", onMove);
         document.addEventListener("mouseup", onUp);
       });
+
+      divider.addEventListener("touchstart", (event) => {
+        const touch = event.touches && event.touches[0];
+        if (!touch) return;
+        event.preventDefault();
+        shell.classList.add("is-dragging");
+
+        const onTouchMove = (moveEvent) => {
+          const nextTouch = moveEvent.touches && moveEvent.touches[0];
+          if (!nextTouch) return;
+          moveEvent.preventDefault();
+          setRatioFromClientY(nextTouch.clientY);
+        };
+
+        const onTouchEnd = () => {
+          shell.classList.remove("is-dragging");
+          document.removeEventListener("touchmove", onTouchMove);
+          document.removeEventListener("touchend", onTouchEnd);
+          document.removeEventListener("touchcancel", onTouchEnd);
+          persistCurrentRatio();
+        };
+
+        document.addEventListener("touchmove", onTouchMove, { passive: false });
+        document.addEventListener("touchend", onTouchEnd);
+        document.addEventListener("touchcancel", onTouchEnd);
+      }, { passive: false });
     })();
 
     if (infoCancel) {
@@ -11218,6 +11389,10 @@
       loadEntityComments("task", taskId, taskTitle, projectName);
       return false;
     };
+    window.__openTaskDrawer = function (taskId, taskTitle, projectName) {
+      openSettings(taskId, taskTitle, projectName);
+      return false;
+    };
     window.__openLinks = function (taskId, taskTitle, projectName) {
       openLinks(taskId, taskTitle, projectName);
       return false;
@@ -12985,6 +13160,9 @@
           id: String(selectButton.getAttribute("data-tree-select-id")),
         };
         applySelection(currentSelection);
+        if (typeof window.__closeMobileSidebar === "function") {
+          window.__closeMobileSidebar();
+        }
         if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
           if (currentSelection.type === "project") {
             if (treeBoardNeedsSnapshot(currentSelection.id, null)) {
