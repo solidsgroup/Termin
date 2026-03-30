@@ -6238,6 +6238,120 @@
           padding-right: 18px;
         }
 
+        .sidebar[data-todo-tree] .todo-tree-list {
+          gap: 6px;
+        }
+
+        .sidebar[data-todo-tree] .todo-sidebar-section {
+          margin-top: 14px;
+          padding-top: 10px;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-row,
+        .sidebar[data-todo-tree] .todo-tree-group-row,
+        .sidebar[data-todo-tree] .todo-filter-row,
+        .sidebar[data-todo-tree] .todo-assignee-row {
+          min-height: 40px;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-row {
+          width: 100% !important;
+          left: 0 !important;
+          margin-left: 0 !important;
+          padding: 0 18px 0 calc(18px + var(--tree-row-indent, 0px)) !important;
+          box-sizing: border-box;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-label-row,
+        .sidebar[data-todo-tree] .todo-assignee-row {
+          grid-template-columns: 18px minmax(0, 1fr) 28px;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-group-row,
+        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-row {
+          display: grid;
+          grid-template-columns: 18px minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          padding: 0 18px 0 calc(18px + var(--tree-row-indent, 0px));
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-checkbox {
+          width: 18px;
+          height: 18px;
+          min-width: 18px;
+          min-height: 18px;
+          border-radius: 4px;
+          background-size: 14px 14px;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-toggle {
+          width: 28px;
+          height: 28px;
+          font-size: 13px;
+          padding: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          justify-self: end;
+          transform: none;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-label {
+          font-size: 14px;
+          line-height: 1.25;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-completed-options {
+          gap: 2px;
+          padding-top: 2px;
+        }
+
+        .sidebar[data-todo-tree] .todo-assignee-dropdown {
+          margin-top: 8px;
+          padding: 0 18px;
+        }
+
+        .sidebar[data-todo-tree] .todo-assignee-trigger {
+          min-height: 42px;
+          padding: 10px 12px;
+          font-size: 14px;
+          border-radius: 12px;
+        }
+
+        .sidebar[data-todo-tree] .todo-assignee-menu {
+          position: static;
+          margin-top: 8px;
+          padding: 10px 12px;
+          border-radius: 14px;
+          box-shadow: none;
+          max-height: min(46dvh, 360px);
+          overflow-y: auto;
+        }
+
+        .sidebar[data-todo-tree] .todo-assignee-actions {
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-bottom: 8px;
+        }
+
+        .sidebar[data-todo-tree] .todo-assignee-actions .btn {
+          min-height: 32px;
+          padding: 6px 10px;
+        }
+
+        .sidebar[data-todo-tree] .todo-assignee-row {
+          grid-template-columns: 18px 24px minmax(0, 1fr);
+        }
+
+        .sidebar[data-todo-tree] .todo-assignee-avatar {
+          width: 24px;
+          height: 24px;
+          font-size: 11px;
+        }
+
         .sidebar-split-shell {
           height: 100%;
           min-height: 100%;
