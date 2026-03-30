@@ -211,12 +211,14 @@ def _can_access_task(user, task: Task) -> bool:
 
 
 def _task_notification_user_ids(task: Task) -> set[int]:
-    project = Project.query.get(task.project_id)
-    user_ids = {project.owner_id} if project else set()
-    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=task.project_id).all())
-    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == task.project_id).all()]
-    if group_ids:
-        user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
+    user_ids: set[int] = set()
+    if task.creator_user_id:
+        user_ids.add(task.creator_user_id)
+    user_ids.update(
+        row.user_id
+        for row in Assignment.query.filter_by(task_id=task.id).all()
+        if row.user_id
+    )
     return {user_id for user_id in user_ids if user_id}
 
 
