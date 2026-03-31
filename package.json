@@ -4,7 +4,10 @@
   "private": true,
   "description": "Electron desktop shell for Termin",
   "main": "electron/main.js",
-  "author": "Termin",
+  "author": {
+    "name": "Solids Group",
+    "email": "brunnels@iastate.edu"
+  },
   "license": "UNLICENSED",
   "scripts": {
     "electron:dev": "electron .",
@@ -16,7 +19,7 @@
     "appId": "group.solids.termin",
     "productName": "Termin",
     "artifactName": "${productName}-${os}-${arch}.${ext}",
-    "icon": "electron/build/icons/icon.png",
+    "icon": "electron/build/icons",
     "files": [
       "electron/**/*",
       "package.json"
@@ -44,7 +47,8 @@
       ]
     },
     "linux": {
-      "icon": "electron/build/icons/icon.png",
+      "icon": "electron/build/icons",
+      "maintainer": "Solids Group <brunnels@iastate.edu>",
       "target": [
         "AppImage",
         "deb"
