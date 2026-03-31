@@ -16,6 +16,7 @@ from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_account_verification_email, send_calendar_invite_email
 from app.emailer import _escape_ics_text, _format_ics_timestamp
 from app.extensions import db
+from app.discussion_activity import build_discussion_activity_items, task_discussion_user_ids, upsert_discussion_activity
 from app.github_sync import GitHubSyncError, github_identity_for_user, github_sync_state_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.identity import (
     add_user_email,
@@ -30,10 +31,11 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification
+from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
 from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
     emit_assignment_updated,
+    emit_discussion_activity_updated,
     emit_division_created,
     emit_group_created,
     emit_project_created,
@@ -41,6 +43,7 @@ from app.realtime import (
     emit_task_comment_created,
     emit_task_notification_updates,
     emit_task_updated,
+    emit_user_notification_preview,
     queue_task_notifications,
     is_user_viewing_task,
     _task_notification_user_ids,
@@ -298,6 +301,223 @@ def _build_calendar_feed_ics(email: str, tasks: list[Task]) -> str:
     return "\r\n".join(lines)
 
 
+def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> list[dict]:
+    if not rows:
+        return []
+    comment_ids = [row.comment_id for row in rows if row.comment_id]
+    task_ids = [row.task_id for row in rows if row.task_id]
+    comments = {
+        row.id: row
+        for row in TaskComment.query.filter(TaskComment.id.in_(comment_ids)).all()
+    } if comment_ids else {}
+    tasks = {
+        row.id: row
+        for row in Task.query.filter(Task.id.in_(task_ids)).all()
+    } if task_ids else {}
+    project_ids = {task.project_id for task in tasks.values() if task and task.project_id}
+    group_ids = {task.group_id for task in tasks.values() if task and task.group_id}
+    projects = {
+        row.id: row
+        for row in Project.query.filter(Project.id.in_(project_ids)).all()
+    } if project_ids else {}
+    groups = {
+        row.id: row
+        for row in Group.query.filter(Group.id.in_(group_ids)).all()
+    } if group_ids else {}
+    author_ids = sorted({row.user_id for row in comments.values() if row and row.user_id})
+    collaborator_ids = sorted({row.collaborator_id for row in comments.values() if row and row.collaborator_id})
+    authors = {
+        row.id: row
+        for row in User.query.filter(User.id.in_(author_ids)).all()
+    } if author_ids else {}
+    collaborators = {
+        row.id: row
+        for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(collaborator_ids)).all()
+    } if collaborator_ids else {}
+    unread_comment_task_ids = sorted({row.task_id for row in rows if row.kind == "comment" and row.read_at is None and row.task_id})
+    latest_read_by_task = {}
+    unread_comment_count_by_task = {}
+    if unread_comment_task_ids:
+        latest_read_rows = (
+            db.session.query(TaskNotification.task_id, db.func.max(TaskNotification.read_at))
+            .filter(
+                TaskNotification.user_id == user_id,
+                TaskNotification.kind == "comment",
+                TaskNotification.task_id.in_(unread_comment_task_ids),
+                TaskNotification.read_at.isnot(None),
+            )
+            .group_by(TaskNotification.task_id)
+            .all()
+        )
+        latest_read_by_task = {task_id: read_at for task_id, read_at in latest_read_rows if task_id}
+        unread_comment_count_by_task = {task_id: 0 for task_id in unread_comment_task_ids}
+        for comment_row in TaskComment.query.filter(TaskComment.task_id.in_(unread_comment_task_ids)).all():
+            if comment_row.user_id and int(comment_row.user_id) == int(user_id):
+                continue
+            threshold = latest_read_by_task.get(comment_row.task_id)
+            if threshold and comment_row.created_at <= threshold:
+                continue
+            unread_comment_count_by_task[comment_row.task_id] = unread_comment_count_by_task.get(comment_row.task_id, 0) + 1
+    items = []
+    specific_task_ids = {
+        row.task_id
+        for row in rows
+        if row.task_id and row.kind in _SPECIFIC_TASK_NOTIFICATION_KINDS
+    }
+    for row in rows:
+        if row.kind == "task_update" and row.task_id and row.task_id in specific_task_ids:
+            continue
+        task = tasks.get(row.task_id)
+        comment = comments.get(row.comment_id)
+        group = groups.get(task.group_id) if task and task.group_id else None
+        try:
+            detail = json.loads(row.notification_data) if getattr(row, "notification_data", None) else {}
+        except Exception:
+            detail = {}
+        if not isinstance(detail, dict):
+            detail = {}
+        project_id = detail.get("project_id") if detail.get("project_id") is not None else (task.project_id if task else None)
+        try:
+            project_id = int(project_id) if project_id is not None and project_id != "" else None
+        except (TypeError, ValueError):
+            project_id = None
+        project = projects.get(project_id) if project_id else (projects.get(task.project_id) if task else None)
+        sender_name = ""
+        if comment:
+            if comment.user_id:
+                author = authors.get(comment.user_id)
+                sender_name = display_name_for_user(author) if author else ""
+            elif comment.collaborator_id:
+                collaborator = collaborators.get(comment.collaborator_id)
+                sender_name = (collaborator.display_name or collaborator.email) if collaborator else ""
+        actor_name = str(detail.get("actor_name") or "").strip()
+        task_label = str((task.title if task else (detail.get("project_name") or (project.name if project else "Project"))) or "Task").strip()
+        inbox_preview = ""
+        if row.kind == "comment":
+            preview = (comment.body[:120] + "…") if comment and comment.body and len(comment.body) > 120 else ((comment.body or "").strip() if comment else "New comment")
+            summary = f"{sender_name or 'New message'} commented"
+            inbox_preview = preview
+        else:
+            if row.kind == "task_completed":
+                summary = "Task completed"
+                preview = (actor_name + " completed " + task_label) if actor_name else "Task completed"
+                inbox_preview = "completed"
+            elif row.kind == "task_due_changed":
+                summary = "Due date changed"
+                new_due = str(detail.get("new_due_label") or detail.get("new_due_at") or "").strip()
+                if actor_name and new_due:
+                    preview = actor_name + " changed " + task_label + " due date to " + new_due
+                elif actor_name:
+                    preview = actor_name + " changed " + task_label + " due date"
+                else:
+                    preview = ("Due date changed to " + new_due) if new_due else "Due date changed"
+                inbox_preview = ("due date changed to " + new_due) if new_due else "due date changed"
+            elif row.kind == "task_due_cleared":
+                summary = "Due date removed"
+                preview = (actor_name + " removed the due date from " + task_label) if actor_name else "Due date removed"
+                inbox_preview = "due date removed"
+            elif row.kind == "task_due_asap":
+                summary = "Marked ASAP"
+                preview = (actor_name + " marked " + task_label + " ASAP") if actor_name else "Marked ASAP"
+                inbox_preview = "marked ASAP"
+            elif row.kind == "task_status_changed":
+                summary = "Status changed"
+                new_status = str(detail.get("new_status") or "").strip()
+                if actor_name and new_status:
+                    preview = actor_name + " changed " + task_label + " status to " + new_status
+                elif actor_name:
+                    preview = actor_name + " changed " + task_label + " status"
+                else:
+                    preview = ("Status changed to " + new_status) if new_status else "Status changed"
+                inbox_preview = ("status changed to " + new_status) if new_status else "status changed"
+            elif row.kind == "task_renamed":
+                summary = "Task renamed"
+                new_title = str(detail.get("new_title") or "").strip()
+                if actor_name and new_title:
+                    preview = actor_name + " renamed this task to " + new_title
+                elif actor_name:
+                    preview = actor_name + " renamed " + task_label
+                else:
+                    preview = ("Renamed to " + new_title) if new_title else "Task renamed"
+                inbox_preview = ("renamed to " + new_title) if new_title else "renamed"
+            elif row.kind == "assignment_added":
+                summary = "Assigned to task"
+                if detail.get("group_assign"):
+                    project_label = str(detail.get("project_name") or (project.name if project else "") or (task.title if task else "Task")).strip()
+                    other_count = max(int(detail.get("group_assign_other_count") or 0), 0)
+                    if actor_name:
+                        preview = (
+                            actor_name + " assigned " + project_label + " to you and " + str(other_count) + " other(s)"
+                            if other_count
+                            else actor_name + " assigned " + project_label + " to you"
+                        )
+                    else:
+                        preview = (
+                            project_label + " was assigned to you and " + str(other_count) + " other(s)"
+                            if other_count
+                            else project_label + " was assigned to you"
+                        )
+                    inbox_preview = (
+                        "assigned to you and " + str(other_count) + " other(s)"
+                        if other_count
+                        else "assigned to you"
+                    )
+                else:
+                    recipient_phrase = str(detail.get("recipient_assignment_phrase") or "").strip()
+                    assignee = str(detail.get("assignee_label") or "").strip()
+                    assigned_to_current_user = recipient_phrase.startswith("you")
+                    if actor_name and recipient_phrase:
+                        preview = actor_name + " assigned " + task_label + " to " + recipient_phrase
+                    elif actor_name and assignee:
+                        preview = actor_name + " assigned " + task_label + " to " + assignee
+                    elif actor_name:
+                        preview = actor_name + " assigned " + task_label
+                    elif recipient_phrase:
+                        preview = task_label + " was assigned to " + recipient_phrase
+                    else:
+                        preview = ("Assigned to " + assignee) if assignee else "Assigned to task"
+                    inbox_preview = ("assigned to " + recipient_phrase) if recipient_phrase else (("assigned to " + assignee) if assignee else "assigned")
+            elif row.kind == "task_moved":
+                summary = "Task moved"
+                preview = (actor_name + " moved " + task_label) if actor_name else "Task moved"
+                inbox_preview = "moved"
+            elif row.kind == "task_created":
+                summary = "Task created"
+                preview = (actor_name + " created " + task_label) if actor_name else "Task created"
+                inbox_preview = "created"
+            elif row.kind == "project_shared":
+                summary = "Added to project"
+                project_label = str(detail.get("project_name") or (project.name if project else "") or "Project").strip()
+                preview = ((actor_name + " added you to " + project_label) if actor_name else ("Added to " + project_label))
+                inbox_preview = "added you to this project"
+            else:
+                summary = "Task updated"
+                preview = "Task updated"
+                inbox_preview = "updated"
+        items.append({
+            "id": row.id,
+            "task_id": row.task_id,
+            "task_title": task.title if task else str(detail.get("project_name") or (project.name if project else "Project")),
+            "project_id": project.id if project else project_id,
+            "project_name": project.name if project else (detail.get("project_name") or None),
+            "group_id": group.id if group else None,
+            "group_name": group.name if group else None,
+            "sender_name": sender_name,
+            "detail_payload": detail,
+            "summary": summary,
+            "preview": preview,
+            "inbox_preview": inbox_preview or preview,
+            "comment_preview": preview,
+            "unread_count": unread_comment_count_by_task.get(row.task_id, 0) if row.kind == "comment" and row.read_at is None else 0,
+            "created_at": row.created_at,
+            "created_at_iso": row.created_at.isoformat() if row.created_at else "",
+            "read": row.read_at is not None,
+            "pinned": bool(getattr(row, "pinned", False)),
+            "kind": row.kind,
+        })
+    return items
+
+
 def _sidebar_order_tokens(user) -> list[str]:
     accessible_projects = _accessible_projects_for_user(user)
     divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
@@ -306,7 +526,54 @@ def _sidebar_order_tokens(user) -> list[str]:
     return [f"{item['type']}:{item['id']}" for item in items]
 
 
+def _emit_collaborator_comment_previews(task: Task, collaborator: CollaboratorProfile, preview: str) -> None:
+    if not task or not collaborator:
+        return
+    created_at = datetime.utcnow().isoformat()
+    actor_name = collaborator.display_name or collaborator.email or "New message"
+    for recipient_id in sorted(task_discussion_user_ids(task)):
+        emit_user_notification_preview(
+            recipient_id,
+            {
+                "id": ":".join(["live-comment", str(task.id), str(task.project_id or ""), str(task.group_id or ""), created_at]),
+                "task_id": task.id,
+                "project_id": task.project_id or "",
+                "project_name": "",
+                "group_id": task.group_id or "",
+                "group_name": "",
+                "task_title": task.title or "Task",
+                "kind": "comment",
+                "summary": actor_name + " commented",
+                "preview": preview or "New comment",
+                "comment_preview": preview or "New comment",
+                "created_at": created_at,
+                "created_at_iso": created_at,
+                "read": False,
+                "pinned": False,
+                "sender_name": actor_name,
+                "unread_count": 1,
+                "detail_payload": {
+                    "actor_name": actor_name,
+                    "actor_avatar_url": "",
+                },
+            },
+        )
+
+
 ui_bp = Blueprint("ui", __name__)
+
+
+_SPECIFIC_TASK_NOTIFICATION_KINDS = {
+    "task_completed",
+    "task_due_changed",
+    "task_due_cleared",
+    "task_due_asap",
+    "task_status_changed",
+    "task_renamed",
+    "assignment_added",
+    "task_moved",
+    "task_created",
+}
 
 
 def admin_required(fn):
@@ -859,7 +1126,7 @@ def dashboard():
     current_view = (request.args.get("view") or "tree").strip().lower()
     if current_view == "project":
         current_view = "tree"
-    if current_view not in {"todo", "tree"}:
+    if current_view not in {"todo", "tree", "inbox"}:
         current_view = "tree"
     default_show_completed = "0" if current_view == "todo" else "1"
     if current_view in {"tree", "todo"}:
@@ -1342,37 +1609,24 @@ def dashboard():
             if threshold and comment_row.created_at <= threshold:
                 continue
             unread_comment_count_by_task[comment_row.task_id] = unread_comment_count_by_task.get(comment_row.task_id, 0) + 1
-    task_notifications = []
-    message_notifications = []
-    for row in notification_rows:
-        task = notification_tasks.get(row.task_id)
-        comment = notification_comments.get(row.comment_id)
-        project = project_map.get(task.project_id) if task else None
-        sender_name = None
-        if comment:
-            if comment.user_id:
-                author = notification_authors.get(comment.user_id)
-                sender_name = (author.display_name or author.email) if author else None
-            elif comment.collaborator_id:
-                collaborator = notification_collaborators.get(comment.collaborator_id)
-                sender_name = (collaborator.display_name or collaborator.email) if collaborator else None
-        item = {
-            "id": row.id,
-            "task_id": row.task_id,
-            "task_title": task.title if task else "Task",
-            "project_id": project.id if project else None,
-            "project_name": project.name if project else None,
-            "sender_name": sender_name or "New message",
-            "comment_preview": ((comment.body[:120] + "…") if comment and len(comment.body) > 120 else (comment.body if comment else "")),
-            "unread_count": unread_comment_count_by_task.get(row.task_id, 0) if row.kind == "comment" else 0,
-            "created_at": row.created_at,
-            "pinned": bool(getattr(row, "pinned", False)),
-            "kind": row.kind,
-        }
-        if row.kind == "comment":
-            message_notifications.append(item)
-        else:
-            task_notifications.append(item)
+    notification_items = _build_notification_items(notification_rows, user_id=user.id)
+    task_notifications = [item for item in notification_items if item["kind"] != "comment"]
+    message_notifications = [item for item in notification_items if item["kind"] == "comment"]
+    inbox_notification_rows = (
+        TaskNotification.query.filter(TaskNotification.user_id == user.id, TaskNotification.kind != "comment")
+        .order_by(TaskNotification.created_at.desc(), TaskNotification.id.desc())
+        .limit(100)
+        .all()
+    )
+    discussion_rows = (
+        UserDiscussionActivity.query.filter_by(user_id=user.id)
+        .order_by(UserDiscussionActivity.updated_at.desc(), UserDiscussionActivity.id.desc())
+        .limit(100)
+        .all()
+    )
+    inbox_items = _build_notification_items(inbox_notification_rows, user_id=user.id) + build_discussion_activity_items(discussion_rows, user_id=user.id)
+    inbox_items.sort(key=lambda item: item.get("created_at") or datetime.min, reverse=True)
+    inbox_items_json = [{key: value for key, value in item.items() if key != "created_at"} for item in inbox_items]
     todo_groups_by_date = []
     for item in todo_items:
         if not todo_groups_by_date or todo_groups_by_date[-1]["key"] != item["date_key"]:
@@ -1429,6 +1683,8 @@ def dashboard():
         task_status_payloads=task_status_payloads,
         task_notifications=task_notifications,
         message_notifications=message_notifications,
+        inbox_items=inbox_items,
+        inbox_items_json=inbox_items_json,
         dashboard_notice=dashboard_notice,
         tree_selection_type=tree_selection_type,
         tree_selection_id=tree_selection_id,
@@ -2440,11 +2696,26 @@ def collaborator_post_task_comment(token: str, task_id: int):
     db.session.add(comment)
     db.session.flush()
     task = Task.query.get(task_id)
+    activity_rows = []
     if task:
+        activity_rows = upsert_discussion_activity(
+            user_ids=task_discussion_user_ids(task),
+            entity_type="task",
+            entity_id=task.id,
+            task_id=task.id,
+            project_id=task.project_id,
+            group_id=task.group_id,
+            comment_id=comment.id,
+            actor_collaborator_id=collaborator.id,
+            preview=body,
+        )
         queue_task_notifications(task, kind="comment", comment_id=comment.id)
     db.session.commit()
     if task:
         emit_task_comment_created(task_id, _serialize_portal_comment(comment, {}, {collaborator.id: collaborator}))
+        _emit_collaborator_comment_previews(task, collaborator, body)
+        for row in activity_rows:
+            emit_discussion_activity_updated(row.user_id, row.id)
         emit_task_notification_updates(task)
     return {"comment": _serialize_portal_comment(comment, {}, {collaborator.id: collaborator})}, 201
 

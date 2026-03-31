@@ -1,5 +1,6 @@
 from datetime import datetime
 from html import escape
+import json
 from pathlib import Path
 import re
 from urllib.parse import urlparse
@@ -12,6 +13,12 @@ from app.auth import login_required
 from app.collaborators import get_or_create_collaborator_profile
 from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
 from app.extensions import db
+from app.discussion_activity import (
+    group_discussion_user_ids,
+    project_discussion_user_ids,
+    task_discussion_user_ids,
+    upsert_discussion_activity,
+)
 from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, search_users_by_identity
@@ -24,6 +31,7 @@ from app.realtime import (
     emit_division_deleted,
     emit_division_updated,
     emit_group_created,
+    emit_discussion_activity_updated,
     emit_group_updated,
     emit_group_deleted,
     emit_group_members_updated,
@@ -51,6 +59,8 @@ from app.realtime import (
     emit_task_notification_updates,
     emit_task_updated,
     notification_payload_for_user,
+    emit_user_notification_preview,
+    queue_user_notification,
     queue_task_notifications,
 )
 from app.sidebar_layout import (
@@ -94,6 +104,250 @@ DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown"
 TASK_DUE_MODE_OPTIONS = {"none", "date", "asap"}
+
+
+def _is_complete_status_value(status: str | None) -> bool:
+    value = (status or "").strip().lower()
+    return value in {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
+
+
+def _task_update_notification_kind(
+    *,
+    old_title: str | None,
+    new_title: str | None,
+    old_status: str | None,
+    new_status: str | None,
+    old_due_at,
+    new_due_at,
+    old_due_mode: str | None,
+    new_due_mode: str | None,
+    user_status: str | None,
+) -> str:
+    effective_status = (user_status if user_status is not None else new_status) or ""
+    if _is_complete_status_value(effective_status) and not _is_complete_status_value(old_status):
+        return "task_completed"
+    if (old_due_mode or "none") != (new_due_mode or "none") or bool(old_due_at) != bool(new_due_at) or (old_due_at and new_due_at and old_due_at != new_due_at):
+        if (new_due_mode or "none") == "asap":
+            return "task_due_asap"
+        if (new_due_mode or "none") == "none":
+            return "task_due_cleared"
+        return "task_due_changed"
+    if (old_status or "").strip() != (new_status or "").strip() or user_status is not None:
+        return "task_status_changed"
+    if (old_title or "").strip() != (new_title or "").strip():
+        return "task_renamed"
+    return "task_update"
+
+
+def _task_notification_actor_payload(user) -> dict:
+    if not user:
+        return {}
+    return {
+        "actor_user_id": user.id,
+        "actor_name": display_name_for_user(user) or user.email or "Someone",
+        "actor_avatar_url": user.avatar_url or "",
+    }
+
+
+def _queue_project_shared_notification(member_user, actor_user, project) -> bool:
+    if not member_user or not actor_user or not project:
+        return False
+    if int(actor_user.id) == int(member_user.id):
+        return False
+    preview_payload = {
+        "id": "live-project-shared:" + str(project.id) + ":" + str(actor_user.id),
+        "task_id": "",
+        "project_id": project.id,
+        "project_name": _project_display_name_for_user(project, member_user.id),
+        "group_id": "",
+        "group_name": "",
+        "task_title": _project_display_name_for_user(project, member_user.id),
+        "kind": "project_shared",
+        "summary": "Added to project",
+        "preview": (_task_notification_actor_payload(actor_user).get("actor_name") or "Someone") + " added you to " + _project_display_name_for_user(project, member_user.id),
+        "comment_preview": "",
+        "created_at": datetime.utcnow().isoformat(),
+        "created_at_iso": datetime.utcnow().isoformat(),
+        "read": False,
+        "pinned": False,
+        "detail_payload": {
+            **_task_notification_actor_payload(actor_user),
+            "project_id": project.id,
+            "project_name": _project_display_name_for_user(project, member_user.id),
+        },
+    }
+    emit_user_notification_preview(member_user.id, preview_payload)
+    try:
+        queue_user_notification(
+            user_id=member_user.id,
+            kind="project_shared",
+            detail_payload={
+                **_task_notification_actor_payload(actor_user),
+                "project_id": project.id,
+                "project_name": _project_display_name_for_user(project, member_user.id),
+            },
+        )
+        db.session.commit()
+        emit_notification_state(member_user.id)
+        return True
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("project_shared notification failed")
+        return False
+
+
+def _queue_group_assignment_notifications(task: Task, assignments: list[Assignment], actor_user) -> None:
+    if not task or not assignments:
+        return
+    total_assignees = len(group_assignment_candidate_users(task))
+    recipient_ids: set[int] = set()
+    project_label = task.project.name if getattr(task, "project", None) and task.project.name else (task.title or "Task")
+    for assignment in assignments:
+        if not assignment.user_id:
+            continue
+        if actor_user and int(assignment.user_id) == int(actor_user.id):
+            continue
+        recipient_ids.add(int(assignment.user_id))
+        queue_user_notification(
+            user_id=assignment.user_id,
+            kind="assignment_added",
+            task_id=task.id,
+            detail_payload={
+                **_task_notification_actor_payload(actor_user),
+                "assignee_user_id": assignment.user_id,
+                "group_assign": True,
+                "group_assign_total": total_assignees,
+                "group_assign_other_count": max(total_assignees - 1, 0),
+                "project_name": project_label,
+                "task_title": task.title or "Task",
+            },
+        )
+    if not recipient_ids:
+        return
+    db.session.commit()
+    for recipient_id in sorted(recipient_ids):
+        emit_notification_state(recipient_id)
+
+
+def _assignment_recipient_phrase(
+    task: Task,
+    *,
+    recipient_user_id: int,
+    fallback_label: str = "",
+) -> str:
+    assignment_rows = (
+        Assignment.query.filter_by(task_id=task.id)
+        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
+        .all()
+    )
+    assigned_users: list[User] = []
+    seen_ids: set[int] = set()
+    for row in assignment_rows:
+        if not row.user_id or row.user_id in seen_ids:
+            continue
+        assignee = User.query.get(row.user_id)
+        if not assignee:
+            continue
+        seen_ids.add(row.user_id)
+        assigned_users.append(assignee)
+    if not assigned_users:
+        return fallback_label.strip() or "you"
+
+    if any(int(assignee.id) == int(recipient_user_id) for assignee in assigned_users):
+        other_labels = [
+            display_name_for_user(assignee) or assignee.email or "Someone"
+            for assignee in assigned_users
+            if int(assignee.id) != int(recipient_user_id)
+        ]
+        if not other_labels:
+            return "you"
+        if len(other_labels) == 1:
+            return "you and " + other_labels[0]
+        return "you and " + str(len(other_labels)) + " others"
+
+    labels = [display_name_for_user(assignee) or assignee.email or "Someone" for assignee in assigned_users]
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == 2:
+        return labels[0] + " and " + labels[1]
+    return labels[0] + " and " + str(len(labels) - 1) + " others"
+
+
+def _queue_assignment_added_notifications(task: Task, *, actor_user, fallback_assignee_label: str = "") -> None:
+    if not task:
+        return
+    recipient_ids = {
+        int(recipient_id)
+        for recipient_id in _task_notification_user_ids(task)
+        if recipient_id and (not actor_user or int(recipient_id) != int(actor_user.id))
+    }
+    if not recipient_ids:
+        return
+    for recipient_id in sorted(recipient_ids):
+        queue_user_notification(
+            user_id=recipient_id,
+            kind="assignment_added",
+            task_id=task.id,
+            detail_payload={
+                **_task_notification_actor_payload(actor_user),
+                "task_title": task.title or "Task",
+                "recipient_assignment_phrase": _assignment_recipient_phrase(
+                    task,
+                    recipient_user_id=recipient_id,
+                    fallback_label=fallback_assignee_label,
+                ),
+            },
+        )
+    db.session.commit()
+    for recipient_id in sorted(recipient_ids):
+        emit_notification_state(recipient_id)
+
+
+def _emit_comment_notification_previews(
+    *,
+    recipient_ids: set[int] | list[int],
+    actor_user,
+    task_id: int | None = None,
+    project_id: int | None = None,
+    group_id: int | None = None,
+    task_title: str = "",
+    project_name: str = "",
+    preview: str = "",
+    exclude_user_id: int | None = None,
+) -> None:
+    actor_name = (_task_notification_actor_payload(actor_user).get("actor_name") or "New message") if actor_user else "New message"
+    actor_avatar_url = (_task_notification_actor_payload(actor_user).get("actor_avatar_url") or "") if actor_user else ""
+    created_at = datetime.utcnow().isoformat()
+    for recipient_id in sorted({int(user_id) for user_id in (recipient_ids or []) if user_id}):
+        if exclude_user_id is not None and int(recipient_id) == int(exclude_user_id):
+            continue
+        live_id_parts = ["live-comment", str(task_id or ""), str(project_id or ""), str(group_id or ""), created_at]
+        emit_user_notification_preview(
+            recipient_id,
+            {
+                "id": ":".join(live_id_parts),
+                "task_id": task_id or "",
+                "project_id": project_id or "",
+                "project_name": project_name or "",
+                "group_id": group_id or "",
+                "group_name": "",
+                "task_title": task_title or "Task",
+                "kind": "comment",
+                "summary": actor_name + " commented",
+                "preview": preview or "New comment",
+                "comment_preview": preview or "New comment",
+                "created_at": created_at,
+                "created_at_iso": created_at,
+                "read": False,
+                "pinned": False,
+                "sender_name": actor_name,
+                "unread_count": 1,
+                "detail_payload": {
+                    "actor_name": actor_name,
+                    "actor_avatar_url": actor_avatar_url,
+                },
+            },
+        )
 
 
 def _coerce_description_format(value: str | None, default: str) -> str | None:
@@ -708,7 +962,12 @@ def create_task():
             "display_email": account_user.email if account_user else assignment.email,
         }
 
-    queue_task_notifications(task, exclude_user_id=user.id, kind="task_created")
+    queue_task_notifications(
+        task,
+        exclude_user_id=user.id,
+        kind="task_created",
+        detail_payload=_task_notification_actor_payload(user),
+    )
     db.session.commit()
     task = Task.query.get(task.id) or task
     task_payload = _serialize_task_row(task, viewer_user_id=user.id)
@@ -735,6 +994,11 @@ def update_task(task_id: int):
 
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+
+    old_title = task.title
+    old_status = task.status
+    old_due_at = task.due_at
+    old_due_mode = _task_due_mode(task)
 
     title = payload.get("title")
     link = payload.get("link")
@@ -802,7 +1066,36 @@ def update_task(task_id: int):
             return {"error": "invalid description_format"}, 400
         task.description_format = normalized
     db.session.commit()
-    queue_task_notifications(task, exclude_user_id=user.id, kind="task_update")
+    new_due_mode = _task_due_mode(task)
+    notification_kind = _task_update_notification_kind(
+        old_title=old_title,
+        new_title=task.title,
+        old_status=old_status,
+        new_status=task.status,
+        old_due_at=old_due_at,
+        new_due_at=task.due_at,
+        old_due_mode=old_due_mode,
+        new_due_mode=new_due_mode,
+        user_status=user_status,
+    )
+    detail_payload = _task_notification_actor_payload(user)
+    if notification_kind == "task_renamed":
+        detail_payload.update({"old_title": old_title or "", "new_title": task.title or ""})
+    elif notification_kind in {"task_due_changed", "task_due_cleared", "task_due_asap"}:
+        detail_payload.update({
+            "old_due_mode": old_due_mode or "none",
+            "new_due_mode": new_due_mode or "none",
+            "old_due_at": old_due_at.isoformat() if old_due_at else "",
+            "new_due_at": task.due_at.isoformat() if task.due_at else "",
+            "old_due_label": old_due_at.strftime("%Y-%m-%d") if old_due_at else ("ASAP" if old_due_mode == "asap" else ""),
+            "new_due_label": task.due_at.strftime("%Y-%m-%d") if task.due_at else ("ASAP" if new_due_mode == "asap" else ""),
+        })
+    elif notification_kind in {"task_status_changed", "task_completed"}:
+        detail_payload.update({
+            "old_status": old_status or "",
+            "new_status": user_status or task.status or "",
+        })
+    queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
     db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
@@ -1001,6 +1294,18 @@ def create_task_comment(task_id: int):
     db.session.add(comment)
     db.session.flush()
     links_changed = _merge_comment_links(task, body)
+    activity_rows = upsert_discussion_activity(
+        user_ids=task_discussion_user_ids(task),
+        entity_type="task",
+        entity_id=task.id,
+        task_id=task.id,
+        project_id=task.project_id,
+        group_id=task.group_id,
+        comment_id=comment.id,
+        actor_user_id=user.id,
+        preview=body,
+        exclude_user_id=user.id,
+    )
 
     queue_task_notifications(task, exclude_user_id=user.id, kind="comment", comment_id=comment.id)
 
@@ -1009,6 +1314,19 @@ def create_task_comment(task_id: int):
     if links_changed:
         emit_task_updated(task, actor_user_id=user.id)
     emit_task_comment_created(task.id, _serialize_task_comment(comment, user))
+    _emit_comment_notification_previews(
+        recipient_ids=task_discussion_user_ids(task),
+        actor_user=user,
+        task_id=task.id,
+        project_id=task.project_id,
+        group_id=task.group_id,
+        task_title=task.title or "Task",
+        project_name=task.project.name if getattr(task, "project", None) and task.project.name else "",
+        preview=body,
+        exclude_user_id=user.id,
+    )
+    for row in activity_rows:
+        emit_discussion_activity_updated(row.user_id, row.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"comment": _serialize_task_comment(comment, user), "comment_count": comment_count}, 201
 
@@ -1095,11 +1413,33 @@ def create_project_comment(project_id: int):
     comment = ProjectComment(project_id=project.id, user_id=user.id, body=body)
     db.session.add(comment)
     _merge_comment_links(project, body)
+    db.session.flush()
+    activity_rows = upsert_discussion_activity(
+        user_ids=project_discussion_user_ids(project.id),
+        entity_type="project",
+        entity_id=project.id,
+        project_id=project.id,
+        comment_id=comment.id,
+        actor_user_id=user.id,
+        preview=body,
+        exclude_user_id=user.id,
+    )
     db.session.commit()
     comment_count = ProjectComment.query.filter_by(project_id=project.id).count()
     payload = _serialize_simple_comment(comment, user, project_id=project.id)
     emit_project_updated(project, actor_user_id=user.id)
     emit_project_comment_created(project.id, payload)
+    _emit_comment_notification_previews(
+        recipient_ids=project_discussion_user_ids(project.id),
+        actor_user=user,
+        project_id=project.id,
+        task_title="Project chat",
+        project_name=project.name or "Project",
+        preview=body,
+        exclude_user_id=user.id,
+    )
+    for row in activity_rows:
+        emit_discussion_activity_updated(row.user_id, row.id)
     return {"comment": payload, "comment_count": comment_count}, 201
 
 
@@ -1185,11 +1525,35 @@ def create_group_comment(group_id: int):
     comment = GroupComment(group_id=group.id, user_id=user.id, body=body)
     db.session.add(comment)
     _merge_comment_links(group, body)
+    db.session.flush()
+    activity_rows = upsert_discussion_activity(
+        user_ids=group_discussion_user_ids(group.id),
+        entity_type="group",
+        entity_id=group.id,
+        project_id=group.project_id,
+        group_id=group.id,
+        comment_id=comment.id,
+        actor_user_id=user.id,
+        preview=body,
+        exclude_user_id=user.id,
+    )
     db.session.commit()
     comment_count = GroupComment.query.filter_by(group_id=group.id).count()
     payload = _serialize_simple_comment(comment, user, group_id=group.id)
     emit_group_updated(group, actor_user_id=user.id)
     emit_group_comment_created(group.id, payload)
+    _emit_comment_notification_previews(
+        recipient_ids=group_discussion_user_ids(group.id),
+        actor_user=user,
+        project_id=group.project_id,
+        group_id=group.id,
+        task_title=(group.name or "Group") + " chat",
+        project_name=group.project.name if getattr(group, "project", None) and group.project.name else "",
+        preview=body,
+        exclude_user_id=user.id,
+    )
+    for row in activity_rows:
+        emit_discussion_activity_updated(row.user_id, row.id)
     return {"comment": payload, "comment_count": comment_count}, 201
 
 
@@ -1374,7 +1738,18 @@ def move_task(task_id: int):
         _resequence_tasks(source_project_id, source_group_id, exclude_task_id=task.id)
 
     db.session.commit()
-    queue_task_notifications(task, exclude_user_id=user.id, kind="task_moved")
+    queue_task_notifications(
+        task,
+        exclude_user_id=user.id,
+        kind="task_moved",
+        detail_payload={
+            **_task_notification_actor_payload(user),
+            "old_project_id": source_project_id,
+            "old_group_id": source_group_id,
+            "new_project_id": task.project_id,
+            "new_group_id": task.group_id,
+        },
+    )
     db.session.commit()
     emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=source_group_id, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
@@ -2294,7 +2669,9 @@ def add_project_member(project_id: int):
         GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
-    emit_project_created(Project.query.get(project_id), actor_user_id=user.id, recipient_user_id=user_id)
+    project = Project.query.get(project_id)
+    emit_project_created(project, actor_user_id=user.id, recipient_user_id=user_id)
+    _queue_project_shared_notification(member_user, user, project)
     emit_project_members_updated(project_id, actor_user_id=user.id)
     for group_id in group_ids:
         emit_group_members_updated(group_id, actor_user_id=user.id)
@@ -2326,7 +2703,9 @@ def add_group_member(group_id: int):
         GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(group.project_id, actor_user_id=user.id)
-    emit_project_created(Project.query.get(group.project_id), actor_user_id=user.id, recipient_user_id=user_id)
+    project = Project.query.get(group.project_id)
+    emit_project_created(project, actor_user_id=user.id, recipient_user_id=user_id)
+    _queue_project_shared_notification(member_user, user, project)
     emit_project_members_updated(group.project_id, actor_user_id=user.id)
     for item_id in group_ids:
         emit_group_members_updated(item_id, actor_user_id=user.id)
@@ -2671,6 +3050,11 @@ def create_assignment():
         ) or existing_assignment
         _reset_existing_assignment(existing_assignment)
         db.session.commit()
+        _queue_assignment_added_notifications(
+            task,
+            actor_user=user,
+            fallback_assignee_label=display_name_for_user(account_user) if account_user else (existing_assignment.email or email),
+        )
         emit_assignment_updated(task, existing_assignment, actor_user_id=user.id)
         return {
             "id": existing_assignment.id,
@@ -2695,6 +3079,11 @@ def create_assignment():
         email=email,
     ) or assignment
     db.session.commit()
+    _queue_assignment_added_notifications(
+        task,
+        actor_user=user,
+        fallback_assignee_label=display_name_for_user(account_user) if account_user else (assignment.email or email),
+    )
     emit_assignment_updated(task, assignment, action="created", actor_user_id=user.id)
 
     return {
@@ -2724,6 +3113,7 @@ def assign_all_task_members(task_id: int):
         emit_assignment_updated(task, assignment, action="deleted", actor_user_id=user.id)
     for assignment in changes["created"]:
         emit_assignment_updated(task, assignment, action="created", actor_user_id=user.id)
+    _queue_group_assignment_notifications(task, changes["created"], user)
     emit_task_updated(task, actor_user_id=user.id)
     return {
         "assign_group_members": True,
@@ -2746,6 +3136,8 @@ def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -
             emit_assignment_updated(task, assignment, action="deleted", actor_user_id=actor_user_id)
         for assignment in changes["created"]:
             emit_assignment_updated(task, assignment, action="created", actor_user_id=actor_user_id)
+        actor_user = User.query.get(actor_user_id) if actor_user_id else None
+        _queue_group_assignment_notifications(task, changes["created"], actor_user)
         emit_task_updated(task, actor_user_id=actor_user_id)
 
 

@@ -683,6 +683,10 @@
         min-width: 0;
       }
 
+      .layout.no-sidebar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
       .sidebar {
         border-right: 1px solid var(--border);
         background: color-mix(in srgb, var(--panel-alt) 78%, var(--panel) 22%);
@@ -1365,6 +1369,177 @@
 
       body[data-theme="light"] .content {
         overflow-x: clip;
+      }
+
+      .inbox-view {
+        display: flex;
+        flex-direction: column;
+        min-height: 100%;
+        gap: 14px;
+      }
+
+      .inbox-panel {
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .inbox-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .inbox-title {
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .inbox-count {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .inbox-list {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .inbox-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        width: 100%;
+        border: 0;
+        border-radius: 0;
+        border-bottom: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        padding: 16px 20px;
+        cursor: pointer;
+      }
+
+      .inbox-item:last-child {
+        border-bottom: 0;
+      }
+
+      .inbox-item:hover,
+      .inbox-item:focus-visible {
+        outline: none;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .inbox-item.is-unread {
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+      }
+
+      .inbox-item-icon {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .inbox-item-icon img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        border-radius: inherit;
+        object-fit: cover;
+      }
+
+      .inbox-item-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        flex: 1 1 auto;
+      }
+
+      .inbox-item-topline {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .inbox-item-title {
+        min-width: 0;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .inbox-item-time {
+        flex: 0 0 auto;
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      .inbox-item-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .inbox-item-preview {
+        font-size: 13px;
+        line-height: 1.45;
+        color: color-mix(in srgb, var(--ink) 90%, var(--muted) 10%);
+      }
+
+      .inbox-item-preview i {
+        margin-right: 8px;
+        color: var(--muted);
+      }
+
+      .inbox-item-dot {
+        width: 6px;
+        height: 6px;
+        flex: 0 0 6px;
+        border-radius: 999px;
+        background: var(--accent);
+        align-self: center;
+        opacity: 0;
+      }
+
+      .inbox-item.is-unread .inbox-item-dot {
+        opacity: 1;
+      }
+
+      .inbox-empty {
+        padding: 28px 20px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      body[data-theme="light"] .inbox-item:hover,
+      body[data-theme="light"] .inbox-item:focus-visible {
+        background: rgba(37, 99, 235, 0.06);
+      }
+
+      body[data-theme="light"] .inbox-item.is-unread {
+        background: color-mix(in srgb, var(--accent) 10%, white 90%);
+      }
+
+      body[data-theme="light"] .inbox-item-icon {
+        border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
       }
 
       .auth-page {
@@ -6100,6 +6275,14 @@
           padding-top: 12px;
         }
 
+        .view-switcher > a.view-switch {
+          flex: 1 1 0;
+        }
+
+        .view-search-trigger {
+          flex: 0 0 auto;
+        }
+
         .notifications-menu,
         .account-menu,
         .view-search-menu {
@@ -6166,6 +6349,16 @@
           min-width: 0;
           max-width: 100%;
           box-sizing: border-box;
+        }
+
+        .inbox-view {
+          padding: 0;
+        }
+
+        .inbox-header,
+        .inbox-item {
+          padding-left: 14px;
+          padding-right: 14px;
         }
 
         .panel,
@@ -7132,12 +7325,15 @@
       </div>
       <div class="header-center">
         {% if current_view is defined %}
+          {% if current_view in ['tree', 'todo'] %}
           <button class="mobile-sidebar-trigger" type="button" data-mobile-sidebar-trigger aria-label="Open navigation" aria-expanded="false">
             <i class="fa-solid fa-bars" aria-hidden="true"></i>
           </button>
+          {% endif %}
           <div class="view-switcher">
             <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='tree', show_completed=1) }}{% else %}{{ url_for('ui.dashboard', view='tree', show_completed=1) }}{% endif %}">Tree</a>
             <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo</a>
+            <a class="view-switch{% if current_view == 'inbox' %} active{% endif %}" href="{{ url_for('ui.dashboard', view='inbox', show_completed=1) }}">Inbox</a>
             <div class="view-search" data-task-search>
               <button class="view-switch view-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" data-task-search-trigger aria-label="Search" title="Search">
                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>

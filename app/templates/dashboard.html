@@ -133,6 +133,29 @@
     {% endif %}
   </div>
 {% endmacro %}
+{% macro render_inbox_activity_icon(kind) %}
+  {% if kind == 'comment' %}
+    <i class="fa-regular fa-comments" aria-hidden="true"></i>
+  {% elif kind == 'task_completed' %}
+    <i class="fa-regular fa-square-check" aria-hidden="true"></i>
+  {% elif kind in ['task_due_changed', 'task_due_cleared', 'task_due_asap'] %}
+    <i class="fa-regular fa-calendar" aria-hidden="true"></i>
+  {% elif kind == 'task_status_changed' %}
+    <i class="fa-solid fa-signal" aria-hidden="true"></i>
+  {% elif kind == 'task_renamed' %}
+    <i class="fa-regular fa-pen-to-square" aria-hidden="true"></i>
+  {% elif kind == 'assignment_added' %}
+    <i class="fa-regular fa-user" aria-hidden="true"></i>
+  {% elif kind == 'task_moved' %}
+    <i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i>
+  {% elif kind == 'task_created' %}
+    <i class="fa-solid fa-square-plus" aria-hidden="true"></i>
+  {% elif kind == 'project_shared' %}
+    <i class="fa-solid fa-user-group" aria-hidden="true"></i>
+  {% else %}
+    <i class="fa-regular fa-bell" aria-hidden="true"></i>
+  {% endif %}
+{% endmacro %}
 {% macro render_task_status_cell(task, status_payload, todo=False) %}
   {% if status_payload and status_payload.get('enabled') %}
     <button class="task-status-multi-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
@@ -267,7 +290,6 @@
                 {% endif %}
               </span>
               <span class="assign-spacer"></span>
-              <button class="icon-button" type="button" data-delete-task="{{ task.id }}" title="Delete task">×</button>
             </div>
           {% endif %}
         </td>
@@ -277,7 +299,8 @@
 {% endmacro %}
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
-<div class="layout"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout>
+<div class="layout{% if current_view == 'inbox' %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout>
+  {% if current_view in ['todo', 'tree'] %}
   <aside class="sidebar{% if current_view in ['todo', 'tree'] %} todo-tree{% endif %}" {% if current_view == 'todo' %}data-todo-tree{% elif current_view == 'tree' %}data-tree-sidebar{% endif %}>
     {% if current_view == 'todo' %}
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
@@ -649,6 +672,7 @@
       </div>
     {% endif %}
   </aside>
+  {% endif %}
 
   <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
     {% if dashboard_notice %}
@@ -965,6 +989,57 @@
             <p class="footer-note">No visible projects yet.</p>
           </div>
         {% endfor %}
+      </div>
+    {% elif current_view == 'inbox' %}
+      <div class="inbox-view">
+        <div class="panel inbox-panel">
+          <div class="inbox-header">
+            <div class="inbox-title">Inbox</div>
+            <div class="inbox-count" data-inbox-count>{{ inbox_items|length }} items</div>
+          </div>
+          <div class="inbox-list" data-inbox-feed>
+            {% for item in inbox_items %}
+              {% set inbox_payload = {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id or "", "group_id": item.group_id or "", "kind": item.kind, "task_title": item.task_title, "project_name": item.project_name or ""} %}
+              <button class="inbox-item{% if not item.read %} is-unread{% endif %}" type="button" data-inbox-open='{{ inbox_payload|tojson|e }}'>
+                <span class="inbox-item-icon">
+                  {% if item.detail_payload and item.detail_payload.get('actor_avatar_url') %}
+                    <img src="{{ item.detail_payload.get('actor_avatar_url') }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+                  {% elif item.kind == 'comment' %}
+                    <i class="fa-regular fa-comments" aria-hidden="true"></i>
+                  {% elif item.kind == 'task_created' %}
+                    <i class="fa-solid fa-square-plus" aria-hidden="true"></i>
+                  {% elif item.kind == 'task_moved' %}
+                    <i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i>
+                  {% else %}
+                    <i class="fa-regular fa-square-check" aria-hidden="true"></i>
+                  {% endif %}
+                </span>
+                <span class="inbox-item-copy">
+                  <span class="inbox-item-topline">
+                    <span class="inbox-item-title">
+                      {% if item.kind == 'comment' %}
+                        {{ item.sender_name or item.detail_payload.get('actor_name') or item.task_title }}
+                      {% else %}
+                        {{ item.detail_payload.get('actor_name') or item.sender_name or item.task_title }}
+                      {% endif %}
+                    </span>
+                    <span class="inbox-item-time" data-inbox-created-at="{{ item.created_at_iso }}">{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}</span>
+                  </span>
+                  <span class="inbox-item-preview">
+                    {% if item.kind == 'comment' and item.unread_count and item.unread_count > 1 %}
+                      {{ render_inbox_activity_icon(item.kind) }}<strong>{{ item.task_title }}</strong> {{ item.unread_count }} new messages
+                    {% else %}
+                      {{ render_inbox_activity_icon(item.kind) }}<strong>{{ item.task_title }}</strong> {{ item.inbox_preview or item.preview or item.comment_preview }}
+                    {% endif %}
+                  </span>
+                </span>
+                <span class="inbox-item-dot" aria-hidden="true"></span>
+              </button>
+            {% else %}
+              <div class="inbox-empty">No activity yet.</div>
+            {% endfor %}
+          </div>
+        </div>
       </div>
     {% elif selected_project %}
       <div class="panel">
@@ -1847,7 +1922,6 @@
               '<input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + taskId + '" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />' +
             '</span>' +
             '<span class="assign-spacer"></span>' +
-            '<button class="icon-button" type="button" data-delete-task="' + taskId + '" title="Delete task">×</button>' +
           '</div>' +
         '</td>';
       return tr;
@@ -5405,7 +5479,6 @@
               <button class="assign-add-btn" type="button" title="Assign">+</button>
             </span>
             <span class="assign-spacer"></span>
-            <button class="icon-button" type="button" data-delete-task="${id}" title="Delete task">×</button>
           </div>
         </td>
       `;
@@ -8687,6 +8760,40 @@
       } catch (err) {}
     }
 
+    function loadLiveRegularNotifications() {
+      try {
+        var raw = sessionStorage.getItem("termin:live-regular-notifications");
+        if (!raw) return [];
+        var values = JSON.parse(raw);
+        return Array.isArray(values) ? values : [];
+      } catch (err) {
+        return [];
+      }
+    }
+
+    function saveLiveRegularNotifications() {
+      try {
+        sessionStorage.setItem("termin:live-regular-notifications", JSON.stringify(liveRegularNotifications.slice(0, 30)));
+      } catch (err) {}
+    }
+
+    function loadInboxCache() {
+      try {
+        var raw = sessionStorage.getItem("termin:inbox-cache");
+        if (!raw) return [];
+        var values = JSON.parse(raw);
+        return Array.isArray(values) ? values : [];
+      } catch (err) {
+        return [];
+      }
+    }
+
+    function saveInboxCache() {
+      try {
+        sessionStorage.setItem("termin:inbox-cache", JSON.stringify((Array.isArray(latestInboxItems) ? latestInboxItems : []).slice(0, 100)));
+      } catch (err) {}
+    }
+
     function primeDesktopNotifications(data) {
       if (desktopNotificationsPrimed) return;
       desktopNotificationsSupported = typeof window !== "undefined" && "Notification" in window;
@@ -8741,7 +8848,175 @@
       unread_task_ids: [],
       unread_comment_task_ids: [],
     };
+    var liveRegularNotifications = loadLiveRegularNotifications();
+    var latestInboxItems = mergeInboxFeedItems(
+      mergeInboxFeedItems(
+        {{ (inbox_items_json if inbox_items_json is defined else []) | tojson }},
+        liveRegularNotifications
+      ),
+      loadInboxCache()
+    );
     var liveMessageNotifications = [];
+
+    function formatInboxTimestamp(value) {
+      if (!value) return "";
+      var parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return "";
+      return parsed.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+
+    function renderInboxFeed(items) {
+      var list = document.querySelector("[data-inbox-feed]");
+      if (!list) return;
+      var countEl = document.querySelector("[data-inbox-count]");
+      var rows = Array.isArray(items) ? items.slice(0, 100) : [];
+      if (countEl) {
+        countEl.textContent = rows.length + " item" + (rows.length === 1 ? "" : "s");
+      }
+      if (!rows.length) {
+        list.innerHTML = '<div class="inbox-empty">No activity yet.</div>';
+        return;
+      }
+      list.innerHTML = rows.map(function (item) {
+        var kind = String(item && item.kind || "");
+        var icon = '<i class="fa-regular fa-square-check" aria-hidden="true"></i>';
+        if (kind === "comment") icon = '<i class="fa-regular fa-comments" aria-hidden="true"></i>';
+        else if (kind === "task_created") icon = '<i class="fa-solid fa-square-plus" aria-hidden="true"></i>';
+        else if (kind === "task_moved") icon = '<i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i>';
+        var actorAvatarUrl = item && item.detail_payload ? String(item.detail_payload.actor_avatar_url || "") : "";
+        if (actorAvatarUrl) {
+          icon = '<img src="' + escapeHtml(actorAvatarUrl) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />';
+        }
+        var activityIcon = '<i class="fa-regular fa-bell" aria-hidden="true"></i>';
+        if (kind === "comment") activityIcon = '<i class="fa-regular fa-comments" aria-hidden="true"></i>';
+        else if (kind === "task_completed") activityIcon = '<i class="fa-regular fa-square-check" aria-hidden="true"></i>';
+        else if (kind === "task_due_changed" || kind === "task_due_cleared" || kind === "task_due_asap") activityIcon = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
+        else if (kind === "task_status_changed") activityIcon = '<i class="fa-solid fa-signal" aria-hidden="true"></i>';
+        else if (kind === "task_renamed") activityIcon = '<i class="fa-regular fa-pen-to-square" aria-hidden="true"></i>';
+        else if (kind === "assignment_added") activityIcon = '<i class="fa-regular fa-user" aria-hidden="true"></i>';
+        else if (kind === "task_moved") activityIcon = '<i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i>';
+        else if (kind === "task_created") activityIcon = '<i class="fa-solid fa-square-plus" aria-hidden="true"></i>';
+        else if (kind === "project_shared") activityIcon = '<i class="fa-solid fa-user-group" aria-hidden="true"></i>';
+        var payload = {
+          notification_id: item.id,
+          task_id: item.task_id || "",
+          project_id: item.project_id || "",
+          group_id: item.group_id || "",
+          task_title: item.task_title || "Task",
+          project_name: item.project_name || "",
+          kind: kind || "task_update",
+        };
+        var actorName = kind === "comment"
+          ? String(item.sender_name || (item.detail_payload && item.detail_payload.actor_name) || item.task_title || "Activity")
+          : String((item.detail_payload && item.detail_payload.actor_name) || item.sender_name || item.task_title || "Activity");
+        var taskLabel = escapeHtml(item.task_title || "Task");
+        var previewText = (kind === "comment" && Number(item.unread_count || 0) > 1)
+          ? escapeHtml(String(Number(item.unread_count || 0)) + " new messages")
+          : escapeHtml(item.inbox_preview || item.preview || item.comment_preview || "");
+        return (
+          '<button class="inbox-item' + (item.read ? '' : ' is-unread') + '" type="button" data-inbox-open=\'' + escapeHtml(JSON.stringify(payload)) + '\'>' +
+            '<span class="inbox-item-icon">' + icon + '</span>' +
+            '<span class="inbox-item-copy">' +
+              '<span class="inbox-item-topline">' +
+                '<span class="inbox-item-title">' + escapeHtml(actorName) + '</span>' +
+                '<span class="inbox-item-time">' + escapeHtml(formatInboxTimestamp(item.created_at_iso || item.created_at || "")) + '</span>' +
+              '</span>' +
+              '<span class="inbox-item-preview">' + activityIcon + '<strong>' + taskLabel + '</strong> ' + previewText + '</span>' +
+            '</span>' +
+            '<span class="inbox-item-dot" aria-hidden="true"></span>' +
+          '</button>'
+        );
+      }).join("");
+    }
+
+    function mergeInboxFeedItems(existing, incoming) {
+      var next = [];
+      var seen = new Set();
+      (Array.isArray(incoming) ? incoming : []).forEach(function (item) {
+        if (!item || item.id == null) return;
+        var key = String(item.id);
+        if (seen.has(key)) return;
+        seen.add(key);
+        next.push(item);
+      });
+      (Array.isArray(existing) ? existing : []).forEach(function (item) {
+        if (!item || item.id == null) return;
+        var key = String(item.id);
+        if (seen.has(key)) return;
+        seen.add(key);
+        next.push(item);
+      });
+      next.sort(function (a, b) {
+        var aTime = new Date(a && (a.created_at_iso || a.created_at) || 0).getTime();
+        var bTime = new Date(b && (b.created_at_iso || b.created_at) || 0).getTime();
+        if (bTime !== aTime) return bTime - aTime;
+        var aId = String(a && a.id != null ? a.id : "");
+        var bId = String(b && b.id != null ? b.id : "");
+        return bId.localeCompare(aId);
+      });
+      return next.slice(0, 100);
+    }
+
+    function inboxThreadIdForComment(item) {
+      if (!item) return "";
+      if (item.task_id) return "discussion:task:" + String(item.task_id);
+      if (item.group_id) return "discussion:group:" + String(item.group_id);
+      if (item.project_id) return "discussion:project:" + String(item.project_id);
+      return "";
+    }
+
+    function discussionInboxItemFromCommentPreview(item) {
+      var threadId = inboxThreadIdForComment(item);
+      if (!threadId) return null;
+      var detail = item && item.detail_payload ? item.detail_payload : {};
+      return {
+        id: threadId,
+        task_id: item.task_id || "",
+        project_id: item.project_id || "",
+        project_name: item.project_name || "",
+        group_id: item.group_id || "",
+        group_name: item.group_name || "",
+        task_title: item.task_id ? (item.task_title || "Task") : (item.task_title || (item.group_id ? "Group chat" : "Project chat")),
+        sender_name: item.sender_name || "New message",
+        detail_payload: {
+          actor_name: detail.actor_name || item.sender_name || "New message",
+          actor_avatar_url: detail.actor_avatar_url || "",
+        },
+        summary: (item.sender_name || "New message") + " commented",
+        preview: item.preview || item.comment_preview || "New comment",
+        comment_preview: item.comment_preview || item.preview || "New comment",
+        unread_count: Number(item.unread_count || 1),
+        created_at: item.created_at || new Date().toISOString(),
+        created_at_iso: item.created_at_iso || item.created_at || new Date().toISOString(),
+        read: !Number(item.unread_count || 1),
+        pinned: false,
+        kind: "comment",
+      };
+    }
+
+    function openInboxItem(payload) {
+      if (!payload) return;
+      if (payload.kind === "comment" && payload.task_id && typeof window.__openDiscussion === "function") {
+        window.__openDiscussion(
+          payload.task_id,
+          payload.task_title || "Task",
+          payload.project_name || notificationEntityName("project", payload.project_id) || ""
+        );
+        return;
+      }
+      if (payload.task_id && typeof window.__openTaskDrawer === "function") {
+        window.__openTaskDrawer(
+          payload.task_id,
+          payload.task_title || "Task",
+          payload.project_name || notificationEntityName("project", payload.project_id) || ""
+        );
+      }
+    }
 
     function isActivelyViewingMessageItem(item) {
       if (!item) return false;
@@ -8764,6 +9039,24 @@
 
     function mergeNotificationState(data) {
       var base = data || latestNotificationState || {};
+      var serverRegular = Array.isArray(base.regular_notifications) ? base.regular_notifications.slice() : [];
+      var serverRegularKeys = new Set(serverRegular.map(function (item) {
+        return [
+          String(item.kind || ""),
+          String(item.task_id || ""),
+          String(item.project_id || ""),
+          String(item.group_id || ""),
+        ].join("|");
+      }));
+      var extraRegular = liveRegularNotifications.filter(function (item) {
+        var key = [
+          String(item.kind || ""),
+          String(item.task_id || ""),
+          String(item.project_id || ""),
+          String(item.group_id || ""),
+        ].join("|");
+        return !serverRegularKeys.has(key);
+      });
       var serverMessages = Array.isArray(base.message_notifications) ? base.message_notifications.slice() : [];
       var serverKeys = new Set(serverMessages.map(function (item) {
         return [
@@ -8782,17 +9075,34 @@
         ].join("|");
         return !serverKeys.has(key);
       });
+      var mergedRegular = extraRegular.concat(serverRegular);
       var mergedMessages = extraMessages.concat(serverMessages);
       return {
-        notifications: (Array.isArray(base.regular_notifications) ? base.regular_notifications : []).concat(mergedMessages),
-        regular_notifications: Array.isArray(base.regular_notifications) ? base.regular_notifications : [],
+        notifications: mergedRegular.concat(mergedMessages),
+        regular_notifications: mergedRegular,
         message_notifications: mergedMessages,
-        unread_total: Number(base.unread_regular_total || 0) + mergedMessages.length,
-        unread_regular_total: Number(base.unread_regular_total || 0),
+        unread_total: mergedRegular.length + mergedMessages.length,
+        unread_regular_total: mergedRegular.length,
         unread_message_total: mergedMessages.length,
         unread_task_ids: Array.isArray(base.unread_task_ids) ? base.unread_task_ids : [],
         unread_comment_task_ids: Array.isArray(base.unread_comment_task_ids) ? base.unread_comment_task_ids : [],
       };
+    }
+
+    function addLiveRegularNotification(item) {
+      if (!item) return;
+      liveRegularNotifications = liveRegularNotifications.filter(function (row) {
+        return !(String(row.kind || "") === String(item.kind || "") &&
+          String(row.task_id || "") === String(item.task_id || "") &&
+          String(row.project_id || "") === String(item.project_id || "") &&
+          String(row.group_id || "") === String(item.group_id || ""));
+      });
+      liveRegularNotifications.unshift(item);
+      if (liveRegularNotifications.length > 30) {
+        liveRegularNotifications = liveRegularNotifications.slice(0, 30);
+      }
+      saveLiveRegularNotifications();
+      applyNotificationState(latestNotificationState || {});
     }
 
     function addLiveMessageNotification(item) {
@@ -8822,6 +9132,15 @@
       applyNotificationState(latestNotificationState || {});
     }
 
+    function dismissLiveRegularNotification(notificationId) {
+      var nextId = String(notificationId || "");
+      liveRegularNotifications = liveRegularNotifications.filter(function (item) {
+        return String(item.id || "") !== nextId;
+      });
+      saveLiveRegularNotifications();
+      applyNotificationState(latestNotificationState || {});
+    }
+
     function togglePinLiveMessageNotification(notificationId) {
       var nextId = String(notificationId || "");
       liveMessageNotifications = liveMessageNotifications.map(function (item) {
@@ -8830,6 +9149,18 @@
         clone.pinned = !clone.pinned;
         return clone;
       });
+      applyNotificationState(latestNotificationState || {});
+    }
+
+    function togglePinLiveRegularNotification(notificationId) {
+      var nextId = String(notificationId || "");
+      liveRegularNotifications = liveRegularNotifications.map(function (item) {
+        if (String(item.id || "") !== nextId) return item;
+        var clone = Object.assign({}, item);
+        clone.pinned = !clone.pinned;
+        return clone;
+      });
+      saveLiveRegularNotifications();
       applyNotificationState(latestNotificationState || {});
     }
 
@@ -10417,9 +10748,11 @@
           : "";
 
       document.querySelectorAll('[data-tree-select-type="project"][data-tree-select-id="' + projectId + '"]').forEach(function (button) {
-        button.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
+        var row = button.closest(".todo-tree-row");
+        if (!row) return;
+        row.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
         if (iconHtml) {
-          button.insertAdjacentHTML("beforeend", iconHtml);
+          button.insertAdjacentHTML("afterend", iconHtml);
         }
       });
     }
@@ -10717,11 +11050,14 @@
     function applyNotificationState(data) {
       latestNotificationState = Object.assign({}, latestNotificationState, data || {});
       var merged = mergeNotificationState(latestNotificationState);
+      latestInboxItems = mergeInboxFeedItems(latestInboxItems, merged.regular_notifications || []);
+      saveInboxCache();
       primeDesktopNotifications(merged || {});
       setNotificationCount('regular', Number(merged.unread_regular_total || 0));
       setNotificationCount('message', Number(merged.unread_message_total || 0));
       renderNotificationMenu('regular', merged.regular_notifications || []);
       renderNotificationMenu('message', merged.message_notifications || []);
+      renderInboxFeed(latestInboxItems);
       showDesktopNotifications('regular', merged.regular_notifications || []);
       showDesktopNotifications('message', merged.message_notifications || []);
       var unreadTaskIds = new Set((merged.unread_comment_task_ids || []).map(function (id) { return String(id); }));
@@ -10733,7 +11069,18 @@
         var visibleProjects = visibleProjectIds();
         (data.notifications || []).forEach(function (item) {
           if (!item || !item.task_id) return;
-          if (item.kind !== "task_update" && item.kind !== "task_created" && item.kind !== "task_moved") return;
+          if (
+            item.kind !== "task_update" &&
+            item.kind !== "task_created" &&
+            item.kind !== "task_moved" &&
+            item.kind !== "task_completed" &&
+            item.kind !== "task_due_changed" &&
+            item.kind !== "task_due_cleared" &&
+            item.kind !== "task_due_asap" &&
+            item.kind !== "task_status_changed" &&
+            item.kind !== "task_renamed" &&
+            item.kind !== "assignment_added"
+          ) return;
           if (item.project_id && visibleProjects.size && !visibleProjects.has(String(item.project_id))) return;
           if (item.task_data && applyTaskRowUpdate(item.task_data)) {
             pulseTask(item.task_data.id);
@@ -11729,7 +12076,11 @@
           event.preventDefault();
           var dismissId = dismissBtn.getAttribute('data-notification-dismiss');
           if (isSyntheticNotificationId(dismissId)) {
-            dismissLiveMessageNotification(dismissId);
+            if (String(dismissId).indexOf("live-project-shared:") === 0) {
+              dismissLiveRegularNotification(dismissId);
+            } else {
+              dismissLiveMessageNotification(dismissId);
+            }
             return;
           }
           fetch('/api/notifications/' + dismissId + '/dismiss', {
@@ -11744,7 +12095,11 @@
           event.preventDefault();
           var notificationId = pinBtn.getAttribute('data-notification-pin');
           if (isSyntheticNotificationId(notificationId)) {
-            togglePinLiveMessageNotification(notificationId);
+            if (String(notificationId).indexOf("live-project-shared:") === 0) {
+              togglePinLiveRegularNotification(notificationId);
+            } else {
+              togglePinLiveMessageNotification(notificationId);
+            }
             return;
           }
           var endpoint = pinBtn.classList.contains('is-active') ? 'unpin' : 'pin';
@@ -11767,7 +12122,11 @@
         if (payload) {
           storePendingNotificationFocus(payload);
           if (isSyntheticNotificationId(payload.notification_id)) {
-            dismissLiveMessageNotification(payload.notification_id);
+            if (String(payload.notification_id).indexOf("live-project-shared:") === 0) {
+              dismissLiveRegularNotification(payload.notification_id);
+            } else {
+              dismissLiveMessageNotification(payload.notification_id);
+            }
           } else {
             fetch('/api/notifications/' + payload.notification_id + '/dismiss', {
               method: 'POST',
@@ -11810,6 +12169,21 @@
         window.location.href = href;
       });
     });
+
+    var inboxFeedEl = document.querySelector("[data-inbox-feed]");
+    if (inboxFeedEl) {
+      renderInboxFeed(latestInboxItems);
+      inboxFeedEl.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-inbox-open]");
+        if (!button) return;
+        event.preventDefault();
+        var payload = null;
+        try {
+          payload = JSON.parse(button.getAttribute("data-inbox-open") || "{}");
+        } catch (err) {}
+        openInboxItem(payload);
+      });
+    }
 
     closeEls.forEach(function (button) {
       button.addEventListener("click", closeDrawer);
@@ -12265,6 +12639,28 @@
 
       socket.on("notification_state", function (data) {
         applyNotificationState(data || {});
+      });
+
+      socket.on("notification_preview", function (data) {
+        if (!data) return;
+        if ((data.kind || "") === "comment") {
+          addLiveMessageNotification(data);
+          var inboxCommentItem = discussionInboxItemFromCommentPreview(data);
+          if (inboxCommentItem) {
+            latestInboxItems = mergeInboxFeedItems(latestInboxItems, [inboxCommentItem]);
+            saveInboxCache();
+            renderInboxFeed(latestInboxItems);
+          }
+          return;
+        }
+        addLiveRegularNotification(data);
+      });
+
+      socket.on("discussion_activity_updated", function (data) {
+        if (!data) return;
+        latestInboxItems = mergeInboxFeedItems(latestInboxItems, [data]);
+        saveInboxCache();
+        renderInboxFeed(latestInboxItems);
       });
 
       socket.on("global_presence", function (data) {

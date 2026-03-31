@@ -290,12 +290,34 @@ class TaskNotification(db.Model):
     __tablename__ = "task_notifications"
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"))
     comment_id = db.Column(db.Integer, db.ForeignKey("task_comments.id"))
     kind = db.Column(db.String(32), nullable=False, default="comment")
+    notification_data = db.Column(db.Text)
     pinned = db.Column(db.Boolean, nullable=False, default=False)
     read_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class UserDiscussionActivity(db.Model):
+    __tablename__ = "user_discussion_activities"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    entity_type = db.Column(db.String(16), nullable=False)
+    entity_id = db.Column(db.Integer, nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"))
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"))
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"))
+    last_comment_id = db.Column(db.Integer, nullable=False)
+    last_actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    last_actor_collaborator_id = db.Column(db.Integer, db.ForeignKey("collaborator_profiles.id"))
+    last_preview = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "entity_type", "entity_id", name="uq_user_discussion_activities_user_entity"),
+    )
 
 
 class GitHubSyncState(db.Model):
