@@ -15,5 +15,9 @@ coverage.xml
 *.db
 *.log
 .DS_Store
+node_modules/
+dist-electron/
+release/
+*.tsbuildinfo
 client_secret_*.json
 termin-gmail-service-account-key.json

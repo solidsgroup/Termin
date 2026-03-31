@@ -1,0 +1,60 @@
+{
+  "name": "termin-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Electron desktop shell for Termin",
+  "main": "electron/main.js",
+  "author": "Termin",
+  "license": "UNLICENSED",
+  "scripts": {
+    "electron:dev": "electron .",
+    "electron:icons": "icon-gen -i electron/assets/icon.svg -o electron/build/icons",
+    "electron:dist": "npm run electron:icons && electron-builder",
+    "electron:dist:dir": "npm run electron:icons && electron-builder --dir"
+  },
+  "build": {
+    "appId": "group.solids.termin",
+    "productName": "Termin",
+    "artifactName": "${productName}-${os}-${arch}.${ext}",
+    "icon": "electron/build/icons/icon.png",
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist-electron"
+    },
+    "publish": [
+      {
+        "provider": "github"
+      }
+    ],
+    "mac": {
+      "icon": "electron/build/icons/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "electron/build/icons/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "icon": "electron/build/icons/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    }
+  },
+  "devDependencies": {
+    "electron": "^35.1.5",
+    "electron-builder": "^25.1.8",
+    "icon-gen": "^3.0.1"
+  }
+}

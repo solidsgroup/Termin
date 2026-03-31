@@ -2,6 +2,15 @@
   <img src="logo/termin-light-full.svg" alt="Termin logo" width="420" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/solidsgroup/Termin/releases/latest"><img src="https://img.shields.io/github/v/release/solidsgroup/Termin?display_name=tag&label=desktop%20release" alt="Latest release" /></a>
+  <a href="https://github.com/solidsgroup/Termin/releases/latest/download/Termin-win-x64.exe">Windows installer</a>
+  ·
+  <a href="https://github.com/solidsgroup/Termin/releases/latest/download/Termin-mac-x64.dmg">macOS installer</a>
+  ·
+  <a href="https://github.com/solidsgroup/Termin/releases/latest/download/Termin-linux-x64.AppImage">Linux installer</a>
+</p>
+
 **Termin** is a lightweight, calendar-first project and task collaboration platform built for academia. It combines direct messaging-style spaces, shared projects, and todo boards with real-time sync powered by WebSockets, Markdown + MathJax descriptions, and drag-and-drop organization—covering the teaching, research, and service triad plus the unique workflows involved in managing students on grant-funded projects.
 
 ![Status badge](https://img.shields.io/badge/status-internal-blue)
@@ -29,6 +38,51 @@
 6. Open `http://localhost:5000/` and use the onboarding flow.
 
 The app will check the database on startup and apply migrations if needed.
+
+## Electron Desktop App
+Termin now includes a thin Electron shell that wraps the deployed web UI.
+
+Local desktop development:
+1. Install Node 20+.
+2. Install desktop dependencies: `npm install`
+3. Start the Flask app locally: `python3 app.py`
+4. Launch the desktop shell against local dev: `TERMIN_DESKTOP_URL=http://127.0.0.1:5000 npm run electron:dev`
+
+Default desktop target:
+- If `TERMIN_DESKTOP_URL` is unset, the Electron app loads `https://termin.solids.group`.
+
+Local installer builds:
+- `npm run electron:dist`
+- output goes to `dist-electron/`
+
+Release download links:
+- Windows: `https://github.com/solidsgroup/Termin/releases/latest/download/Termin-win-x64.exe`
+- macOS: `https://github.com/solidsgroup/Termin/releases/latest/download/Termin-mac-x64.dmg`
+- Linux: `https://github.com/solidsgroup/Termin/releases/latest/download/Termin-linux-x64.AppImage`
+
+## GitHub Desktop Releases
+GitHub Actions now builds desktop installers automatically on:
+- tag push matching `v*` or `desktop-v*`
+- manual `workflow_dispatch`
+
+The workflow publishes release artifacts to GitHub Releases for:
+- Windows: `nsis` installer
+- macOS: `dmg` and `zip`
+- Linux: `AppImage` and `deb`
+
+Notes:
+- macOS artifacts are unsigned unless you later add Apple signing credentials to GitHub secrets.
+- Windows artifacts are unsigned unless you later add code-signing credentials.
+- The generated desktop app is a shell over the hosted Termin site, not a bundled Python server.
+
+Recommended GitHub secrets for signing/notarization:
+- `MACOS_SIGNING_CERT_BASE64`: base64-encoded macOS signing certificate (`.p12`)
+- `MACOS_SIGNING_CERT_PASSWORD`: macOS certificate password
+- `WINDOWS_SIGNING_CERT_BASE64`: base64-encoded Windows signing certificate (`.pfx`)
+- `WINDOWS_SIGNING_CERT_PASSWORD`: Windows certificate password
+- `APPLE_ID`: Apple developer account email
+- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for notarization
+- `APPLE_TEAM_ID`: Apple developer team id
 
 ## Environment Variables
 - `SECRET_KEY`
