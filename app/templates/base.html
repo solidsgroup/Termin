@@ -3582,6 +3582,28 @@
         color: var(--ink);
       }
 
+      .task-status-percentage-button {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, #35d07f 28%, transparent) 0,
+            color-mix(in srgb, #35d07f 28%, transparent) var(--status-progress, 0%),
+            rgba(255, 255, 255, 0.03) var(--status-progress, 0%),
+            rgba(255, 255, 255, 0.03) 100%
+          );
+      }
+
+      body[data-theme="light"] .task-status-percentage-button {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, #35d07f 20%, white 80%) 0,
+            color-mix(in srgb, #35d07f 20%, white 80%) var(--status-progress, 0%),
+            color-mix(in srgb, white 96%, var(--panel-alt) 4%) var(--status-progress, 0%),
+            color-mix(in srgb, white 96%, var(--panel-alt) 4%) 100%
+          );
+      }
+
       .task-status-count {
         display: inline-flex;
         align-items: center;
@@ -4330,6 +4352,74 @@
       .project-gantt-marker.is-outside {
         background: color-mix(in srgb, var(--project-color) 48%, var(--muted));
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--project-color) 12%, transparent);
+      }
+
+      .project-gantt-handle {
+        position: absolute;
+        top: 50%;
+        width: 12px;
+        height: 18px;
+        transform: translate(-50%, -50%);
+        border: 1px solid color-mix(in srgb, var(--panel) 22%, var(--border));
+        border-radius: 999px;
+        background: color-mix(in srgb, white 82%, var(--project-color) 18%);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+        cursor: ew-resize;
+        z-index: 4;
+        padding: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease;
+      }
+
+      .project-gantt-handle::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 4px;
+        bottom: 4px;
+        width: 2px;
+        transform: translateX(-50%);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--project-color) 64%, var(--muted));
+      }
+
+      .project-gantt-handle:hover {
+        background: color-mix(in srgb, white 70%, var(--project-color) 30%);
+      }
+
+      .project-gantt-handle:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
+        outline-offset: 2px;
+      }
+
+      .project-gantt-track:hover .project-gantt-handle,
+      .project-gantt-track:focus-within .project-gantt-handle {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      body.is-gantt-dragging {
+        user-select: none;
+        cursor: ew-resize;
+      }
+
+      .project-gantt-drag-tooltip {
+        position: fixed;
+        transform: translate(-50%, -100%);
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--panel) 88%, black 12%);
+        color: var(--ink);
+        border: 1px solid color-mix(in srgb, var(--border) 78%, var(--ink) 22%);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: normal;
+        text-transform: none;
+        white-space: nowrap;
+        z-index: 1200;
+        pointer-events: none;
       }
 
       .project-gantt-guide.is-today {
@@ -5860,6 +5950,28 @@
 
       .due-summary.is-fallback {
         color: var(--muted);
+      }
+
+      .due-summary.is-progress {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--accent) 18%, transparent) 0,
+            color-mix(in srgb, var(--accent) 18%, transparent) var(--due-progress, 0%),
+            rgba(255, 255, 255, 0.03) var(--due-progress, 0%),
+            rgba(255, 255, 255, 0.03) 100%
+          );
+      }
+
+      body[data-theme="light"] .due-summary.is-progress {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--accent) 16%, white 84%) 0,
+            color-mix(in srgb, var(--accent) 16%, white 84%) var(--due-progress, 0%),
+            color-mix(in srgb, white 94%, var(--panel-alt) 6%) var(--due-progress, 0%),
+            color-mix(in srgb, white 94%, var(--panel-alt) 6%) 100%
+          );
       }
 
       .due-summary-label {

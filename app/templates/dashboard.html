@@ -256,7 +256,7 @@
             <div class="due-summary{% if not task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if task.due_at %}Due {{ task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
               <span class="due-summary-label">{{ render_due_summary(task, now_utc) }}</span>
             </div>
-            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-start-date="{{ task_info.get('meta', {}).get('start_date', '') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
           </div>
         </td>
         <td>
@@ -3299,6 +3299,14 @@
 	        return parsed.toLocaleDateString([], { month: "short", day: "numeric" });
 	      }
 
+        function formatProjectGanttIsoLocal(dateValue) {
+          if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) return "";
+          var year = dateValue.getFullYear();
+          var month = String(dateValue.getMonth() + 1).padStart(2, "0");
+          var day = String(dateValue.getDate()).padStart(2, "0");
+          return year + "-" + month + "-" + day;
+        }
+
 	      function formatProjectGanttMajorLabel(unit, value) {
 	        if (!value || Number.isNaN(value.getTime())) return "";
 	        if (unit === "year") {
@@ -3447,6 +3455,25 @@
         var ganttBoard = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
         var ganttProjectNameNode = ganttBoard ? ganttBoard.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
         var ganttProjectName = ganttProjectNameNode ? String(ganttProjectNameNode.textContent || "").trim() : "";
+        if (ganttBoard && items.length) {
+          var taskOrder = new Map();
+          Array.prototype.forEach.call(ganttBoard.querySelectorAll('[data-task-row-id]'), function (row, index) {
+            var rowTaskId = String(row.getAttribute("data-task-row-id") || "").trim();
+            if (rowTaskId && !taskOrder.has(rowTaskId)) {
+              taskOrder.set(rowTaskId, index);
+            }
+          });
+          if (taskOrder.size) {
+            items = items.slice().sort(function (a, b) {
+              var aId = String(a && a.id || "");
+              var bId = String(b && b.id || "");
+              var aIndex = taskOrder.has(aId) ? taskOrder.get(aId) : Number.MAX_SAFE_INTEGER;
+              var bIndex = taskOrder.has(bId) ? taskOrder.get(bId) : Number.MAX_SAFE_INTEGER;
+              if (aIndex !== bIndex) return aIndex - bIndex;
+              return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: "base" });
+            });
+          }
+        }
         var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
         var todayDate = new Date();
         todayDate = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
@@ -3562,10 +3589,14 @@
                     ? '<span class="project-gantt-span-progress" style="width:' + progressPercent.toFixed(2) + '%;"></span>'
                     : '') +
                 '</span>' +
+                '<button class="project-gantt-handle is-start" type="button" data-gantt-handle="start" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust start date" style="left:' + startPercent.toFixed(2) + '%;"></button>' +
 	              '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
 	          } else {
 	            trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
 	          }
+            if (dueMode === "date" && item.due_at) {
+              trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
+            }
 		          return (
 		            '<div class="project-gantt-row">' +
 		              '<div class="project-gantt-task">' +
@@ -3573,7 +3604,7 @@
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
 		                '</div>' +
 		              '</div>' +
-		              '<div class="project-gantt-track">' +
+		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-due-mode="' + escapeProjectGanttText(dueMode) + '">' +
 		                trackHtml +
 		              '</div>' +
 		            '</div>'
@@ -5132,6 +5163,22 @@
       return "Today";
     }
 
+    function dueProgressPercent(startValue, dueValue) {
+      if (!startValue || !dueValue) return null;
+      var startDate = new Date(String(startValue).slice(0, 10) + "T00:00:00");
+      var dueDate = new Date(String(dueValue).slice(0, 10) + "T00:00:00");
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(dueDate.getTime()) || dueDate < startDate) return null;
+      var today = new Date();
+      var todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      var totalDays = Math.round((dueDate.getTime() - startDate.getTime()) / 86400000);
+      if (totalDays <= 0) {
+        return todayDate >= dueDate ? 100 : 0;
+      }
+      var elapsedDays = Math.round((todayDate.getTime() - startDate.getTime()) / 86400000);
+      var percent = (elapsedDays / totalDays) * 100;
+      return Math.max(0, Math.min(100, percent));
+    }
+
     function updateDueDisplay(input) {
       if (!input) return;
       var cell = input.closest("[data-due-cell]");
@@ -5139,9 +5186,11 @@
       var label = summary ? summary.querySelector(".due-summary-label") : null;
       var dueValue = (input.value || "").trim();
       var createdValue = input.getAttribute("data-created-at");
+      var startValue = input.getAttribute("data-start-date");
       var dueMode = input.getAttribute("data-due-mode");
+      var isTodo = !!(cell && cell.closest(".todo-item"));
       if (label) {
-        if (cell && cell.closest(".todo-item")) {
+        if (isTodo) {
           label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span></span>';
           var compactText = label.querySelector("span");
           if (compactText) compactText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode);
@@ -5154,6 +5203,13 @@
           ? "ASAP"
           : (dueValue ? "Due " + dueValue : "Created " + (createdValue || new Date().toISOString().slice(0, 10)));
         summary.classList.toggle("is-fallback", !dueValue);
+        var progress = !isTodo && String(dueMode || "").toLowerCase() === "date" ? dueProgressPercent(startValue, dueValue) : null;
+        summary.classList.toggle("is-progress", progress != null);
+        if (progress != null) {
+          summary.style.setProperty("--due-progress", progress.toFixed(2) + "%");
+        } else {
+          summary.style.removeProperty("--due-progress");
+        }
       }
     }
 
@@ -6163,7 +6219,7 @@
             </span>
           </div>
         </td>
-        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-due-mode="${info && info.meta && info.meta.due_mode ? info.meta.due_mode : (due ? "date" : "none")}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
+        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-start-date="${info && info.meta && info.meta.start_date ? String(info.meta.start_date) : ""}" data-due-mode="${info && info.meta && info.meta.due_mode ? info.meta.due_mode : (due ? "date" : "none")}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
         <td><div data-task-status-host="${id}">${initialStatusHtml}</div></td>
         <td>
           <div class="assignments">
@@ -6578,6 +6634,22 @@
       return "Created today";
     };
 
+    const dueProgressPercent = (startValue, dueValue) => {
+      if (!startValue || !dueValue) return null;
+      const startDate = new Date(`${String(startValue).slice(0, 10)}T00:00:00`);
+      const dueDate = new Date(`${String(dueValue).slice(0, 10)}T00:00:00`);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(dueDate.getTime()) || dueDate < startDate) return null;
+      const today = new Date();
+      const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const totalDays = Math.round((dueDate.getTime() - startDate.getTime()) / 86400000);
+      if (totalDays <= 0) {
+        return todayDate >= dueDate ? 100 : 0;
+      }
+      const elapsedDays = Math.round((todayDate.getTime() - startDate.getTime()) / 86400000);
+      const percent = (elapsedDays / totalDays) * 100;
+      return Math.max(0, Math.min(100, percent));
+    };
+
     const updateDueDisplay = (input) => {
       if (!input) return;
       const dueCell = input.closest("[data-due-cell]");
@@ -6585,10 +6657,12 @@
       if (!summary) return;
       const dueValue = input.value.trim();
       const createdValue = input.getAttribute("data-created-at");
+      const startValue = input.getAttribute("data-start-date");
       const dueMode = input.getAttribute("data-due-mode");
+      const isTodo = !!(dueCell && dueCell.closest(".todo-item"));
       const label = summary.querySelector(".due-summary-label");
       if (label) {
-        if (dueCell && dueCell.closest(".todo-item")) {
+        if (isTodo) {
           label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>' + (String(dueMode || "").toLowerCase() === "asap" ? '<span>ASAP</span>' : '');
         } else {
           label.textContent = formatDueSummary(dueValue, createdValue, dueMode);
@@ -6598,6 +6672,13 @@
         ? "ASAP"
         : (dueValue ? `Due ${dueValue}` : `Created ${createdValue || new Date().toISOString().slice(0, 10)}`);
       summary.classList.toggle("is-fallback", !dueValue);
+      const progress = !isTodo && String(dueMode || "").toLowerCase() === "date" ? dueProgressPercent(startValue, dueValue) : null;
+      summary.classList.toggle("is-progress", progress != null);
+      if (progress != null) {
+        summary.style.setProperty("--due-progress", `${progress.toFixed(2)}%`);
+      } else {
+        summary.style.removeProperty("--due-progress");
+      }
     };
 
     window.__updateDueDisplay = updateDueDisplay;
@@ -9458,7 +9539,7 @@
       subtitleEl.innerHTML = parts.length ? parts.join("") : "";
     }
     var currentUserAvatarUrl = {{ (user.avatar_url or "")|tojson }};
-    var latestTaskFetchById = {};
+    var taskFetchStateById = {};
     var settingsStatusMenuActive = false;
     var faviconEl = document.getElementById("app-favicon");
     var faviconBaseHref = faviconEl ? (faviconEl.getAttribute("data-base-favicon") || faviconEl.getAttribute("href") || "") : "";
@@ -11192,7 +11273,7 @@
       if (meta.mode === "percentage") {
         var percent = Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
         return '' +
-          '<button class="task-status-multi-button task-status-percentage-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(percent + "% complete") + '">' +
+          '<button class="task-status-multi-button task-status-percentage-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(percent + "% complete") + '" style="--status-progress:' + escapeHtml(percent.toFixed(2) + "%") + ';">' +
             '<div class="task-status-percentage" data-task-status-percentage="' + escapeHtml(task.id) + '">' + escapeHtml(String(percent)) + '%</div>' +
           '</button>';
       }
@@ -11209,6 +11290,13 @@
         var todo = !!host.closest('.todo-control-status');
         host._taskPayload = task;
         host.innerHTML = renderTaskStatusCellHtml(task, { todo: todo });
+        var percentageButton = host.querySelector(".task-status-percentage-button");
+        if (percentageButton) {
+          var meta = taskStatusMeta(task);
+          var percent = Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
+          percentageButton.style.setProperty("--status-progress", percent.toFixed(2) + "%");
+          percentageButton.title = percent + "% complete";
+        }
       });
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
         row.setAttribute("data-status-state", aggregateState);
@@ -12177,17 +12265,17 @@
       var mergedStatusMeta = Object.assign(
         {},
         (existingTask && existingTask.status_meta) || {},
-        (task && task.status_meta) || {},
-        (drawerTask && drawerTask.status_meta) || {}
+        (drawerTask && drawerTask.status_meta) || {},
+        (task && task.status_meta) || {}
       );
-      var effectiveTask = Object.assign({}, existingTask || {}, task || {}, drawerTask || {});
+      var effectiveTask = Object.assign({}, existingTask || {}, drawerTask || {}, task || {});
       if (mergedStatusMeta && Object.keys(mergedStatusMeta).length) {
         effectiveTask.status_meta = mergedStatusMeta;
       }
-      if (drawerTask && drawerTask.status_mode) {
+      if (!effectiveTask.status_mode && drawerTask && drawerTask.status_mode) {
         effectiveTask.status_mode = drawerTask.status_mode;
       }
-      if (drawerTask && drawerTask.status_percentage != null) {
+      if (effectiveTask.status_percentage == null && drawerTask && drawerTask.status_percentage != null) {
         effectiveTask.status_percentage = drawerTask.status_percentage;
       }
       var matched = false;
@@ -12240,7 +12328,8 @@
         matched = true;
         input.value = normalizedDue;
         input.dataset.originalValue = normalizedDue;
-        input.setAttribute("data-due-mode", task.due_mode || (normalizedDue ? "date" : "none"));
+        input.setAttribute("data-due-mode", effectiveTask.due_mode || (normalizedDue ? "date" : "none"));
+        input.setAttribute("data-start-date", effectiveTask.start_date ? String(effectiveTask.start_date).slice(0, 10) : "");
         if (typeof window.__updateDueDisplay === "function") {
           window.__updateDueDisplay(input);
         }
@@ -12338,6 +12427,149 @@
 	      });
 	    }
 	    window.__updateProjectGanttItemLocal = updateProjectGanttItemLocal;
+
+      var activeGanttDrag = null;
+      var activeGanttTooltipEl = null;
+
+      function ganttIsoDateString(dateValue) {
+        if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) return "";
+        var year = dateValue.getFullYear();
+        var month = String(dateValue.getMonth() + 1).padStart(2, "0");
+        var day = String(dateValue.getDate()).padStart(2, "0");
+        return year + "-" + month + "-" + day;
+      }
+
+      function formatGanttDragLabel(isoValue) {
+        if (!isoValue) return "";
+        var parsed = new Date(String(isoValue).slice(0, 10) + "T00:00:00");
+        if (Number.isNaN(parsed.getTime())) return String(isoValue);
+        return parsed.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+      }
+
+      function ensureGanttTooltip() {
+        if (activeGanttTooltipEl && activeGanttTooltipEl.isConnected) return activeGanttTooltipEl;
+        activeGanttTooltipEl = document.createElement("div");
+        activeGanttTooltipEl.className = "project-gantt-drag-tooltip";
+        document.body.appendChild(activeGanttTooltipEl);
+        return activeGanttTooltipEl;
+      }
+
+      function positionGanttTooltip(state) {
+        if (!state || !state.handleEl) return;
+        var tooltip = ensureGanttTooltip();
+        tooltip.textContent = formatGanttDragLabel(state.nextIso || state.originalIso);
+        var rect = state.handleEl.getBoundingClientRect();
+        tooltip.style.left = Math.round(rect.left + rect.width / 2) + "px";
+        tooltip.style.top = Math.round(rect.top - 10) + "px";
+        tooltip.hidden = false;
+      }
+
+      function hideGanttTooltip() {
+        if (activeGanttTooltipEl) {
+          activeGanttTooltipEl.hidden = true;
+        }
+      }
+
+      function ganttTrackDateFromClientX(track, clientX) {
+        if (!track) return "";
+        var startRaw = String(track.getAttribute("data-project-start-date") || "").trim();
+        var endRaw = String(track.getAttribute("data-project-end-date") || "").trim();
+        if (!startRaw || !endRaw) return "";
+        var startDate = new Date(startRaw + "T00:00:00");
+        var endDate = new Date(endRaw + "T00:00:00");
+        if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) return "";
+        var rect = track.getBoundingClientRect();
+        if (!rect.width) return "";
+        var percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+        var offsetDays = Math.round(percent * rangeDays);
+        var nextDate = new Date(startDate.getTime());
+        nextDate.setDate(nextDate.getDate() + offsetDays);
+        return ganttIsoDateString(nextDate);
+      }
+
+      function ganttPercentForIso(track, isoValue) {
+        if (!track || !isoValue) return 0;
+        var startRaw = String(track.getAttribute("data-project-start-date") || "").trim();
+        var endRaw = String(track.getAttribute("data-project-end-date") || "").trim();
+        var startDate = new Date(startRaw + "T00:00:00");
+        var endDate = new Date(endRaw + "T00:00:00");
+        var valueDate = new Date(String(isoValue).slice(0, 10) + "T00:00:00");
+        if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || Number.isNaN(valueDate.getTime()) || endDate < startDate) {
+          return 0;
+        }
+        var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+        var offsetDays = Math.round((valueDate.getTime() - startDate.getTime()) / 86400000);
+        var clamped = Math.max(0, Math.min(rangeDays, offsetDays));
+        return rangeDays <= 0 ? 0 : (clamped / rangeDays) * 100;
+      }
+
+      function applyGanttDragPreview(state) {
+        if (!state || !state.track || !state.elements) return;
+        var startIso = state.handle === "start" ? state.nextIso : state.task.start_date;
+        var endIso = state.handle === "end" ? state.nextIso : state.task.due_at;
+        var startPercent = startIso ? ganttPercentForIso(state.track, startIso) : null;
+        var endPercent = endIso ? ganttPercentForIso(state.track, endIso) : null;
+        if (state.elements.startHandle && startPercent != null) {
+          state.elements.startHandle.style.left = startPercent.toFixed(2) + "%";
+        }
+        if (state.elements.endHandle && endPercent != null) {
+          state.elements.endHandle.style.left = endPercent.toFixed(2) + "%";
+        }
+        if (state.elements.marker && endPercent != null) {
+          state.elements.marker.style.left = endPercent.toFixed(2) + "%";
+        }
+        if (state.elements.span && startPercent != null && endPercent != null) {
+          var widthPercent = Math.max(1.2, endPercent - startPercent);
+          state.elements.span.style.left = startPercent.toFixed(2) + "%";
+          state.elements.span.style.width = widthPercent.toFixed(2) + "%";
+        }
+        positionGanttTooltip(state);
+      }
+
+      function commitGanttDrag(state, nextIso) {
+        if (!state || !state.taskId || !nextIso) return;
+        var patchBody = state.handle === "start"
+          ? { start_date: nextIso }
+          : { due_at: nextIso, due_mode: "date", start_date: state.task && state.task.start_date ? state.task.start_date : "" };
+        fetch("/api/tasks/" + encodeURIComponent(state.taskId), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(patchBody),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (task) {
+            if (!task || !task.id) return;
+            if (typeof window.__applyTaskRowUpdate === "function") {
+              window.__applyTaskRowUpdate(task);
+            }
+          })
+          .catch(function (err) {
+            console.error("gantt drag update failed", err);
+            if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+              window.__updateProjectGanttItemLocal(state.task);
+            }
+          });
+      }
+
+      function finishActiveGanttDrag(commit) {
+        if (!activeGanttDrag) return;
+        var state = activeGanttDrag;
+        activeGanttDrag = null;
+        document.body.classList.remove("is-gantt-dragging");
+        hideGanttTooltip();
+        if (state.pointerId != null && state.handleEl && state.handleEl.releasePointerCapture) {
+          try {
+            state.handleEl.releasePointerCapture(state.pointerId);
+          } catch (_err) {}
+        }
+        if (commit && state.nextIso && state.nextIso !== state.originalIso) {
+          commitGanttDrag(state, state.nextIso);
+        } else if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+          window.__updateProjectGanttItemLocal(state.task);
+        }
+      }
 
 	    function removeProjectGanttItemLocal(taskId) {
 	      if (!taskId) return;
@@ -12541,12 +12773,15 @@
 
     function fetchAndApplyTask(taskId) {
       if (!taskId) return;
-      var now = Date.now();
-      if (latestTaskFetchById[taskId] && now - latestTaskFetchById[taskId] < 1200) {
+      var key = String(taskId);
+      var state = taskFetchStateById[key] || { inFlight: false, pending: false };
+      taskFetchStateById[key] = state;
+      if (state.inFlight) {
+        state.pending = true;
         return;
       }
-      latestTaskFetchById[taskId] = now;
-      fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
+      state.inFlight = true;
+      fetch("/api/tasks/" + taskId, { credentials: "same-origin", cache: "no-store" })
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (data) {
             return { ok: res.ok, data: data };
@@ -12558,7 +12793,14 @@
             pulseTask(result.data.id);
           }
         })
-        .catch(function () {});
+        .catch(function () {})
+        .finally(function () {
+          state.inFlight = false;
+          if (state.pending) {
+            state.pending = false;
+            fetchAndApplyTask(taskId);
+          }
+        });
     }
 
     function removeTaskRowsLocal(taskId) {
@@ -12651,6 +12893,8 @@
       var dueInput = row.querySelector('.due-input[data-task-id="' + task.id + '"]');
       if (dueInput) {
         dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        dueInput.setAttribute("data-due-mode", task.due_mode || (task.due_at ? "date" : "none"));
+        dueInput.setAttribute("data-start-date", task.start_date ? String(task.start_date).slice(0, 10) : "");
         if (typeof window.__updateDueDisplay === "function") {
           window.__updateDueDisplay(dueInput);
         }
@@ -13514,6 +13758,80 @@
           entityButton.getAttribute("data-entity-project")
         );
       }
+    });
+
+    document.addEventListener("pointerdown", function (event) {
+      var handle = event.target.closest("[data-gantt-handle]");
+      if (!handle) return;
+      var track = handle.closest("[data-gantt-track]");
+      if (!track) return;
+      var panel = track.closest("[data-project-gantt]");
+      var taskId = String(track.getAttribute("data-task-id") || "").trim();
+      if (!taskId) return;
+      var handleType = String(handle.getAttribute("data-gantt-handle") || "").trim();
+      var originalStart = String(track.getAttribute("data-task-start-date") || "").trim();
+      var originalDue = String(track.getAttribute("data-task-due-date") || "").trim();
+      var originalIso = handleType === "start" ? originalStart : originalDue;
+      if (!originalIso) return;
+      var existingItem = panel ? parseProjectGanttItemsLocal(panel).find(function (item) {
+        return String(item && item.id || "") === taskId;
+      }) : null;
+      event.preventDefault();
+      activeGanttDrag = {
+        taskId: taskId,
+        task: Object.assign({}, existingItem || {}, {
+          id: taskId,
+          project_id: track.getAttribute("data-project-id") || "",
+          title: existingItem && existingItem.title ? existingItem.title : (handle.closest(".project-gantt-row") && handle.closest(".project-gantt-row").querySelector("[data-task-title]")
+            ? handle.closest(".project-gantt-row").querySelector("[data-task-title]").getAttribute("data-task-title")
+            : ""),
+          start_date: originalStart,
+          due_at: originalDue,
+          due_mode: track.getAttribute("data-task-due-mode") || (originalDue ? "date" : "none"),
+        }),
+        track: track,
+        handle: handleType,
+        handleEl: handle,
+        elements: {
+          span: track.querySelector(".project-gantt-span"),
+          marker: track.querySelector(".project-gantt-marker"),
+          startHandle: track.querySelector('[data-gantt-handle="start"]'),
+          endHandle: track.querySelector('[data-gantt-handle="end"]'),
+        },
+        pointerId: event.pointerId,
+        originalIso: originalIso,
+        nextIso: originalIso,
+      };
+      if (handle.setPointerCapture) {
+        try {
+          handle.setPointerCapture(event.pointerId);
+        } catch (_err) {}
+      }
+      document.body.classList.add("is-gantt-dragging");
+      positionGanttTooltip(activeGanttDrag);
+    });
+
+    document.addEventListener("pointermove", function (event) {
+      if (!activeGanttDrag) return;
+      var nextIso = ganttTrackDateFromClientX(activeGanttDrag.track, event.clientX);
+      if (!nextIso) return;
+      if (activeGanttDrag.handle === "start" && activeGanttDrag.task.due_at && nextIso > activeGanttDrag.task.due_at.slice(0, 10)) {
+        nextIso = activeGanttDrag.task.due_at.slice(0, 10);
+      }
+      if (activeGanttDrag.handle === "end" && activeGanttDrag.task.start_date && nextIso < activeGanttDrag.task.start_date.slice(0, 10)) {
+        nextIso = activeGanttDrag.task.start_date.slice(0, 10);
+      }
+      if (nextIso === activeGanttDrag.nextIso) return;
+      activeGanttDrag.nextIso = nextIso;
+      applyGanttDragPreview(activeGanttDrag);
+    });
+
+    document.addEventListener("pointerup", function () {
+      finishActiveGanttDrag(true);
+    });
+
+    document.addEventListener("pointercancel", function () {
+      finishActiveGanttDrag(false);
     });
     if (taskSettingsStatusEl) {
       taskSettingsStatusEl.addEventListener("click", function (event) {
@@ -14872,37 +15190,40 @@
 
       socket.on("task_updated", function (data) {
         if (!data || !data.task) return;
-        var isOwnEvent = data.actor_user_id && String(data.actor_user_id) === String(currentUserId);
         var task = data.task;
-        var currentProjects = visibleProjectIds();
+        function refreshMovedTaskProject(taskData) {
+          if (!taskData || !taskData.project_id) return;
+          if (typeof window.__refreshTreeProjectSnapshotLocal !== "function") return;
+          if (!document.querySelector('[data-project-gantt][data-project-id="' + String(taskData.project_id) + '"]')) return;
+          window.__refreshTreeProjectSnapshotLocal(taskData.project_id);
+        }
         if (data.action === "deleted") {
           removeTaskRowsLocal(task.id);
           return;
         }
-        if (data.action === "moved" && !isOwnEvent) {
+        if (data.action === "moved") {
           fetchTaskSnapshot(task.id).then(function (freshTask) {
             if (!freshTask) return;
             removeTaskRowsLocal(freshTask.id);
             if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
               if (window.__upsertTodoItemFromSnapshot(freshTask)) {
+                refreshMovedTaskProject(freshTask);
                 pulseTask(freshTask.id);
                 return;
               }
             }
             if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
+              refreshMovedTaskProject(freshTask);
               pulseTask(freshTask.id);
               return;
             }
             applyTaskRowUpdate(freshTask);
             renderTaskAssignments(freshTask.id, freshTask.assignments || []);
+            refreshMovedTaskProject(freshTask);
             if (typeof window.__ensureTreeTaskVisible === "function") {
               window.__ensureTreeTaskVisible(freshTask);
             }
           });
-          return;
-        }
-        if (data.action === "moved" && data.old_project_id && currentProjects.has(String(data.old_project_id)) && !currentProjects.has(String(task.project_id))) {
-          removeTaskRowsLocal(task.id);
           return;
         }
         fetchTaskSnapshot(task.id).then(function (freshTask) {
@@ -14913,7 +15234,7 @@
               return;
             }
           }
-          if (typeof window.__upsertTaskRowFromSnapshot === "function" && (data.action === "created" || data.action === "moved" || !isOwnEvent)) {
+          if (typeof window.__upsertTaskRowFromSnapshot === "function" && (data.action === "created" || data.action === "moved")) {
             if (window.__upsertTaskRowFromSnapshot(freshTask)) {
               pulseTask(freshTask.id);
               return;
@@ -14923,6 +15244,9 @@
           renderTaskAssignments(freshTask.id, freshTask.assignments || []);
           if (updated) {
             pulseTask(freshTask.id);
+          } else if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
+            pulseTask(freshTask.id);
+            return;
           }
           if (typeof window.__ensureTreeTaskVisible === "function") {
             window.__ensureTreeTaskVisible(freshTask);
