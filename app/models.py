@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from app.extensions import db
 
 
@@ -98,6 +98,8 @@ class Project(db.Model):
     link = db.Column(db.String(1024))
     description = db.Column(db.Text)
     description_format = db.Column(db.String(32), default="markdown")
+    start_date = db.Column(db.Date)
+    end_date = db.Column(db.Date)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 

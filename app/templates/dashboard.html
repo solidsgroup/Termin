@@ -157,7 +157,12 @@
   {% endif %}
 {% endmacro %}
 {% macro render_task_status_cell(task, status_payload, todo=False) %}
-  {% if status_payload and status_payload.get('enabled') %}
+  {% set status_mode = status_payload.get('mode', 'per_user' if status_payload and status_payload.get('enabled') else 'single') if status_payload else 'single' %}
+  {% if status_mode == 'percentage' %}
+    <button class="task-status-multi-button task-status-percentage-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
+      <div class="task-status-percentage" data-task-status-percentage="{{ task.id }}">{{ status_payload.get('percentage_complete', 0) if status_payload else 0 }}%</div>
+    </button>
+  {% elif status_payload and status_payload.get('enabled') %}
     <button class="task-status-multi-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
       {{ render_status_summary(status_payload.get('summary', []), task.id) }}
     </button>
@@ -808,9 +813,10 @@
           {% set project_is_github = ctx.is_github_project %}
           {% set viewers = project_viewers.get(project.id, []) %}
           {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
-          <div class="tree-project-board" data-tree-project-board="{{ project.id }}" data-tree-division-id="{% if project.is_direct %}direct{% else %}{{ ctx.division_id if ctx.division_id is not none else 'none' }}{% endif %}">
-            <div class="panel">
-              <div class="group-header">
+          {% set gantt_enabled = project.start_date and project.end_date %}
+          <div class="tree-project-board" data-tree-project-board="{{ project.id }}" data-tree-division-id="{% if project.is_direct %}direct{% else %}{{ ctx.division_id if ctx.division_id is not none else 'none' }}{% endif %}" style="--project-color: {{ project_color or '#4cc9f0' }};">
+            <div class="project-board-header">
+              <div class="project-board-header-inner">
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <h3 data-selected-project-title="{{ project.id }}"><span data-selected-project-name>{{ project_display_name }}</span>{% if shared_project_ids and project.id in shared_project_ids %}<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>{% elif shared_out_project_ids and project.id in shared_out_project_ids %}<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>{% endif %}</h3>
                   <span class="task-link-badges" data-entity-link-badges="project:{{ project.id }}">
@@ -852,8 +858,15 @@
                   </div>
                 {% endif %}
               </div>
+              <div class="project-board-mode-tabs" data-project-mode-tabs="{{ project.id }}">
+                <button class="project-board-mode-tab is-active" type="button" data-project-mode-button="tasks" data-project-id="{{ project.id }}" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Tasks</button>
+                {% if gantt_enabled %}
+                  <button class="project-board-mode-tab" type="button" data-project-mode-button="gantt" data-project-id="{{ project.id }}" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Gantt</button>
+                {% endif %}
+              </div>
             </div>
 
+            <div class="project-board-mode-panel is-active" data-project-mode-panel="tasks">
             {% for group in project_groups %}
               <div class="group-block" data-group-id="{{ group.id }}" data-tree-group-board="{{ group.id }}">
                 <div class="group-insert-wrap{% if not project_can_manage or project_is_github %} disabled{% endif %}">
@@ -980,6 +993,19 @@
                     {% endif %}
                   </tbody>
                 </table>
+              </div>
+            {% endif %}
+            </div>
+            {% if gantt_enabled %}
+              <div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden>
+                <div
+                  class="project-gantt"
+                  data-project-gantt
+                  data-project-id="{{ project.id }}"
+                  data-project-start-date="{{ project.start_date.isoformat() }}"
+                  data-project-end-date="{{ project.end_date.isoformat() }}"
+                  data-project-gantt-items='{{ ctx.gantt_items|tojson|forceescape }}'
+                ></div>
               </div>
             {% endif %}
           </div>
@@ -1307,32 +1333,58 @@
         <span class="discussion-setting-label">Creator</span>
         <div id="task-settings-creator" class="discussion-setting-readonly discussion-setting-identity">Unknown</div>
       </label>
-      <div class="discussion-settings-grid" data-task-only>
-        <label class="discussion-setting-field is-inline">
-          <span class="discussion-setting-label">Due</span>
-          <div class="discussion-setting-due-wrap">
-            <select id="task-settings-due-mode">
+	      <div class="discussion-settings-grid" data-task-only>
+	        <label class="discussion-setting-field is-inline">
+	          <span class="discussion-setting-label">Due</span>
+	          <div class="discussion-setting-due-wrap">
+	            <select id="task-settings-due-mode">
               <option value="none">No Date</option>
               <option value="asap">ASAP</option>
               <option value="date">Date</option>
             </select>
-            <input id="task-settings-due" type="date" />
+	            <input id="task-settings-due" type="date" />
+	          </div>
+	        </label>
+	        <label class="discussion-setting-field is-inline" id="task-settings-start-field">
+	          <span class="discussion-setting-label">Start</span>
+	          <input id="task-settings-start-date" type="date" />
+	        </label>
+	        <div class="discussion-setting-field is-inline discussion-setting-status-row" data-task-only>
+	          <span class="discussion-setting-label" id="task-settings-status-label">Status</span>
+            <div class="discussion-setting-status-controls">
+	            <button id="task-settings-status" class="discussion-setting-status" type="button">
+                <span class="discussion-setting-status-label">open</span>
+                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+              </button>
+              <div class="discussion-setting-mode-picker" id="task-settings-status-mode-picker" role="group" aria-label="Status mode">
+                <button class="discussion-setting-mode-button" type="button" data-status-mode-option="single" aria-label="Single status" title="Single status">
+                  <i class="fa-solid fa-user" aria-hidden="true"></i>
+                </button>
+                <button class="discussion-setting-mode-button" type="button" data-status-mode-option="per_user" aria-label="Per-user status" title="Per-user status">
+                  <i class="fa-solid fa-users" aria-hidden="true"></i>
+                </button>
+                <button class="discussion-setting-mode-button" type="button" data-status-mode-option="percentage" aria-label="Percentage status" title="Percentage status">
+                  <i class="fa-solid fa-percent" aria-hidden="true"></i>
+                </button>
+              </div>
+              <select id="task-settings-status-mode" hidden tabindex="-1" aria-hidden="true">
+                <option value="single">Single status</option>
+                <option value="per_user">Per-user status</option>
+                <option value="percentage">Percentage status</option>
+              </select>
+            </div>
           </div>
-        </label>
-        <label class="discussion-setting-field is-inline">
-          <span class="discussion-setting-label" id="task-settings-status-label">Status</span>
-          <button id="task-settings-status" class="discussion-setting-status" type="button">
-            <span class="discussion-setting-status-label">open</span>
-            <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
-          </button>
-        </label>
       </div>
-      <label class="discussion-setting-toggle-row" data-task-only>
-        <span class="discussion-setting-toggle">
-          <input id="task-settings-per-user-status" type="checkbox" />
-          <span>Per-user status</span>
-        </span>
-      </label>
+	      <div class="discussion-settings-grid" data-project-only>
+	        <label class="discussion-setting-field is-inline">
+	          <span class="discussion-setting-label">Start</span>
+	          <input id="project-settings-start-date" type="date" />
+	        </label>
+	        <label class="discussion-setting-field is-inline" id="project-settings-end-field">
+	          <span class="discussion-setting-label">End</span>
+	          <input id="project-settings-end-date" type="date" />
+	        </label>
+	      </div>
       <div class="discussion-setting-group" data-task-only>
         <div class="discussion-setting-group-header">
           <span>Assign</span>
@@ -1410,6 +1462,13 @@
 </div>
 
 <div id="multi-status-menu" class="context-menu multi-status-menu"></div>
+
+<div id="percentage-status-menu" class="context-menu percentage-status-menu">
+  <div class="percentage-status-menu-inner">
+    <div class="percentage-status-menu-value" data-percentage-status-value>0%</div>
+    <input id="percentage-status-input" type="range" min="0" max="100" step="1" value="0" />
+  </div>
+</div>
 
 <div id="share-modal" class="modal">
   <div class="panel">
@@ -1875,14 +1934,22 @@
             cell.getAttribute("data-field") === "status" &&
             (responseField === "status" || responseField === "user_status")
           ) {
-            fetchTaskSnapshot(cell.getAttribute("data-task-id")).then(function (task) {
-              if (!task) return;
-              applyTaskRowUpdate(task);
-              if (String(currentTaskId || "") === String(task.id)) {
-                currentTaskData = task;
+            if (result.data && result.data.id) {
+              applyTaskRowUpdate(result.data);
+              if (String(currentTaskId || "") === String(result.data.id)) {
+                currentTaskData = Object.assign({}, currentTaskData || {}, result.data);
                 renderTaskSettings();
               }
-            });
+            } else {
+              fetchTaskSnapshot(cell.getAttribute("data-task-id")).then(function (task) {
+                if (!task) return;
+                applyTaskRowUpdate(task);
+                if (String(currentTaskId || "") === String(task.id)) {
+                  currentTaskData = task;
+                  renderTaskSettings();
+                }
+              });
+            }
           }
         })
         .catch(function () {
@@ -1897,6 +1964,35 @@
 
     function buildTaskRow(taskId, title, infoPayload, showDragHandle) {
       var info = infoPayload || { html: "", attachments: [], links: [] };
+      var infoMeta = (info && info.meta) || {};
+      var statusOverrideStore = window.__localTaskStatusOverrides || {};
+      var localOverride = statusOverrideStore[String(taskId)] || null;
+      var initialMode = String((localOverride && localOverride.mode) || infoMeta.status_mode || "single");
+      var initialPercentage = Math.max(
+        0,
+        Math.min(
+          100,
+          Number(
+            localOverride && localOverride.percentage != null
+              ? localOverride.percentage
+              : (infoMeta.status_percentage || 0)
+          )
+        )
+      );
+      var initialStatusTask = {
+        id: String(taskId),
+        status: initialMode === "percentage" ? (initialPercentage >= 100 ? "complete" : "open") : "open",
+        status_mode: initialMode,
+        status_percentage: initialPercentage,
+        per_user_status_enabled: initialMode !== "single",
+        status_meta: {
+          mode: initialMode,
+          percentage_complete: initialPercentage,
+        },
+      };
+      var initialStatusHtml = typeof renderTaskStatusCellHtml === "function"
+        ? renderTaskStatusCellHtml(initialStatusTask, { todo: false })
+        : '<div class="editable status-editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div>';
       var hasInfo = Boolean(info.html || (info.attachments && info.attachments.length));
       var tr = document.createElement("tr");
       tr.className = "task-row" + (showDragHandle ? " task-row-draggable" : "");
@@ -1923,7 +2019,7 @@
           '</div>' +
         '</td>' +
         '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" /></div></td>' +
-        '<td><div data-task-status-host="' + taskId + '"><div class="editable status-editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></div></td>' +
+        '<td><div data-task-status-host="' + taskId + '">' + initialStatusHtml + '</div></td>' +
         '<td>' +
           '<div class="assignments">' +
             '<span class="assign-action">' +
@@ -1933,6 +2029,10 @@
             '<span class="assign-spacer"></span>' +
           '</div>' +
         '</td>';
+      var statusHost = tr.querySelector('[data-task-status-host="' + taskId + '"]');
+      if (statusHost) {
+        statusHost._taskPayload = initialStatusTask;
+      }
       return tr;
     }
 
@@ -2118,6 +2218,22 @@
 
       function openStatusMenu(cell) {
         if (!statusMenu || !cell) return;
+        var taskId = cell.getAttribute("data-task-id");
+        if (taskId) {
+          var host = document.querySelector('[data-task-status-host="' + taskId + '"]');
+          var task = host && host._taskPayload ? host._taskPayload : null;
+          var isPercentage = !!(host && host.querySelector("[data-task-status-percentage]"));
+          if (!isPercentage && task) {
+            isPercentage = String(task.status_mode || "").toLowerCase() === "percentage"
+              || !!(task.status_meta && String(task.status_meta.mode || "").toLowerCase() === "percentage");
+          }
+          if (isPercentage) {
+            if (typeof window.__openPercentageStatusMenu === "function") {
+              window.__openPercentageStatusMenu(task, cell, "row");
+            }
+            return;
+          }
+        }
         activeStatusCell = cell;
         var rect = cell.getBoundingClientRect();
         statusMenu.style.display = "block";
@@ -2203,6 +2319,9 @@
         if (cell.classList.contains("status-editable")) {
           if (event.key === "Escape") {
             closeStatusMenu();
+            if (typeof window.__closePercentageStatusMenu === "function") {
+              window.__closePercentageStatusMenu();
+            }
             cell.blur();
             event.preventDefault();
             event.stopPropagation();
@@ -2303,7 +2422,12 @@
           return;
         }
         if (statusMenu && statusMenu.contains(event.target)) return;
+        var percentageStatusMenu = document.getElementById("percentage-status-menu");
+        if (percentageStatusMenu && percentageStatusMenu.contains(event.target)) return;
         closeStatusMenu();
+        if (typeof window.__closePercentageStatusMenu === "function") {
+          window.__closePercentageStatusMenu();
+        }
       }, true);
     }
 
@@ -2423,22 +2547,33 @@
         });
       }
 
-      function setDivisionColorLocal(divisionId, color) {
-        var nextColor = color || "#4cc9f0";
-        document.querySelectorAll('[data-sidebar-division="' + divisionId + '"]').forEach(function (node) {
-          node.style.setProperty("--division-color", nextColor);
-          node.style.color = nextColor;
+	      function setDivisionColorLocal(divisionId, color) {
+	        var nextColor = color || "#4cc9f0";
+	        document.querySelectorAll('[data-sidebar-division="' + divisionId + '"]').forEach(function (node) {
+	          node.style.setProperty("--division-color", nextColor);
+	          node.style.color = nextColor;
           node.setAttribute("data-division-color", nextColor);
           var title = node.querySelector(".sidebar-division-title");
           if (title) title.style.color = nextColor;
         });
-        divisionOptions = (divisionOptions || []).map(function (division) {
-          if (String(division.id) === String(divisionId)) {
-            return Object.assign({}, division, { color: nextColor });
-          }
-          return division;
-        });
-      }
+	        divisionOptions = (divisionOptions || []).map(function (division) {
+	          if (String(division.id) === String(divisionId)) {
+	            return Object.assign({}, division, { color: nextColor });
+	          }
+	          return division;
+	        });
+	        document.querySelectorAll('[data-tree-division-node="' + divisionId + '"], .todo-tree-node[data-division-id="' + divisionId + '"]').forEach(function (node) {
+	          node.style.setProperty("--division-color", nextColor);
+	          node.setAttribute("data-division-color", nextColor);
+	        });
+	        document.querySelectorAll('[data-tree-project-node][data-tree-division-id="' + divisionId + '"], [data-tree-project-board][data-tree-division-id="' + divisionId + '"], .todo-tree-node.is-project[data-division-id="' + divisionId + '"], .project-item[data-project-context]').forEach(function (node) {
+	          if (node.matches('.project-item[data-project-context]')) {
+	            var wrapperDivision = node.closest('[data-sidebar-division="' + divisionId + '"]');
+	            if (!wrapperDivision) return;
+	          }
+	          node.style.setProperty("--project-color", nextColor);
+	        });
+	      }
 
       function addDivisionOptionLocal(division) {
         if (!division || !division.id) return;
@@ -2636,8 +2771,8 @@
         return wrapper;
       }
 
-      function buildTreeProjectNode(project, canManage) {
-        if (!project || !project.id) return null;
+	      function buildTreeProjectNode(project, canManage) {
+	        if (!project || !project.id) return null;
         function escapeTreeText(value) {
           return String(value == null ? "" : value)
             .replace(/&/g, "&amp;")
@@ -2651,12 +2786,13 @@
           : project.is_shared_out
             ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
             : '';
-        var hasGroups = Number(project.group_count || 0) > 0;
-        var node = document.createElement("div");
-        node.className = "todo-tree-node is-project";
-        node.setAttribute("data-tree-project-node", String(project.id));
-        node.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
-        node.innerHTML =
+	        var hasGroups = Number(project.group_count || 0) > 0;
+	        var node = document.createElement("div");
+	        node.className = "todo-tree-node is-project";
+	        node.setAttribute("data-tree-project-node", String(project.id));
+	        node.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
+	        node.style.setProperty("--project-color", resolveProjectColor(project));
+	        node.innerHTML =
           '<div class="todo-tree-row" data-project-context="' + String(project.id) + '" data-project-manage="' + (canManage ? "1" : "0") + '" data-tree-project-row="' + String(project.id) + '" draggable="true">' +
             '<button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="' + String(project.id) + '" data-tree-project-id="' + String(project.id) + '">' +
               '<span class="todo-tree-label">' + escapeTreeText(project.display_name || project.name || "Project") + '</span>' +
@@ -2698,15 +2834,38 @@
         return node;
       }
 
-      function renderTreeEntityLinkBadges(links) {
-        if (typeof window.__renderTaskLinkBadges === "function") {
-          return window.__renderTaskLinkBadges(links || []);
-        }
-        return "";
-      }
+	      function renderTreeEntityLinkBadges(links) {
+	        if (typeof window.__renderTaskLinkBadges === "function") {
+	          return window.__renderTaskLinkBadges(links || []);
+	        }
+	        return "";
+	      }
 
-      function buildTreeProjectBoard(project, canManage) {
-        if (!project || !project.id) return null;
+	      function resolveProjectColor(project) {
+	        if (!project || project.is_direct) return project && project.color ? project.color : (project && project.division_color ? project.division_color : "#4cc9f0");
+	        var divisionId = project.division_id === null || project.division_id === undefined ? "" : String(project.division_id);
+	        if (divisionId) {
+	          var divisionNode = document.querySelector('[data-tree-division-node="' + divisionId + '"], [data-sidebar-division="' + divisionId + '"], .todo-tree-node[data-division-id="' + divisionId + '"]');
+	          if (divisionNode) {
+	            var divisionColor = divisionNode.getAttribute("data-division-color")
+	              || divisionNode.style.getPropertyValue("--division-color")
+	              || getComputedStyle(divisionNode).getPropertyValue("--division-color");
+	            if (divisionColor && String(divisionColor).trim()) {
+	              return String(divisionColor).trim();
+	            }
+	          }
+	          var matchingOption = (divisionOptions || []).find(function (division) {
+	            return String(division && division.id) === divisionId;
+	          });
+	          if (matchingOption && matchingOption.color) {
+	            return matchingOption.color;
+	          }
+	        }
+	        return project.division_color || project.color || "#4cc9f0";
+	      }
+
+	      function buildTreeProjectBoard(project, canManage) {
+	        if (!project || !project.id) return null;
         function escapeTreeText(value) {
           return String(value == null ? "" : value)
             .replace(/&/g, "&amp;")
@@ -2720,13 +2879,16 @@
           : project.is_shared_out
             ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
             : '';
-        var board = document.createElement("div");
-        board.className = "tree-project-board";
-        board.setAttribute("data-tree-project-board", String(project.id));
-        board.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
-        board.innerHTML =
-          '<div class="panel">' +
-            '<div class="group-header">' +
+	        var ganttEnabled = !!(project.start_date && project.end_date);
+	        var board = document.createElement("div");
+	        var projectColor = resolveProjectColor(project);
+	        board.className = "tree-project-board";
+	        board.setAttribute("data-tree-project-board", String(project.id));
+	        board.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
+	        board.style.setProperty("--project-color", projectColor);
+	        board.innerHTML =
+          '<div class="project-board-header">' +
+            '<div class="project-board-header-inner">' +
               '<div style="display: flex; align-items: center; gap: 8px;">' +
                 '<h3 data-selected-project-title="' + String(project.id) + '"><span data-selected-project-name>' + escapeTreeText(project.display_name || project.name || "Project") + '</span>' + shareIconHtml + '</h3>' +
                 '<span class="task-link-badges" data-entity-link-badges="project:' + String(project.id) + '">' + renderTreeEntityLinkBadges(project.links || []) + '</span>' +
@@ -2743,8 +2905,13 @@
                     '<div class="share-avatars project-header-avatars" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"></div>' +
                   '</div>') +
             '</div>' +
+            '<div class="project-board-mode-tabs" data-project-mode-tabs="' + String(project.id) + '">' +
+              '<button class="project-board-mode-tab is-active" type="button" data-project-mode-button="tasks" data-project-id="' + String(project.id) + '" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Tasks</button>' +
+              (ganttEnabled ? '<button class="project-board-mode-tab" type="button" data-project-mode-button="gantt" data-project-id="' + String(project.id) + '" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Gantt</button>' : '') +
+            '</div>' +
           '</div>' +
-          '<div class="panel group ungrouped-table-shell" style="--group-color: ' + (project.color || project.division_color || '#4cc9f0') + ';" data-tree-ungrouped-board="' + String(project.id) + '">' +
+          '<div class="project-board-mode-panel is-active" data-project-mode-panel="tasks">' +
+	          '<div class="panel group ungrouped-table-shell" style="--group-color: ' + projectColor + ';" data-tree-ungrouped-board="' + String(project.id) + '">' +
             '<table class="table tasks-table" data-project-id="' + String(project.id) + '" data-group-id="">' +
               '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
               '<thead><tr><th></th><th>Task<span class="col-resizer" data-col="1"></span></th><th>Due<span class="col-resizer" data-col="2"></span></th><th>Status<span class="col-resizer" data-col="3"></span></th><th>Assign<span class="col-resizer" data-col="4"></span></th></tr></thead>' +
@@ -2760,7 +2927,11 @@
                   : '') +
               '</tbody>' +
             '</table>' +
-          '</div>';
+          '</div>' +
+          '</div>' +
+          (ganttEnabled
+            ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden><div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-items="[]"></div></div>'
+            : '');
         return board;
       }
 
@@ -2825,8 +2996,8 @@
         return row;
       }
 
-      function buildTreeGroupBlock(project, group, canManage) {
-        if (!project || !project.id || !group || !group.id) return null;
+	      function buildTreeGroupBlock(project, group, canManage) {
+	        if (!project || !project.id || !group || !group.id) return null;
         function escapeTreeText(value) {
           return String(value == null ? "" : value)
             .replace(/&/g, "&amp;")
@@ -2834,11 +3005,11 @@
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
-        }
-        var projectId = String(project.id);
-        var projectName = project.display_name || project.name || "Project";
-        var projectColor = "#4cc9f0";
-        var block = document.createElement("div");
+	        }
+	        var projectId = String(project.id);
+	        var projectName = project.display_name || project.name || "Project";
+	        var projectColor = resolveProjectColor(project);
+	        var block = document.createElement("div");
         block.className = "group-block";
         block.setAttribute("data-group-id", String(group.id));
         block.setAttribute("data-tree-group-board", String(group.id));
@@ -2929,11 +3100,49 @@
         });
       }
 
-      function applyTreeProjectSnapshotLocal(snapshot) {
-        if (!snapshot || !snapshot.project || !snapshot.project.id) return false;
-        var project = snapshot.project;
-        var canManage = !!project.can_manage;
-        var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
+	      function projectGanttItemsFromSnapshot(snapshot) {
+	        if (!snapshot) return [];
+	        var items = [];
+	        (snapshot.groups || []).forEach(function (group) {
+	          (group.tasks || []).forEach(function (task) {
+	            items.push({
+	              id: task.id,
+	              title: task.title || "Task",
+	              start_date: task.start_date || "",
+	              due_at: task.due_at || "",
+	              due_mode: task.due_mode || (task.due_at ? "date" : "none"),
+	              status: task.status || "open",
+	              status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
+	              status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
+	              status_meta: task.status_meta || {},
+	              group_id: group.id,
+	              group_name: group.name || "Group",
+	            });
+	          });
+	        });
+	        (snapshot.ungrouped_tasks || []).forEach(function (task) {
+	          items.push({
+	            id: task.id,
+	            title: task.title || "Task",
+	            start_date: task.start_date || "",
+	            due_at: task.due_at || "",
+	            due_mode: task.due_mode || (task.due_at ? "date" : "none"),
+	            status: task.status || "open",
+	            status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
+	            status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
+	            status_meta: task.status_meta || {},
+	            group_id: "",
+	            group_name: "",
+	          });
+	        });
+        return items;
+      }
+
+	      function applyTreeProjectSnapshotLocal(snapshot) {
+	        if (!snapshot || !snapshot.project || !snapshot.project.id) return false;
+	        var project = snapshot.project;
+	        var canManage = !!project.can_manage;
+	        var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
         var treeSidebar = document.querySelector("[data-tree-sidebar]");
         var treeBoard = document.querySelector("[data-tree-board]");
         if (!treeSidebar || !treeBoard) return false;
@@ -2946,8 +3155,15 @@
 
         var existingNode = treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]');
         if (existingNode) existingNode.remove();
-        var existingBoard = treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]');
-        if (existingBoard) existingBoard.remove();
+	        var existingBoard = treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]');
+	        var previousMode = "tasks";
+	        if (existingBoard) {
+	          var activeModeButton = existingBoard.querySelector("[data-project-mode-button].is-active");
+	          if (activeModeButton) {
+	            previousMode = String(activeModeButton.getAttribute("data-project-mode-button") || "tasks");
+	          }
+	        }
+	        if (existingBoard) existingBoard.remove();
 
         var node = buildTreeProjectNode(project, canManage);
         if (!node) return false;
@@ -2986,16 +3202,17 @@
 
         var board = buildTreeProjectBoard(project, canManage);
         if (!board) return false;
-        var ungroupedWrap = board.querySelector('[data-tree-ungrouped-wrap="' + project.id + '"]');
-        var ungroupedBoard = board.querySelector('[data-tree-ungrouped-board="' + project.id + '"]');
+        var tasksPanel = board.querySelector('[data-project-mode-panel="tasks"]') || board;
+        var ungroupedWrap = tasksPanel.querySelector('[data-tree-ungrouped-wrap="' + project.id + '"]');
+        var ungroupedBoard = tasksPanel.querySelector('[data-tree-ungrouped-board="' + project.id + '"]');
         var insertBeforeNode = ungroupedWrap || ungroupedBoard;
         (snapshot.groups || []).forEach(function (group) {
           var groupBlock = buildTreeGroupBlock(project, group, canManage);
           if (!groupBlock) return;
           if (insertBeforeNode) {
-            board.insertBefore(groupBlock, insertBeforeNode);
+            tasksPanel.insertBefore(groupBlock, insertBeforeNode);
           } else {
-            board.appendChild(groupBlock);
+            tasksPanel.appendChild(groupBlock);
           }
           populateTreeTaskTable(groupBlock.querySelector(".tasks-table"), group.tasks || []);
         });
@@ -3016,12 +3233,464 @@
             bindNewTaskRow(table);
           }
         });
-        treeBoard.appendChild(board);
+        var ganttPanel = board.querySelector("[data-project-gantt]");
+        if (ganttPanel) {
+          ganttPanel.setAttribute("data-project-gantt-items", JSON.stringify(projectGanttItemsFromSnapshot(snapshot)));
+        }
+	        treeBoard.appendChild(board);
+	        if (typeof window.__applyProjectBoardMode === "function") {
+	          window.__applyProjectBoardMode(board, previousMode);
+	        } else if (typeof window.__initializeProjectBoardModes === "function") {
+	          window.__initializeProjectBoardModes(board);
+	        }
         if (typeof window.__refreshTreeSelectionState === "function") {
           window.__refreshTreeSelectionState();
         }
+        reapplyLocalTaskStatusOverrides(board);
         return true;
       }
+
+	      var projectBoardModeStorageKey = "termin:project-board-modes:v1";
+
+	      function projectBoardModeStorage() {
+	        try {
+	          if (window.sessionStorage) return window.sessionStorage;
+	        } catch (err) {}
+	        try {
+	          if (window.localStorage) return window.localStorage;
+	        } catch (err) {}
+	        return null;
+	      }
+
+	      function loadProjectBoardModes() {
+	        try {
+	          var storage = projectBoardModeStorage();
+	          if (!storage) return {};
+	          var raw = storage.getItem(projectBoardModeStorageKey);
+	          return raw ? JSON.parse(raw) : {};
+	        } catch (err) {
+	          return {};
+	        }
+	      }
+
+	      function saveProjectBoardModes(state) {
+	        try {
+	          var storage = projectBoardModeStorage();
+	          if (!storage) return;
+	          storage.setItem(projectBoardModeStorageKey, JSON.stringify(state || {}));
+	        } catch (err) {}
+	      }
+
+      function parseProjectGanttItems(panel) {
+        if (!panel) return [];
+        try {
+          var raw = panel.getAttribute("data-project-gantt-items") || "[]";
+          var parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (err) {
+          return [];
+        }
+      }
+
+	      function formatProjectGanttDate(value) {
+	        if (!value) return "";
+	        var parsed = new Date(String(value));
+	        if (Number.isNaN(parsed.getTime())) return "";
+	        return parsed.toLocaleDateString([], { month: "short", day: "numeric" });
+	      }
+
+	      function formatProjectGanttMajorLabel(unit, value) {
+	        if (!value || Number.isNaN(value.getTime())) return "";
+	        if (unit === "year") {
+	          return value.getFullYear();
+	        }
+	        if (unit === "month") {
+	          return value.toLocaleDateString([], { month: "short", year: "numeric" });
+	        }
+	        if (unit === "week") {
+	          return value.toLocaleDateString([], { month: "short", day: "numeric" });
+	        }
+	        return value.toLocaleDateString([], { month: "short", day: "numeric" });
+	      }
+
+	      function ganttStartOfUnit(value, unit) {
+	        var next = new Date(value.getTime());
+	        next.setHours(0, 0, 0, 0);
+	        if (unit === "year") {
+	          next.setMonth(0, 1);
+	          return next;
+	        }
+	        if (unit === "month") {
+	          next.setDate(1);
+	          return next;
+	        }
+	        if (unit === "week") {
+	          var day = next.getDay();
+	          var delta = day === 0 ? -6 : 1 - day;
+	          next.setDate(next.getDate() + delta);
+	          return next;
+	        }
+	        return next;
+	      }
+
+	      function ganttAdvanceUnit(value, unit) {
+	        var next = new Date(value.getTime());
+	        if (unit === "year") {
+	          next.setFullYear(next.getFullYear() + 1);
+	          return next;
+	        }
+	        if (unit === "month") {
+	          next.setMonth(next.getMonth() + 1);
+	          return next;
+	        }
+	        if (unit === "week") {
+	          next.setDate(next.getDate() + 7);
+	          return next;
+	        }
+	        next.setDate(next.getDate() + 1);
+	        return next;
+	      }
+
+	      function buildProjectGanttIntervals(startDate, endDate) {
+	        var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+	        var majorUnit = "day";
+	        var minorUnit = null;
+	        if (rangeDays > 730) {
+	          majorUnit = "year";
+	          minorUnit = "month";
+	        } else if (rangeDays > 61) {
+	          majorUnit = "month";
+	          minorUnit = "week";
+	        } else if (rangeDays > 14) {
+	          majorUnit = "week";
+	          minorUnit = "day";
+	        }
+	        function positionsFor(unit) {
+	          if (!unit) return [];
+	          var positions = [];
+	          var cursor = ganttStartOfUnit(startDate, unit);
+	          while (cursor <= endDate) {
+	            var deltaDays = Math.round((cursor.getTime() - startDate.getTime()) / 86400000);
+	            var percent = rangeDays <= 0 ? 0 : (deltaDays / rangeDays) * 100;
+	            if (percent > 0 && percent < 100) {
+	              positions.push({ date: new Date(cursor.getTime()), percent: percent });
+	            }
+	            cursor = ganttAdvanceUnit(cursor, unit);
+	          }
+	          return positions;
+	        }
+	        return {
+	          majorUnit: majorUnit,
+	          minorLines: positionsFor(minorUnit),
+	          majorLines: positionsFor(majorUnit),
+	        };
+	      }
+
+	      function renderProjectGanttGrid(intervals, options) {
+	        var data = intervals || {};
+	        var withLabels = !!(options && options.labels);
+	        var edgeStart = options && options.startLabel ? options.startLabel : "";
+	        var edgeEnd = options && options.endLabel ? options.endLabel : "";
+        var todayPercent = options && typeof options.todayPercent === "number" ? options.todayPercent : null;
+	        var html = '<span class="project-gantt-axis-line"></span><div class="project-gantt-grid">';
+	        (data.minorLines || []).forEach(function (line) {
+	          html += '<span class="project-gantt-guide is-minor" style="left:' + Number(line.percent || 0).toFixed(2) + '%;"></span>';
+	        });
+	        (data.majorLines || []).forEach(function (line) {
+	          html += '<span class="project-gantt-guide is-major" style="left:' + Number(line.percent || 0).toFixed(2) + '%;"></span>';
+	        });
+        if (todayPercent != null) {
+          html += '<span class="project-gantt-guide is-today" style="left:' + Number(todayPercent || 0).toFixed(2) + '%;"></span>';
+        }
+	        html += '</div>';
+	        if (withLabels) {
+	          if (edgeStart) {
+	            html += '<span class="project-gantt-axis-edge is-start">' + edgeStart + '</span>';
+	          }
+	          if (edgeEnd) {
+	            html += '<span class="project-gantt-axis-edge is-end">' + edgeEnd + '</span>';
+	          }
+	          (data.majorLines || []).forEach(function (line) {
+	            var label = formatProjectGanttMajorLabel(data.majorUnit, line.date);
+	            if (!label) return;
+	            html += '<span class="project-gantt-axis-label" style="left:' + Number(line.percent || 0).toFixed(2) + '%;">' + label + '</span>';
+	          });
+	        }
+	        return html;
+	      }
+
+	      function renderProjectGantt(panel) {
+	        if (!panel) return;
+        function escapeProjectGanttText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var startRaw = panel.getAttribute("data-project-start-date") || "";
+        var endRaw = panel.getAttribute("data-project-end-date") || "";
+        if (!startRaw || !endRaw) {
+          panel.innerHTML = '<div class="project-gantt-shell"><div class="project-gantt-empty">Set a project start and end date to use Gantt view.</div></div>';
+          return;
+        }
+	        var startDate = new Date(startRaw + "T00:00:00");
+	        var endDate = new Date(endRaw + "T00:00:00");
+        if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
+          panel.innerHTML = '<div class="project-gantt-shell"><div class="project-gantt-empty">Project date range is invalid.</div></div>';
+          return;
+        }
+	        var items = parseProjectGanttItems(panel)
+	          .filter(function (item) { return !!item; });
+	        var intervals = buildProjectGanttIntervals(startDate, endDate);
+        var ganttBoard = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
+        var ganttProjectNameNode = ganttBoard ? ganttBoard.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
+        var ganttProjectName = ganttProjectNameNode ? String(ganttProjectNameNode.textContent || "").trim() : "";
+        var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+        var todayDate = new Date();
+        todayDate = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+        var todayDeltaDays = Math.round((todayDate.getTime() - startDate.getTime()) / 86400000);
+        var todayPercent = null;
+        if (todayDeltaDays >= 0 && todayDeltaDays <= rangeDays) {
+          todayPercent = rangeDays <= 0 ? 0 : (todayDeltaDays / rangeDays) * 100;
+        }
+	        if (!items.length) {
+	          panel.innerHTML =
+	            '<div class="project-gantt-shell">' +
+	              '<div class="project-gantt-axis"><div class="project-gantt-axis-spacer" aria-hidden="true"></div><div class="project-gantt-axis-track">' + renderProjectGanttGrid(intervals, { labels: true, startLabel: escapeProjectGanttText(formatProjectGanttDate(startRaw)), endLabel: escapeProjectGanttText(formatProjectGanttDate(endRaw)), todayPercent: todayPercent }) + '</div></div>' +
+	              '<div class="project-gantt-body"><div class="project-gantt-empty">No dated tasks yet.</div></div>' +
+	            '</div>';
+	          return;
+	        }
+	        var sections = [];
+	        items.forEach(function (item) {
+	          var sectionKey = item.group_id ? ("group:" + String(item.group_id)) : "ungrouped";
+	          var section = sections.length ? sections[sections.length - 1] : null;
+	          if (!section || section.key !== sectionKey) {
+	            section = {
+	              key: sectionKey,
+	              label: item.group_name || "Ungrouped",
+	              items: [],
+	            };
+	            sections.push(section);
+	          }
+	          section.items.push(item);
+	        });
+        function ganttStatusMeta(item) {
+          var meta = item && item.status_meta ? item.status_meta : {};
+          var mode = String((meta.mode || item.status_mode || "single"));
+          var percentage = Math.max(0, Math.min(100, Number(item && item.status_percentage != null ? item.status_percentage : (meta.percentage_complete || 0))));
+          var summary = Array.isArray(meta.summary) ? meta.summary : [];
+          var baseStatus = String(meta.task_status || item.status || "open");
+          var aggregateState = String(meta.aggregate_state || "");
+          if (!aggregateState) {
+            if (mode === "percentage") {
+              aggregateState = percentage >= 100 ? "complete" : "open";
+            } else if (mode === "per_user") {
+              var total = summary.reduce(function (sum, row) { return sum + Number((row && row.count) || 0); }, 0);
+              var completeCount = summary.reduce(function (sum, row) {
+                return sum + ((row && row.state === "complete") ? Number(row.count || 0) : 0);
+              }, 0);
+              var hasCritical = summary.some(function (row) { return row && row.state === "critical" && Number(row.count || 0) > 0; });
+              aggregateState = total > 0 && completeCount === total ? "complete" : (hasCritical ? "critical" : "open");
+            } else {
+              var normalized = baseStatus.toLowerCase();
+              aggregateState = normalized === "critical"
+                ? "critical"
+                : (["complete", "completed", "done", "closed", "pr closed", "pr merged"].indexOf(normalized) !== -1 ? "complete" : "open");
+            }
+          }
+          var label = baseStatus;
+          if (mode === "percentage") {
+            label = String(percentage) + "%";
+          } else if (mode === "per_user") {
+            label = summary.length
+              ? summary.map(function (row) {
+                  return String((row && row.count) || 0) + " " + String((row && row.status) || "open");
+                }).join(" · ")
+              : "No updates";
+          }
+          return {
+            mode: mode,
+            label: label,
+            state: aggregateState,
+          };
+        }
+	        var rows = sections.map(function (section) {
+	          var sectionRows = section.items.map(function (item) {
+          var statusMeta = ganttStatusMeta(item);
+          var statusState = statusMeta.state;
+          var dueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
+          var effectiveDueDate = null;
+          if (item.due_at) {
+            effectiveDueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
+          } else if (dueMode === "asap") {
+            effectiveDueDate = new Date(Math.max(startDate.getTime(), todayDate.getTime()));
+          } else {
+            effectiveDueDate = new Date(Math.max(endDate.getTime(), todayDate.getTime()));
+          }
+          var dueDate = effectiveDueDate;
+	          var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
+	          if (startTaskDate && Number.isNaN(startTaskDate.getTime())) {
+	            startTaskDate = null;
+	          }
+          if (Number.isNaN(dueDate.getTime())) {
+            dueDate = new Date(Math.max(endDate.getTime(), todayDate.getTime()));
+          }
+	          var startDeltaDays = startTaskDate ? Math.round((startTaskDate.getTime() - startDate.getTime()) / 86400000) : null;
+	          var endDeltaDays = Math.round((dueDate.getTime() - startDate.getTime()) / 86400000);
+	          var clampedEnd = Math.max(0, Math.min(rangeDays, endDeltaDays));
+	          var endPercent = rangeDays <= 0 ? 0 : (clampedEnd / rangeDays) * 100;
+	          var outside = endDeltaDays < 0 || endDeltaDays > rangeDays;
+	          var hasSpan = startTaskDate && startTaskDate <= dueDate;
+          var markerIcon = statusState === "complete"
+            ? "check"
+            : (statusState === "critical" ? "bang" : (statusMeta.mode === "percentage" ? "dot" : "ring"));
+          var progressPercent = statusMeta.mode === "percentage"
+            ? Math.max(0, Math.min(100, Number(item.status_percentage != null ? item.status_percentage : 0)))
+            : (statusState === "complete" ? 100 : 0);
+	          var trackHtml = "";
+	          if (hasSpan) {
+	            var clampedStart = Math.max(0, Math.min(rangeDays, startDeltaDays));
+	            var startPercent = rangeDays <= 0 ? 0 : (clampedStart / rangeDays) * 100;
+	            var widthPercent = Math.max(1.2, endPercent - startPercent);
+	            var spanOutside = startDeltaDays < 0 || endDeltaDays > rangeDays;
+	            trackHtml =
+	              '<span class="project-gantt-span status-' + statusState + ' mode-' + statusMeta.mode + (spanOutside ? ' is-outside' : '') + '" style="left:' + startPercent.toFixed(2) + '%; width:' + widthPercent.toFixed(2) + '%;">' +
+                  (statusMeta.mode === "percentage"
+                    ? '<span class="project-gantt-span-progress" style="width:' + progressPercent.toFixed(2) + '%;"></span>'
+                    : '') +
+                '</span>' +
+	              '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
+	          } else {
+	            trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
+	          }
+	          var meta = [];
+	          if (item.start_date && hasSpan) {
+	            meta.push(formatProjectGanttDate(item.start_date) + " -> " + formatProjectGanttDate(dueDate.toISOString().slice(0, 10)));
+	          } else {
+            if (item.due_at) {
+	              meta.push(formatProjectGanttDate(item.due_at));
+            } else if (dueMode === "asap") {
+              meta.push("ASAP");
+            } else {
+              meta.push("No date");
+            }
+	          }
+		          return (
+		            '<div class="project-gantt-row">' +
+		              '<div class="project-gantt-task">' +
+		                '<div class="project-gantt-task-title-row">' +
+		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
+		                '</div>' +
+		                '<div class="project-gantt-task-meta">' + escapeProjectGanttText(meta.join(" · ")) + '</div>' +
+		              '</div>' +
+		              '<div class="project-gantt-track">' +
+		                trackHtml +
+		              '</div>' +
+		            '</div>'
+		          );
+	          }).join("");
+	          return (
+	            '<div class="project-gantt-section">' +
+	              '<div class="project-gantt-section-title">' + escapeProjectGanttText(section.label || "Ungrouped") + '</div>' +
+	              '<div class="project-gantt-section-list">' + sectionRows + '</div>' +
+	            '</div>'
+	          );
+	        }).join("");
+	        panel.innerHTML =
+	          '<div class="project-gantt-shell">' +
+	            '<div class="project-gantt-overlay" aria-hidden="true"><div class="project-gantt-overlay-spacer"></div><div class="project-gantt-overlay-track">' + renderProjectGanttGrid(intervals, { labels: false, todayPercent: todayPercent }) + '</div></div>' +
+	            '<div class="project-gantt-axis"><div class="project-gantt-axis-spacer" aria-hidden="true"></div><div class="project-gantt-axis-track">' + renderProjectGanttGrid(intervals, { labels: true, startLabel: escapeProjectGanttText(formatProjectGanttDate(startRaw)), endLabel: escapeProjectGanttText(formatProjectGanttDate(endRaw)), todayPercent: todayPercent }) + '</div></div>' +
+	            '<div class="project-gantt-body"><div class="project-gantt-list">' + rows + '</div></div>' +
+	          '</div>';
+	      }
+
+      function updateProjectBoardDatesLocal(project) {
+        if (!project || !project.id) return;
+        var board = document.querySelector('[data-tree-project-board="' + String(project.id) + '"]');
+        if (!board) return;
+        var ganttEnabled = !!(project.start_date && project.end_date);
+        var ganttPanel = board.querySelector('[data-project-mode-panel="gantt"]');
+        var ganttButton = board.querySelector('[data-project-mode-button="gantt"]');
+        if (!ganttEnabled || !ganttPanel || !ganttButton) {
+          if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+            window.__refreshTreeProjectSnapshotLocal(project.id, project);
+          }
+          return;
+        }
+        var gantt = ganttPanel.querySelector("[data-project-gantt]");
+        if (!gantt) return;
+        gantt.setAttribute("data-project-start-date", project.start_date || "");
+        gantt.setAttribute("data-project-end-date", project.end_date || "");
+        if (typeof window.__renderProjectGantt === "function") {
+          window.__renderProjectGantt(gantt);
+        } else {
+          renderProjectGantt(gantt);
+        }
+      }
+      window.__updateProjectBoardDatesLocal = updateProjectBoardDatesLocal;
+
+      function applyProjectBoardMode(board, mode) {
+        if (!board) return;
+        var normalizedMode = mode === "gantt" ? "gantt" : "tasks";
+        var ganttAvailable = !!board.querySelector('[data-project-mode-panel="gantt"]');
+        if (normalizedMode === "gantt" && !ganttAvailable) {
+          normalizedMode = "tasks";
+        }
+        board.querySelectorAll("[data-project-mode-button]").forEach(function (button) {
+          button.classList.toggle("is-active", String(button.getAttribute("data-project-mode-button") || "") === normalizedMode);
+        });
+        board.querySelectorAll("[data-project-mode-panel]").forEach(function (panel) {
+          var isActive = String(panel.getAttribute("data-project-mode-panel") || "") === normalizedMode;
+          panel.hidden = !isActive;
+          panel.classList.toggle("is-active", isActive);
+          if (isActive && normalizedMode === "gantt") {
+            var gantt = panel.querySelector("[data-project-gantt]");
+            if (gantt) {
+              if (typeof window.__renderProjectGantt === "function") {
+                window.__renderProjectGantt(gantt);
+              } else {
+                renderProjectGantt(gantt);
+              }
+            }
+          }
+        });
+        var projectId = String(board.getAttribute("data-tree-project-board") || "");
+        if (projectId) {
+          var state = loadProjectBoardModes();
+          state[projectId] = normalizedMode;
+          saveProjectBoardModes(state);
+        }
+      }
+      window.__applyProjectBoardMode = applyProjectBoardMode;
+
+      window.__setProjectBoardMode = function (button) {
+        if (!button) return false;
+        var board = button.closest("[data-tree-project-board]");
+        if (!board) return false;
+        applyProjectBoardMode(board, button.getAttribute("data-project-mode-button"));
+        return false;
+      };
+
+      function initializeProjectBoardModes(root) {
+        var boards = [];
+        if (root && root.nodeType === 1 && root.matches && root.matches("[data-tree-project-board]")) {
+          boards.push(root);
+        }
+        var scope = root && root.querySelectorAll ? root : document;
+        var state = loadProjectBoardModes();
+        scope.querySelectorAll("[data-tree-project-board]").forEach(function (board) {
+          boards.push(board);
+        });
+        boards.forEach(function (board) {
+          var projectId = String(board.getAttribute("data-tree-project-board") || "");
+          applyProjectBoardMode(board, state[projectId] || "tasks");
+        });
+      }
+      window.__renderProjectGantt = renderProjectGantt;
+      window.__initializeProjectBoardModes = initializeProjectBoardModes;
 
       function insertTreeProjectSnapshotLocal(projectId, projectData) {
         var normalizedProjectId = String(projectId || (projectData && projectData.id) || "");
@@ -5453,6 +6122,35 @@
     const insertTaskRow = (table, id, title, info, due, assignment) => {
       if (!table) return null;
       infoByTask[String(id)] = info || { html: "", attachments: [], links: [] };
+      const infoMeta = (info && info.meta) || {};
+      const statusOverrideStore = window.__localTaskStatusOverrides || {};
+      const localOverride = statusOverrideStore[String(id)] || null;
+      const initialMode = String((localOverride && localOverride.mode) || infoMeta.status_mode || "single");
+      const initialPercentage = Math.max(
+        0,
+        Math.min(
+          100,
+          Number(
+            localOverride && localOverride.percentage != null
+              ? localOverride.percentage
+              : (infoMeta.status_percentage || 0)
+          )
+        )
+      );
+      const initialStatusTask = {
+        id: String(id),
+        status: initialMode === "percentage" ? (initialPercentage >= 100 ? "complete" : "open") : "open",
+        status_mode: initialMode,
+        status_percentage: initialPercentage,
+        per_user_status_enabled: initialMode !== "single",
+        status_meta: {
+          mode: initialMode,
+          percentage_complete: initialPercentage,
+        },
+      };
+      const initialStatusHtml = typeof renderTaskStatusCellHtml === "function"
+        ? renderTaskStatusCellHtml(initialStatusTask, { todo: false })
+        : `<div class="editable status-editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div>`;
       const safeTitle = escapeHtml(title || "");
       const newRow = table.querySelector(".new-row");
       const tr = document.createElement("tr");
@@ -5479,7 +6177,7 @@
           </div>
         </td>
         <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-due-mode="${info && info.meta && info.meta.due_mode ? info.meta.due_mode : (due ? "date" : "none")}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
-        <td><div data-task-status-host="${id}"><div class="editable status-editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div></div></td>
+        <td><div data-task-status-host="${id}">${initialStatusHtml}</div></td>
         <td>
           <div class="assignments">
             ${assignment ? renderAssignmentBadge(assignment) : ""}
@@ -5493,6 +6191,10 @@
       `;
       if (newRow) {
         newRow.before(tr);
+      }
+      const statusHost = tr.querySelector(`[data-task-status-host="${id}"]`);
+      if (statusHost) {
+        statusHost._taskPayload = initialStatusTask;
       }
       bindAssignInput(tr.querySelector("[data-assign-input]"));
       bindDueInput(tr.querySelector(".due-input"));
@@ -5565,11 +6267,11 @@
         }),
       })
         .then((res) => res.json().catch(() => ({})))
-        .then((data) => {
-          const task = data.task || null;
-          if (!data.id || !task) return null;
-          let inserted = typeof window.__upsertTaskRowFromSnapshot === "function"
-            ? window.__upsertTaskRowFromSnapshot(task)
+	        .then((data) => {
+	          const task = data.task || null;
+	          if (!data.id || !task) return null;
+	          let inserted = typeof window.__upsertTaskRowFromSnapshot === "function"
+	            ? window.__upsertTaskRowFromSnapshot(task)
             : false;
           let row = null;
           if (!inserted && typeof window.__insertTaskRow === "function") {
@@ -5592,13 +6294,19 @@
                 insertTaskRowByPosition(tbody, row, task.id, task.position);
               }
               syncTaskStatusUi(task);
-              if (typeof window.__renderTaskAssignments === "function") {
-                window.__renderTaskAssignments(task.id, task.assignments || []);
-              }
-              inserted = true;
-            }
-          }
-          titleInput.value = "";
+	              if (typeof window.__renderTaskAssignments === "function") {
+	                window.__renderTaskAssignments(task.id, task.assignments || []);
+	              }
+	              if (typeof window.__updateProjectGanttItemLocal === "function") {
+	                window.__updateProjectGanttItemLocal(task);
+	              }
+	              inserted = true;
+	            }
+	          }
+	          if (inserted && typeof window.__updateProjectGanttItemLocal === "function") {
+	            window.__updateProjectGanttItemLocal(task);
+	          }
+	          titleInput.value = "";
           if (dueInput) dueInput.value = "";
           if (assigneeInput) assigneeInput.value = "";
           if (typeof window.__syncNewTaskRowState === "function") {
@@ -6362,6 +7070,9 @@
 
 	    document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
     document.querySelectorAll("[data-info-edit]").forEach(bindInfoButton);
+    if (typeof window.__initializeProjectBoardModes === "function") {
+      window.__initializeProjectBoardModes(document);
+    }
 
     document.addEventListener("focusin", (event) => {
       const titleInput = event.target.closest(".tasks-table .new-row [data-new-task='title']");
@@ -6372,6 +7083,17 @@
     });
 
     document.addEventListener("click", (event) => {
+      const projectModeButton = event.target.closest("[data-project-mode-button]");
+      if (projectModeButton) {
+        const board = projectModeButton.closest("[data-tree-project-board]");
+        if (!board) return;
+        event.preventDefault();
+        if (typeof window.__applyProjectBoardMode === "function") {
+          window.__applyProjectBoardMode(board, projectModeButton.getAttribute("data-project-mode-button"));
+        }
+        return;
+      }
+
       const sendLink = event.target.closest("[data-send-link]");
       if (sendLink) {
         const assignmentId = sendLink.getAttribute("data-send-link");
@@ -7282,16 +8004,20 @@
       });
     };
 
-    const setDivisionColorLocal = (divisionId, color) => {
-      const nextColor = color || "#4cc9f0";
-      document.querySelectorAll(`[data-sidebar-division="${divisionId}"]`).forEach((node) => {
-        node.style.setProperty("--division-color", nextColor);
-        node.style.color = nextColor;
+	    const setDivisionColorLocal = (divisionId, color) => {
+	      const nextColor = color || "#4cc9f0";
+	      document.querySelectorAll(`[data-sidebar-division="${divisionId}"]`).forEach((node) => {
+	        node.style.setProperty("--division-color", nextColor);
+	        node.style.color = nextColor;
         node.setAttribute("data-division-color", nextColor);
-        const title = node.querySelector(".sidebar-division-title");
-        if (title) title.style.color = nextColor;
-      });
-    };
+	        const title = node.querySelector(".sidebar-division-title");
+	        if (title) title.style.color = nextColor;
+	      });
+	      document.querySelectorAll(`[data-tree-division-node="${divisionId}"], .todo-tree-node[data-division-id="${divisionId}"]`).forEach((node) => {
+	        node.style.setProperty("--division-color", nextColor);
+	        node.setAttribute("data-division-color", nextColor);
+	      });
+	    };
 
     if (renameCancel) renameCancel.addEventListener("click", closeRenameModal);
     if (renameSave) renameSave.addEventListener("click", submitRenameModal);
@@ -8566,12 +9292,19 @@
     var linksListEl = document.getElementById("discussion-links-list");
     var copyTaskPermalinkEl = document.getElementById("copy-task-permalink");
     var taskSettingsDeleteEl = document.getElementById("task-settings-delete");
-    var taskSettingsTitleEl = document.getElementById("task-settings-title");
-    var taskSettingsDueModeEl = document.getElementById("task-settings-due-mode");
-    var taskSettingsDueEl = document.getElementById("task-settings-due");
-    var taskSettingsStatusEl = document.getElementById("task-settings-status");
+	    var taskSettingsTitleEl = document.getElementById("task-settings-title");
+	    var taskSettingsDueModeEl = document.getElementById("task-settings-due-mode");
+	    var taskSettingsDueEl = document.getElementById("task-settings-due");
+	    var taskSettingsStartFieldEl = document.getElementById("task-settings-start-field");
+	    var taskSettingsStartDateEl = document.getElementById("task-settings-start-date");
+	    var projectSettingsStartDateEl = document.getElementById("project-settings-start-date");
+	    var projectSettingsEndDateEl = document.getElementById("project-settings-end-date");
+	    var projectSettingsStartFieldEl = projectSettingsStartDateEl ? projectSettingsStartDateEl.closest(".discussion-setting-field") : null;
+	    var projectSettingsEndFieldEl = projectSettingsEndDateEl ? projectSettingsEndDateEl.closest(".discussion-setting-field") : null;
+	    var taskSettingsStatusEl = document.getElementById("task-settings-status");
     var taskSettingsStatusLabelEl = document.getElementById("task-settings-status-label");
-    var taskSettingsPerUserStatusEl = document.getElementById("task-settings-per-user-status");
+    var taskSettingsStatusModeEl = document.getElementById("task-settings-status-mode");
+    var taskSettingsStatusModeButtons = Array.prototype.slice.call(drawer.querySelectorAll("[data-status-mode-option]"));
     var taskSettingsAssignmentsEl = document.getElementById("task-settings-assignments");
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
     var taskSettingsFollowersEl = document.getElementById("task-settings-followers");
@@ -8628,12 +9361,31 @@
       return "none";
     }
 
-    function syncTaskSettingsDueControl() {
+    function syncTaskStatusModeButtons() {
+      var mode = taskSettingsStatusModeEl ? String(taskSettingsStatusModeEl.value || "single") : "single";
+      taskSettingsStatusModeButtons.forEach(function (button) {
+        var active = String(button.getAttribute("data-status-mode-option") || "") === mode;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+
+	    function syncTaskSettingsDueControl() {
       if (!taskSettingsDueModeEl || !taskSettingsDueEl) return;
       var mode = String(taskSettingsDueModeEl.value || "none");
       taskSettingsDueEl.hidden = mode !== "date";
       taskSettingsDueEl.disabled = mode !== "date";
-    }
+      if (taskSettingsStartFieldEl) {
+        taskSettingsStartFieldEl.hidden = mode !== "date";
+        taskSettingsStartFieldEl.style.display = mode === "date" ? "" : "none";
+	      }
+	      if (taskSettingsStartDateEl) {
+	        taskSettingsStartDateEl.disabled = mode !== "date";
+	        if (mode !== "date") {
+	          taskSettingsStartDateEl.value = "";
+	        }
+	      }
+	    }
 
     function typesetMathNodes(nodes) {
       if (!nodes || !window.MathJax || !MathJax.typesetPromise) return;
@@ -10229,12 +10981,56 @@
       return [];
     }
 
+    var localTaskStatusOverrides = window.__localTaskStatusOverrides || Object.create(null);
+    window.__localTaskStatusOverrides = localTaskStatusOverrides;
+
+    function rememberLocalTaskStatusOverride(taskOrId, next) {
+      var taskId = taskOrId && typeof taskOrId === "object" ? taskOrId.id : taskOrId;
+      if (taskId == null || taskId === "") return;
+      var key = String(taskId);
+      var current = localTaskStatusOverrides[key] || {};
+      var override = Object.assign({}, current, next || {});
+      if (!override.mode && override.percentage == null) {
+        delete localTaskStatusOverrides[key];
+        return;
+      }
+      localTaskStatusOverrides[key] = override;
+    }
+
+    function reapplyLocalTaskStatusOverrides(root) {
+      var scope = root && root.querySelectorAll ? root : document;
+      scope.querySelectorAll("[data-task-status-host]").forEach(function (host) {
+        var taskId = String(host.getAttribute("data-task-status-host") || "");
+        if (!taskId) return;
+        var override = localTaskStatusOverrides[taskId];
+        if (!override || !override.mode) return;
+        var existingMeta = (host._taskPayload && host._taskPayload.status_meta) || {};
+        var task = Object.assign({}, host._taskPayload || {}, {
+          id: taskId,
+          status_mode: override.mode,
+          status_percentage: override.percentage != null
+            ? override.percentage
+            : ((host._taskPayload && host._taskPayload.status_percentage != null) ? host._taskPayload.status_percentage : 0),
+          status_meta: Object.assign({}, existingMeta, {
+            mode: override.mode,
+            percentage_complete: override.percentage != null
+              ? override.percentage
+              : Number(existingMeta.percentage_complete || 0),
+          }),
+        });
+        syncTaskStatusUi(task);
+      });
+    }
+
     function taskStatusMeta(task) {
       var meta = task && task.status_meta ? task.status_meta : {};
+      var taskId = task && task.id != null ? String(task.id) : "";
+      var localOverride = taskId ? (localTaskStatusOverrides[taskId] || null) : null;
+      var mode = String((localOverride && localOverride.mode) || meta.mode || task && task.status_mode || (task && task.per_user_status_enabled ? "per_user" : "single"));
       var baseStatus = (meta.task_status || (task && task.status) || "open");
       var derivedCanSet = meta.viewer_can_set;
       if (derivedCanSet === undefined || derivedCanSet === null) {
-        derivedCanSet = meta.enabled ? false : true;
+        derivedCanSet = mode === "single" ? true : false;
       }
       var assignees = Array.isArray(meta.assignees) ? meta.assignees.slice() : [];
       if (!assignees.length && Array.isArray(task && task.assignments ? task.assignments : null)) {
@@ -10258,13 +11054,21 @@
         });
       }
       return {
-        enabled: !!meta.enabled,
+        mode: mode,
+        enabled: mode !== "single",
         task_status: baseStatus,
         task_status_state: meta.task_status_state || getStatusState(baseStatus),
         aggregate_state: meta.aggregate_state || null,
         my_status: meta.my_status || null,
         my_status_state: meta.my_status_state || null,
         viewer_can_set: derivedCanSet !== false,
+        percentage_complete: Number(
+          localOverride && localOverride.percentage != null
+            ? localOverride.percentage
+            : (task && task.status_percentage != null
+              ? task.status_percentage
+              : (meta.percentage_complete || 0))
+        ),
         summary: Array.isArray(meta.summary) ? meta.summary : [],
         user_statuses: Array.isArray(meta.user_statuses) ? meta.user_statuses : [],
         assignees: assignees,
@@ -10273,6 +11077,7 @@
 
     function taskMyStatus(task) {
       var meta = taskStatusMeta(task);
+      if (meta.mode === "percentage") return String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%";
       if (!meta.enabled) return meta.task_status || "open";
       if (meta.my_status) return meta.my_status;
       var mine = meta.user_statuses.find(function (row) {
@@ -10338,13 +11143,71 @@
       }).join(" · ");
     }
 
+    function openPercentageStatusMenu(task, anchor, source) {
+      var menu = document.getElementById("percentage-status-menu");
+      var input = document.getElementById("percentage-status-input");
+      var valueEl = menu ? menu.querySelector("[data-percentage-status-value]") : null;
+      if (!menu || !input || !task || !task.id || !anchor) return;
+      var meta = taskStatusMeta(task);
+      var percent = Math.max(0, Math.min(100, Number(task.status_percentage != null ? task.status_percentage : meta.percentage_complete || 0)));
+      menu.dataset.taskId = String(task.id);
+      menu.dataset.source = source || "";
+      menu._task = task;
+      menu._anchor = anchor;
+      input.value = String(percent);
+      if (valueEl) valueEl.textContent = String(percent) + "%";
+      positionFloatingMenu(menu, anchor);
+    }
+
+    function closePercentageStatusMenu() {
+      var menu = document.getElementById("percentage-status-menu");
+      if (!menu) return;
+      menu.style.display = "none";
+      menu.dataset.taskId = "";
+      menu.dataset.source = "";
+      menu._task = null;
+      menu._anchor = null;
+    }
+    window.__openPercentageStatusMenu = openPercentageStatusMenu;
+    window.__closePercentageStatusMenu = closePercentageStatusMenu;
+
+    function patchTaskPercentageStatus(taskId, percentValue) {
+      return fetch("/api/tasks/" + taskId, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status_mode: "percentage",
+          status_percentage: percentValue,
+        }),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok) {
+            throw new Error((result.data && result.data.error) || "Could not update percentage");
+          }
+          return result.data || {};
+        });
+    }
+
     function renderTaskStatusCellHtml(task, opts) {
       var options = opts || {};
       var meta = taskStatusMeta(task);
-      if (!meta.enabled) {
+      if (meta.mode === "single") {
         var status = escapeHtml(meta.task_status || (task && task.status) || "open");
         var state = escapeHtml(meta.task_status_state || getStatusState(status));
         return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="true" data-task-id="' + escapeHtml(task.id) + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="' + state + '">' + status + '</div>';
+      }
+      if (meta.mode === "percentage") {
+        var percent = Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
+        return '' +
+          '<button class="task-status-multi-button task-status-percentage-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(percent + "% complete") + '">' +
+            '<div class="task-status-percentage" data-task-status-percentage="' + escapeHtml(task.id) + '">' + escapeHtml(String(percent)) + '%</div>' +
+          '</button>';
       }
       return '' +
         '<button class="task-status-multi-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(renderTaskStatusSummaryLabel(meta.summary)) + '">' +
@@ -10425,6 +11288,20 @@
       if (currentEntityType !== "task") return;
       if (!taskSettingsTitleEl || !taskSettingsDueEl || !taskSettingsStatusEl || !taskSettingsMetaEl) return;
       drawer.setAttribute("data-is-direct", "0");
+      drawer.querySelectorAll("[data-task-only]").forEach(function (node) {
+        node.hidden = false;
+      });
+	      drawer.querySelectorAll("[data-project-only]").forEach(function (node) {
+	        node.hidden = true;
+	      });
+	      if (projectSettingsStartFieldEl) {
+	        projectSettingsStartFieldEl.hidden = true;
+	        projectSettingsStartFieldEl.style.display = "none";
+	      }
+	      if (projectSettingsEndFieldEl) {
+	        projectSettingsEndFieldEl.hidden = true;
+	        projectSettingsEndFieldEl.style.display = "none";
+	      }
       if (taskSettingsTitleFieldEl) {
         taskSettingsTitleFieldEl.hidden = false;
       }
@@ -10438,6 +11315,9 @@
         taskSettingsDueModeEl.value = taskDueModeValue(task);
       }
       taskSettingsDueEl.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      if (taskSettingsStartDateEl) {
+        taskSettingsStartDateEl.value = task.start_date ? String(task.start_date).slice(0, 10) : "";
+      }
       syncTaskSettingsDueControl();
       var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
       if (taskSettingsCreatorEl) {
@@ -10471,25 +11351,28 @@
       }
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = effectiveStatus;
-        taskSettingsStatusEl.setAttribute("data-payload-field", meta.enabled ? "user_status" : "status");
+        taskSettingsStatusEl.setAttribute("data-payload-field", meta.mode === "single" ? "status" : "user_status");
         taskSettingsStatusEl.hidden = false;
         taskSettingsStatusEl.disabled = false;
-        taskSettingsStatusEl.dataset.perUserStatusEnabled = meta.enabled ? "1" : "0";
+        taskSettingsStatusEl.dataset.statusMode = meta.mode || "single";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
         if (label) {
-          label.textContent = meta.enabled ? renderTaskStatusSummaryLabel(meta.summary) : effectiveStatus;
+          label.textContent = meta.mode === "percentage"
+            ? (String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%")
+            : (meta.mode === "per_user" ? renderTaskStatusSummaryLabel(meta.summary) : effectiveStatus);
         }
-        if (!meta.enabled && typeof window.__applyStatusState === "function") {
+        if (meta.mode === "single" && typeof window.__applyStatusState === "function") {
           window.__applyStatusState(taskSettingsStatusEl, effectiveStatus);
         }
       }
       if (taskSettingsStatusLabelEl) {
-        taskSettingsStatusLabelEl.textContent = meta.enabled ? "Statuses" : "Status";
+        taskSettingsStatusLabelEl.textContent = meta.mode === "percentage" ? "Progress" : (meta.mode === "per_user" ? "Statuses" : "Status");
         taskSettingsStatusLabelEl.hidden = false;
       }
-      if (taskSettingsPerUserStatusEl) {
-        taskSettingsPerUserStatusEl.checked = !!meta.enabled;
+      if (taskSettingsStatusModeEl) {
+        taskSettingsStatusModeEl.value = meta.mode || "single";
       }
+      syncTaskStatusModeButtons();
       if (taskSettingsAssignmentsEl) {
         var assignments = Array.isArray(task.assignments) ? task.assignments : [];
         taskSettingsAssignmentsEl.style.display = assignments.length ? "" : "none";
@@ -10528,6 +11411,20 @@
       if (!taskSettingsTitleEl || !taskSettingsMetaEl) return;
       var entity = currentEntityData || {};
       currentEntityIsDirect = currentEntityType === "project" && !!entity.is_direct;
+      drawer.querySelectorAll("[data-task-only]").forEach(function (node) {
+        node.hidden = true;
+      });
+	      drawer.querySelectorAll("[data-project-only]").forEach(function (node) {
+	        node.hidden = currentEntityType !== "project";
+	      });
+	      if (projectSettingsStartFieldEl) {
+	        projectSettingsStartFieldEl.hidden = currentEntityType !== "project";
+	        projectSettingsStartFieldEl.style.display = currentEntityType === "project" ? "" : "none";
+	      }
+	      if (projectSettingsEndFieldEl) {
+	        projectSettingsEndFieldEl.hidden = currentEntityType !== "project";
+	        projectSettingsEndFieldEl.style.display = currentEntityType === "project" ? "" : "none";
+	      }
       if (taskSettingsTitleFieldEl) {
         taskSettingsTitleFieldEl.hidden = currentEntityIsDirect;
       }
@@ -10535,11 +11432,12 @@
       taskSettingsTitleEl.value = entity.name || currentTaskTitle || "";
       if (taskSettingsDueModeEl) taskSettingsDueModeEl.value = "none";
       if (taskSettingsDueEl) taskSettingsDueEl.value = "";
+      if (taskSettingsStartDateEl) taskSettingsStartDateEl.value = "";
       syncTaskSettingsDueControl();
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = "";
         taskSettingsStatusEl.setAttribute("data-payload-field", "status");
-        taskSettingsStatusEl.dataset.perUserStatusEnabled = "0";
+        taskSettingsStatusEl.dataset.statusMode = "single";
         taskSettingsStatusEl.hidden = false;
         taskSettingsStatusEl.disabled = false;
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
@@ -10549,9 +11447,10 @@
         taskSettingsStatusLabelEl.textContent = "Status";
         taskSettingsStatusLabelEl.hidden = false;
       }
-      if (taskSettingsPerUserStatusEl) {
-        taskSettingsPerUserStatusEl.checked = false;
+      if (taskSettingsStatusModeEl) {
+        taskSettingsStatusModeEl.value = "single";
       }
+      syncTaskStatusModeButtons();
       if (taskSettingsAssignmentsEl) {
         taskSettingsAssignmentsEl.style.display = "none";
         taskSettingsAssignmentsEl.innerHTML = "";
@@ -10581,6 +11480,12 @@
       if (taskSettingsDescriptionFormatEl) {
         taskSettingsDescriptionFormatEl.value = entity.description_format || entityDescriptionFallback;
       }
+	      if (projectSettingsStartDateEl) {
+	        projectSettingsStartDateEl.value = currentEntityType === "project" && entity.start_date ? String(entity.start_date).slice(0, 10) : "";
+	      }
+	      if (projectSettingsEndDateEl) {
+	        projectSettingsEndDateEl.value = currentEntityType === "project" && entity.end_date ? String(entity.end_date).slice(0, 10) : "";
+	      }
       var bits = [];
       if (currentEntityType === "group" && currentProjectName) bits.push(currentProjectName);
       if (entity.created_at) bits.push("Created " + String(entity.created_at).slice(0, 10));
@@ -10729,7 +11634,7 @@
 
     function refreshCurrentTaskMeta() {
       if (!currentTaskId) return Promise.resolve(null);
-      return fetch("/api/tasks/" + currentTaskId, { credentials: "same-origin" })
+      return fetch("/api/tasks/" + currentTaskId, { credentials: "same-origin", cache: "no-store" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data || !data.id) return null;
@@ -10744,7 +11649,7 @@
 
     function fetchTaskSnapshot(taskId) {
       if (!taskId) return Promise.resolve(null);
-      return fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
+      return fetch("/api/tasks/" + taskId, { credentials: "same-origin", cache: "no-store" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data || !data.id) return null;
@@ -10775,21 +11680,22 @@
       if (!currentEntityId) return Promise.resolve();
       var descriptionPayload = descriptionPayloadForEntity();
       if (currentEntityType === "task") {
-        var perUserEnabled = !!(taskSettingsPerUserStatusEl && taskSettingsPerUserStatusEl.checked);
-        var statusPayloadField = perUserEnabled
-          ? "user_status"
-          : "status";
+        var statusMode = taskSettingsStatusModeEl ? String(taskSettingsStatusModeEl.value || "single") : "single";
+        var statusPayloadField = statusMode === "single" ? "status" : "user_status";
         var payload = {
           title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
           due_at: taskSettingsDueModeEl && taskSettingsDueModeEl.value !== "date"
             ? ""
             : (taskSettingsDueEl ? taskSettingsDueEl.value : ""),
           due_mode: taskSettingsDueModeEl ? taskSettingsDueModeEl.value : "none",
-          per_user_status_enabled: perUserEnabled,
+          start_date: taskSettingsDueModeEl && taskSettingsDueModeEl.value === "date"
+            ? (taskSettingsStartDateEl ? taskSettingsStartDateEl.value : "")
+            : "",
+          status_mode: statusMode,
           description: descriptionPayload.description,
           description_format: descriptionPayload.description_format,
         };
-        if (!perUserEnabled) {
+        if (statusMode === "single") {
           payload[statusPayloadField] = taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "").trim() : "";
         }
         return fetch('/api/tasks/' + currentEntityId, {
@@ -10799,14 +11705,20 @@
           body: JSON.stringify(payload),
         })
           .then(function (res) { return res.json().catch(function () { return {}; }); })
-        .then(function (data) {
-          if (!data || !data.id) return;
-          currentTaskData = Object.assign({}, currentTaskData || {}, data);
-          applyTaskRowUpdate(currentTaskData);
-          descriptionEditing = false;
-          hideDescriptionEditor();
-          renderTaskSettings();
-        })
+          .then(function (data) {
+            if (!data || !data.id) return;
+            currentTaskData = Object.assign({}, currentTaskData || {}, data);
+            applyTaskRowUpdate(currentTaskData);
+            descriptionEditing = false;
+            hideDescriptionEditor();
+            renderTaskSettings();
+            return fetchTaskSnapshot(data.id).then(function (freshTask) {
+              if (!freshTask || !freshTask.id) return;
+              currentTaskData = Object.assign({}, currentTaskData || {}, freshTask);
+              applyTaskRowUpdate(currentTaskData);
+              renderTaskSettings();
+            });
+          })
           .catch(function (err) { console.error('persistEntitySettings failed', err); });
       }
       var nameValue = taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "";
@@ -10814,6 +11726,10 @@
         ? '/api/projects/' + currentEntityId
         : '/api/groups/' + currentEntityId;
       var payload = Object.assign({ name: nameValue }, descriptionPayload);
+	      if (currentEntityType === "project") {
+	        payload.start_date = projectSettingsStartDateEl ? (projectSettingsStartDateEl.value || "") : "";
+	        payload.end_date = projectSettingsEndDateEl ? (projectSettingsEndDateEl.value || "") : "";
+	      }
       return fetch(endpoint, {
         method: 'PATCH',
         credentials: 'same-origin',
@@ -10842,6 +11758,12 @@
             document.querySelectorAll('.group-title-text[data-group-id="' + currentEntityId + '"]').forEach(function (node) {
               node.textContent = data.name || node.textContent;
             });
+          }
+          if (currentEntityType === "project" && typeof window.__updateProjectBoardDatesLocal === "function") {
+            window.__updateProjectBoardDatesLocal(currentEntityData || data);
+          }
+          if (currentEntityType === "project" && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+            window.__refreshTreeProjectSnapshotLocal(currentEntityId, currentEntityData || data);
           }
         })
         .catch(function (err) { console.error('persistEntitySettings failed', err); });
@@ -11261,18 +12183,38 @@
 
     function applyTaskRowUpdate(task) {
       if (!task || !task.id) return false;
+      var taskId = String(task.id);
+      var existingHost = document.querySelector('[data-task-status-host="' + taskId + '"]');
+      var existingTask = existingHost && existingHost._taskPayload ? existingHost._taskPayload : null;
+      var drawerTask = String(currentTaskId || "") === taskId && currentTaskData ? currentTaskData : null;
+      var mergedStatusMeta = Object.assign(
+        {},
+        (existingTask && existingTask.status_meta) || {},
+        (task && task.status_meta) || {},
+        (drawerTask && drawerTask.status_meta) || {}
+      );
+      var effectiveTask = Object.assign({}, existingTask || {}, task || {}, drawerTask || {});
+      if (mergedStatusMeta && Object.keys(mergedStatusMeta).length) {
+        effectiveTask.status_meta = mergedStatusMeta;
+      }
+      if (drawerTask && drawerTask.status_mode) {
+        effectiveTask.status_mode = drawerTask.status_mode;
+      }
+      if (drawerTask && drawerTask.status_percentage != null) {
+        effectiveTask.status_percentage = drawerTask.status_percentage;
+      }
       var matched = false;
-      var normalizedTitle = task.title || "";
-      var normalizedDue = task.due_at ? String(task.due_at).slice(0, 10) : "";
-      var normalizedDueMode = task.due_mode || (normalizedDue ? "date" : "none");
-      var myStatus = taskMyStatus(task);
-      var aggregateState = taskAggregateStatusState(task);
+      var normalizedTitle = effectiveTask.title || "";
+      var normalizedDue = effectiveTask.due_at ? String(effectiveTask.due_at).slice(0, 10) : "";
+      var normalizedDueMode = effectiveTask.due_mode || (normalizedDue ? "date" : "none");
+      var myStatus = taskMyStatus(effectiveTask);
+      var aggregateState = taskAggregateStatusState(effectiveTask);
 
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
         matched = true;
         row.setAttribute("data-status-state", aggregateState);
-        if (task.position !== undefined && task.position !== null) {
-          row.setAttribute("data-task-position", String(task.position));
+        if (effectiveTask.position !== undefined && effectiveTask.position !== null) {
+          row.setAttribute("data-task-position", String(effectiveTask.position));
         }
       });
       document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="title"]').forEach(function (cell) {
@@ -11301,12 +12243,12 @@
       if (String(currentTaskId || "") === String(task.id)) {
         currentTaskTitle = normalizedTitle;
         titleEl.textContent = currentTaskTitle || "Discussion";
-        currentTaskData = Object.assign({}, currentTaskData || {}, task);
-        currentEntityLinks = taskLinksFromPayload(task);
+        currentTaskData = Object.assign({}, currentTaskData || {}, effectiveTask);
+        currentEntityLinks = taskLinksFromPayload(effectiveTask);
         renderTaskSettings();
         renderEntityLinkState();
       }
-      syncTaskLinkBadges(task.id, taskLinksFromPayload(task));
+      syncTaskLinkBadges(task.id, taskLinksFromPayload(effectiveTask));
       document.querySelectorAll('.due-input[data-task-id="' + task.id + '"]').forEach(function (input) {
         matched = true;
         input.value = normalizedDue;
@@ -11318,15 +12260,116 @@
       });
       var todoItem = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
       if (todoItem && typeof moveTodoItemIfNeeded === "function") {
-        moveTodoItemIfNeeded(String(task.id), normalizedDue, task.created_at ? String(task.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"), normalizedDueMode);
+        moveTodoItemIfNeeded(String(task.id), normalizedDue, effectiveTask.created_at ? String(effectiveTask.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"), normalizedDueMode);
       }
       if (document.querySelector('[data-task-status-host="' + task.id + '"]')) {
         matched = true;
-        syncTaskStatusUi(task);
+        syncTaskStatusUi(effectiveTask);
+      }
+      if (typeof window.__updateProjectGanttItemLocal === "function") {
+        window.__updateProjectGanttItemLocal(effectiveTask);
       }
       return matched;
     }
     window.__applyTaskRowUpdate = applyTaskRowUpdate;
+
+	    function parseProjectGanttItemsLocal(panel) {
+	      if (!panel) return [];
+	      try {
+	        var raw = panel.getAttribute("data-project-gantt-items") || "[]";
+        var parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_err) {
+        return [];
+	      }
+	    }
+
+	    var pendingProjectGanttRefreshTimers = {};
+
+	    function queueProjectGanttRefresh(projectId) {
+	      var normalizedProjectId = String(projectId || "").trim();
+	      if (!normalizedProjectId) return;
+	      if (typeof window.__refreshTreeProjectSnapshotLocal !== "function") return;
+	      if (!document.querySelector('[data-project-gantt][data-project-id="' + normalizedProjectId + '"]')) return;
+	      if (pendingProjectGanttRefreshTimers[normalizedProjectId]) {
+	        window.clearTimeout(pendingProjectGanttRefreshTimers[normalizedProjectId]);
+	      }
+	      pendingProjectGanttRefreshTimers[normalizedProjectId] = window.setTimeout(function () {
+	        delete pendingProjectGanttRefreshTimers[normalizedProjectId];
+	        window.__refreshTreeProjectSnapshotLocal(normalizedProjectId);
+	      }, 60);
+	    }
+
+	    function groupNameForTaskGantt(task) {
+	      if (!task || !task.group_id) return "";
+	      var titleNode = document.querySelector('.group-title-text[data-group-id="' + String(task.group_id) + '"]');
+      return titleNode ? String(titleNode.textContent || "").trim() : "";
+    }
+
+	    function updateProjectGanttItemLocal(task) {
+	      if (!task || !task.id || !task.project_id) return;
+	      document.querySelectorAll('[data-project-gantt][data-project-id="' + String(task.project_id) + '"]').forEach(function (panel) {
+        var items = parseProjectGanttItemsLocal(panel);
+        var taskId = String(task.id);
+        var replacement = {
+	          id: task.id,
+	          title: task.title || "Task",
+	          start_date: task.start_date || "",
+	          due_at: task.due_at || "",
+	          due_mode: task.due_mode || (task.due_at ? "date" : "none"),
+	          status: task.status || "open",
+	          status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
+	          status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
+	          status_meta: task.status_meta || {},
+	          group_id: task.group_id || "",
+	          group_name: groupNameForTaskGantt(task),
+	        };
+        var replaced = false;
+        items = items.reduce(function (nextItems, item) {
+          if (String(item && item.id || "") === taskId) {
+            if (replacement) {
+              nextItems.push(replacement);
+              replaced = true;
+            }
+            return nextItems;
+          }
+          nextItems.push(item);
+          return nextItems;
+        }, []);
+        if (replacement && !replaced) {
+          items.push(replacement);
+        }
+	        panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
+	        if (typeof panel.closest === "function") {
+	          var modePanel = panel.closest('[data-project-mode-panel="gantt"]');
+	          if (!modePanel || !modePanel.hidden) {
+	            if (typeof window.__renderProjectGantt === "function") {
+	              window.__renderProjectGantt(panel);
+	            }
+	          }
+	        }
+	      });
+	    }
+	    window.__updateProjectGanttItemLocal = updateProjectGanttItemLocal;
+
+	    function removeProjectGanttItemLocal(taskId) {
+	      if (!taskId) return;
+	      document.querySelectorAll("[data-project-gantt]").forEach(function (panel) {
+	        var items = parseProjectGanttItemsLocal(panel).filter(function (item) {
+	          return String(item && item.id || "") !== String(taskId);
+	        });
+	        panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
+	        if (typeof panel.closest === "function") {
+	          var modePanel = panel.closest('[data-project-mode-panel="gantt"]');
+	          if (!modePanel || !modePanel.hidden) {
+	            if (typeof window.__renderProjectGantt === "function") {
+	              window.__renderProjectGantt(panel);
+	            }
+	          }
+	        }
+	      });
+	    }
+    window.__removeProjectGanttItemLocal = removeProjectGanttItemLocal;
 
     function renderNotificationMenu(kind, items) {
       var shell = document.querySelector('[data-notification-kind="' + kind + '"]');
@@ -11535,6 +12578,9 @@
       document.querySelectorAll('[data-task-row-id="' + taskId + '"], .todo-item[data-task-id="' + taskId + '"]').forEach(function (row) {
         row.remove();
       });
+      if (typeof window.__removeProjectGanttItemLocal === "function") {
+        window.__removeProjectGanttItemLocal(taskId);
+      }
     }
 
     function insertTaskRowByPosition(tbody, row, taskId, position) {
@@ -11624,6 +12670,9 @@
       }
       if (typeof window.__renderTaskAssignments === "function") {
         window.__renderTaskAssignments(task.id, task.assignments || []);
+      }
+      if (typeof window.__updateProjectGanttItemLocal === "function") {
+        window.__updateProjectGanttItemLocal(task);
       }
       return true;
     }
@@ -11975,7 +13024,13 @@
 
     function openSettingsStatusMenu() {
       if (currentEntityType !== "task") return;
-      if (taskSettingsStatusEl && taskSettingsStatusEl.dataset.perUserStatusEnabled === "1" && currentTaskData) {
+      if (taskSettingsStatusEl && String(taskSettingsStatusEl.dataset.statusMode || "single") === "percentage" && currentTaskData) {
+        if (typeof window.__openPercentageStatusMenu === "function") {
+          window.__openPercentageStatusMenu(currentTaskData, taskSettingsStatusEl, "settings");
+        }
+        return;
+      }
+      if (taskSettingsStatusEl && String(taskSettingsStatusEl.dataset.statusMode || "single") !== "single" && currentTaskData) {
         openMultiStatusMenu(currentTaskData, taskSettingsStatusEl, "settings");
         return;
       }
@@ -12418,6 +13473,18 @@
         }
         return;
       }
+      var ganttTaskButton = event.target.closest("[data-open-gantt-task]");
+      if (ganttTaskButton) {
+        event.preventDefault();
+        if (typeof window.__openTaskDrawer === "function") {
+          window.__openTaskDrawer(
+            ganttTaskButton.getAttribute("data-open-gantt-task"),
+            ganttTaskButton.getAttribute("data-task-title"),
+            ganttTaskButton.getAttribute("data-project-name")
+          );
+        }
+        return;
+      }
       var discussionButton = event.target.closest("[data-open-discussion]");
       if (discussionButton) {
         event.preventDefault();
@@ -12474,15 +13541,54 @@
         event.stopPropagation();
         var taskId = trigger.getAttribute("data-task-id") || trigger.getAttribute("data-task-multi-status-trigger");
         if (!taskId) return;
-        if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
-          openMultiStatusMenu(currentTaskData, trigger, "row");
+        var statusHost = trigger.closest("[data-task-status-host]") || document.querySelector('[data-task-status-host="' + taskId + '"]');
+        var hostTask = statusHost && statusHost._taskPayload ? statusHost._taskPayload : null;
+        if (!hostTask && statusHost) {
+          var percentageNode = statusHost.querySelector("[data-task-status-percentage]");
+          if (percentageNode) {
+            var percentValue = Math.max(0, Math.min(100, Number(String(percentageNode.textContent || "").replace(/[^\d.]/g, "") || 0)));
+            hostTask = {
+              id: String(taskId),
+              status: percentValue >= 100 ? "complete" : "open",
+              status_mode: "percentage",
+              status_percentage: percentValue,
+              per_user_status_enabled: true,
+              status_meta: {
+                mode: "percentage",
+                percentage_complete: percentValue,
+              },
+            };
+            statusHost._taskPayload = hostTask;
+          }
+        }
+        if (hostTask && String(hostTask.id || "") === String(taskId)) {
+          var hostMeta = taskStatusMeta(hostTask);
+          if (hostMeta.mode === "percentage" && typeof window.__openPercentageStatusMenu === "function") {
+            window.__openPercentageStatusMenu(hostTask, trigger, "row");
+          } else {
+            openMultiStatusMenu(hostTask, trigger, "row");
+          }
           return;
         }
-        fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
+        if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
+          var currentMeta = taskStatusMeta(currentTaskData);
+          if (currentMeta.mode === "percentage" && typeof window.__openPercentageStatusMenu === "function") {
+            window.__openPercentageStatusMenu(currentTaskData, trigger, "row");
+          } else {
+            openMultiStatusMenu(currentTaskData, trigger, "row");
+          }
+          return;
+        }
+        fetch("/api/tasks/" + taskId, { credentials: "same-origin", cache: "no-store" })
           .then(function (res) { return res.json().catch(function () { return {}; }); })
           .then(function (task) {
             if (!task || !task.id) return;
-            openMultiStatusMenu(task, trigger, "row");
+            var meta = taskStatusMeta(task);
+            if (meta.mode === "percentage" && typeof window.__openPercentageStatusMenu === "function") {
+              window.__openPercentageStatusMenu(task, trigger, "row");
+            } else {
+              openMultiStatusMenu(task, trigger, "row");
+            }
           })
           .catch(function (err) {
             console.error("openMultiStatusMenu load failed", err);
@@ -12517,12 +13623,14 @@
             if (data && data.status_meta) {
               var task = (multiStatusMenu._task && String(multiStatusMenu._task.id) === String(taskId))
                 ? Object.assign({}, multiStatusMenu._task, {
+                    status_mode: (multiStatusMenu._task && multiStatusMenu._task.status_mode) || (currentTaskData && currentTaskData.status_mode) || "per_user",
                     status_meta: data.status_meta,
                     per_user_status_enabled: true,
                   })
                 : {
                     id: taskId,
                     status: data.status || "open",
+                    status_mode: (currentTaskData && currentTaskData.status_mode) || "per_user",
                     status_meta: data.status_meta,
                     per_user_status_enabled: true,
                   };
@@ -12546,6 +13654,67 @@
               button.disabled = false;
             });
           });
+      });
+    })();
+    (function () {
+      var percentageStatusMenu = document.getElementById("percentage-status-menu");
+      var percentageStatusInput = document.getElementById("percentage-status-input");
+      var percentageStatusValueEl = percentageStatusMenu ? percentageStatusMenu.querySelector("[data-percentage-status-value]") : null;
+      if (!percentageStatusMenu || !percentageStatusInput) return;
+
+      function commitPercentageStatus() {
+        var taskId = percentageStatusMenu.dataset.taskId;
+        if (!taskId) return;
+        var nextValue = Math.max(0, Math.min(100, Number(percentageStatusInput.value || 0)));
+        rememberLocalTaskStatusOverride(taskId, {
+          mode: "percentage",
+          percentage: nextValue,
+        });
+        patchTaskPercentageStatus(taskId, nextValue)
+          .then(function (data) {
+            if (!data || !data.id) return;
+            rememberLocalTaskStatusOverride(data.id, {
+              mode: "percentage",
+              percentage: nextValue,
+            });
+            if (String(currentTaskId || "") === String(data.id)) {
+              currentTaskData = Object.assign({}, currentTaskData || {}, data);
+              renderTaskSettings();
+            }
+            applyTaskRowUpdate(data);
+            if (typeof window.__closePercentageStatusMenu === "function") {
+              window.__closePercentageStatusMenu();
+            }
+          })
+          .catch(function (err) {
+            console.error("patchTaskPercentageStatus failed", err);
+          });
+      }
+
+      percentageStatusInput.addEventListener("input", function () {
+        var nextValue = Math.max(0, Math.min(100, Number(percentageStatusInput.value || 0)));
+        if (percentageStatusValueEl) {
+          percentageStatusValueEl.textContent = String(nextValue) + "%";
+        }
+      });
+
+      percentageStatusInput.addEventListener("change", function () {
+        commitPercentageStatus();
+      });
+
+      document.addEventListener("mousedown", function (event) {
+        if (percentageStatusMenu.contains(event.target)) return;
+        if (typeof window.__closePercentageStatusMenu === "function") {
+          window.__closePercentageStatusMenu();
+        }
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          if (typeof window.__closePercentageStatusMenu === "function") {
+            window.__closePercentageStatusMenu();
+          }
+        }
       });
     })();
     document.querySelectorAll("[data-drawer-tab]").forEach(function (button) {
@@ -12871,7 +14040,7 @@
       }, true);
     }
 
-    [taskSettingsTitleEl, taskSettingsDueEl, taskSettingsDueModeEl, taskSettingsStatusEl].filter(Boolean).forEach(function (input) {
+    [taskSettingsTitleEl, taskSettingsDueEl, taskSettingsDueModeEl, taskSettingsStartDateEl, taskSettingsStatusEl, projectSettingsStartDateEl, projectSettingsEndDateEl].filter(Boolean).forEach(function (input) {
       if (input === taskSettingsStatusEl) return;
       if (input === taskSettingsDueModeEl) {
         input.addEventListener('change', function () {
@@ -12978,9 +14147,44 @@
         }
       });
     }
-    if (taskSettingsPerUserStatusEl) {
-      taskSettingsPerUserStatusEl.addEventListener("change", persistEntitySettings);
+    if (taskSettingsStatusModeEl) {
+      taskSettingsStatusModeEl.addEventListener("change", function () {
+        if (currentTaskData) {
+          var nextMode = taskSettingsStatusModeEl.value || "single";
+          var currentMeta = taskStatusMeta(currentTaskData);
+          rememberLocalTaskStatusOverride(currentTaskData.id, {
+            mode: nextMode,
+            percentage: nextMode === "percentage"
+              ? Math.max(0, Math.min(100, Number(
+                  currentTaskData.status_percentage != null
+                    ? currentTaskData.status_percentage
+                    : currentMeta.percentage_complete || 0
+                )))
+              : null,
+          });
+          currentTaskData = Object.assign({}, currentTaskData, {
+            status_mode: nextMode,
+            per_user_status_enabled: nextMode !== "single",
+            status_meta: Object.assign({}, (currentTaskData && currentTaskData.status_meta) || {}, {
+              mode: nextMode,
+            }),
+          });
+          applyTaskRowUpdate(currentTaskData);
+          renderTaskSettings();
+        }
+        persistEntitySettings();
+      });
     }
+    taskSettingsStatusModeButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        if (!taskSettingsStatusModeEl) return;
+        var nextMode = String(button.getAttribute("data-status-mode-option") || "single");
+        if (taskSettingsStatusModeEl.value === nextMode) return;
+        taskSettingsStatusModeEl.value = nextMode;
+        syncTaskStatusModeButtons();
+        taskSettingsStatusModeEl.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
     if (taskSettingsAssigneeEl) {
       bindSettingsAssignmentInput();
     }
@@ -13423,6 +14627,12 @@
         if (!data || !data.project) return;
         var project = data.project;
         var projectLabel = project.display_name || project.name || "Project";
+        if (currentEntityType === "project" && String(currentEntityId || "") === String(project.id || "")) {
+          currentEntityData = Object.assign({}, currentEntityData || {}, project);
+          currentEntityLinks = Array.isArray(project.links) ? project.links : [];
+          renderEntitySettings();
+          renderEntityLinkState();
+        }
         if (typeof window.__setProjectNameLocal === "function") {
           window.__setProjectNameLocal(String(project.id), projectLabel);
         }
@@ -13444,6 +14654,12 @@
         }
         if (typeof window.__updateTodoItemProjectMeta === "function") {
           window.__updateTodoItemProjectMeta(String(project.id), projectLabel, project.division_id || "none", divisionColor);
+        }
+        if (typeof window.__updateProjectBoardDatesLocal === "function") {
+          window.__updateProjectBoardDatesLocal(project);
+        }
+        if (typeof isTreeRealtimeView === "function" && isTreeRealtimeView() && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+          window.__refreshTreeProjectSnapshotLocal(project.id, project);
         }
         if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
         if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();
@@ -13702,48 +14918,29 @@
           removeTaskRowsLocal(task.id);
           return;
         }
-        var updated = applyTaskRowUpdate(task);
-        renderTaskAssignments(task.id, task.assignments || []);
-        if (updated) {
-          pulseTask(task.id);
-        }
-        if ((data.action === "created" && !updated) || (data.action === "moved" && !isOwnEvent)) {
-          fetchTaskSnapshot(task.id).then(function (freshTask) {
-            if (!freshTask) return;
-            if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
-              if (window.__upsertTodoItemFromSnapshot(freshTask)) {
-                pulseTask(freshTask.id);
-                return;
-              }
-            }
-            if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
+        fetchTaskSnapshot(task.id).then(function (freshTask) {
+          if (!freshTask) return;
+          if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
+            if (window.__upsertTodoItemFromSnapshot(freshTask)) {
               pulseTask(freshTask.id);
               return;
             }
-            applyTaskRowUpdate(freshTask);
-            renderTaskAssignments(freshTask.id, freshTask.assignments || []);
-            if (typeof window.__ensureTreeTaskVisible === "function") {
-              window.__ensureTreeTaskVisible(freshTask);
+          }
+          if (typeof window.__upsertTaskRowFromSnapshot === "function" && (data.action === "created" || data.action === "moved" || !isOwnEvent)) {
+            if (window.__upsertTaskRowFromSnapshot(freshTask)) {
+              pulseTask(freshTask.id);
+              return;
             }
-          });
-          return;
-        }
-        if (!updated && !isOwnEvent) {
-          fetchTaskSnapshot(task.id).then(function (freshTask) {
-            if (!freshTask) return;
-            if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
-              if (window.__upsertTodoItemFromSnapshot(freshTask)) {
-                pulseTask(freshTask.id);
-                return;
-              }
-            }
-            applyTaskRowUpdate(freshTask);
-            renderTaskAssignments(freshTask.id, freshTask.assignments || []);
-            if (typeof window.__ensureTreeTaskVisible === "function") {
-              window.__ensureTreeTaskVisible(freshTask);
-            }
-          });
-        }
+          }
+          var updated = applyTaskRowUpdate(freshTask);
+          renderTaskAssignments(freshTask.id, freshTask.assignments || []);
+          if (updated) {
+            pulseTask(freshTask.id);
+          }
+          if (typeof window.__ensureTreeTaskVisible === "function") {
+            window.__ensureTreeTaskVisible(freshTask);
+          }
+        });
       });
 
     }
@@ -13904,6 +15101,9 @@
           var projectId = projectButton ? projectButton.getAttribute("data-tree-project-id") : null;
           var board = projectId ? document.querySelector('[data-tree-project-board="' + projectId + '"]') : null;
           if (board) {
+            if (typeof window.__applyProjectBoardMode === "function") {
+              window.__applyProjectBoardMode(board, "tasks");
+            }
             board.hidden = false;
             board.querySelectorAll("[data-tree-group-board]").forEach(function (groupBoard) {
               groupBoard.hidden = String(groupBoard.getAttribute("data-tree-group-board")) !== String(selection.id);

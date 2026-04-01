@@ -1,5 +1,6 @@
 import os
 
+from engineio.payload import Payload
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import Config
@@ -19,6 +20,7 @@ def create_app() -> Flask:
     app.config.from_object(Config)
     os.makedirs(app.instance_path, exist_ok=True)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    Payload.max_decode_packets = max(int(getattr(Payload, "max_decode_packets", 16) or 16), 200)
 
     db.init_app(app)
     migrate.init_app(app, db)

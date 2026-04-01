@@ -79,6 +79,13 @@ def _task_due_mode(task: Task | None) -> str:
     return "none"
 
 
+def _task_start_date(task: Task | None) -> str:
+    if not task:
+        return ""
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    return str((info_payload.get("meta") or {}).get("start_date") or "").strip()
+
+
 def _load_notification_data(raw: str | None) -> dict:
     if not raw:
         return {}
@@ -264,6 +271,8 @@ def _serialize_project_payload(project: Project) -> dict:
         "is_direct": bool(getattr(project, "is_direct", False)),
         "description": project.description,
         "description_format": project.description_format or "markdown",
+        "start_date": project.start_date.isoformat() if getattr(project, "start_date", None) else None,
+        "end_date": project.end_date.isoformat() if getattr(project, "end_date", None) else None,
     }
 
 
@@ -329,7 +338,15 @@ def _task_summary(task: Task | None) -> dict | None:
     if not task:
         return None
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info_payload.get("meta") or {}
     follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
+    raw_status_mode = str((meta.get("status_mode") or "")).strip().lower()
+    status_mode = raw_status_mode if raw_status_mode in {"single", "per_user", "percentage"} else ("per_user" if bool(getattr(task, "per_user_status_enabled", False)) else "single")
+    raw_percentage = str((meta.get("status_percentage") or "")).strip()
+    try:
+        status_percentage = max(0, min(100, int(float(raw_percentage))))
+    except (TypeError, ValueError):
+        status_percentage = 100 if str(task.status or "").strip().lower() in {"complete", "completed", "done", "closed", "pr closed", "pr merged"} else 0
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -338,6 +355,8 @@ def _task_summary(task: Task | None) -> dict | None:
         "link": task.link,
         "links": info_payload.get("links", []),
         "status": task.status,
+        "status_mode": status_mode,
+        "status_percentage": status_percentage,
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
@@ -347,6 +366,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
     }
 

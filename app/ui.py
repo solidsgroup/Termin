@@ -1332,6 +1332,7 @@ def dashboard():
             ]
         project_groups = Group.query.filter_by(project_id=project.id).order_by(Group.position.asc(), Group.id.asc()).all()
         project_tasks_by_group = {group.id: [] for group in project_groups}
+        group_name_by_id = {group.id: group.name for group in project_groups}
         for task in project_tasks:
             if task.group_id and task.group_id in project_tasks_by_group:
                 project_tasks_by_group[task.group_id].append(task)
@@ -1361,6 +1362,38 @@ def dashboard():
                 group.id: load_info_payload(group.info, group.link)
                 for group in project_groups
             },
+            "gantt_items": [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "start_date": str((load_info_payload(task.info, task.link).get("meta") or {}).get("start_date") or ""),
+                    "due_at": task.due_at.isoformat() if task.due_at else None,
+                    "due_mode": str((load_info_payload(task.info, task.link).get("meta") or {}).get("due_mode") or ("date" if task.due_at else "none")),
+                    "status": task.status,
+                    "status_mode": (project_status_map.get(task.id) or {}).get("mode") or "single",
+                    "status_percentage": (project_status_map.get(task.id) or {}).get("percentage_complete") or 0,
+                    "status_meta": project_status_map.get(task.id) or {},
+                    "group_id": group.id,
+                    "group_name": group.name,
+                }
+                for group in project_groups
+                for task in project_tasks_by_group.get(group.id, [])
+            ] + [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "start_date": str((load_info_payload(task.info, task.link).get("meta") or {}).get("start_date") or ""),
+                    "due_at": task.due_at.isoformat() if task.due_at else None,
+                    "due_mode": str((load_info_payload(task.info, task.link).get("meta") or {}).get("due_mode") or ("date" if task.due_at else "none")),
+                    "status": task.status,
+                    "status_mode": (project_status_map.get(task.id) or {}).get("mode") or "single",
+                    "status_percentage": (project_status_map.get(task.id) or {}).get("percentage_complete") or 0,
+                    "status_meta": project_status_map.get(task.id) or {},
+                    "group_id": None,
+                    "group_name": "",
+                }
+                for task in project_ungrouped_tasks
+            ],
             "display_name": _project_display_name_for_user(project, user.id),
         }
 

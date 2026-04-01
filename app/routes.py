@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from html import escape
 import json
 from pathlib import Path
@@ -75,7 +75,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
-from app.task_status import effective_task_status_for_user, set_task_user_status, task_status_meta, task_status_meta_map
+from app.task_status import effective_task_status_for_user, normalize_task_status, set_task_user_status, task_status_meta, task_status_meta_map
 import secrets
 
 from app.models import (
@@ -163,10 +163,14 @@ def _task_changed_field_labels(
     new_due_at,
     old_due_mode: str | None,
     new_due_mode: str | None,
+    old_start_date: str | None,
+    new_start_date: str | None,
     old_info_payload: dict | None,
     new_info_payload: dict | None,
     old_per_user_status_enabled: bool,
     new_per_user_status_enabled: bool,
+    old_status_mode: str | None,
+    new_status_mode: str | None,
     old_assign_group_members: bool,
     new_assign_group_members: bool,
     old_follow_project_members: bool,
@@ -183,6 +187,8 @@ def _task_changed_field_labels(
         labels.append("status")
     if (old_due_mode or "none") != (new_due_mode or "none") or bool(old_due_at) != bool(new_due_at) or (old_due_at and new_due_at and old_due_at != new_due_at):
         labels.append("due date")
+    if (old_start_date or "").strip() != (new_start_date or "").strip():
+        labels.append("start date")
     old_links = list((old_info_payload or {}).get("links") or [])
     new_links = list((new_info_payload or {}).get("links") or [])
     if old_links != new_links:
@@ -191,8 +197,10 @@ def _task_changed_field_labels(
     new_html = str((new_info_payload or {}).get("html") or "")
     if old_html != new_html:
         labels.append("notes")
-    if bool(old_per_user_status_enabled) != bool(new_per_user_status_enabled):
-        labels.append("per-user status")
+    if (old_status_mode or "single") != (new_status_mode or "single"):
+        labels.append("status mode")
+    elif bool(old_per_user_status_enabled) != bool(new_per_user_status_enabled):
+        labels.append("status mode")
     if bool(old_assign_group_members) != bool(new_assign_group_members):
         labels.append("assignment mode")
     if bool(old_follow_project_members) != bool(new_follow_project_members):
@@ -528,6 +536,78 @@ def _normalize_due_mode(value: str | None, *, fallback: str = "date") -> str:
     return mode if mode in TASK_DUE_MODE_OPTIONS else fallback
 
 
+def _task_start_date(task: Task) -> str:
+    info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    return str((info.get("meta") or {}).get("start_date") or "").strip()
+
+
+def _task_status_mode(task: Task) -> str:
+    info = load_info_payload(task.info, task.link)
+    raw = str((info.get("meta") or {}).get("status_mode") or "").strip().lower()
+    if raw in {"single", "per_user", "percentage"}:
+        return raw
+    return "per_user" if bool(task.per_user_status_enabled) else "single"
+
+
+def _set_task_status_mode(task: Task, status_mode_raw) -> tuple[bool, str | None]:
+    value = str(status_mode_raw or "").strip().lower() or "single"
+    if value not in {"single", "per_user", "percentage"}:
+        return False, "Invalid status_mode"
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    if value == "single":
+        meta.pop("status_mode", None)
+        task.per_user_status_enabled = False
+    else:
+        meta["status_mode"] = value
+        task.per_user_status_enabled = True
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    return True, None
+
+
+def _task_status_percentage(task: Task) -> int:
+    info = load_info_payload(task.info, task.link)
+    raw = str((info.get("meta") or {}).get("status_percentage") or "").strip()
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        value = 100 if normalize_task_status(task.status).lower() in {"complete", "completed", "done", "closed", "pr closed", "pr merged"} else 0
+    return max(0, min(100, value))
+
+
+def _set_task_status_percentage(task: Task, percentage_raw) -> tuple[bool, str | None]:
+    try:
+        value = int(float(str(percentage_raw or "0").strip() or "0"))
+    except (TypeError, ValueError):
+        return False, "Invalid status_percentage"
+    value = max(0, min(100, value))
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    meta["status_percentage"] = str(value)
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    task.status = "complete" if value >= 100 else "open"
+    return True, None
+
+
+def _set_task_start_date(task: Task, start_date_raw) -> tuple[bool, str | None]:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    value = str(start_date_raw or "").strip()
+    if not value:
+        meta.pop("start_date", None)
+    else:
+        try:
+            date.fromisoformat(value)
+        except ValueError:
+            return False, "Invalid start_date format"
+        meta["start_date"] = value
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    return True, None
+
+
 def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bool, str | None]:
     info_payload = load_info_payload(task.info, task.link)
     meta = dict(info_payload.get("meta") or {})
@@ -535,9 +615,11 @@ def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bo
     if mode == "none":
         task.due_at = None
         meta.pop("due_mode", None)
+        meta.pop("start_date", None)
     elif mode == "asap":
         task.due_at = None
         meta["due_mode"] = "asap"
+        meta.pop("start_date", None)
     else:
         if due_at_raw == "":
             task.due_at = None
@@ -864,7 +946,10 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
         "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
@@ -1069,6 +1154,7 @@ def create_task():
     group_id = payload.get("group_id")
     due_at = payload.get("due_at")
     due_mode = payload.get("due_mode")
+    start_date = payload.get("start_date")
     assignee_email = payload.get("assignee_email")
 
     if not title or not project_id:
@@ -1104,6 +1190,9 @@ def create_task():
         owner_calendar_opt_in=project.default_owner_calendar_opt_in,
     )
     ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
+    if not ok:
+        return {"error": error}, 400
+    ok, error = _set_task_start_date(task, start_date if _task_due_mode(task) == "date" else "")
     if not ok:
         return {"error": error}, 400
     db.session.add(task)
@@ -1194,6 +1283,8 @@ def update_task(task_id: int):
     old_status = task.status
     old_due_at = task.due_at
     old_due_mode = _task_due_mode(task)
+    old_start_date = _task_start_date(task)
+    old_status_mode = _task_status_mode(task)
     old_info_payload = _info_payload_for(task)
     old_per_user_status_enabled = bool(task.per_user_status_enabled)
     old_assign_group_members = bool(task.assign_group_members)
@@ -1209,6 +1300,9 @@ def update_task(task_id: int):
     status_user_id = payload.get("status_user_id")
     due_at = payload.get("due_at")
     due_mode = payload.get("due_mode")
+    start_date = payload.get("start_date")
+    status_mode = payload.get("status_mode")
+    status_percentage = payload.get("status_percentage")
     info = payload.get("info")
     per_user_status_enabled = payload.get("per_user_status_enabled")
     assign_group_members = payload.get("assign_group_members")
@@ -1227,7 +1321,11 @@ def update_task(task_id: int):
         task.link = (info_payload.get("links") or [None])[0]
     if status is not None:
         task.status = status.strip() or task.status
-    if per_user_status_enabled is not None:
+    if status_mode is not None:
+        ok, error = _set_task_status_mode(task, status_mode)
+        if not ok:
+            return {"error": error}, 400
+    elif per_user_status_enabled is not None:
         task.per_user_status_enabled = bool(per_user_status_enabled)
     if assign_group_members is not None:
         next_group_mode = bool(assign_group_members)
@@ -1247,6 +1345,10 @@ def update_task(task_id: int):
         personal_row = set_task_user_status(task.id, target_user_id, user_status)
         if per_user_status_enabled is False and personal_row.status:
             task.status = personal_row.status
+    if status_percentage is not None:
+        ok, error = _set_task_status_percentage(task, status_percentage)
+        if not ok:
+            return {"error": error}, 400
     if info is not None:
         if isinstance(info, dict):
             info_payload["html"] = info.get("html")
@@ -1258,6 +1360,10 @@ def update_task(task_id: int):
         task.info = normalize_info_payload(info_payload, task.link)
     if due_at is not None or due_mode is not None:
         ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
+        if not ok:
+            return {"error": error}, 400
+    if start_date is not None or due_at is not None or due_mode is not None:
+        ok, error = _set_task_start_date(task, start_date if _task_due_mode(task) == "date" else "")
         if not ok:
             return {"error": error}, 400
     if description is not None:
@@ -1281,6 +1387,8 @@ def update_task(task_id: int):
                     db.session.add(TaskFollower(task_id=task.id, user_id=follower_user_id))
     db.session.commit()
     new_due_mode = _task_due_mode(task)
+    new_start_date = _task_start_date(task)
+    new_status_mode = _task_status_mode(task)
     notification_kind = _task_update_notification_kind(
         old_title=old_title,
         new_title=task.title,
@@ -1320,10 +1428,14 @@ def update_task(task_id: int):
                 new_due_at=task.due_at,
                 old_due_mode=old_due_mode,
                 new_due_mode=new_due_mode,
+                old_start_date=old_start_date,
+                new_start_date=new_start_date,
                 old_info_payload=old_info_payload,
                 new_info_payload=_info_payload_for(task),
                 old_per_user_status_enabled=old_per_user_status_enabled,
                 new_per_user_status_enabled=bool(task.per_user_status_enabled),
+                old_status_mode=old_status_mode,
+                new_status_mode=new_status_mode,
                 old_assign_group_members=old_assign_group_members,
                 new_assign_group_members=bool(task.assign_group_members),
                 old_follow_project_members=old_follow_project_members,
@@ -1347,6 +1459,8 @@ def update_task(task_id: int):
         "title": task.title,
         "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
@@ -1361,6 +1475,7 @@ def update_task(task_id: int):
         "followers": [_serialize_follower_row(row) for row in followers],
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "description": task.description,
         "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
@@ -1379,6 +1494,7 @@ def get_task(task_id: int):
         return {"error": "unauthorized"}, 403
     assignments = Assignment.query.filter_by(task_id=task.id).all()
     followers = TaskFollower.query.filter_by(task_id=task.id).all()
+    info_payload = _info_payload_for(task)
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -1389,18 +1505,23 @@ def get_task(task_id: int):
         "link": task.link,
         "links": _info_payload_for(task).get("links", []),
         "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "follow_project_members": _task_follow_project_members(task),
         "project_follower_members": _serialize_project_follower_members(task) if _task_follow_project_members(task) else [],
         "status_meta": task_status_meta(task, viewer_user_id=user.id),
+        "info": info_payload,
         "description": task.description,
         "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "followers": [_serialize_follower_row(row) for row in followers],
         "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
     }, 200
@@ -1422,6 +1543,8 @@ def get_project(project_id: int):
         "description": project.description,
         "description_format": project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),
+        "start_date": project.start_date.isoformat() if project.start_date else None,
+        "end_date": project.end_date.isoformat() if project.end_date else None,
         "is_direct": bool(project.is_direct),
         "created_at": project.created_at.isoformat() if project.created_at else None,
     }, 200
@@ -2069,6 +2192,8 @@ def update_project(project_id: int):
     links = payload.get("links")
     description = payload.get("description")
     description_format = payload.get("description_format")
+    start_date_raw = payload.get("start_date", "__missing__")
+    end_date_raw = payload.get("end_date", "__missing__")
     if (
         name is None
         and division_id == "__missing__"
@@ -2076,13 +2201,17 @@ def update_project(project_id: int):
         and link is None
         and description is None
         and description_format is None
+        and start_date_raw == "__missing__"
+        and end_date_raw == "__missing__"
     ):
-        return {"error": "name, links, or division_id is required"}, 400
+        return {"error": "name, links, division_id, or dates are required"}, 400
     if name is not None and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if (links is not None or link is not None) and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if (description is not None or description_format is not None) and not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    if (start_date_raw != "__missing__" or end_date_raw != "__missing__") and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if division_id != "__missing__" and not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
@@ -2143,6 +2272,24 @@ def update_project(project_id: int):
         if normalized is None:
             return {"error": "invalid description_format"}, 400
         project.description_format = normalized
+    if start_date_raw != "__missing__":
+        if start_date_raw in (None, ""):
+            project.start_date = None
+        else:
+            try:
+                project.start_date = date.fromisoformat(str(start_date_raw))
+            except ValueError:
+                return {"error": "invalid start_date"}, 400
+    if end_date_raw != "__missing__":
+        if end_date_raw in (None, ""):
+            project.end_date = None
+        else:
+            try:
+                project.end_date = date.fromisoformat(str(end_date_raw))
+            except ValueError:
+                return {"error": "invalid end_date"}, 400
+    if project.start_date and project.end_date and project.end_date < project.start_date:
+        return {"error": "end_date must be on or after start_date"}, 400
     db.session.commit()
     emit_project_updated(project, actor_user_id=user.id)
     if division_id != "__missing__":
@@ -2153,6 +2300,8 @@ def update_project(project_id: int):
         "name": project.name,
         "division_id": current_pref.division_id if current_pref else None,
         "links": _info_payload_for(project).get("links", []),
+        "start_date": project.start_date.isoformat() if project.start_date else None,
+        "end_date": project.end_date.isoformat() if project.end_date else None,
         "description": project.description,
         "description_format": project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),

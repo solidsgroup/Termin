@@ -1,10 +1,12 @@
 from collections import Counter
 
 from app.extensions import db
+from app.info_utils import load_info_payload
 from app.models import Assignment, Task, TaskCollaboratorStatus, TaskUserStatus, User
 
 
 COMPLETE_STATUS_VALUES = {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
+TASK_STATUS_MODES = {"single", "per_user", "percentage"}
 
 
 def normalize_task_status(value: str | None, *, default: str = "open") -> str:
@@ -87,6 +89,31 @@ def aggregate_status_state(values: list[str]) -> str:
     return "open"
 
 
+def task_status_mode(task: Task | None) -> str:
+    if not task:
+        return "single"
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info_payload.get("meta") or {}
+    raw_mode = str(meta.get("status_mode") or "").strip().lower()
+    if raw_mode in TASK_STATUS_MODES:
+        return raw_mode
+    if bool(getattr(task, "per_user_status_enabled", False)):
+        return "per_user"
+    return "single"
+
+
+def task_status_percentage(task: Task | None) -> int:
+    if not task:
+        return 0
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    raw = str((info_payload.get("meta") or {}).get("status_percentage") or "").strip()
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        value = 100 if task_status_state(getattr(task, "status", None)) == "complete" else 0
+    return max(0, min(100, value))
+
+
 def task_status_meta(
     task: Task,
     *,
@@ -163,20 +190,27 @@ def task_status_meta(
         normalized_viewer_email = viewer_email.strip().lower()
         viewer_status = next((row["status"] for row in statuses if (row.get("email") or "").strip().lower() == normalized_viewer_email), None)
         viewer_is_assignee = any((row.get("email") or "").strip().lower() == normalized_viewer_email for row in statuses)
-    enabled = bool(getattr(task, "per_user_status_enabled", False))
+    mode = task_status_mode(task)
+    enabled = mode != "single"
     base_status = normalize_task_status(task.status)
     my_status = viewer_status if (enabled and viewer_is_assignee) else (base_status if not enabled else None)
     assignment_backed_statuses = [assignee["status"] for assignee in assignees]
     summary = summarize_status_values(assignment_backed_statuses) if enabled else []
+    complete_count = sum(1 for value in assignment_backed_statuses if task_status_state(value) == "complete")
+    percentage_complete = int(round((complete_count / len(assignment_backed_statuses)) * 100)) if assignment_backed_statuses else 0
+    if mode == "percentage":
+        percentage_complete = task_status_percentage(task)
     has_viewer_identity = (viewer_user_id is not None) or bool((viewer_email or "").strip())
     return {
+        "mode": mode,
         "enabled": enabled,
         "task_status": base_status,
         "task_status_state": task_status_state(base_status),
-        "aggregate_state": aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status),
+        "aggregate_state": ("complete" if percentage_complete >= 100 else "open") if mode == "percentage" else (aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status)),
         "my_status": normalize_task_status(my_status) if (has_viewer_identity and my_status is not None) else None,
         "my_status_state": task_status_state(my_status) if (has_viewer_identity and my_status is not None) else None,
         "viewer_can_set": (not enabled) or viewer_is_assignee,
+        "percentage_complete": percentage_complete,
         "summary": summary,
         "user_statuses": statuses,
         "assignees": assignees,
