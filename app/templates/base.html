@@ -3987,10 +3987,61 @@
       .project-board-mode-tabs {
         position: relative;
         z-index: 1;
-        display: inline-flex;
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 6px;
         padding: 12px 10px 0;
+      }
+
+      .project-gantt-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0 4px;
+        flex-wrap: wrap;
+      }
+
+      .project-gantt-mark-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .project-gantt-mark-label {
+        white-space: nowrap;
+      }
+
+      .project-gantt-mark-control select {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid color-mix(in srgb, var(--project-color) 18%, var(--border));
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 5px 30px 5px 10px;
+        font: inherit;
+        font-size: 11px;
+        letter-spacing: normal;
+        text-transform: none;
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+          linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+        background-position:
+          calc(100% - 16px) calc(50% - 2px),
+          calc(100% - 10px) calc(50% - 2px);
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+      }
+
+      .project-gantt-mark-control select:focus-visible {
+        outline: none;
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
       }
 
       .project-board-mode-tab {
@@ -4520,6 +4571,10 @@
 
       body[data-theme="light"] .project-board-mode-tab.is-active {
         background: color-mix(in srgb, var(--project-color) 12%, white 88%);
+      }
+
+      body[data-theme="light"] .project-gantt-mark-control select {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
       }
 
       body[data-theme="light"] .project-gantt-shell {

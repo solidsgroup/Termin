@@ -998,6 +998,34 @@
             </div>
             {% if gantt_enabled %}
               <div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden>
+                <div class="project-gantt-toolbar" data-project-gantt-controls="{{ project.id }}">
+                  <label class="project-gantt-mark-control">
+                    <span class="project-gantt-mark-label">Major</span>
+                    <select data-project-gantt-major="{{ project.id }}">
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month">Month</option>
+                      <option value="quarter">Quarter</option>
+                      <option value="year">Year</option>
+                      <option value="project_month">Project Month</option>
+                      <option value="project_quarter">Project Quarter</option>
+                      <option value="project_year">Project Year</option>
+                    </select>
+                  </label>
+                  <label class="project-gantt-mark-control">
+                    <span class="project-gantt-mark-label">Minor</span>
+                    <select data-project-gantt-minor="{{ project.id }}">
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month">Month</option>
+                      <option value="quarter">Quarter</option>
+                      <option value="year">Year</option>
+                      <option value="project_month">Project Month</option>
+                      <option value="project_quarter">Project Quarter</option>
+                      <option value="project_year">Project Year</option>
+                    </select>
+                  </label>
+                </div>
                 <div
                   class="project-gantt"
                   data-project-gantt
@@ -2907,7 +2935,9 @@
             '</div>' +
             '<div class="project-board-mode-tabs" data-project-mode-tabs="' + String(project.id) + '">' +
               '<button class="project-board-mode-tab is-active" type="button" data-project-mode-button="tasks" data-project-id="' + String(project.id) + '" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Tasks</button>' +
-              (ganttEnabled ? '<button class="project-board-mode-tab" type="button" data-project-mode-button="gantt" data-project-id="' + String(project.id) + '" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Gantt</button>' : '') +
+              (ganttEnabled
+                ? '<button class="project-board-mode-tab" type="button" data-project-mode-button="gantt" data-project-id="' + String(project.id) + '" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Gantt</button>'
+                : '') +
             '</div>' +
           '</div>' +
           '<div class="project-board-mode-panel is-active" data-project-mode-panel="tasks">' +
@@ -2930,7 +2960,7 @@
           '</div>' +
           '</div>' +
           (ganttEnabled
-            ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden><div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-items="[]"></div></div>'
+            ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden><div class="project-gantt-toolbar" data-project-gantt-controls="' + String(project.id) + '"><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Major</span><select data-project-gantt-major="' + String(project.id) + '"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + String(project.id) + '"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label></div><div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-items="[]"></div></div>'
             : '');
         return board;
       }
@@ -3238,10 +3268,11 @@
           ganttPanel.setAttribute("data-project-gantt-items", JSON.stringify(projectGanttItemsFromSnapshot(snapshot)));
         }
 	        treeBoard.appendChild(board);
+          if (typeof window.__initializeProjectBoardModes === "function") {
+            window.__initializeProjectBoardModes(board);
+          }
 	        if (typeof window.__applyProjectBoardMode === "function") {
 	          window.__applyProjectBoardMode(board, previousMode);
-	        } else if (typeof window.__initializeProjectBoardModes === "function") {
-	          window.__initializeProjectBoardModes(board);
 	        }
         if (typeof window.__refreshTreeSelectionState === "function") {
           window.__refreshTreeSelectionState();
@@ -3251,6 +3282,7 @@
       }
 
 	      var projectBoardModeStorageKey = "termin:project-board-modes:v1";
+	      var projectGanttMarkStorageKey = "termin:project-gantt-marks:v1";
 
 	      function projectBoardModeStorage() {
 	        try {
@@ -3281,6 +3313,25 @@
 	        } catch (err) {}
 	      }
 
+	      function loadProjectGanttMarkSettings() {
+	        try {
+	          var storage = projectBoardModeStorage();
+	          if (!storage) return {};
+	          var raw = storage.getItem(projectGanttMarkStorageKey);
+	          return raw ? JSON.parse(raw) : {};
+	        } catch (err) {
+	          return {};
+	        }
+	      }
+
+	      function saveProjectGanttMarkSettings(state) {
+	        try {
+	          var storage = projectBoardModeStorage();
+	          if (!storage) return;
+	          storage.setItem(projectGanttMarkStorageKey, JSON.stringify(state || {}));
+	        } catch (err) {}
+	      }
+
       function parseProjectGanttItems(panel) {
         if (!panel) return [];
         try {
@@ -3307,7 +3358,25 @@
           return year + "-" + month + "-" + day;
         }
 
-	      function formatProjectGanttMajorLabel(unit, value) {
+        function defaultProjectGanttMarkUnits(startDate, endDate) {
+          var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+          if (rangeDays > 730) return { major: "year", minor: "month" };
+          if (rangeDays > 61) return { major: "month", minor: "week" };
+          if (rangeDays > 14) return { major: "week", minor: "day" };
+          return { major: "day", minor: "week" };
+        }
+
+        function projectGanttMarkUnits(projectId, startDate, endDate) {
+          var defaults = defaultProjectGanttMarkUnits(startDate, endDate);
+          var state = loadProjectGanttMarkSettings();
+          var row = state[String(projectId || "")] || {};
+          return {
+            major: String(row.major || defaults.major || "month"),
+            minor: String(row.minor || defaults.minor || "week"),
+          };
+        }
+
+	      function formatProjectGanttMajorLabel(unit, value, projectStartDate) {
 	        if (!value || Number.isNaN(value.getTime())) return "";
 	        if (unit === "year") {
 	          return value.getFullYear();
@@ -3315,6 +3384,19 @@
 	        if (unit === "month") {
 	          return value.toLocaleDateString([], { month: "short", year: "numeric" });
 	        }
+	        if (unit === "quarter") {
+	          return "Q" + (Math.floor(value.getMonth() / 3) + 1) + " " + value.getFullYear();
+	        }
+          if (unit === "project_month" && projectStartDate) {
+            return "PM" + (Math.floor((value.getFullYear() - projectStartDate.getFullYear()) * 12 + (value.getMonth() - projectStartDate.getMonth())) + 1);
+          }
+          if (unit === "project_quarter" && projectStartDate) {
+            var monthDelta = Math.floor((value.getFullYear() - projectStartDate.getFullYear()) * 12 + (value.getMonth() - projectStartDate.getMonth()));
+            return "PQ" + (Math.floor(monthDelta / 3) + 1);
+          }
+          if (unit === "project_year" && projectStartDate) {
+            return "PY" + (value.getFullYear() - projectStartDate.getFullYear() + 1);
+          }
 	        if (unit === "week") {
 	          return value.toLocaleDateString([], { month: "short", day: "numeric" });
 	        }
@@ -3332,6 +3414,13 @@
 	          next.setDate(1);
 	          return next;
 	        }
+	        if (unit === "quarter") {
+            next.setMonth(Math.floor(next.getMonth() / 3) * 3, 1);
+            return next;
+          }
+          if (unit === "project_month" || unit === "project_quarter" || unit === "project_year") {
+            return next;
+          }
 	        if (unit === "week") {
 	          var day = next.getDay();
 	          var delta = day === 0 ? -6 : 1 - day;
@@ -3351,6 +3440,22 @@
 	          next.setMonth(next.getMonth() + 1);
 	          return next;
 	        }
+	        if (unit === "quarter") {
+            next.setMonth(next.getMonth() + 3);
+            return next;
+          }
+          if (unit === "project_month") {
+            next.setMonth(next.getMonth() + 1);
+            return next;
+          }
+          if (unit === "project_quarter") {
+            next.setMonth(next.getMonth() + 3);
+            return next;
+          }
+          if (unit === "project_year") {
+            next.setFullYear(next.getFullYear() + 1);
+            return next;
+          }
 	        if (unit === "week") {
 	          next.setDate(next.getDate() + 7);
 	          return next;
@@ -3359,24 +3464,17 @@
 	        return next;
 	      }
 
-	      function buildProjectGanttIntervals(startDate, endDate) {
+	      function buildProjectGanttIntervals(startDate, endDate, units) {
 	        var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
-	        var majorUnit = "day";
-	        var minorUnit = null;
-	        if (rangeDays > 730) {
-	          majorUnit = "year";
-	          minorUnit = "month";
-	        } else if (rangeDays > 61) {
-	          majorUnit = "month";
-	          minorUnit = "week";
-	        } else if (rangeDays > 14) {
-	          majorUnit = "week";
-	          minorUnit = "day";
-	        }
+	        var majorUnit = String(units && units.major || "month");
+	        var minorUnit = String(units && units.minor || "week");
 	        function positionsFor(unit) {
 	          if (!unit) return [];
 	          var positions = [];
-	          var cursor = ganttStartOfUnit(startDate, unit);
+	          var cursor = (unit === "project_month" || unit === "project_quarter" || unit === "project_year")
+              ? new Date(startDate.getTime())
+              : ganttStartOfUnit(startDate, unit);
+            cursor.setHours(0, 0, 0, 0);
 	          while (cursor <= endDate) {
 	            var deltaDays = Math.round((cursor.getTime() - startDate.getTime()) / 86400000);
 	            var percent = rangeDays <= 0 ? 0 : (deltaDays / rangeDays) * 100;
@@ -3391,6 +3489,7 @@
 	          majorUnit: majorUnit,
 	          minorLines: positionsFor(minorUnit),
 	          majorLines: positionsFor(majorUnit),
+            projectStartDate: startDate,
 	        };
 	      }
 
@@ -3419,7 +3518,7 @@
 	            html += '<span class="project-gantt-axis-edge is-end">' + edgeEnd + '</span>';
 	          }
 	          (data.majorLines || []).forEach(function (line) {
-	            var label = formatProjectGanttMajorLabel(data.majorUnit, line.date);
+	            var label = formatProjectGanttMajorLabel(data.majorUnit, line.date, data.projectStartDate || null);
 	            if (!label) return;
 	            html += '<span class="project-gantt-axis-label" style="left:' + Number(line.percent || 0).toFixed(2) + '%;">' + label + '</span>';
 	          });
@@ -3451,7 +3550,9 @@
         }
 	        var items = parseProjectGanttItems(panel)
 	          .filter(function (item) { return !!item; });
-	        var intervals = buildProjectGanttIntervals(startDate, endDate);
+          var projectId = String(panel.getAttribute("data-project-id") || "");
+          var markUnits = projectGanttMarkUnits(projectId, startDate, endDate);
+	        var intervals = buildProjectGanttIntervals(startDate, endDate, markUnits);
         var ganttBoard = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
         var ganttProjectNameNode = ganttBoard ? ganttBoard.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
         var ganttProjectName = ganttProjectNameNode ? String(ganttProjectNameNode.textContent || "").trim() : "";
@@ -3642,6 +3743,9 @@
         if (!gantt) return;
         gantt.setAttribute("data-project-start-date", project.start_date || "");
         gantt.setAttribute("data-project-end-date", project.end_date || "");
+        if (typeof window.__initializeProjectBoardModes === "function") {
+          window.__initializeProjectBoardModes(board);
+        }
         if (typeof window.__renderProjectGantt === "function") {
           window.__renderProjectGantt(gantt);
         } else {
@@ -3660,6 +3764,7 @@
         board.querySelectorAll("[data-project-mode-button]").forEach(function (button) {
           button.classList.toggle("is-active", String(button.getAttribute("data-project-mode-button") || "") === normalizedMode);
         });
+        var projectId = String(board.getAttribute("data-tree-project-board") || "");
         board.querySelectorAll("[data-project-mode-panel]").forEach(function (panel) {
           var isActive = String(panel.getAttribute("data-project-mode-panel") || "") === normalizedMode;
           panel.hidden = !isActive;
@@ -3675,7 +3780,6 @@
             }
           }
         });
-        var projectId = String(board.getAttribute("data-tree-project-board") || "");
         if (projectId) {
           var state = loadProjectBoardModes();
           state[projectId] = normalizedMode;
@@ -3692,6 +3796,31 @@
         return false;
       };
 
+      document.addEventListener("change", function (event) {
+        var select = event.target.closest("[data-project-gantt-major], [data-project-gantt-minor]");
+        if (!select) return;
+        var board = select.closest("[data-tree-project-board]");
+        if (!board) return;
+        var projectId = String(board.getAttribute("data-tree-project-board") || "");
+        if (!projectId) return;
+        var state = loadProjectGanttMarkSettings();
+        var current = Object.assign({}, state[projectId] || {});
+        var majorSelect = board.querySelector('[data-project-gantt-major="' + projectId + '"]');
+        var minorSelect = board.querySelector('[data-project-gantt-minor="' + projectId + '"]');
+        current.major = majorSelect ? String(majorSelect.value || "month") : "month";
+        current.minor = minorSelect ? String(minorSelect.value || "week") : "week";
+        state[projectId] = current;
+        saveProjectGanttMarkSettings(state);
+        var gantt = board.querySelector("[data-project-gantt]");
+        if (gantt) {
+          if (typeof window.__renderProjectGantt === "function") {
+            window.__renderProjectGantt(gantt);
+          } else {
+            renderProjectGantt(gantt);
+          }
+        }
+      });
+
       function initializeProjectBoardModes(root) {
         var boards = [];
         if (root && root.nodeType === 1 && root.matches && root.matches("[data-tree-project-board]")) {
@@ -3704,6 +3833,18 @@
         });
         boards.forEach(function (board) {
           var projectId = String(board.getAttribute("data-tree-project-board") || "");
+          var gantt = board.querySelector("[data-project-gantt]");
+          if (projectId && gantt) {
+            var startRaw = String(gantt.getAttribute("data-project-start-date") || "").trim();
+            var endRaw = String(gantt.getAttribute("data-project-end-date") || "").trim();
+            if (startRaw && endRaw) {
+              var markUnits = projectGanttMarkUnits(projectId, new Date(startRaw + "T00:00:00"), new Date(endRaw + "T00:00:00"));
+              var majorSelect = board.querySelector('[data-project-gantt-major="' + projectId + '"]');
+              var minorSelect = board.querySelector('[data-project-gantt-minor="' + projectId + '"]');
+              if (majorSelect) majorSelect.value = markUnits.major;
+              if (minorSelect) minorSelect.value = markUnits.minor;
+            }
+          }
           applyProjectBoardMode(board, state[projectId] || "tasks");
         });
       }
