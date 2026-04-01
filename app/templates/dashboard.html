@@ -5612,9 +5612,13 @@
     };
 
     const buildGroupBlock = (groupData) => {
-      const projectId = {{ selected_project.id|tojson if selected_project else 'null' }};
-      const projectName = {{ (selected_project_display_name if selected_project else "")|tojson }};
-      const groupColor = {{ (selected_project_color or '#4cc9f0')|tojson }};
+      const projectId = groupData && groupData.project_id ? Number(groupData.project_id) : null;
+      const projectTitleNode = projectId ? document.querySelector('[data-project-title="' + String(projectId) + '"]') : null;
+      const projectContextNode = projectId ? document.querySelector('[data-project-context="' + String(projectId) + '"]') : null;
+      const projectName = projectTitleNode ? projectTitleNode.textContent.trim() : "";
+      const groupColor = projectContextNode
+        ? (getComputedStyle(projectContextNode).getPropertyValue("--project-color").trim() || {{ (selected_project_color or '#4cc9f0')|tojson }})
+        : {{ (selected_project_color or '#4cc9f0')|tojson }};
       const canManageGroup = !{{ 'true' if is_github_project else 'false' }} && canManageTaskBucket(projectId, groupData.id);
       if (!projectId || !groupData || !groupData.id) return null;
 
@@ -6346,6 +6350,8 @@
       }
     };
 
+    window.__bindNewTaskRow = bindNewTaskRow;
+
 	    tasksTables.forEach(bindNewTaskRow);
 	    document.querySelectorAll(".due-input").forEach(bindDueInput);
 	    document.querySelectorAll("input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='file']), textarea").forEach((input) => {
@@ -6356,6 +6362,14 @@
 
 	    document.querySelectorAll("[data-assign-input]").forEach(bindAssignInput);
     document.querySelectorAll("[data-info-edit]").forEach(bindInfoButton);
+
+    document.addEventListener("focusin", (event) => {
+      const titleInput = event.target.closest(".tasks-table .new-row [data-new-task='title']");
+      if (!titleInput) return;
+      const table = titleInput.closest(".tasks-table");
+      if (!table || typeof window.__bindNewTaskRow !== "function") return;
+      window.__bindNewTaskRow(table);
+    });
 
     document.addEventListener("click", (event) => {
       const sendLink = event.target.closest("[data-send-link]");
@@ -13519,32 +13533,39 @@
       socket.on("group_created", function (data) {
         if (!data || !data.group) return;
         var group = data.group;
-        if (typeof window.__insertTreeGroupLocal === "function") {
-          window.__insertTreeGroupLocal(group);
-        }
-        var firstTable = document.querySelector(".tasks-table");
-        var selectedProjectId = firstTable ? firstTable.getAttribute("data-project-id") : null;
-        if (selectedProjectId && String(selectedProjectId) === String(group.project_id)) {
-          if (typeof buildGroupBlock === "function") {
-            var newBlock = buildGroupBlock(group);
-            if (newBlock) {
-              var parent = document.querySelector(".group-block") ? document.querySelector(".group-block").parentNode : null;
-              var inserted = false;
-              if (parent && group.position !== undefined && group.position !== null) {
-                var siblings = Array.from(parent.querySelectorAll(".group-block"));
-                var next = siblings.find(function (block) {
-                  var pos = parseFloat(block.getAttribute("data-group-position") || "0");
-                  return pos > group.position;
-                });
-                if (next) {
-                  parent.insertBefore(newBlock, next);
-                  inserted = true;
+        if (typeof isTreeRealtimeView === "function" && isTreeRealtimeView() && typeof refreshTreeProjectSnapshotLocal === "function") {
+          refreshTreeProjectSnapshotLocal(group.project_id, { id: group.project_id, can_manage: true });
+        } else {
+          if (typeof window.__insertTreeGroupLocal === "function") {
+            window.__insertTreeGroupLocal(group);
+          }
+          var currentProjectTable = document.querySelector('.tasks-table[data-project-id="' + String(group.project_id) + '"]');
+          var selectedProjectId = currentProjectTable ? currentProjectTable.getAttribute("data-project-id") : null;
+          if (selectedProjectId && String(selectedProjectId) === String(group.project_id)) {
+            if (typeof buildGroupBlock === "function") {
+              var newBlock = buildGroupBlock(group);
+              if (newBlock) {
+                var parent = currentProjectTable ? currentProjectTable.closest(".group-block, [data-tree-project-board], .content") : null;
+                parent = parent && parent.classList && parent.classList.contains("group-block") ? parent.parentNode : parent;
+                var inserted = false;
+                if (parent && group.position !== undefined && group.position !== null) {
+                  var siblings = Array.from(parent.querySelectorAll('.group-block[data-group-id]'));
+                  var next = siblings.find(function (block) {
+                    var pos = parseFloat(block.getAttribute("data-group-position") || "0");
+                    return pos > group.position;
+                  });
+                  if (next) {
+                    parent.insertBefore(newBlock, next);
+                    inserted = true;
+                  }
                 }
-              }
-              if (!inserted && parent) {
-                parent.appendChild(newBlock);
-              } else if (!inserted) {
-                document.querySelector(".content") && document.querySelector(".content").appendChild(newBlock);
+                if (!inserted && parent) {
+                  parent.appendChild(newBlock);
+                }
+                var newTable = newBlock.querySelector(".tasks-table");
+                if (newTable && typeof bindNewTaskRow === "function") {
+                  bindNewTaskRow(newTable);
+                }
               }
             }
           }
