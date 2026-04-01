@@ -492,8 +492,14 @@ def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> 
                 inbox_preview = "added you to this project"
             else:
                 summary = "Task updated"
-                preview = "Task updated"
-                inbox_preview = "updated"
+                changed_fields = [str(value).strip() for value in (detail.get("changed_fields") or []) if str(value).strip()]
+                if actor_name and changed_fields:
+                    preview = actor_name + " updated " + task_label + " (" + ", ".join(changed_fields) + ")"
+                elif changed_fields:
+                    preview = "Updated " + ", ".join(changed_fields)
+                else:
+                    preview = "Task updated"
+                inbox_preview = ("updated " + ", ".join(changed_fields)) if changed_fields else "updated"
         items.append({
             "id": row.id,
             "task_id": row.task_id,

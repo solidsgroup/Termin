@@ -566,8 +566,14 @@ def notification_payload_for_user(user_id: int) -> dict:
                 preview = ((actor_name + " added you to " + project_label) if actor_name else ("Added to " + project_label))
                 inbox_preview = "added you to this project"
             else:
-                preview = "Task updated"
-                inbox_preview = "updated"
+                changed_fields = [str(value).strip() for value in (detail.get("changed_fields") or []) if str(value).strip()]
+                if actor_name and changed_fields:
+                    preview = actor_name + " updated " + task_label + " (" + ", ".join(changed_fields) + ")"
+                elif changed_fields:
+                    preview = "Updated " + ", ".join(changed_fields)
+                else:
+                    preview = "Task updated"
+                inbox_preview = ("updated " + ", ".join(changed_fields)) if changed_fields else "updated"
         payload = {
             "id": row.id,
             "task_id": row.task_id,
@@ -615,6 +621,13 @@ def emit_user_notification_preview(user_id: int, payload: dict) -> None:
     socketio.emit("notification_preview", payload, room=user_room(user_id))
     for sid in _user_sids(user_id):
         socketio.emit("notification_preview", payload, room=sid)
+
+
+def emit_notification_preview_dismissed(user_id: int, notification_id: str) -> None:
+    payload = {"notification_id": str(notification_id or "")}
+    socketio.emit("notification_preview_dismissed", payload, room=user_room(user_id))
+    for sid in _user_sids(user_id):
+        socketio.emit("notification_preview_dismissed", payload, room=sid)
 
 
 def emit_discussion_activity_updated(user_id: int, activity_row_id: int) -> None:
@@ -917,9 +930,6 @@ def queue_task_notifications(
             continue
         if kind == "comment":
             if is_user_viewing_task(recipient_id, task.id):
-                continue
-        else:
-            if is_user_viewing_project(recipient_id, task.project_id):
                 continue
         existing = (
             TaskNotification.query.filter_by(user_id=recipient_id, task_id=task.id, kind=kind)

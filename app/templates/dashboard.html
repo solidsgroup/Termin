@@ -8849,6 +8849,7 @@
       unread_comment_task_ids: [],
     };
     var liveRegularNotifications = loadLiveRegularNotifications();
+    var knownServerRegularKeys = new Set();
     var latestInboxItems = mergeInboxFeedItems(
       mergeInboxFeedItems(
         {{ (inbox_items_json if inbox_items_json is defined else []) | tojson }},
@@ -8970,6 +8971,22 @@
       return "";
     }
 
+    function messageThreadKey(item) {
+      if (!item) return "";
+      if ((item.kind || "") !== "comment") {
+        return [
+          String(item.kind || ""),
+          String(item.task_id || ""),
+          String(item.project_id || ""),
+          String(item.group_id || ""),
+        ].join("|");
+      }
+      if (item.task_id) return "comment|task|" + String(item.task_id);
+      if (item.group_id) return "comment|group|" + String(item.group_id);
+      if (item.project_id) return "comment|project|" + String(item.project_id);
+      return "comment|misc|" + String(item.id || "");
+    }
+
     function discussionInboxItemFromCommentPreview(item) {
       var threadId = inboxThreadIdForComment(item);
       if (!threadId) return null;
@@ -9048,6 +9065,19 @@
           String(item.group_id || ""),
         ].join("|");
       }));
+      serverRegularKeys.forEach(function (key) {
+        knownServerRegularKeys.add(String(key));
+      });
+      liveRegularNotifications = liveRegularNotifications.filter(function (item) {
+        var key = [
+          String(item.kind || ""),
+          String(item.task_id || ""),
+          String(item.project_id || ""),
+          String(item.group_id || ""),
+        ].join("|");
+        return !knownServerRegularKeys.has(key) || serverRegularKeys.has(key);
+      });
+      saveLiveRegularNotifications();
       var extraRegular = liveRegularNotifications.filter(function (item) {
         var key = [
           String(item.kind || ""),
@@ -9059,20 +9089,10 @@
       });
       var serverMessages = Array.isArray(base.message_notifications) ? base.message_notifications.slice() : [];
       var serverKeys = new Set(serverMessages.map(function (item) {
-        return [
-          String(item.kind || ""),
-          String(item.task_id || ""),
-          String(item.project_id || ""),
-          String(item.group_id || ""),
-        ].join("|");
+        return messageThreadKey(item);
       }));
       var extraMessages = liveMessageNotifications.filter(function (item) {
-        var key = [
-          String(item.kind || ""),
-          String(item.task_id || ""),
-          String(item.project_id || ""),
-          String(item.group_id || ""),
-        ].join("|");
+        var key = messageThreadKey(item);
         return !serverKeys.has(key);
       });
       var mergedRegular = extraRegular.concat(serverRegular);
@@ -9108,10 +9128,7 @@
     function addLiveMessageNotification(item) {
       if (!item) return;
       liveMessageNotifications = liveMessageNotifications.filter(function (row) {
-        return !(String(row.kind || "") === String(item.kind || "") &&
-          String(row.task_id || "") === String(item.task_id || "") &&
-          String(row.project_id || "") === String(item.project_id || "") &&
-          String(row.group_id || "") === String(item.group_id || ""));
+        return messageThreadKey(row) !== messageThreadKey(item);
       });
       liveMessageNotifications.unshift(item);
       if (liveMessageNotifications.length > 30) {
@@ -9139,6 +9156,15 @@
       });
       saveLiveRegularNotifications();
       applyNotificationState(latestNotificationState || {});
+    }
+
+    function requestSyntheticNotificationDismiss(notificationId) {
+      return fetch('/api/notifications/preview/dismiss', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_id: String(notificationId || '') }),
+      }).catch(function () {});
     }
 
     function togglePinLiveMessageNotification(notificationId) {
@@ -11828,6 +11854,7 @@
     function submitComment() {
       var body = (inputEl.value || "").trim();
       if (!currentEntityId || !body) return;
+      inputEl.value = "";
       var previousCount = getDisplayedCommentCount(currentEntityType, currentEntityId);
       setCommentCount(currentEntityType, currentEntityId, previousCount + 1);
       sendEl.disabled = true;
@@ -11837,16 +11864,19 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body: body }),
       })
-        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: !!res.ok, data: data || {} };
+          });
+        })
         .then(function (data) {
-          if (!data.comment) {
+          if (!data.ok || !data.data || !data.data.comment) {
             setCommentCount(currentEntityType, currentEntityId, previousCount);
             return;
           }
-          upsertComment(data.comment);
-          inputEl.value = "";
+          upsertComment(data.data.comment);
           var domCount = listEl ? listEl.querySelectorAll("[data-comment-id]").length : 0;
-          var serverCount = typeof data.comment_count === "number" ? data.comment_count : 0;
+          var serverCount = typeof data.data.comment_count === "number" ? data.data.comment_count : 0;
           setCommentCount(currentEntityType, currentEntityId, Math.max(previousCount + 1, domCount, serverCount));
           scrollDiscussionToBottom();
         })
@@ -12076,11 +12106,7 @@
           event.preventDefault();
           var dismissId = dismissBtn.getAttribute('data-notification-dismiss');
           if (isSyntheticNotificationId(dismissId)) {
-            if (String(dismissId).indexOf("live-project-shared:") === 0) {
-              dismissLiveRegularNotification(dismissId);
-            } else {
-              dismissLiveMessageNotification(dismissId);
-            }
+            requestSyntheticNotificationDismiss(dismissId);
             return;
           }
           fetch('/api/notifications/' + dismissId + '/dismiss', {
@@ -12122,11 +12148,7 @@
         if (payload) {
           storePendingNotificationFocus(payload);
           if (isSyntheticNotificationId(payload.notification_id)) {
-            if (String(payload.notification_id).indexOf("live-project-shared:") === 0) {
-              dismissLiveRegularNotification(payload.notification_id);
-            } else {
-              dismissLiveMessageNotification(payload.notification_id);
-            }
+            requestSyntheticNotificationDismiss(payload.notification_id);
           } else {
             fetch('/api/notifications/' + payload.notification_id + '/dismiss', {
               method: 'POST',
@@ -12656,6 +12678,16 @@
         addLiveRegularNotification(data);
       });
 
+      socket.on("notification_preview_dismissed", function (data) {
+        var notificationId = data && data.notification_id ? String(data.notification_id) : "";
+        if (!notificationId) return;
+        if (notificationId.indexOf("live-project-shared:") === 0) {
+          dismissLiveRegularNotification(notificationId);
+          return;
+        }
+        dismissLiveMessageNotification(notificationId);
+      });
+
       socket.on("discussion_activity_updated", function (data) {
         if (!data) return;
         latestInboxItems = mergeInboxFeedItems(latestInboxItems, [data]);
@@ -12763,28 +12795,6 @@
       socket.on("project_comment_created", function (data) {
         if (!data || !data.project_id || !data.comment) return;
         setCommentCount("project", data.project_id, Number(data.comment_count || 0));
-        var projectCommentAuthorId = data.comment && data.comment.author ? data.comment.author.id : data.comment.user_id;
-        if (String(projectCommentAuthorId || "") !== String(currentUserId || "")) {
-          var projectNotificationItem = {
-            id: "live-project-comment:" + String(data.project_id) + ":" + String(data.comment.id),
-            project_id: data.project_id,
-            group_id: "",
-            task_id: "",
-            task_title: "Project chat",
-            project_name: notificationEntityName("project", data.project_id) || "Project",
-            kind: "comment",
-            pinned: false,
-            read: false,
-            sender_name: (data.comment.author && (data.comment.author.display_name || data.comment.author.email)) || "New message",
-            preview: data.comment.body || "New comment",
-            comment_preview: data.comment.body || "New comment",
-            unread_count: 1,
-            created_at: data.comment.created_at || new Date().toISOString(),
-          };
-          if (!isActivelyViewingMessageItem(projectNotificationItem)) {
-            addLiveMessageNotification(projectNotificationItem);
-          }
-        }
         if (currentEntityType !== "project" || String(currentEntityId || "") !== String(data.project_id)) return;
         var inserted = upsertComment(data.comment);
         var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {
@@ -12818,29 +12828,6 @@
       socket.on("group_comment_created", function (data) {
         if (!data || !data.group_id || !data.comment) return;
         setCommentCount("group", data.group_id, Number(data.comment_count || 0));
-        var groupCommentAuthorId = data.comment && data.comment.author ? data.comment.author.id : data.comment.user_id;
-        if (String(groupCommentAuthorId || "") !== String(currentUserId || "")) {
-          var groupProjectId = String(data.project_id || "");
-          var groupNotificationItem = {
-            id: "live-group-comment:" + String(data.group_id) + ":" + String(data.comment.id),
-            project_id: groupProjectId,
-            group_id: data.group_id,
-            task_id: "",
-            task_title: notificationEntityName("group", data.group_id) || "Group chat",
-            project_name: groupProjectId ? (notificationEntityName("project", groupProjectId) || "Project") : "",
-            kind: "comment",
-            pinned: false,
-            read: false,
-            sender_name: (data.comment.author && (data.comment.author.display_name || data.comment.author.email)) || "New message",
-            preview: data.comment.body || "New comment",
-            comment_preview: data.comment.body || "New comment",
-            unread_count: 1,
-            created_at: data.comment.created_at || new Date().toISOString(),
-          };
-          if (!isActivelyViewingMessageItem(groupNotificationItem)) {
-            addLiveMessageNotification(groupNotificationItem);
-          }
-        }
         if (currentEntityType !== "group" || String(currentEntityId || "") !== String(data.group_id)) return;
         var inserted = upsertComment(data.comment);
         var comments = Array.prototype.map.call(listEl.querySelectorAll("[data-comment-id]"), function (el) {

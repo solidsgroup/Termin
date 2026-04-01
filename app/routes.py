@@ -40,6 +40,7 @@ from app.realtime import (
     emit_group_comment_updated,
     emit_group_reordered,
     emit_notification_state,
+    emit_notification_preview_dismissed,
     emit_project_created,
     emit_project_deleted,
     emit_project_updated,
@@ -147,6 +148,53 @@ def _task_notification_actor_payload(user) -> dict:
         "actor_name": display_name_for_user(user) or user.email or "Someone",
         "actor_avatar_url": user.avatar_url or "",
     }
+
+
+def _task_changed_field_labels(
+    *,
+    old_title: str | None,
+    new_title: str | None,
+    old_status: str | None,
+    new_status: str | None,
+    old_due_at,
+    new_due_at,
+    old_due_mode: str | None,
+    new_due_mode: str | None,
+    old_info_payload: dict | None,
+    new_info_payload: dict | None,
+    old_per_user_status_enabled: bool,
+    new_per_user_status_enabled: bool,
+    old_assign_group_members: bool,
+    new_assign_group_members: bool,
+    old_description: str | None,
+    new_description: str | None,
+    old_description_format: str | None,
+    new_description_format: str | None,
+) -> list[str]:
+    labels: list[str] = []
+    if (old_title or "").strip() != (new_title or "").strip():
+        labels.append("title")
+    if (old_status or "").strip() != (new_status or "").strip():
+        labels.append("status")
+    if (old_due_mode or "none") != (new_due_mode or "none") or bool(old_due_at) != bool(new_due_at) or (old_due_at and new_due_at and old_due_at != new_due_at):
+        labels.append("due date")
+    old_links = list((old_info_payload or {}).get("links") or [])
+    new_links = list((new_info_payload or {}).get("links") or [])
+    if old_links != new_links:
+        labels.append("links")
+    old_html = str((old_info_payload or {}).get("html") or "")
+    new_html = str((new_info_payload or {}).get("html") or "")
+    if old_html != new_html:
+        labels.append("notes")
+    if bool(old_per_user_status_enabled) != bool(new_per_user_status_enabled):
+        labels.append("per-user status")
+    if bool(old_assign_group_members) != bool(new_assign_group_members):
+        labels.append("assignment mode")
+    if (old_description or "") != (new_description or ""):
+        labels.append("description")
+    if (old_description_format or "") != (new_description_format or ""):
+        labels.append("description format")
+    return labels
 
 
 def _queue_project_shared_notification(member_user, actor_user, project) -> bool:
@@ -449,6 +497,18 @@ def dismiss_notification(notification_id: int):
     notification.pinned = False
     db.session.commit()
     emit_notification_state(user.id)
+    return {"status": "ok"}, 200
+
+
+@api_bp.post("/notifications/preview/dismiss")
+@login_required
+def dismiss_notification_preview():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    notification_id = str(payload.get("notification_id") or "").strip()
+    if not notification_id:
+        return {"error": "notification_id is required"}, 400
+    emit_notification_preview_dismissed(user.id, notification_id)
     return {"status": "ok"}, 200
 
 
@@ -999,6 +1059,11 @@ def update_task(task_id: int):
     old_status = task.status
     old_due_at = task.due_at
     old_due_mode = _task_due_mode(task)
+    old_info_payload = _info_payload_for(task)
+    old_per_user_status_enabled = bool(task.per_user_status_enabled)
+    old_assign_group_members = bool(task.assign_group_members)
+    old_description = task.description
+    old_description_format = task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT
 
     title = payload.get("title")
     link = payload.get("link")
@@ -1016,7 +1081,7 @@ def update_task(task_id: int):
 
     if title is not None:
         task.title = title.strip()
-    info_payload = _info_payload_for(task)
+    info_payload = dict(old_info_payload)
     if links is None and link is not None:
         stripped_link = link.strip()
         links = [stripped_link] if stripped_link else []
@@ -1094,6 +1159,29 @@ def update_task(task_id: int):
         detail_payload.update({
             "old_status": old_status or "",
             "new_status": user_status or task.status or "",
+        })
+    elif notification_kind == "task_update":
+        detail_payload.update({
+            "changed_fields": _task_changed_field_labels(
+                old_title=old_title,
+                new_title=task.title,
+                old_status=old_status,
+                new_status=task.status,
+                old_due_at=old_due_at,
+                new_due_at=task.due_at,
+                old_due_mode=old_due_mode,
+                new_due_mode=new_due_mode,
+                old_info_payload=old_info_payload,
+                new_info_payload=_info_payload_for(task),
+                old_per_user_status_enabled=old_per_user_status_enabled,
+                new_per_user_status_enabled=bool(task.per_user_status_enabled),
+                old_assign_group_members=old_assign_group_members,
+                new_assign_group_members=bool(task.assign_group_members),
+                old_description=old_description,
+                new_description=task.description,
+                old_description_format=old_description_format,
+                new_description_format=task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
+            ),
         })
     queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
     db.session.commit()
