@@ -3566,25 +3566,12 @@
 	          } else {
 	            trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
 	          }
-	          var meta = [];
-	          if (item.start_date && hasSpan) {
-	            meta.push(formatProjectGanttDate(item.start_date) + " -> " + formatProjectGanttDate(dueDate.toISOString().slice(0, 10)));
-	          } else {
-            if (item.due_at) {
-	              meta.push(formatProjectGanttDate(item.due_at));
-            } else if (dueMode === "asap") {
-              meta.push("ASAP");
-            } else {
-              meta.push("No date");
-            }
-	          }
 		          return (
 		            '<div class="project-gantt-row">' +
 		              '<div class="project-gantt-task">' +
 		                '<div class="project-gantt-task-title-row">' +
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
 		                '</div>' +
-		                '<div class="project-gantt-task-meta">' + escapeProjectGanttText(meta.join(" · ")) + '</div>' +
 		              '</div>' +
 		              '<div class="project-gantt-track">' +
 		                trackHtml +
