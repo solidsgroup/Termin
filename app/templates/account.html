@@ -448,9 +448,13 @@
           background: color-mix(in srgb, var(--panel-alt) 76%, transparent);
         }
 
-        .admin-layout,
+        .admin-layout {
+          overflow: hidden;
+        }
+
         .admin-content {
-          overflow: visible;
+          overflow-x: visible;
+          overflow-y: auto;
         }
 
         header,
