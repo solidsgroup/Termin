@@ -11,7 +11,7 @@ from werkzeug.utils import secure_filename
 
 ALLOWED_TAGS = {"a", "b", "blockquote", "br", "code", "em", "h1", "h2", "h3", "h4", "h5", "h6", "i", "li", "ol", "p", "pre", "strong", "u", "ul"}
 ALLOWED_ATTRS = {"a": {"href", "target", "rel"}}
-ALLOWED_META_KEYS = {"due_mode"}
+ALLOWED_META_KEYS = {"due_mode", "follow_project_members"}
 
 
 class _InfoSanitizer(HTMLParser):

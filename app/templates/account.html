@@ -10,6 +10,10 @@
         <i class="fa-solid fa-id-card" aria-hidden="true"></i>
         <span>Accounts</span>
       </a>
+      <a class="admin-nav-link{% if account_section == 'notifications' %} active{% endif %}" href="{{ url_for('ui.account', section='notifications') }}">
+        <i class="fa-regular fa-bell" aria-hidden="true"></i>
+        <span>Notifications</span>
+      </a>
       <a class="admin-nav-link{% if account_section == 'experience' %} active{% endif %}" href="{{ url_for('ui.account', section='experience') }}">
         <i class="fa-solid fa-palette" aria-hidden="true"></i>
         <span>Experience</span>
@@ -198,6 +202,435 @@
           </div>
         </form>
       </div>
+    {% elif account_section == "notifications" %}
+      <style>
+        .notification-matrix {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 12px;
+        }
+
+        .notification-matrix th,
+        .notification-matrix td {
+          padding: 12px 14px;
+          border-bottom: 1px solid var(--grid);
+          vertical-align: middle;
+        }
+
+        .notification-matrix th {
+          text-align: left;
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--muted);
+        }
+
+        .notification-matrix th:not(:first-child),
+        .notification-matrix td:not(:first-child) {
+          text-align: center;
+          width: 120px;
+        }
+
+        .notification-section-head {
+          width: calc(100% - 28px);
+          margin-left: 14px;
+          margin-right: 14px;
+          margin-bottom: -6px;
+        }
+
+        .notification-section-head th:first-child {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+
+        .notification-section-head th:not(:first-child) {
+          width: 120px;
+          padding-left: 0;
+          padding-right: 0;
+        }
+
+        .notification-matrix tr:last-child td {
+          border-bottom: 0;
+        }
+
+        .notification-matrix-label {
+          font-weight: 600;
+          color: var(--ink);
+        }
+
+        .notification-matrix-toggle {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .notification-matrix-toggle input {
+          width: 18px;
+          height: 18px;
+          margin: 0;
+        }
+
+        .notification-matrix-note {
+          margin-top: 14px;
+        }
+
+        .notification-section-stack {
+          display: grid;
+          gap: 14px;
+        }
+
+        .notification-fold {
+          border: 1px solid var(--grid);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--panel-alt) 74%, transparent);
+          overflow: hidden;
+        }
+
+        .notification-fold > summary {
+          list-style: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 16px;
+          font-weight: 700;
+          color: var(--ink);
+        }
+
+        .notification-fold > summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .notification-fold-caret {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 14px;
+          flex: 0 0 14px;
+          color: var(--muted);
+          transition: transform 140ms ease;
+        }
+
+        .notification-fold[open] .notification-fold-caret {
+          transform: rotate(180deg);
+        }
+
+        .notification-fold-summary-copy {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+          flex: 1 1 auto;
+        }
+
+        .notification-fold-summary-label {
+          min-width: 0;
+        }
+
+        .notification-fold-toggle-group {
+          margin-left: auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 0;
+          flex: 0 0 auto;
+        }
+
+        .notification-fold-toggle {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 120px;
+        }
+
+        .notification-fold-toggle .todo-tree-checkbox {
+          position: relative;
+          width: 18px;
+          height: 18px;
+          margin: 0;
+          appearance: none;
+          -webkit-appearance: none;
+          border-radius: 5px;
+          border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+          background: color-mix(in srgb, var(--panel) 86%, transparent);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, rgba(255, 255, 255, 0.04) 70%, transparent);
+          cursor: pointer;
+        }
+
+        .notification-fold-toggle .todo-tree-checkbox:checked {
+          background: var(--accent);
+          border-color: color-mix(in srgb, var(--accent) 82%, white 8%);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 60%, transparent);
+        }
+
+        .notification-fold-toggle .todo-tree-checkbox:checked::after {
+          content: "";
+          position: absolute;
+          left: 5px;
+          top: 1px;
+          width: 5px;
+          height: 10px;
+          border: solid white;
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
+        }
+
+        .notification-fold-toggle .todo-tree-checkbox:indeterminate {
+          background: color-mix(in srgb, var(--accent) 72%, transparent);
+          border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 40%, transparent);
+        }
+
+        .notification-fold-toggle .todo-tree-checkbox:indeterminate::after {
+          content: "";
+          position: absolute;
+          left: 3px;
+          right: 3px;
+          top: 7px;
+          height: 2px;
+          border-radius: 999px;
+          background: white;
+        }
+
+        .notification-fold-body {
+          padding: 0 14px 10px;
+        }
+
+        .notification-settings-section {
+          display: grid;
+          gap: 12px;
+          margin-bottom: 22px;
+        }
+
+        .notification-settings-heading {
+          margin: 0;
+          font-size: 14px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+
+        .notification-settings-row {
+          display: grid;
+          grid-template-columns: 180px minmax(0, 1fr);
+          align-items: center;
+          gap: 12px;
+        }
+
+        .notification-settings-label {
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--muted);
+        }
+
+        .notification-settings-value {
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .notification-settings-input {
+          width: 100%;
+          max-width: 320px;
+          min-width: 0;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+          color: var(--ink);
+          font: inherit;
+          padding: 10px 12px;
+          box-sizing: border-box;
+        }
+
+        .notification-settings-input[readonly] {
+          color: var(--muted);
+          background: color-mix(in srgb, var(--panel-alt) 76%, transparent);
+        }
+
+        .admin-layout,
+        .admin-content {
+          overflow: visible;
+        }
+
+        header,
+        .header-actions,
+        .notifications-shell,
+        .account-shell,
+        .notifications-menu,
+        .account-menu {
+          z-index: 5000;
+        }
+
+      </style>
+      <div class="panel">
+        <h2>Notifications</h2>
+        {% if merge_message %}
+          <p class="footer-note" style="color: var(--success); margin-top: 10px;">{{ merge_message }}</p>
+        {% endif %}
+        {% if error %}
+          <p class="footer-note" style="color: var(--danger); margin-top: 10px;">{{ error }}</p>
+        {% endif %}
+      </div>
+      <div class="panel">
+        <form method="post" action="{{ url_for('ui.update_account_notifications') }}">
+          <div class="notification-settings-section">
+            <h3 class="notification-settings-heading">Email settings</h3>
+            <label class="notification-settings-row">
+              <span class="notification-settings-label">Email address</span>
+              <span class="notification-settings-value">
+                <input class="notification-settings-input" type="text" value="{{ user.email or '' }}" readonly />
+                <button type="submit" formaction="{{ url_for('ui.send_account_notification_test_email') }}" formmethod="post" class="btn secondary">Test email</button>
+              </span>
+            </label>
+            <label class="notification-settings-row">
+              <span class="notification-settings-label">Maximum email frequency</span>
+              <span class="notification-settings-value">
+                <select name="notification_email_frequency_seconds" class="notification-settings-input">
+                  {% for option in email_frequency_options %}
+                    <option value="{{ option.seconds }}" {% if notification_email_frequency_seconds == option.seconds %}selected{% endif %}>{{ option.label }}</option>
+                  {% endfor %}
+                </select>
+              </span>
+            </label>
+          </div>
+          <h3 class="notification-settings-heading" style="margin-bottom: 12px;">Customize notifications</h3>
+          <div class="notification-section-stack">
+            <table class="notification-matrix notification-section-head" style="margin-top: 0;">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Push</th>
+                  <th>Email</th>
+                </tr>
+              </thead>
+            </table>
+            <div class="notification-fold" open>
+              <div class="notification-fold-body" style="padding-top: 2px;">
+                <table class="notification-matrix" style="margin-top: 0;">
+                  <tbody>
+                    {% for event in general_notification_definitions %}
+                      {% set pref = notification_preferences.get(event.key, {}).get('default', {}) %}
+                      <tr>
+                        <td><div class="notification-matrix-label">{{ event.label }}</div></td>
+                        <td>
+                          <label class="notification-matrix-toggle" aria-label="{{ event.label }} push">
+                            <input type="hidden" name="push__{{ event.key }}" value="0" />
+                            <input type="checkbox" name="push__{{ event.key }}" value="1" {% if pref.get('push_enabled', True) %}checked{% endif %} />
+                          </label>
+                        </td>
+                        <td>
+                          <label class="notification-matrix-toggle" aria-label="{{ event.label }} email">
+                            <input type="hidden" name="email__{{ event.key }}" value="0" />
+                            <input type="checkbox" name="email__{{ event.key }}" value="1" {% if pref.get('email_enabled', False) %}checked{% endif %} />
+                          </label>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {% for scope in task_notification_scopes %}
+              <details class="notification-fold" {% if loop.first %}open{% endif %}>
+                <summary>
+                  <span class="notification-fold-summary-copy">
+                    <span class="notification-fold-caret">▾</span>
+                    <span class="notification-fold-summary-label">{{ scope.label }}</span>
+                  </span>
+                  <span class="notification-fold-toggle-group">
+                    <label class="notification-fold-toggle" aria-label="{{ scope.label }} all push notifications">
+                      <input type="checkbox" class="todo-tree-checkbox" data-notification-scope-master="push:{{ scope.key }}" />
+                    </label>
+                    <label class="notification-fold-toggle" aria-label="{{ scope.label }} all email notifications">
+                      <input type="checkbox" class="todo-tree-checkbox" data-notification-scope-master="email:{{ scope.key }}" />
+                    </label>
+                  </span>
+                </summary>
+                <div class="notification-fold-body">
+                  <table class="notification-matrix" style="margin-top: 0;">
+                    <tbody>
+                      {% for event in task_notification_definitions %}
+                        {% set pref = notification_preferences.get(event.key, {}).get(scope.key, {}) %}
+                        <tr>
+                          <td><div class="notification-matrix-label">{{ event.label }}</div></td>
+                          <td>
+                            <label class="notification-matrix-toggle" aria-label="{{ event.label }} push for {{ scope.label }}">
+                              <input type="hidden" name="push__{{ event.key }}__{{ scope.key }}" value="0" />
+                              <input type="checkbox" name="push__{{ event.key }}__{{ scope.key }}" value="1" data-notification-scope-item="push:{{ scope.key }}" {% if pref.get('push_enabled', True if scope.key == 'all' else False) %}checked{% endif %} />
+                            </label>
+                          </td>
+                          <td>
+                            <label class="notification-matrix-toggle" aria-label="{{ event.label }} email for {{ scope.label }}">
+                              <input type="hidden" name="email__{{ event.key }}__{{ scope.key }}" value="0" />
+                              <input type="checkbox" name="email__{{ event.key }}__{{ scope.key }}" value="1" data-notification-scope-item="email:{{ scope.key }}" {% if pref.get('email_enabled', False) %}checked{% endif %} />
+                            </label>
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            {% endfor %}
+          </div>
+        </form>
+      </div>
+      <script>
+        (function () {
+          const form = document.querySelector('form[action="{{ url_for("ui.update_account_notifications") }}"]');
+          const masters = Array.from(document.querySelectorAll("[data-notification-scope-master]"));
+          if (!masters.length || !form) return;
+
+          function scopeItems(scopeKey) {
+            return Array.from(document.querySelectorAll('[data-notification-scope-item="' + scopeKey + '"]'));
+          }
+
+          function syncMaster(scopeKey) {
+            const master = document.querySelector('[data-notification-scope-master="' + scopeKey + '"]');
+            if (!master) return;
+            const items = scopeItems(scopeKey);
+            const checkedCount = items.filter((item) => item.checked).length;
+            master.indeterminate = checkedCount > 0 && checkedCount < items.length;
+            master.checked = items.length > 0 && checkedCount === items.length;
+          }
+
+          masters.forEach((master) => {
+            const scopeKey = master.getAttribute("data-notification-scope-master");
+            syncMaster(scopeKey);
+            master.addEventListener("click", function (event) {
+              event.stopPropagation();
+            });
+            master.addEventListener("change", function () {
+              const items = scopeItems(scopeKey);
+              items.forEach((item) => {
+                item.checked = master.checked;
+              });
+              master.indeterminate = false;
+              form.requestSubmit();
+            });
+            scopeItems(scopeKey).forEach((item) => {
+              item.addEventListener("change", function () {
+                syncMaster(scopeKey);
+                form.requestSubmit();
+              });
+            });
+          });
+
+          document.querySelectorAll('.notification-matrix input[type="checkbox"]').forEach((input) => {
+            if (input.hasAttribute("data-notification-scope-master") || input.hasAttribute("data-notification-scope-item")) return;
+            input.addEventListener("change", function () {
+              form.requestSubmit();
+            });
+          });
+          const frequencySelect = form.querySelector('select[name="notification_email_frequency_seconds"]');
+          if (frequencySelect) {
+            frequencySelect.addEventListener("change", function () {
+              form.requestSubmit();
+            });
+          }
+        })();
+      </script>
     {% elif account_section == "experience" %}
       <style>
         .theme-toggle {

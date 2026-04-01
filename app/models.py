@@ -10,6 +10,8 @@ class User(db.Model):
     avatar_url = db.Column(db.String(1024))
     password_hash = db.Column(db.String(255))
     theme_mode = db.Column(db.String(16), nullable=False, default="dark")
+    notification_email_frequency_seconds = db.Column(db.Integer, nullable=False, default=0)
+    notification_email_last_sent_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -21,6 +23,22 @@ class UserEmail(db.Model):
     avatar_url = db.Column(db.String(1024))
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class UserNotificationPreference(db.Model):
+    __tablename__ = "user_notification_preferences"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    event_key = db.Column(db.String(64), nullable=False)
+    scope_key = db.Column(db.String(32), nullable=False, default="default")
+    push_enabled = db.Column(db.Boolean, default=True, nullable=False)
+    email_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "event_key", "scope_key", name="uq_user_notification_preferences_user_event_scope"),
+    )
 
 
 class CalendarFeed(db.Model):
@@ -226,6 +244,18 @@ class Assignment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class TaskFollower(db.Model):
+    __tablename__ = "task_followers"
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("task_id", "user_id", name="uq_task_followers_task_user"),
+    )
+
+
 class Invite(db.Model):
     __tablename__ = "invites"
     id = db.Column(db.Integer, primary_key=True)
@@ -296,6 +326,7 @@ class TaskNotification(db.Model):
     notification_data = db.Column(db.Text)
     pinned = db.Column(db.Boolean, nullable=False, default=False)
     read_at = db.Column(db.DateTime)
+    emailed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 

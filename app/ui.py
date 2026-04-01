@@ -31,7 +31,22 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
+from app.notification_preferences import (
+    GENERAL_NOTIFICATION_DEFINITIONS,
+    NOTIFICATION_EVENT_DEFINITIONS,
+    TASK_NOTIFICATION_DEFINITIONS,
+    TASK_NOTIFICATION_SCOPES,
+    user_notification_channel_enabled,
+    user_notification_preference_map,
+)
+from app.notification_emailer import (
+    EMAIL_FREQUENCY_OPTIONS,
+    build_test_notification_email_items,
+    normalize_notification_email_frequency,
+    send_notification_digest_email,
+)
 from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
+from app.models import UserNotificationPreference
 from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
     emit_assignment_updated,
@@ -491,6 +506,11 @@ def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> 
                 project_label = str(detail.get("project_name") or (project.name if project else "") or "Project").strip()
                 preview = ((actor_name + " added you to " + project_label) if actor_name else ("Added to " + project_label))
                 inbox_preview = "added you to this project"
+            elif row.kind == "project_removed":
+                summary = "Removed from project"
+                project_label = str(detail.get("project_name") or (project.name if project else "") or "Project").strip()
+                preview = ((actor_name + " removed you from " + project_label) if actor_name else ("Removed from " + project_label))
+                inbox_preview = "removed you from this project"
             else:
                 summary = "Task updated"
                 changed_fields = [str(value).strip() for value in (detail.get("changed_fields") or []) if str(value).strip()]
@@ -540,6 +560,8 @@ def _emit_collaborator_comment_previews(task: Task, collaborator: CollaboratorPr
     actor_name = collaborator.display_name or collaborator.email or "New message"
     for recipient_id in sorted(task_discussion_user_ids(task)):
         if is_user_viewing_discussion(recipient_id, "task", task.id):
+            continue
+        if not user_notification_channel_enabled(recipient_id, "task_message", "push", task=task):
             continue
         emit_user_notification_preview(
             recipient_id,
@@ -723,6 +745,17 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
     ).order_by(EmailVerification.created_at.desc()).all()
     github_identity = github_identity_for_user(user.id)
     github_sync_state = github_sync_state_for_user(user.id)
+    notification_preferences = user_notification_preference_map(user.id)
+    notification_rows = (
+        TaskNotification.query.filter_by(user_id=user.id)
+        .filter(or_(TaskNotification.read_at.is_(None), TaskNotification.pinned.is_(True)))
+        .order_by(TaskNotification.pinned.desc(), TaskNotification.created_at.desc(), TaskNotification.id.desc())
+        .limit(24)
+        .all()
+    )
+    notification_items = _build_notification_items(notification_rows, user_id=user.id)
+    task_notifications = [item for item in notification_items if item["kind"] != "comment"]
+    message_notifications = [item for item in notification_items if item["kind"] == "comment"]
     return render_template(
         "account.html",
         user=user,
@@ -734,6 +767,15 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         title="Settings",
         account_section=section,
         default_display_name=default_display_name,
+        notification_event_definitions=NOTIFICATION_EVENT_DEFINITIONS,
+        general_notification_definitions=GENERAL_NOTIFICATION_DEFINITIONS,
+        task_notification_definitions=TASK_NOTIFICATION_DEFINITIONS,
+        task_notification_scopes=TASK_NOTIFICATION_SCOPES,
+        notification_preferences=notification_preferences,
+        email_frequency_options=EMAIL_FREQUENCY_OPTIONS,
+        notification_email_frequency_seconds=normalize_notification_email_frequency(user.notification_email_frequency_seconds),
+        task_notifications=task_notifications,
+        message_notifications=message_notifications,
         error=error,
         merge_message=message,
     )
@@ -1802,9 +1844,15 @@ def dev_mailbox():
 def account():
     user = current_user()
     section = (request.args.get("section") or "emails").strip().lower()
-    if section not in {"emails", "experience"}:
+    if section not in {"emails", "experience", "notifications"}:
         section = "emails"
     return _render_account_page(user, section=section)
+
+
+@ui_bp.get("/account/notifications")
+@login_required
+def account_notifications():
+    return _render_account_page(current_user(), section="notifications")
 
 
 @ui_bp.post("/account/experience")
@@ -1831,6 +1879,87 @@ def update_account_display_name():
     else:
         message = "Display name cleared. Default name will be used."
     return _render_account_page(user, section="emails", message=message)
+
+
+@ui_bp.post("/account/notifications")
+@login_required
+def update_account_notifications():
+    user = current_user()
+    user.notification_email_frequency_seconds = normalize_notification_email_frequency(
+        request.form.get("notification_email_frequency_seconds")
+    )
+    existing = {
+        (row.event_key, row.scope_key or "default"): row
+        for row in UserNotificationPreference.query.filter_by(user_id=user.id).all()
+    }
+    for definition in GENERAL_NOTIFICATION_DEFINITIONS:
+        key = definition["key"]
+        push_enabled = "1" in request.form.getlist(f"push__{key}")
+        email_enabled = "1" in request.form.getlist(f"email__{key}")
+        row = existing.get((key, "default"))
+        if row is None:
+            row = UserNotificationPreference(
+                user_id=user.id,
+                event_key=key,
+                scope_key="default",
+                push_enabled=push_enabled,
+                email_enabled=email_enabled,
+            )
+            db.session.add(row)
+        else:
+            row.push_enabled = push_enabled
+            row.email_enabled = email_enabled
+        row.updated_at = datetime.utcnow()
+    for definition in TASK_NOTIFICATION_DEFINITIONS:
+        key = definition["key"]
+        for scope in TASK_NOTIFICATION_SCOPES:
+            scope_key = scope["key"]
+            push_enabled = "1" in request.form.getlist(f"push__{key}__{scope_key}")
+            email_enabled = "1" in request.form.getlist(f"email__{key}__{scope_key}")
+            row = existing.get((key, scope_key))
+            if row is None:
+                row = UserNotificationPreference(
+                    user_id=user.id,
+                    event_key=key,
+                    scope_key=scope_key,
+                    push_enabled=push_enabled,
+                    email_enabled=email_enabled,
+                )
+                db.session.add(row)
+            else:
+                row.push_enabled = push_enabled
+                row.email_enabled = email_enabled
+            row.updated_at = datetime.utcnow()
+    db.session.commit()
+    return _render_account_page(
+        user,
+        section="notifications",
+        message="Notification preferences updated.",
+    )
+
+
+@ui_bp.post("/account/notifications/test-email")
+@login_required
+def send_account_notification_test_email():
+    user = current_user()
+    preference_map = user_notification_preference_map(user.id)
+    items = build_test_notification_email_items(user, preference_map)
+    if not user.email:
+        return _render_account_page(user, section="notifications", error="No primary email is available for test delivery.")
+    if not items:
+        return _render_account_page(user, section="notifications", error="Enable at least one email notification type before sending a test email.")
+    try:
+        send_notification_digest_email(
+            user.email,
+            recipient_name=display_name_for_user(user) or user.email,
+            notifications=items,
+        )
+    except MailDeliveryError as exc:
+        return _render_account_page(user, section="notifications", error=str(exc))
+    except Exception:
+        current_app.logger.exception("notification test email failed", extra={"user_id": user.id})
+        return _render_account_page(user, section="notifications", error="Unable to send the test email.")
+    return _render_account_page(user, section="notifications", message="Test email sent.")
 
 
 @ui_bp.get("/admin")

@@ -7833,6 +7833,162 @@
             }
           });
         });
+
+        {% if current_view is not defined and task_notifications is defined %}
+        const headerNotificationState = {
+          regular_notifications: {{ (task_notifications or []) | tojson }},
+          message_notifications: {{ (message_notifications or []) | tojson }},
+        };
+        const liveHeaderRegularNotifications = [];
+        const liveHeaderMessageNotifications = [];
+
+        function setHeaderNotificationCount(kind, count) {
+          const shell = document.querySelector('[data-notification-kind="' + kind + '"]');
+          const trigger = shell ? shell.querySelector(".notifications-trigger") : null;
+          if (!trigger) return;
+          let badge = trigger.querySelector(".notifications-count");
+          if (!count) {
+            if (badge) badge.remove();
+            return;
+          }
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "notifications-count";
+            trigger.appendChild(badge);
+          }
+          badge.textContent = String(count);
+        }
+
+        function headerNotificationHref(item) {
+          const projectId = item && item.project_id ? String(item.project_id) : "";
+          return projectId
+            ? "/?project_id=" + encodeURIComponent(projectId) + "&view=tree&show_completed=1"
+            : "/?view=tree&show_completed=1";
+        }
+
+        function headerNotificationKey(item) {
+          return [
+            String(item && item.kind || ""),
+            String(item && item.task_id || ""),
+            String(item && item.project_id || ""),
+            String(item && item.group_id || ""),
+          ].join("|");
+        }
+
+        function headerMessageThreadKey(item) {
+          if (!item) return "";
+          if (item.task_id) return "comment|task|" + String(item.task_id);
+          if (item.group_id) return "comment|group|" + String(item.group_id);
+          if (item.project_id) return "comment|project|" + String(item.project_id);
+          return "comment|misc|" + String(item.id || "");
+        }
+
+        function renderHeaderNotificationMenu(kind, items) {
+          const shell = document.querySelector('[data-notification-kind="' + kind + '"]');
+          const menu = shell ? shell.querySelector(".notifications-menu") : null;
+          if (!menu) return;
+          if (!items || !items.length) {
+            menu.innerHTML = kind === "message"
+              ? '<div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread messages.</div>'
+              : '<div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread notifications.</div>';
+            return;
+          }
+          menu.innerHTML = items.map(function (item) {
+            const preview = item.preview || item.comment_preview || "New activity";
+            const isMessage = (item.kind || kind) === "comment" || kind === "message";
+            const title = isMessage ? (item.sender_name || "New message") : (item.task_title || "Task");
+            const copy = isMessage
+              ? (Number(item.unread_count || 0) > 1 ? escapeHtml(String(item.unread_count) + " new messages") + " · " : "") +
+                escapeHtml(item.task_title || "Task") +
+                (item.project_name ? " · " + escapeHtml(item.project_name) : "") +
+                (preview ? " · " + escapeHtml(preview) : "")
+              : (item.project_name ? escapeHtml(item.project_name) + " · " : "") + escapeHtml(preview);
+            return (
+              '<div class="notifications-item' + (item.pinned ? ' is-pinned' : '') + '" data-notification-id="' + item.id + '">' +
+                '<button class="notifications-open" type="button" data-notification-open=\'' + escapeHtml(JSON.stringify({
+                  notification_id: item.id,
+                  task_id: item.task_id,
+                  project_id: item.project_id || "",
+                  group_id: item.group_id || "",
+                  kind: item.kind || kind,
+                })) + '\' data-notification-href="' + escapeHtml(headerNotificationHref(item)) + '">' +
+                  '<div class="notifications-title">' + escapeHtml(title) + '</div>' +
+                  '<div class="notifications-copy">' + copy + '</div>' +
+                '</button>' +
+              '</div>'
+            );
+          }).join("");
+        }
+
+        function applyHeaderNotificationState(data) {
+          if (!data) return;
+          if (Array.isArray(data.regular_notifications)) {
+            headerNotificationState.regular_notifications = data.regular_notifications.slice();
+          }
+          if (Array.isArray(data.message_notifications)) {
+            headerNotificationState.message_notifications = data.message_notifications.slice();
+          }
+          const regularServerKeys = new Set((headerNotificationState.regular_notifications || []).map(headerNotificationKey));
+          const messageServerKeys = new Set((headerNotificationState.message_notifications || []).map(headerMessageThreadKey));
+          const mergedRegular = liveHeaderRegularNotifications.filter((item) => !regularServerKeys.has(headerNotificationKey(item))).concat(headerNotificationState.regular_notifications || []);
+          const mergedMessages = liveHeaderMessageNotifications.filter((item) => !messageServerKeys.has(headerMessageThreadKey(item))).concat(headerNotificationState.message_notifications || []);
+          setHeaderNotificationCount("regular", mergedRegular.length);
+          setHeaderNotificationCount("message", mergedMessages.length);
+          renderHeaderNotificationMenu("regular", mergedRegular);
+          renderHeaderNotificationMenu("message", mergedMessages);
+        }
+
+        function addHeaderLiveNotification(item) {
+          if (!item) return;
+          if ((item.kind || "") === "comment") {
+            const key = headerMessageThreadKey(item);
+            for (let i = liveHeaderMessageNotifications.length - 1; i >= 0; i -= 1) {
+              if (headerMessageThreadKey(liveHeaderMessageNotifications[i]) === key) {
+                liveHeaderMessageNotifications.splice(i, 1);
+              }
+            }
+            liveHeaderMessageNotifications.unshift(item);
+          } else {
+            const key = headerNotificationKey(item);
+            for (let i = liveHeaderRegularNotifications.length - 1; i >= 0; i -= 1) {
+              if (headerNotificationKey(liveHeaderRegularNotifications[i]) === key) {
+                liveHeaderRegularNotifications.splice(i, 1);
+              }
+            }
+            liveHeaderRegularNotifications.unshift(item);
+          }
+          applyHeaderNotificationState({});
+        }
+
+        applyHeaderNotificationState(headerNotificationState);
+
+        if (window.io) {
+          const headerSocket = window.io({
+            transports: ["websocket", "polling"],
+          });
+          headerSocket.on("notification_state", function (data) {
+            applyHeaderNotificationState(data || {});
+          });
+          headerSocket.on("notification_preview", function (data) {
+            addHeaderLiveNotification(data);
+          });
+          headerSocket.on("notification_preview_dismissed", function (data) {
+            const notificationId = data && data.notification_id ? String(data.notification_id) : "";
+            if (!notificationId) return;
+            for (let i = liveHeaderRegularNotifications.length - 1; i >= 0; i -= 1) {
+              if (String(liveHeaderRegularNotifications[i] && liveHeaderRegularNotifications[i].id || "") === notificationId) {
+                liveHeaderRegularNotifications.splice(i, 1);
+              }
+            }
+            for (let i = liveHeaderMessageNotifications.length - 1; i >= 0; i -= 1) {
+              if (String(liveHeaderMessageNotifications[i] && liveHeaderMessageNotifications[i].id || "") === notificationId) {
+                liveHeaderMessageNotifications.splice(i, 1);
+              }
+            }
+            applyHeaderNotificationState({});
+          });
+        }
+        {% endif %}
       });
     </script>
   </body>

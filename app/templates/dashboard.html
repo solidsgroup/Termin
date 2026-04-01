@@ -1342,6 +1342,15 @@
           <input id="task-settings-assignee" type="text" placeholder="assignee@email" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
         </div>
       </div>
+      <div class="discussion-setting-group" data-task-only>
+        <div class="discussion-setting-group-header">
+          <span>Follow</span>
+        </div>
+        <div class="discussion-settings-assignments" id="task-settings-followers"></div>
+        <div class="discussion-settings-assign-add">
+          <input id="task-settings-follower" type="text" placeholder="name or email" autocomplete="termin-nope-follow" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        </div>
+      </div>
       <div class="discussion-settings-meta" id="task-settings-meta"></div>
       <div class="discussion-settings-danger" data-task-only>
         <button class="btn danger" type="button" id="task-settings-delete">Delete Task</button>
@@ -8551,6 +8560,8 @@
     var taskSettingsPerUserStatusEl = document.getElementById("task-settings-per-user-status");
     var taskSettingsAssignmentsEl = document.getElementById("task-settings-assignments");
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
+    var taskSettingsFollowersEl = document.getElementById("task-settings-followers");
+    var taskSettingsFollowerEl = document.getElementById("task-settings-follower");
     var descriptionWrapperEl = drawer.querySelector("[data-description-wrapper]");
     var descriptionDisplayEl = drawer.querySelector("[data-description-display]");
     var descriptionRenderedEl = drawer.querySelector("[data-description-rendered]");
@@ -9177,6 +9188,10 @@
       return String(notificationId || "").indexOf("live-") === 0;
     }
 
+    function isSyntheticMessageNotificationId(notificationId) {
+      return String(notificationId || "").indexOf("live-comment") === 0;
+    }
+
     function dismissLiveMessageNotification(notificationId) {
       var nextId = String(notificationId || "");
       liveMessageNotifications = liveMessageNotifications.filter(function (item) {
@@ -9394,7 +9409,7 @@
 
     function assignInputProjectId(input) {
       if (!input) return "";
-      if (input === taskSettingsAssigneeEl) {
+      if (input === taskSettingsAssigneeEl || input === taskSettingsFollowerEl) {
         return currentTaskData && currentTaskData.project_id ? String(currentTaskData.project_id) : "";
       }
       var todoItem = input.closest(".todo-item[data-project-id]");
@@ -9475,7 +9490,9 @@
         btn.addEventListener("click", function (event) {
           event.preventDefault();
           input.dataset.assignSelecting = "0";
-          if (item.is_add_all) {
+          if (typeof input._submitSuggestItem === "function") {
+            input._submitSuggestItem(item);
+          } else if (item.is_add_all) {
             createSettingsAssignmentsForGroup()
               .then(function (result) {
                 if (!result || !result.ok || !result.data) return;
@@ -10047,8 +10064,23 @@
     window.__renderTaskLinkBadges = renderTaskLinkBadges;
 
     function renderSettingsAssignmentRows(assignments) {
-      if (currentTaskData && currentTaskData.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
-        return window.__renderGroupAssignmentBadge(currentTaskData.id, currentTaskData.group_assignment_members || []);
+      if (currentTaskData && currentTaskData.assign_group_members) {
+        var projectAssignmentCount = Array.isArray(currentTaskData.group_assignment_members) ? currentTaskData.group_assignment_members.length : 0;
+        return (
+          '<div class="discussion-assignment-row discussion-assignment-row--project-assign">' +
+            '<div class="discussion-assignment-user">' +
+              '<button class="discussion-assignment-avatar" type="button" data-disable-assign-project="1" aria-label="Stop assigning project members">' +
+                '<span class="badge-initial">' + escapeHtml(String(projectAssignmentCount)) + '</span>' +
+                '<span class="badge-x">×</span>' +
+              '</button>' +
+              '<div class="discussion-assignment-meta">' +
+                '<div class="discussion-assignment-name">Project</div>' +
+                '<div class="discussion-assignment-email">' + escapeHtml(String(projectAssignmentCount)) + ' people</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="discussion-assignment-status"><span class="discussion-assignment-pill is-account">Assigned</span></div>' +
+          '</div>'
+        );
       }
       var rows = Array.isArray(assignments) ? assignments : [];
       if (!rows.length) {
@@ -10081,6 +10113,53 @@
               '</div>' +
             '</div>' +
             '<div class="discussion-assignment-status">' + statusContent + '</div>' +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    function renderSettingsFollowerRows(followers) {
+      if (currentTaskData && currentTaskData.follow_project_members) {
+        var projectFollowerCount = Array.isArray(currentTaskData.project_follower_members) ? currentTaskData.project_follower_members.length : 0;
+        return (
+          '<div class="discussion-assignment-row discussion-assignment-row--project-follow">' +
+            '<div class="discussion-assignment-user">' +
+              '<button class="discussion-assignment-avatar" type="button" data-disable-follow-project="1" aria-label="Stop following project members">' +
+                '<span class="badge-initial">' + escapeHtml(String(projectFollowerCount)) + '</span>' +
+                '<span class="badge-x">×</span>' +
+              '</button>' +
+              '<div class="discussion-assignment-meta">' +
+                '<div class="discussion-assignment-name">Project</div>' +
+                '<div class="discussion-assignment-email">' + escapeHtml(String(projectFollowerCount)) + ' people</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="discussion-assignment-status"><span class="discussion-assignment-pill is-account">Following</span></div>' +
+          '</div>'
+        );
+      }
+      var rows = Array.isArray(followers) ? followers : [];
+      if (!rows.length) {
+        return '<div class="footer-note">No followers yet.</div>';
+      }
+      return rows.map(function (follower) {
+        var label = follower.display_name || follower.display_email || "User";
+        var secondary = follower.display_email && follower.display_email !== label ? follower.display_email : "";
+        var avatarUrl = follower.avatar_url;
+        var initial = label.trim().slice(0, 1).toUpperCase();
+        return (
+          '<div class="discussion-assignment-row" data-follower-id="' + follower.id + '">' +
+            '<div class="discussion-assignment-user">' +
+              '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-follower="' + follower.id + '" aria-label="Remove follower ' + escapeHtml(label) + '">' +
+                '<span class="badge-initial">' + escapeHtml(initial) + '</span>' +
+                (avatarUrl ? '<img class="badge-photo" src="' + escapeHtml(avatarUrl) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.discussion-assignment-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
+                '<span class="badge-x">×</span>' +
+              '</button>' +
+              '<div class="discussion-assignment-meta">' +
+                '<div class="discussion-assignment-name">' + escapeHtml(label) + '</div>' +
+                (secondary ? '<div class="discussion-assignment-email">' + escapeHtml(secondary) + '</div>' : '') +
+              '</div>' +
+            '</div>' +
+            '<div class="discussion-assignment-status"><span class="discussion-assignment-pill is-account">Following</span></div>' +
           '</div>'
         );
       }).join("");
@@ -10389,6 +10468,14 @@
         taskSettingsAssigneeEl.setAttribute("data-assign-input", "task");
         taskSettingsAssigneeEl.setAttribute("data-target-id", currentTaskId || "");
       }
+      if (taskSettingsFollowersEl) {
+        var followers = Array.isArray(task.followers) ? task.followers : [];
+        taskSettingsFollowersEl.style.display = followers.length ? "" : "none";
+        taskSettingsFollowersEl.innerHTML = renderSettingsFollowerRows(followers);
+      }
+      if (taskSettingsFollowerEl) {
+        taskSettingsFollowerEl.setAttribute("data-follow-task-id", currentTaskId || "");
+      }
       if (taskSettingsDescriptionEl) {
         taskSettingsDescriptionEl.value = task.description || "";
       }
@@ -10438,6 +10525,10 @@
         taskSettingsAssignmentsEl.style.display = "none";
         taskSettingsAssignmentsEl.innerHTML = "";
       }
+      if (taskSettingsFollowersEl) {
+        taskSettingsFollowersEl.style.display = "none";
+        taskSettingsFollowersEl.innerHTML = "";
+      }
       var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
       if (taskSettingsCreatorEl) {
         taskSettingsCreatorEl.textContent = "";
@@ -10447,6 +10538,10 @@
         taskSettingsAssigneeEl.value = "";
         taskSettingsAssigneeEl.setAttribute("data-assign-input", "");
         taskSettingsAssigneeEl.setAttribute("data-target-id", "");
+      }
+      if (taskSettingsFollowerEl) {
+        taskSettingsFollowerEl.value = "";
+        taskSettingsFollowerEl.setAttribute("data-follow-task-id", "");
       }
       var entityDescriptionFallback = descriptionFormatFallbackForEntity(currentEntityType);
       if (taskSettingsDescriptionEl) {
@@ -10544,6 +10639,59 @@
               renderTaskSettings();
             }
             return { ok: res.ok, data: data };
+          });
+        });
+    }
+
+    function createTaskFollower(email, userId) {
+      if (!currentTaskId) return Promise.resolve(null);
+      return fetch("/api/tasks/" + currentTaskId + "/followers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          email: email || "",
+          user_id: userId || null,
+        }),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, status: res.status, data: data };
+          });
+        });
+    }
+
+    function createTaskFollowersForProject() {
+      if (!currentTaskId) return Promise.resolve(null);
+      return fetch("/api/tasks/" + currentTaskId + "/follow_all", {
+        method: "POST",
+        credentials: "same-origin",
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            if (res.ok && data) {
+              var followers = Array.isArray(data.followers) ? data.followers : [];
+              var projectFollowerMembers = Array.isArray(data.project_follower_members) ? data.project_follower_members : [];
+              currentTaskData = Object.assign({}, currentTaskData || {}, {
+                followers: followers,
+                follow_project_members: !!data.follow_project_members,
+                project_follower_members: projectFollowerMembers,
+              });
+              renderTaskSettings();
+            }
+            return { ok: res.ok, status: res.status, data: data };
+          });
+        });
+    }
+
+    function deleteTaskFollower(followerId) {
+      return fetch("/api/task-followers/" + followerId, {
+        method: "DELETE",
+        credentials: "same-origin",
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, status: res.status, data: data };
           });
         });
     }
@@ -11842,10 +11990,53 @@
         });
     }
 
+    function submitTaskFollower() {
+      if (!taskSettingsFollowerEl || !currentTaskId) return;
+      var raw = (taskSettingsFollowerEl.value || "").trim();
+      if (!raw) return;
+      if (taskSettingsFollowerEl.dataset.followSubmitting === "1") return;
+      taskSettingsFollowerEl.dataset.followSubmitting = "1";
+      var selectedUserId = taskSettingsFollowerEl.dataset.selectedUserId || "";
+      createTaskFollower(raw, selectedUserId ? Number(selectedUserId) : null)
+        .then(function (result) {
+          if (!result || !result.ok || !result.data || !result.data.id) {
+            console.error("submitTaskFollower failed", result && result.data ? result.data : result);
+            return;
+          }
+          var data = result.data;
+          taskSettingsFollowerEl.value = "";
+          taskSettingsFollowerEl.dataset.selectedUserId = "";
+          var existing = Array.isArray((currentTaskData || {}).followers) ? currentTaskData.followers.slice() : [];
+          existing = existing.filter(function (row) { return String(row.id) !== String(data.id); });
+          existing.push(data);
+          currentTaskData = Object.assign({}, currentTaskData || {}, { followers: existing });
+          renderTaskSettings();
+          return refreshCurrentTaskMeta();
+        })
+        .finally(function () {
+          taskSettingsFollowerEl.dataset.followSubmitting = "0";
+        });
+    }
+
     function bindSettingsAssignmentInput() {
       if (!taskSettingsAssigneeEl || taskSettingsAssigneeEl.dataset.boundSettingsAssign === "1") return;
       taskSettingsAssigneeEl.dataset.boundSettingsAssign = "1";
       disableLocalInputSuggestions(taskSettingsAssigneeEl);
+      taskSettingsAssigneeEl._submitSuggestItem = function (item) {
+        if (!item) return;
+        if (item.is_add_all) {
+          createSettingsAssignmentsForGroup()
+            .then(function (result) {
+              if (!result || !result.ok || !result.data) return;
+              return refreshCurrentTaskMeta();
+            });
+          return;
+        }
+        if (item.email) {
+          taskSettingsAssigneeEl.value = item.email;
+        }
+        submitSettingsAssignment();
+      };
 
 	      taskSettingsAssigneeEl.addEventListener("input", function () {
 	        var value = taskSettingsAssigneeEl.value.trim();
@@ -11892,18 +12083,11 @@
           var active = typeof window.__getActiveSuggestItem === "function"
             ? window.__getActiveSuggestItem(taskSettingsAssigneeEl)
             : taskSettingsAssigneeEl._suggestItems[0];
-          if (active && active.is_add_all) {
-            createSettingsAssignmentsForGroup()
-              .then(function (result) {
-                if (!result || !result.ok || !result.data) return;
-                return refreshCurrentTaskMeta();
-              });
+          if (active && typeof taskSettingsAssigneeEl._submitSuggestItem === "function") {
+            taskSettingsAssigneeEl._submitSuggestItem(active);
             hideLocalAssignSuggest(taskSettingsAssigneeEl);
             taskSettingsAssigneeEl.value = "";
             return;
-          }
-          if (active && active.email) {
-            taskSettingsAssigneeEl.value = active.email;
           }
         }
         submitSettingsAssignment();
@@ -11915,6 +12099,91 @@
           if (!taskSettingsAssigneeEl) return;
           if (taskSettingsAssigneeEl.dataset.assignSelecting === "1") return;
           hideLocalAssignSuggest(taskSettingsAssigneeEl);
+        }, 120);
+      });
+    }
+
+    function bindTaskFollowerInput() {
+      if (!taskSettingsFollowerEl || taskSettingsFollowerEl.dataset.boundTaskFollower === "1") return;
+      taskSettingsFollowerEl.dataset.boundTaskFollower = "1";
+      disableLocalInputSuggestions(taskSettingsFollowerEl);
+      taskSettingsFollowerEl._submitSuggestItem = function (item) {
+        if (!item) return;
+        if (item.is_add_all) {
+          createTaskFollowersForProject()
+            .then(function () {
+              return refreshCurrentTaskMeta();
+            });
+          taskSettingsFollowerEl.value = "";
+          taskSettingsFollowerEl.dataset.selectedUserId = "";
+          return;
+        }
+        if (item.email) {
+          taskSettingsFollowerEl.value = item.email;
+          taskSettingsFollowerEl.dataset.selectedUserId = item.id ? String(item.id) : "";
+        }
+        submitTaskFollower();
+      };
+
+      function loadFollowerSuggestions() {
+        var value = taskSettingsFollowerEl.value.trim();
+        fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+          .then(function (data) {
+            var results = Array.isArray(data.results) ? data.results.filter(function (item) {
+              return item && item.type === "user" && item.email;
+            }) : [];
+            showLocalAssignSuggest(taskSettingsFollowerEl, results);
+          });
+      }
+
+      taskSettingsFollowerEl.addEventListener("input", function () {
+        taskSettingsFollowerEl.dataset.selectedUserId = "";
+        loadFollowerSuggestions();
+      });
+      taskSettingsFollowerEl.addEventListener("focus", function () {
+        loadFollowerSuggestions();
+      });
+      taskSettingsFollowerEl.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          hideLocalAssignSuggest(taskSettingsFollowerEl);
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsFollowerEl, 1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsFollowerEl, -1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key !== "Enter" && event.key !== "Tab" && event.key !== ",") return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (taskSettingsFollowerEl._suggestItems && taskSettingsFollowerEl._suggestItems.length && (event.key === "Enter" || event.key === "Tab")) {
+          var active = typeof window.__getActiveSuggestItem === "function"
+            ? window.__getActiveSuggestItem(taskSettingsFollowerEl)
+            : taskSettingsFollowerEl._suggestItems[0];
+          if (active && typeof taskSettingsFollowerEl._submitSuggestItem === "function") {
+            taskSettingsFollowerEl._submitSuggestItem(active);
+            hideLocalAssignSuggest(taskSettingsFollowerEl);
+            return;
+          }
+        }
+        submitTaskFollower();
+        hideLocalAssignSuggest(taskSettingsFollowerEl);
+      });
+      taskSettingsFollowerEl.addEventListener("blur", function () {
+        window.setTimeout(function () {
+          if (!taskSettingsFollowerEl) return;
+          if (taskSettingsFollowerEl.dataset.assignSelecting === "1") return;
+          hideLocalAssignSuggest(taskSettingsFollowerEl);
         }, 120);
       });
     }
@@ -12375,6 +12644,83 @@
     closeEls.forEach(function (button) {
       button.addEventListener("click", closeDrawer);
     });
+    if (taskSettingsAssignmentsEl) {
+      taskSettingsAssignmentsEl.addEventListener("click", function (event) {
+        var disableProjectAssignButton = event.target.closest("[data-disable-assign-project]");
+        if (disableProjectAssignButton && currentTaskId) {
+          fetch("/api/tasks/" + currentTaskId, {
+            method: "PATCH",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ assign_group_members: false }),
+          })
+            .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+            .then(function (result) {
+              if (!result || !result.ok || !result.data) return;
+              currentTaskData = Object.assign({}, currentTaskData || {}, result.data);
+              renderTaskSettings();
+              refreshCurrentTaskMeta();
+            })
+            .catch(function (err) { console.error("disableProjectAssignments failed", err); });
+          return;
+        }
+        var removeAssignment = event.target.closest("[data-remove-assignment]");
+        if (!removeAssignment) return;
+        var assignmentId = removeAssignment.getAttribute("data-remove-assignment");
+        if (!assignmentId) return;
+        fetch("/api/assignments/" + assignmentId, { method: "DELETE" })
+          .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) return;
+            if (currentTaskData && Array.isArray(currentTaskData.assignments)) {
+              currentTaskData.assignments = currentTaskData.assignments.filter(function (row) {
+                return String(row.id) !== String(assignmentId);
+              });
+              renderTaskSettings();
+            }
+            refreshCurrentTaskMeta();
+          })
+          .catch(function (err) { console.error("deleteAssignment failed", err); });
+      });
+    }
+    if (taskSettingsFollowersEl) {
+      taskSettingsFollowersEl.addEventListener("click", function (event) {
+        var disableProjectFollowButton = event.target.closest("[data-disable-follow-project]");
+        if (disableProjectFollowButton && currentTaskId) {
+          fetch("/api/tasks/" + currentTaskId, {
+            method: "PATCH",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ follow_project_members: false }),
+          })
+            .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+            .then(function (result) {
+              if (!result || !result.ok || !result.data) return;
+              currentTaskData = Object.assign({}, currentTaskData || {}, result.data);
+              renderTaskSettings();
+              refreshCurrentTaskMeta();
+            })
+            .catch(function (err) { console.error("disableProjectFollowers failed", err); });
+          return;
+        }
+        var removeFollowerButton = event.target.closest("[data-remove-follower]");
+        if (!removeFollowerButton) return;
+        var followerId = removeFollowerButton.getAttribute("data-remove-follower");
+        if (!followerId) return;
+        deleteTaskFollower(followerId)
+          .then(function (result) {
+            if (!result || !result.ok) return;
+            if (currentTaskData && Array.isArray(currentTaskData.followers)) {
+              currentTaskData.followers = currentTaskData.followers.filter(function (row) {
+                return String(row.id) !== String(followerId);
+              });
+              renderTaskSettings();
+            }
+            refreshCurrentTaskMeta();
+          })
+          .catch(function (err) { console.error("deleteTaskFollower failed", err); });
+      });
+    }
     if (copyTaskPermalinkEl) {
       copyTaskPermalinkEl.addEventListener("click", function () {
         var permalink = taskPermalinkForCurrentDrawer();
@@ -12606,6 +12952,9 @@
     }
     if (taskSettingsAssigneeEl) {
       bindSettingsAssignmentInput();
+    }
+    if (taskSettingsFollowerEl) {
+      bindTaskFollowerInput();
     }
     if (descriptionDisplayEl) {
       descriptionDisplayEl.addEventListener("click", function (event) {
@@ -12850,11 +13199,11 @@
       socket.on("notification_preview_dismissed", function (data) {
         var notificationId = data && data.notification_id ? String(data.notification_id) : "";
         if (!notificationId) return;
-        if (notificationId.indexOf("live-project-shared:") === 0) {
-          dismissLiveRegularNotification(notificationId);
+        if (isSyntheticMessageNotificationId(notificationId)) {
+          dismissLiveMessageNotification(notificationId);
           return;
         }
-        dismissLiveMessageNotification(notificationId);
+        dismissLiveRegularNotification(notificationId);
       });
 
       socket.on("discussion_activity_updated", function (data) {
