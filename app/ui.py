@@ -44,6 +44,7 @@ from app.realtime import (
     emit_task_notification_updates,
     emit_task_updated,
     emit_user_notification_preview,
+    is_user_viewing_discussion,
     queue_task_notifications,
     is_user_viewing_task,
     _task_notification_user_ids,
@@ -538,6 +539,8 @@ def _emit_collaborator_comment_previews(task: Task, collaborator: CollaboratorPr
     created_at = datetime.utcnow().isoformat()
     actor_name = collaborator.display_name or collaborator.email or "New message"
     for recipient_id in sorted(task_discussion_user_ids(task)):
+        if is_user_viewing_discussion(recipient_id, "task", task.id):
+            continue
         emit_user_notification_preview(
             recipient_id,
             {

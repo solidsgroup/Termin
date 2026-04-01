@@ -36,8 +36,10 @@ _handlers_registered = False
 _sid_user = {}
 _sid_projects = defaultdict(set)
 _sid_tasks = defaultdict(set)
+_sid_discussions = defaultdict(set)
 _project_user_counts = defaultdict(lambda: defaultdict(int))
 _task_user_counts = defaultdict(lambda: defaultdict(int))
+_discussion_user_counts = defaultdict(lambda: defaultdict(int))
 _user_socket_counts = defaultdict(int)
 _user_active_projects = defaultdict(set)
 
@@ -52,6 +54,14 @@ def task_room(task_id: int) -> str:
 
 def project_room(project_id: int) -> str:
     return f"project:{project_id}"
+
+
+def discussion_room(entity_type: str, entity_id: int) -> str:
+    return f"discussion:{entity_type}:{entity_id}"
+
+
+def discussion_key(entity_type: str, entity_id: int) -> str:
+    return f"{entity_type}:{entity_id}"
 
 
 def _task_due_mode(task: Task | None) -> str:
@@ -143,6 +153,10 @@ def is_user_viewing_project(user_id: int, project_id: int) -> bool:
 
 def is_user_viewing_task(user_id: int, task_id: int) -> bool:
     return _task_user_counts.get(task_id, {}).get(user_id, 0) > 0
+
+
+def is_user_viewing_discussion(user_id: int, entity_type: str, entity_id: int) -> bool:
+    return _discussion_user_counts.get(discussion_key(entity_type, entity_id), {}).get(user_id, 0) > 0
 
 
 def _can_access_task(user, task: Task) -> bool:
@@ -676,6 +690,40 @@ def emit_project_presence(project_id: int) -> None:
     )
 
 
+def _can_access_project_discussion(user, project_id: int) -> bool:
+    if not user or not project_id:
+        return False
+    return bool(
+        Project.query.filter_by(id=project_id, owner_id=user.id).first()
+        or ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first()
+        or db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == project_id, GroupMember.user_id == user.id)
+        .first()
+    )
+
+
+def discussion_presence_payload(entity_type: str, entity_id: int) -> dict:
+    counts = _discussion_user_counts.get(discussion_key(entity_type, entity_id), {})
+    user_ids = [user_id for user_id, count in counts.items() if count > 0]
+    users = [User.query.get(user_id) for user_id in user_ids]
+    members = _serialize_members([user for user in users if user])
+    members.sort(key=lambda item: (item.get("display_name") or item.get("email") or "").lower())
+    return {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "members": members,
+    }
+
+
+def emit_discussion_presence(entity_type: str, entity_id: int) -> None:
+    socketio.emit(
+        "discussion_presence",
+        discussion_presence_payload(entity_type, entity_id),
+        room=discussion_room(entity_type, entity_id),
+    )
+
+
 def _serialize_assignment_payload(assignment: Assignment) -> dict:
     from app.models import User
     account_user = None
@@ -929,7 +977,7 @@ def queue_task_notifications(
         if exclude_user_id and recipient_id == exclude_user_id:
             continue
         if kind == "comment":
-            if is_user_viewing_task(recipient_id, task.id):
+            if is_user_viewing_discussion(recipient_id, "task", task.id):
                 continue
         existing = (
             TaskNotification.query.filter_by(user_id=recipient_id, task_id=task.id, kind=kind)
@@ -1088,6 +1136,42 @@ def register_socket_handlers() -> None:
         emit("task_room_joined", {"task_id": task_id})
         emit_task_presence(task_id)
 
+    @socketio.on("join_discussion_presence")
+    def handle_join_discussion_presence(data):
+        user = current_user()
+        if not user:
+            return
+        entity_type = str((data or {}).get("entity_type") or "").strip().lower()
+        try:
+            entity_id = int((data or {}).get("entity_id"))
+        except (TypeError, ValueError):
+            return
+        if entity_type not in {"task", "project", "group"}:
+            return
+        if entity_type == "task":
+            task = Task.query.get(entity_id)
+            if not _can_access_task(user, task):
+                return
+        elif entity_type == "project":
+            project = Project.query.get(entity_id)
+            if not project or not _can_access_project_discussion(user, entity_id):
+                return
+        else:
+            group = Group.query.get(entity_id)
+            if not group or not _can_access_project_discussion(user, group.project_id):
+                return
+        sid = request.sid
+        user_id = _sid_user.get(sid)
+        if user_id is None:
+            return
+        key = discussion_key(entity_type, entity_id)
+        join_room(discussion_room(entity_type, entity_id))
+        if key not in _sid_discussions[sid]:
+            _sid_discussions[sid].add(key)
+            _discussion_user_counts[key][user_id] += 1
+        emit("discussion_presence_joined", {"entity_type": entity_type, "entity_id": entity_id})
+        emit_discussion_presence(entity_type, entity_id)
+
     @socketio.on("join_project")
     def handle_join_project(data):
         user = current_user()
@@ -1133,6 +1217,36 @@ def register_socket_handlers() -> None:
         emit("project_room_joined", {"project_id": project_id})
         emit_project_presence(project_id)
 
+    @socketio.on("leave_discussion_presence")
+    def handle_leave_discussion_presence(data):
+        user = current_user()
+        if not user:
+            return
+        entity_type = str((data or {}).get("entity_type") or "").strip().lower()
+        try:
+            entity_id = int((data or {}).get("entity_id"))
+        except (TypeError, ValueError):
+            return
+        if entity_type not in {"task", "project", "group"}:
+            return
+        sid = request.sid
+        user_id = _sid_user.get(sid)
+        key = discussion_key(entity_type, entity_id)
+        leave_room(discussion_room(entity_type, entity_id))
+        if user_id is not None and key in _sid_discussions.get(sid, set()):
+            _sid_discussions[sid].discard(key)
+            counts = _discussion_user_counts.get(key)
+            if counts:
+                next_count = max(0, counts.get(user_id, 0) - 1)
+                if next_count:
+                    counts[user_id] = next_count
+                else:
+                    counts.pop(user_id, None)
+                if not counts:
+                    _discussion_user_counts.pop(key, None)
+            emit_discussion_presence(entity_type, entity_id)
+        emit("discussion_presence_left", {"entity_type": entity_type, "entity_id": entity_id})
+
     @socketio.on("leave_task")
     def handle_leave_task(data):
         user = current_user()
@@ -1165,6 +1279,7 @@ def register_socket_handlers() -> None:
         user_id = _sid_user.pop(sid, None)
         project_ids = list(_sid_projects.pop(sid, set()))
         task_ids = list(_sid_tasks.pop(sid, set()))
+        discussion_keys = list(_sid_discussions.pop(sid, set()))
         if user_id is None:
             return
         next_socket_count = max(0, _user_socket_counts.get(user_id, 0) - 1)
@@ -1198,4 +1313,21 @@ def register_socket_handlers() -> None:
                 _project_user_counts.pop(project_id, None)
             _recompute_user_active_projects(user_id)
             emit_project_presence(project_id)
+        for key in discussion_keys:
+            entity_type, _, entity_id_raw = key.partition(":")
+            try:
+                entity_id = int(entity_id_raw)
+            except (TypeError, ValueError):
+                continue
+            counts = _discussion_user_counts.get(key)
+            if not counts:
+                continue
+            next_count = max(0, counts.get(user_id, 0) - 1)
+            if next_count:
+                counts[user_id] = next_count
+            else:
+                counts.pop(user_id, None)
+            if not counts:
+                _discussion_user_counts.pop(key, None)
+            emit_discussion_presence(entity_type, entity_id)
         emit_global_presence()

@@ -8577,7 +8577,11 @@
     var socket = null;
     var socketConnected = false;
     var joinedTaskId = null;
+    var joinedDiscussionPresence = null;
     var joinedProjectIds = new Set();
+    var discussionAudienceByProjectId = new Map();
+    var discussionAudienceMembers = [];
+    var discussionActiveUserIds = new Set();
     var currentUserId = {{ user.id|tojson }};
     var currentUserEmail = {{ user.email|tojson }};
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
@@ -9018,12 +9022,34 @@
 
     function openInboxItem(payload) {
       if (!payload) return;
-      if (payload.kind === "comment" && payload.task_id && typeof window.__openDiscussion === "function") {
-        window.__openDiscussion(
-          payload.task_id,
-          payload.task_title || "Task",
-          payload.project_name || notificationEntityName("project", payload.project_id) || ""
-        );
+      if (payload.kind === "comment") {
+        if (payload.task_id) {
+          loadEntityComments(
+            "task",
+            payload.task_id,
+            payload.task_title || "Task",
+            payload.project_name || notificationEntityName("project", payload.project_id) || ""
+          );
+          return;
+        }
+        if (payload.group_id) {
+          loadEntityComments(
+            "group",
+            payload.group_id,
+            payload.task_title || notificationEntityName("group", payload.group_id) || "Group",
+            payload.project_name || notificationEntityName("project", payload.project_id) || ""
+          );
+          return;
+        }
+        if (payload.project_id) {
+          loadEntityComments(
+            "project",
+            payload.project_id,
+            payload.project_name || notificationEntityName("project", payload.project_id) || "Project",
+            ""
+          );
+          return;
+        }
         return;
       }
       if (payload.task_id && typeof window.__openTaskDrawer === "function") {
@@ -9052,6 +9078,16 @@
         return true;
       }
       return false;
+    }
+
+    function canOpenNotificationInline(payload) {
+      if (!payload) return false;
+      var params = new URLSearchParams(window.location.search);
+      var currentProjectId = String(params.get("project_id") || "");
+      var currentView = String(params.get("view") || "");
+      if (!currentProjectId || !currentView) return false;
+      if (!payload.project_id || String(payload.project_id) !== currentProjectId) return false;
+      return currentView === "tree" || currentView === "todo" || currentView === "inbox";
     }
 
     function mergeNotificationState(data) {
@@ -9789,30 +9825,104 @@
       });
     }
 
-    function renderAvatarChip(member) {
+    function renderAvatarChip(member, options) {
       var label = member.display_name || member.email || "User";
       var initial = label.trim().slice(0, 1).toUpperCase();
       var classes = 'avatar-chip';
+      if (options && options.online) {
+        classes += ' is-online';
+      }
       if (member.avatar_url) {
         return '<span class="' + classes + '" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '"><img src="' + escapeHtml(member.avatar_url) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" /></span>';
       }
       return '<span class="' + classes + '" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '">' + escapeHtml(initial) + '</span>';
     }
 
-    function renderDiscussionPresence(members) {
-      if (!presenceEl) return;
-      var list = Array.isArray(members) ? members : [];
-      if (!list.length) {
-        presenceEl.innerHTML = "";
+    function currentDiscussionProjectId() {
+      if (currentEntityType === "task") {
+        return currentTaskData && currentTaskData.project_id ? String(currentTaskData.project_id) : "";
+      }
+      if (currentEntityType === "project") {
+        return currentEntityId ? String(currentEntityId) : "";
+      }
+      if (currentEntityType === "group") {
+        return currentEntityData && currentEntityData.project_id ? String(currentEntityData.project_id) : "";
+      }
+      return "";
+    }
+
+    function rememberDiscussionAudience(projectId, members) {
+      if (!projectId) return;
+      discussionAudienceByProjectId.set(String(projectId), Array.isArray(members) ? members.slice() : []);
+    }
+
+    function setDiscussionAudience(projectId, members) {
+      var normalizedProjectId = String(projectId || "");
+      if (!normalizedProjectId) {
+        discussionAudienceMembers = [];
+        renderDiscussionPresence();
         return;
       }
-      var visible = list.slice(0, 5);
-      var extra = Math.max(0, list.length - visible.length);
+      rememberDiscussionAudience(normalizedProjectId, members);
+      if (normalizedProjectId !== String(currentDiscussionProjectId() || "")) return;
+      discussionAudienceMembers = Array.isArray(members) ? members.slice() : [];
+      renderDiscussionPresence();
+    }
+
+    function setDiscussionActiveMembers(members) {
+      discussionActiveUserIds = new Set(
+        (Array.isArray(members) ? members : [])
+          .map(function (member) { return String(member && member.id != null ? member.id : ""); })
+          .filter(Boolean)
+      );
+      renderDiscussionPresence();
+    }
+
+    function renderDiscussionPresence() {
+      if (!presenceEl) return;
+      var list = Array.isArray(discussionAudienceMembers) ? discussionAudienceMembers : [];
+      if (!list.length) {
+        presenceEl.innerHTML = "";
+        presenceEl.removeAttribute("data-presence-project-id");
+        return;
+      }
+      var projectId = currentDiscussionProjectId();
+      if (projectId) {
+        presenceEl.setAttribute("data-presence-project-id", String(projectId));
+      } else {
+        presenceEl.removeAttribute("data-presence-project-id");
+      }
       presenceEl.innerHTML =
         '<div class="discussion-presence-stack">' +
-        visible.map(renderAvatarChip).join('') +
-        (extra ? '<span class="avatar-chip">+' + extra + '</span>' : '') +
+        list.map(function (member) {
+          return renderAvatarChip(member, {
+            online: discussionActiveUserIds.has(String(member && member.id != null ? member.id : "")),
+          });
+        }).join('') +
         '</div>';
+    }
+
+    function syncDiscussionAudience() {
+      var projectId = currentDiscussionProjectId();
+      if (!projectId) {
+        discussionAudienceMembers = [];
+        renderDiscussionPresence();
+        return Promise.resolve();
+      }
+      var cached = discussionAudienceByProjectId.get(String(projectId));
+      if (cached) {
+        discussionAudienceMembers = cached.slice();
+        renderDiscussionPresence();
+      }
+      return fetch("/api/projects/" + projectId + "/members", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          if (!data || !Array.isArray(data.members)) return;
+          setDiscussionAudience(projectId, data.members);
+        })
+        .catch(function (err) {
+          console.error("syncDiscussionAudience failed", err);
+        });
     }
 
     function setDrawerEntityType(type) {
@@ -9845,6 +9955,7 @@
         presenceEl.style.display = activeDrawerTab === "messages" ? "" : "none";
       }
       syncTaskRoom(drawer.classList.contains("open") && activeDrawerTab === "messages" && currentEntityType === "task" ? currentTaskId : null);
+      syncDiscussionPresenceRoom();
       if (drawer.classList.contains("open") && activeDrawerTab === "messages") {
         scrollDiscussionToBottom();
       }
@@ -10685,6 +10796,7 @@
           currentTaskData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           setDiscussionSubtitle(data && data.project_id, data && data.group_name);
+          syncDiscussionAudience();
           renderTaskSettings();
           renderEntityLinkState();
         })
@@ -10692,6 +10804,7 @@
           currentTaskData = null;
           currentEntityLinks = [];
           setDiscussionSubtitle("", "");
+          syncDiscussionAudience();
           renderTaskSettings();
           renderEntityLinkState();
         });
@@ -10734,6 +10847,7 @@
           } else {
             setDiscussionSubtitle(data && data.project_id, (data && data.name) || currentTaskTitle || "");
           }
+          syncDiscussionAudience();
           renderEntitySettings();
           renderEntityLinkState();
         })
@@ -10745,12 +10859,19 @@
           } else {
             setDiscussionSubtitle("", currentTaskTitle || "");
           }
+          syncDiscussionAudience();
           renderEntitySettings();
           renderEntityLinkState();
         });
     }
 
     function updateMemberAvatars(selector, members, limit) {
+      document.querySelectorAll(selector).forEach(function (container) {
+        var projectId = container.getAttribute("data-project-members") || container.getAttribute("data-presence-project-id") || "";
+        if (projectId) {
+          rememberDiscussionAudience(projectId, members || []);
+        }
+      });
       document.querySelectorAll(selector).forEach(function (container) {
         var visible = (members || []).slice(0, limit || 6);
         var extra = Math.max(0, (members || []).length - visible.length);
@@ -11507,6 +11628,42 @@
       }
     }
 
+    function currentDiscussionPresenceTarget() {
+      if (!drawer.classList.contains("open") || activeDrawerTab !== "messages" || !currentEntityId) {
+        return null;
+      }
+      if (currentEntityType !== "task" && currentEntityType !== "project" && currentEntityType !== "group") {
+        return null;
+      }
+      return {
+        entity_type: currentEntityType,
+        entity_id: String(currentEntityId),
+      };
+    }
+
+    function syncDiscussionPresenceRoom() {
+      var nextTarget = currentDiscussionPresenceTarget();
+      var nextKey = nextTarget ? (String(nextTarget.entity_type) + ":" + String(nextTarget.entity_id)) : null;
+      if (!socket || !socketConnected) {
+        joinedDiscussionPresence = nextKey;
+        return;
+      }
+      if (joinedDiscussionPresence && joinedDiscussionPresence !== nextKey) {
+        var previousParts = String(joinedDiscussionPresence).split(":");
+        socket.emit("leave_discussion_presence", {
+          entity_type: previousParts[0],
+          entity_id: previousParts[1],
+        });
+      }
+      joinedDiscussionPresence = nextKey;
+      if (nextTarget) {
+        socket.emit("join_discussion_presence", nextTarget);
+      } else {
+        discussionActiveUserIds = new Set();
+        renderDiscussionPresence();
+      }
+    }
+
     function closeDrawer() {
       drawer.classList.remove("open");
       currentTaskId = null;
@@ -11516,11 +11673,14 @@
       currentTaskData = null;
       currentEntityData = null;
       currentEntityLinks = [];
+      discussionAudienceMembers = [];
+      discussionActiveUserIds = new Set();
       setDrawerEntityType("task");
       renderTaskSettings();
       renderEntityLinkState();
-      renderDiscussionPresence([]);
+      renderDiscussionPresence();
       syncTaskRoom(null);
+      syncDiscussionPresenceRoom();
       closeMultiStatusMenu();
     }
 
@@ -12158,25 +12318,30 @@
         }
         var currentUrl = window.location.pathname + window.location.search;
         if (payload && payload.kind === 'comment') {
-          if (href !== currentUrl) {
+          if (!canOpenNotificationInline(payload) && href !== currentUrl) {
             window.location.href = href;
             return;
           }
           if (payload.task_id) {
             var button = document.querySelector('[data-open-discussion="' + payload.task_id + '"]');
-            if (button) {
-              loadEntityComments(
-                "task",
-                payload.task_id,
-                button.getAttribute('data-task-title'),
-                button.getAttribute('data-project-name')
-              );
-            }
+            loadEntityComments(
+              "task",
+              payload.task_id,
+              button ? button.getAttribute('data-task-title') : (payload.task_title || "Task"),
+              button ? button.getAttribute('data-project-name') : (payload.project_name || notificationEntityName("project", payload.project_id) || "")
+            );
+          } else if (payload.group_id) {
+            loadEntityComments(
+              "group",
+              payload.group_id,
+              payload.task_title || notificationEntityName("group", payload.group_id) || "Group",
+              payload.project_name || notificationEntityName("project", payload.project_id) || ""
+            );
           } else if (payload.project_id) {
             loadEntityComments(
               "project",
               payload.project_id,
-              notificationEntityName("project", payload.project_id) || "Project",
+              payload.project_name || notificationEntityName("project", payload.project_id) || "Project",
               ""
             );
           }
@@ -12652,11 +12817,15 @@
         joinedProjectIds = new Set();
         syncProjectRooms();
         syncTaskRoom(drawer.classList.contains("open") && activeDrawerTab === "messages" ? currentTaskId : null);
+        syncDiscussionPresenceRoom();
       });
 
       socket.on("disconnect", function () {
         socketConnected = false;
         joinedProjectIds = new Set();
+        joinedDiscussionPresence = null;
+        discussionActiveUserIds = new Set();
+        renderDiscussionPresence();
       });
 
       socket.on("notification_state", function (data) {
@@ -12699,10 +12868,18 @@
         applyGlobalPresence((data || {}).user_projects || {});
       });
 
+      socket.on("discussion_presence", function (data) {
+        if (!data || !data.entity_type || !data.entity_id) return;
+        if (String(currentEntityType || "") !== String(data.entity_type)) return;
+        if (String(currentEntityId || "") !== String(data.entity_id)) return;
+        setDiscussionActiveMembers(data.members || []);
+      });
+
       socket.on("task_presence", function (data) {
         if (!data || !data.task_id) return;
+        if (String(currentEntityType || "") !== "task") return;
         if (String(currentTaskId || "") !== String(data.task_id)) return;
-        renderDiscussionPresence(data.members || []);
+        setDiscussionActiveMembers(data.members || []);
       });
 
       socket.on("assignment_updated", function (data) {
@@ -12750,11 +12927,15 @@
         if (!data || !data.project_id) return;
         updateMemberAvatars('[data-project-members="' + data.project_id + '"]', data.members || [], 6);
         applyProjectShareIndicators(String(data.project_id), data.members || []);
+        setDiscussionAudience(data.project_id, data.members || []);
       });
 
       socket.on("group_members_updated", function (data) {
         if (!data || !data.group_id) return;
         updateMemberAvatars('[data-group-members="' + data.group_id + '"]', data.members || [], 6);
+        if (data.project_id) {
+          setDiscussionAudience(data.project_id, data.members || []);
+        }
       });
 
       socket.on("task_comment_created", function (data) {

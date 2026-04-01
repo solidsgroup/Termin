@@ -61,6 +61,7 @@ from app.realtime import (
     emit_task_updated,
     notification_payload_for_user,
     emit_user_notification_preview,
+    is_user_viewing_discussion,
     queue_user_notification,
     queue_task_notifications,
 )
@@ -368,6 +369,12 @@ def _emit_comment_notification_previews(
     created_at = datetime.utcnow().isoformat()
     for recipient_id in sorted({int(user_id) for user_id in (recipient_ids or []) if user_id}):
         if exclude_user_id is not None and int(recipient_id) == int(exclude_user_id):
+            continue
+        if task_id and is_user_viewing_discussion(recipient_id, "task", int(task_id)):
+            continue
+        if group_id and is_user_viewing_discussion(recipient_id, "group", int(group_id)):
+            continue
+        if project_id and not group_id and not task_id and is_user_viewing_discussion(recipient_id, "project", int(project_id)):
             continue
         live_id_parts = ["live-comment", str(task_id or ""), str(project_id or ""), str(group_id or ""), created_at]
         emit_user_notification_preview(
@@ -2804,7 +2811,7 @@ def add_group_member(group_id: int):
 @login_required
 def list_project_members(project_id: int):
     user = current_user()
-    if not _can_manage_project(user, project_id):
+    if not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
     project = Project.query.get(project_id)
     if not project:
@@ -2828,7 +2835,7 @@ def list_group_members(group_id: int):
     group = Group.query.get(group_id)
     if not group:
         return {"error": "group not found"}, 404
-    if not _can_manage_project(user, group.project_id):
+    if not _can_access_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
 
     members = list(project_access_map(group.project_id).values())
