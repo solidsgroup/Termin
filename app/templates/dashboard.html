@@ -9396,6 +9396,7 @@
     var currentEntityLinks = [];
     var currentTaskData = null;
     var currentEntityData = null;
+    var currentDrawerEntityRequestToken = 0;
     var currentEntityIsDirect = false;
     var activeDrawerTab = "messages";
     var commentSnapshot = "";
@@ -11757,6 +11758,7 @@
       if (currentEntityType === "task") {
         var statusMode = taskSettingsStatusModeEl ? String(taskSettingsStatusModeEl.value || "single") : "single";
         var statusPayloadField = statusMode === "single" ? "status" : "user_status";
+        var persistTaskId = String(currentEntityId || "");
         var payload = {
           title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
           due_at: taskSettingsDueModeEl && taskSettingsDueModeEl.value !== "date"
@@ -11782,6 +11784,7 @@
           .then(function (res) { return res.json().catch(function () { return {}; }); })
           .then(function (data) {
             if (!data || !data.id) return;
+            if (String(currentTaskId || "") !== persistTaskId) return;
             currentTaskData = Object.assign({}, currentTaskData || {}, data);
             applyTaskRowUpdate(currentTaskData);
             descriptionEditing = false;
@@ -11789,6 +11792,7 @@
             renderTaskSettings();
             return fetchTaskSnapshot(data.id).then(function (freshTask) {
               if (!freshTask || !freshTask.id) return;
+              if (String(currentTaskId || "") !== persistTaskId) return;
               currentTaskData = Object.assign({}, currentTaskData || {}, freshTask);
               applyTaskRowUpdate(currentTaskData);
               renderTaskSettings();
@@ -11957,6 +11961,7 @@
     }
 
     function loadTaskMeta(taskId, taskTitle, projectName) {
+      var requestToken = ++currentDrawerEntityRequestToken;
       setDrawerEntityType("task");
       currentEntityId = taskId;
       currentTaskId = taskId;
@@ -11964,11 +11969,24 @@
       drawer.setAttribute("data-open-task-id", String(taskId || ""));
       currentTaskTitle = taskTitle || "";
       currentProjectName = projectName || "";
+      currentTaskData = {
+        id: taskId,
+        title: currentTaskTitle || "",
+        assignments: [],
+        followers: [],
+        due_mode: "none",
+        description_format: DEFAULT_TASK_DESCRIPTION_FORMAT,
+      };
+      currentEntityLinks = [];
       titleEl.textContent = currentTaskTitle || "Task";
       setDiscussionSubtitle("", "");
+      renderTaskSettings();
+      renderEntityLinkState();
       fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
+          if (requestToken !== currentDrawerEntityRequestToken) return;
+          if (String(currentTaskId || "") !== String(taskId)) return;
           currentTaskData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           setDiscussionSubtitle(data && data.project_id, data && data.group_name);
@@ -11977,6 +11995,8 @@
           renderEntityLinkState();
         })
         .catch(function () {
+          if (requestToken !== currentDrawerEntityRequestToken) return;
+          if (String(currentTaskId || "") !== String(taskId)) return;
           currentTaskData = null;
           currentEntityLinks = [];
           setDiscussionSubtitle("", "");
@@ -11987,6 +12007,7 @@
     }
 
     function loadEntityMeta(entityType, entityId, entityTitle, projectName) {
+      var requestToken = ++currentDrawerEntityRequestToken;
       setDrawerEntityType(entityType);
       currentEntityId = entityId;
       currentTaskId = entityType === "task" ? entityId : null;
@@ -11997,6 +12018,7 @@
       currentProjectName = projectName || "";
       currentEntityData = null;
       currentTaskData = null;
+      currentEntityLinks = [];
       var titleFallback = entityType === "project" ? "Project" : "Group";
       titleEl.textContent = currentTaskTitle || titleFallback;
       if (entityType === "project") {
@@ -12016,6 +12038,9 @@
       fetch(endpoint, { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
+          if (requestToken !== currentDrawerEntityRequestToken) return;
+          if (String(currentEntityId || "") !== String(entityId)) return;
+          if (String(currentEntityType || "") !== String(entityType)) return;
           currentEntityData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           if (entityType === "project") {
@@ -12028,6 +12053,9 @@
           renderEntityLinkState();
         })
         .catch(function () {
+          if (requestToken !== currentDrawerEntityRequestToken) return;
+          if (String(currentEntityId || "") !== String(entityId)) return;
+          if (String(currentEntityType || "") !== String(entityType)) return;
           currentEntityData = null;
           currentEntityLinks = [];
           if (entityType === "project") {
