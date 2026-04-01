@@ -1023,7 +1023,7 @@
                         {{ item.detail_payload.get('actor_name') or item.sender_name or item.task_title }}
                       {% endif %}
                     </span>
-                    <span class="inbox-item-time" data-inbox-created-at="{{ item.created_at_iso }}">{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}</span>
+                    <span class="inbox-item-time" data-inbox-created-at="{{ item.created_at_iso }}">{{ format_user_datetime(item.created_at) if item.created_at else '' }}</span>
                   </span>
                   <span class="inbox-item-preview">
                     {% if item.kind == 'comment' and item.unread_count and item.unread_count > 1 %}
@@ -8874,16 +8874,31 @@
     );
     var liveMessageNotifications = [];
 
+    function parseInboxTimestamp(value) {
+      if (!value) return null;
+      var raw = String(value).trim();
+      if (!raw) return null;
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)) {
+        raw += "Z";
+      }
+      var parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return parsed;
+    }
+
     function formatInboxTimestamp(value) {
       if (!value) return "";
-      var parsed = new Date(value);
-      if (Number.isNaN(parsed.getTime())) return "";
-      return parsed.toLocaleString([], {
+      var parsed = parseInboxTimestamp(value);
+      if (!parsed) return "";
+      var options = {
         month: "short",
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
-      });
+      };
+      var userTimeZone = {{ current_user_timezone|tojson }};
+      if (userTimeZone) options.timeZone = userTimeZone;
+      return parsed.toLocaleString([], options);
     }
 
     function renderInboxFeed(items) {
@@ -8968,8 +8983,10 @@
         next.push(item);
       });
       next.sort(function (a, b) {
-        var aTime = new Date(a && (a.created_at_iso || a.created_at) || 0).getTime();
-        var bTime = new Date(b && (b.created_at_iso || b.created_at) || 0).getTime();
+        var aParsed = parseInboxTimestamp(a && (a.created_at_iso || a.created_at) || 0);
+        var bParsed = parseInboxTimestamp(b && (b.created_at_iso || b.created_at) || 0);
+        var aTime = aParsed ? aParsed.getTime() : 0;
+        var bTime = bParsed ? bParsed.getTime() : 0;
         if (bTime !== aTime) return bTime - aTime;
         var aId = String(a && a.id != null ? a.id : "");
         var bId = String(b && b.id != null ? b.id : "");

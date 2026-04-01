@@ -240,6 +240,7 @@ def send_notification_digest_email(to_email: str, *, recipient_name: str, notifi
         + "</div>"
     )
     html_body = _render_email_template(
+        eyebrow="Notifications",
         title=title,
         intro="Hi " + escape(recipient_name) + ", " + intro.lower(),
         body_html=body_html,

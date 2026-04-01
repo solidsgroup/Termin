@@ -72,7 +72,7 @@ from app.sidebar_layout import (
     top_level_sidebar_items,
 )
 from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
-from app.utils import current_user, display_name_for_user
+from app.utils import ALL_TIMEZONE_OPTIONS, COMMON_TIMEZONE_OPTIONS, current_user, display_name_for_user, normalize_user_timezone
 from app.utils import is_admin as user_is_admin
 
 
@@ -767,6 +767,8 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         title="Settings",
         account_section=section,
         default_display_name=default_display_name,
+        common_timezone_options=COMMON_TIMEZONE_OPTIONS,
+        all_timezone_options=ALL_TIMEZONE_OPTIONS,
         notification_event_definitions=NOTIFICATION_EVENT_DEFINITIONS,
         general_notification_definitions=GENERAL_NOTIFICATION_DEFINITIONS,
         task_notification_definitions=TASK_NOTIFICATION_DEFINITIONS,
@@ -1859,12 +1861,14 @@ def account_notifications():
 @login_required
 def update_account_experience():
     user = current_user()
-    theme_mode = (request.form.get("theme_mode") or "dark").strip().lower()
+    theme_mode = (request.form.get("theme_mode") or user.theme_mode or "dark").strip().lower()
     if theme_mode not in {"dark", "light"}:
         return _render_account_page(user, section="experience", error="Invalid theme selection.")
     user.theme_mode = theme_mode
+    timezone_value = normalize_user_timezone(request.form.get("timezone") or user.timezone or "UTC")
+    user.timezone = timezone_value
     db.session.commit()
-    return _render_account_page(user, section="experience", message="Theme updated.")
+    return _render_account_page(user, section="experience", message="Experience settings updated.")
 
 
 @ui_bp.post("/account/display-name")

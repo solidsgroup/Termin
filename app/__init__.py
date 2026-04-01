@@ -10,7 +10,7 @@ from app.auth import auth_bp
 from app.ui import ui_bp, calendar_subscription_urls_for_user
 from app.webhooks.google import google_webhooks_bp
 from app.oauth import init_oauth
-from app.utils import current_user, is_admin
+from app.utils import current_user, format_datetime_for_user, is_admin, user_timezone_name
 
 
 def create_app() -> Flask:
@@ -44,6 +44,8 @@ def create_app() -> Flask:
             "is_admin_user": is_admin(user),
             "calendar_subscription_url": calendar_urls["https"],
             "calendar_subscription_webcal_url": calendar_urls["webcal"],
+            "current_user_timezone": user_timezone_name(user),
+            "format_user_datetime": lambda value, fmt="%Y-%m-%d %H:%M": format_datetime_for_user(value, user, fmt),
         }
 
     return app

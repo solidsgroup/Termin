@@ -10,6 +10,7 @@ class User(db.Model):
     avatar_url = db.Column(db.String(1024))
     password_hash = db.Column(db.String(255))
     theme_mode = db.Column(db.String(16), nullable=False, default="dark")
+    timezone = db.Column(db.String(64), nullable=False, default="UTC")
     notification_email_frequency_seconds = db.Column(db.Integer, nullable=False, default=0)
     notification_email_last_sent_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
