@@ -198,6 +198,37 @@
     {% endif %}
   </span>
 {% endmacro %}
+{% macro render_todo_assignment_compact(task_id, assignments, user_map, assign_group_members, group_members) %}
+  {% set ns = namespace(rendered=0, total=0) %}
+  {% if assign_group_members %}
+    {% set ns.total = ns.total + 1 %}
+    {% if ns.rendered < 2 %}
+      {{ render_group_assignment_badge(task_id, group_members) }}
+      {% set ns.rendered = ns.rendered + 1 %}
+    {% endif %}
+    {% for assignment in assignments %}
+      {% if not assignment.user_id %}
+        {% set ns.total = ns.total + 1 %}
+        {% if ns.rendered < 2 %}
+          {{ render_assignment_badge(assignment, user_map) }}
+          {% set ns.rendered = ns.rendered + 1 %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    {% set ns.total = assignments|length %}
+    {% for assignment in assignments[:2] %}
+      {{ render_assignment_badge(assignment, user_map) }}
+    {% endfor %}
+    {% set ns.rendered = assignments[:2]|length %}
+  {% endif %}
+  {% if ns.total > ns.rendered %}
+    <span class="badge user badge-overflow-count" data-assignment-overflow="{{ task_id }}" title="{{ ns.total - ns.rendered }} more assignees">
+      <span class="badge-icon">+{{ ns.total - ns.rendered }}</span>
+      <span class="badge-label">{{ ns.total - ns.rendered }} more</span>
+    </span>
+  {% endif %}
+{% endmacro %}
 {% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, project_name) %}
   {% if task_list %}
     {% for task in task_list %}
@@ -767,18 +798,7 @@
                       </div>
                     {% else %}
                       <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
-                        {% if item.task.assign_group_members %}
-                          {{ render_group_assignment_badge(item.task.id, group_assignment_members_by_task.get(item.task.id, [])) }}
-                          {% for assignment in assignments_by_task.get(item.task.id, []) %}
-                            {% if not assignment.user_id %}
-                              {{ render_assignment_badge(assignment, user_map) }}
-                            {% endif %}
-                          {% endfor %}
-                        {% else %}
-                          {% for assignment in assignments_by_task.get(item.task.id, []) %}
-                            {{ render_assignment_badge(assignment, user_map) }}
-                          {% endfor %}
-                        {% endif %}
+                        {{ render_todo_assignment_compact(item.task.id, assignments_by_task.get(item.task.id, []), user_map, item.task.assign_group_members, group_assignment_members_by_task.get(item.task.id, [])) }}
                         <span class="assign-action">
                           <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
                         </span>
@@ -12359,36 +12379,55 @@
         container.querySelectorAll("[data-group-assignment-badge]").forEach(function (node) {
           node.remove();
         });
+        container.querySelectorAll("[data-assignment-overflow]").forEach(function (node) {
+          node.remove();
+        });
         var assignAction = container.querySelector(".assign-action");
-        if (taskMeta && taskMeta.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
-          var groupWrapper = document.createElement("span");
-          groupWrapper.innerHTML = window.__renderGroupAssignmentBadge(taskId, taskMeta.group_assignment_members || []);
-          if (groupWrapper.firstElementChild) {
-            Array.from(groupWrapper.childNodes).forEach(function (node) {
-              if (node.nodeType === Node.ELEMENT_NODE) {
-                container.insertBefore(node, assignAction || input);
-              }
-            });
+        var badgesInserted = 0;
+        var totalBadges = 0;
+
+        function insertBadgeHtml(html) {
+          var wrapper = document.createElement("span");
+          wrapper.innerHTML = html;
+          var badge = wrapper.firstElementChild;
+          if (!badge) return false;
+          if (badgesInserted < 2) {
+            container.insertBefore(badge, assignAction || input);
           }
+          badgesInserted += 1;
+          return true;
+        }
+
+        function insertOverflowBadge(extraCount) {
+          if (!extraCount || extraCount < 1) return;
+          var wrapper = document.createElement("span");
+          wrapper.innerHTML =
+            '<span class="badge user badge-overflow-count" data-assignment-overflow="' + taskId + '" title="' + extraCount + ' more assignees">' +
+              '<span class="badge-icon">+' + extraCount + '</span>' +
+              '<span class="badge-label">' + extraCount + ' more</span>' +
+            '</span>';
+          var badge = wrapper.firstElementChild;
+          if (badge) {
+            container.insertBefore(badge, assignAction || input);
+          }
+        }
+        if (taskMeta && taskMeta.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
+          totalBadges += 1;
+          insertBadgeHtml(window.__renderGroupAssignmentBadge(taskId, taskMeta.group_assignment_members || []));
           var extraAssignments = typeof window.__extraAssignmentsForGroup === "function"
             ? window.__extraAssignmentsForGroup(taskMeta, assignments || [])
             : [];
           extraAssignments.forEach(function (assignment) {
-            var wrapper = document.createElement("span");
-            wrapper.innerHTML = window.__renderAssignmentBadge(assignment);
-            var badge = wrapper.firstElementChild;
-            if (!badge) return;
-            container.insertBefore(badge, assignAction || input);
+            totalBadges += 1;
+            insertBadgeHtml(window.__renderAssignmentBadge(assignment));
           });
         } else {
           (assignments || []).forEach(function (assignment) {
-            var wrapper = document.createElement("span");
-            wrapper.innerHTML = window.__renderAssignmentBadge(assignment);
-            var badge = wrapper.firstElementChild;
-            if (!badge) return;
-            container.insertBefore(badge, assignAction || input);
+            totalBadges += 1;
+            insertBadgeHtml(window.__renderAssignmentBadge(assignment));
           });
         }
+        insertOverflowBadge(Math.max(0, totalBadges - Math.min(totalBadges, 2)));
         updated = true;
       });
       document.querySelectorAll('.todo-item[data-task-id="' + taskId + '"]').forEach(function (item) {

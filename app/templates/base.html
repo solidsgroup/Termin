@@ -3303,7 +3303,7 @@
 
       .todo-item {
         display: grid;
-        grid-template-columns: minmax(0, var(--todo-col-meta)) minmax(0, var(--todo-col-main)) max-content;
+        grid-template-columns: minmax(0, var(--todo-col-meta)) minmax(0, var(--todo-col-main)) minmax(0, var(--todo-col-controls, 240px));
         grid-template-areas: "meta main controls";
         align-items: center;
         gap: 0;
@@ -3473,7 +3473,7 @@
         white-space: nowrap;
         grid-area: meta;
         overflow: hidden;
-        padding: 0 var(--todo-cell-pad);
+        padding: 0 calc(var(--todo-cell-pad) + 6px) 0 var(--todo-cell-pad);
       }
 
       .todo-item-controls {
@@ -3700,7 +3700,8 @@
       .todo-control-assignees {
         min-width: 0;
         justify-content: flex-end;
-        flex: 0 0 auto;
+        flex: 0 0 68px;
+        width: 68px;
       }
 
       .todo-project-name,
@@ -3716,8 +3717,8 @@
 
       .todo-item-controls .todo-assignments {
         justify-content: flex-end;
-        width: max-content;
-        max-width: 100%;
+        width: 68px;
+        max-width: 68px;
         flex-wrap: nowrap;
         overflow: hidden;
         margin-left: 0;
@@ -3749,8 +3750,11 @@
       .todo-project-name {
         color: color-mix(in srgb, var(--todo-color, var(--accent)) 70%, white 30%);
         font-weight: 600;
+        display: block;
+        max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       body[data-theme="light"] .todo-project-name {
@@ -3759,9 +3763,21 @@
 
       .todo-group-name {
         color: var(--muted);
+        display: block;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 120px;
+        white-space: nowrap;
+        max-width: 100%;
+      }
+
+      .todo-project-meta:not(:has(.todo-group-name)) .todo-project-name {
+        white-space: normal;
+        overflow: hidden;
+        text-overflow: initial;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
       }
 
       .todo-group-name::before {
@@ -3868,6 +3884,12 @@
 
       .todo-assignments .badge.user {
         border-color: var(--border);
+      }
+
+      .todo-assignments .badge-overflow-count .badge-icon {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
       }
 
       .todo-assignments .badge.user .badge-icon {
@@ -7558,6 +7580,8 @@
           min-width: max-content;
           width: max-content;
           max-width: 40%;
+          padding-left: 8px;
+          overflow: hidden;
           text-align: right;
         }
 
@@ -7573,6 +7597,17 @@
           text-overflow: ellipsis;
           text-align: right;
           margin-left: auto;
+        }
+
+        .todo-project-meta:not(:has(.todo-group-name)) .todo-project-name {
+          white-space: normal;
+          overflow: hidden;
+          text-overflow: initial;
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          line-clamp: 2;
+          max-width: 100%;
         }
 
         .todo-project-meta a {
