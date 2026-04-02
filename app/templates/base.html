@@ -4006,12 +4006,13 @@
         border-radius: 0;
         background:
           linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--project-color) 12%, transparent),
-            color-mix(in srgb, var(--project-color) 4%, transparent) 52%,
+            135deg,
+            color-mix(in srgb, var(--project-color) 18%, transparent) 0%,
+            color-mix(in srgb, var(--project-color) 8%, transparent) 28%,
+            color-mix(in srgb, var(--project-color) 3%, transparent) 55%,
             transparent 100%
           ),
-          color-mix(in srgb, var(--panel) 96%, transparent);
+          color-mix(in srgb, var(--panel) 97%, transparent);
       }
 
       .project-board-header::after {
@@ -4019,7 +4020,7 @@
         position: absolute;
         inset: 0;
         background:
-          linear-gradient(90deg, color-mix(in srgb, var(--project-color) 8%, transparent), transparent 34%);
+          linear-gradient(135deg, color-mix(in srgb, var(--project-color) 8%, transparent), transparent 46%);
         pointer-events: none;
       }
 
@@ -4614,10 +4615,11 @@
       body[data-theme="light"] .project-board-header {
         background:
           linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--project-color) 10%, white 90%),
-            color-mix(in srgb, var(--project-color) 4%, white 96%) 52%,
-            rgba(255, 255, 255, 0.98) 100%
+            135deg,
+            color-mix(in srgb, var(--project-color) 16%, white 84%) 0%,
+            color-mix(in srgb, var(--project-color) 7%, white 93%) 28%,
+            color-mix(in srgb, var(--project-color) 3%, white 97%) 55%,
+            rgba(255, 255, 255, 0.99) 100%
           );
         box-shadow: none;
       }
