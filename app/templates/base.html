@@ -1054,6 +1054,10 @@
         flex: 1 1 auto;
       }
 
+      .todo-tree-row[data-tree-project-row] .todo-tree-label {
+        font-weight: 500;
+      }
+
       .tree-select-button {
         flex: 1 1 auto;
         min-width: 0;
@@ -1116,6 +1120,11 @@
       .todo-tree-row.is-active .todo-tree-label {
         font-weight: 700;
         color: #fff !important;
+      }
+
+      .todo-tree-row[data-tree-project-row].is-active .todo-tree-label,
+      .todo-tree-row[data-tree-project-row].is-included .todo-tree-label {
+        font-weight: 600;
       }
 
       .todo-tree-row.is-active .tree-select-button,
@@ -1182,6 +1191,10 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
+      }
+
+      .tree-board[data-tree-ready="0"] {
+        visibility: hidden;
       }
 
       .tree-project-board[hidden] {
@@ -1356,6 +1369,10 @@
         max-width: 100%;
         overflow-x: clip;
         overflow-y: auto;
+      }
+
+      .content.project-content {
+        padding-top: 0;
       }
 
       .dashboard-notice {
@@ -3956,6 +3973,14 @@
         margin-top: 16px;
       }
 
+      .project-view-shell {
+        margin: 0 0 14px;
+      }
+
+      .project-view-shell .project-board-header {
+        margin-top: 0;
+      }
+
       .group-header {
         display: flex;
         align-items: center;
@@ -3966,6 +3991,7 @@
 
       .tree-project-board {
         --project-color: var(--accent);
+        margin-bottom: 40px;
       }
 
       .tree-project-board + .tree-project-board {
@@ -3974,8 +4000,8 @@
 
       .project-board-header {
         position: relative;
-        margin: -16px -18px 14px;
-        padding: 16px 18px 14px;
+        margin: -40px -18px 14px;
+        padding: 40px 18px 14px;
         border: 0;
         border-radius: 0;
         background:
@@ -4282,7 +4308,7 @@
         text-align: left;
         cursor: pointer;
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 400;
         color: var(--ink);
         overflow: hidden;
         text-overflow: ellipsis;

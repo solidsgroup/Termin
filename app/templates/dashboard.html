@@ -710,7 +710,7 @@
   </aside>
   {% endif %}
 
-  <section class="content"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
+  <section class="content{% if selected_project and current_view != 'tree' %} project-content{% endif %}"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
     {% if dashboard_notice %}
       <div class="dashboard-notice" role="alert">{{ dashboard_notice }}</div>
     {% endif %}
@@ -818,7 +818,7 @@
         {% endfor %}
       </div>
     {% elif current_view == 'tree' %}
-      <div class="tree-board" data-tree-board>
+      <div class="tree-board" data-tree-board data-tree-ready="0">
         {% for ctx in tree_project_contexts %}
           {% set project = ctx.project %}
           {% set project_groups = ctx.groups %}
@@ -1116,54 +1116,56 @@
         </div>
       </div>
     {% elif selected_project %}
-      <div class="panel">
-        <div class="group-header">
-          {% set viewers = project_viewers.get(selected_project.id, []) %}
-          {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <h3 data-selected-project-title="{{ selected_project.id }}"><span data-selected-project-name>{{ selected_project_display_name }}</span></h3>
-            <span class="task-link-badges" data-entity-link-badges="project:{{ selected_project.id }}">
-              {% for link in project_info.links or [] %}
-                {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
-                {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
-                <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                  <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
-                </a>
-              {% endfor %}
-            </span>
-            <span class="task-pill" aria-label="Project settings links and messages">
-              <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
-              <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
-              <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:{{ selected_project.id }}">0</span></button>
-            </span>
-          </div>
-          <div style="display: inline-flex; gap: 8px; align-items: center;">
-            {% if not selected_project.is_direct %}
-              <div class="project-header-share-tools">
-                <button class="project-share-trigger" type="button" data-open-share-project="{{ selected_project.id }}" aria-label="Share project" title="Share project">
-                  <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
-                </button>
-                {% if shared_viewers %}
-                  <div class="share-avatars project-header-avatars" data-presence-project-id="{{ selected_project.id }}" data-project-members="{{ selected_project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-                    {% for u in shared_viewers[:6] %}
-                      <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
-                        {% if u.avatar_url %}
-                          <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
-                        {% else %}
-                          {{ (u.display_name or u.email)[0]|upper }}
-                        {% endif %}
-                      </span>
-                    {% endfor %}
-                    {% if shared_viewers|length > 6 %}
-                      <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
-                    {% endif %}
-                  </div>
-                {% endif %}
-              </div>
-            {% endif %}
-            {% if current_view != 'tree' %}
-              <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
-            {% endif %}
+      <div class="project-view-shell" style="--project-color: {{ selected_project_color or '#4cc9f0' }};">
+        {% set viewers = project_viewers.get(selected_project.id, []) %}
+        {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
+        <div class="project-board-header">
+          <div class="project-board-header-inner">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <h3 data-selected-project-title="{{ selected_project.id }}"><span data-selected-project-name>{{ selected_project_display_name }}</span></h3>
+              <span class="task-link-badges" data-entity-link-badges="project:{{ selected_project.id }}">
+                {% for link in project_info.links or [] %}
+                  {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
+                  {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
+                  <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
+                    <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                  </a>
+                {% endfor %}
+              </span>
+              <span class="task-pill" aria-label="Project settings links and messages">
+                <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+                <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+                <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="{{ selected_project.id }}" data-entity-title="{{ selected_project_display_name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:{{ selected_project.id }}">0</span></button>
+              </span>
+            </div>
+            <div style="display: inline-flex; gap: 8px; align-items: center;">
+              {% if not selected_project.is_direct %}
+                <div class="project-header-share-tools">
+                  <button class="project-share-trigger" type="button" data-open-share-project="{{ selected_project.id }}" aria-label="Share project" title="Share project">
+                    <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+                  </button>
+                  {% if shared_viewers %}
+                    <div class="share-avatars project-header-avatars" data-presence-project-id="{{ selected_project.id }}" data-project-members="{{ selected_project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                      {% for u in shared_viewers[:6] %}
+                        <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
+                          {% if u.avatar_url %}
+                            <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+                          {% else %}
+                            {{ (u.display_name or u.email)[0]|upper }}
+                          {% endif %}
+                        </span>
+                      {% endfor %}
+                      {% if shared_viewers|length > 6 %}
+                        <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                </div>
+              {% endif %}
+              {% if current_view != 'tree' %}
+                <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
+              {% endif %}
+            </div>
           </div>
         </div>
       </div>
@@ -15497,6 +15499,7 @@
     {% if current_view == 'tree' %}
     (function () {
       var treeSidebar = document.querySelector("[data-tree-sidebar]");
+      var treeBoard = document.querySelector("[data-tree-board]");
       if (!treeSidebar) return;
       var storageKey = "termin:tree-view:v1";
       var currentSelection = null;
@@ -16087,6 +16090,9 @@
         }
       }
       applySelection(currentSelection);
+      if (treeBoard) {
+        treeBoard.setAttribute("data-tree-ready", "1");
+      }
     })();
     {% endif %}
 
@@ -16903,6 +16909,28 @@
           applyRatios(colRatios);
         });
       });
+    })();
+    {% endif %}
+
+    {% if selected_project and current_view != 'tree' %}
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      if (
+        params.get("open_discussion_task_id") ||
+        params.get("open_discussion_project_id") ||
+        params.get("open_discussion_group_id")
+      ) {
+        return;
+      }
+      var content = document.querySelector("section.content");
+      if (!content) return;
+      function resetProjectViewScroll() {
+        content.scrollTop = 0;
+      }
+      resetProjectViewScroll();
+      window.requestAnimationFrame(resetProjectViewScroll);
+      window.setTimeout(resetProjectViewScroll, 0);
+      window.setTimeout(resetProjectViewScroll, 120);
     })();
     {% endif %}
 
