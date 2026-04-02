@@ -316,17 +316,17 @@
         {% for division in divisions %}
           {% set division_projects = projects_by_division.get(division.id, []) %}
           {% if division_projects %}
-            <div class="todo-tree-node" data-division-id="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
+            <div class="todo-tree-node" data-division-id="{{ division.id }}" style="--division-color: {{ division_color_map.get(division.id, '#4cc9f0') }};">
               <div class="todo-tree-row">
                 <label class="todo-tree-label-row">
                   <input type="checkbox" class="todo-tree-checkbox" data-todo-division="{{ division.id }}" checked />
-                  <span class="todo-tree-label" style="color: {{ division.color or '#4cc9f0' }};">{{ division.name }}</span>
+                  <span class="todo-tree-label" style="color: {{ division_color_map.get(division.id, '#4cc9f0') }};">{{ division.name }}</span>
                   <button class="todo-tree-toggle" type="button" data-toggle-division="{{ division.id }}" aria-label="Toggle division">▾</button>
                 </label>
               </div>
               <div class="todo-tree-children">
                 {% for project in division_projects %}
-                  <div class="todo-tree-node is-project" data-project-id="{{ project.id }}" data-division-id="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
+                  <div class="todo-tree-node is-project" data-project-id="{{ project.id }}" data-division-id="{{ division.id }}" style="--division-color: {{ division_color_map.get(division.id, '#4cc9f0') }};">
                     <div class="todo-tree-row">
                       <label class="todo-tree-label-row">
                         <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="{{ division.id }}" checked />
@@ -491,16 +491,16 @@
           </div>
           <div class="todo-tree-list tree-select-list" data-tree-select-list>
             {% for division in divisions %}
-              <div class="todo-tree-node" data-tree-division-node="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
-                <div class="todo-tree-row" data-division-context="{{ division.id }}" data-division-color="{{ division.color or '#4cc9f0' }}" data-tree-division-row="{{ division.id }}" draggable="true">
+              <div class="todo-tree-node" data-tree-division-node="{{ division.id }}" style="--division-color: {{ division_color_map.get(division.id, '#4cc9f0') }};">
+                <div class="todo-tree-row" data-division-context="{{ division.id }}" data-division-color="{{ division_color_map.get(division.id, '#4cc9f0') }}" data-tree-division-row="{{ division.id }}" draggable="true">
                   <button class="tree-select-button" type="button" data-tree-select-type="division" data-tree-select-id="{{ division.id }}">
-                    <span class="todo-tree-label" style="color: {{ division.color or '#4cc9f0' }};">{{ division.name }}</span>
+                    <span class="todo-tree-label" style="color: {{ division_color_map.get(division.id, '#4cc9f0') }};">{{ division.name }}</span>
                   </button>
                   <button class="todo-tree-toggle" type="button" data-tree-toggle-division="{{ division.id }}" aria-label="Toggle division">▾</button>
                 </div>
                 <div class="todo-tree-children">
                   {% for project in projects_by_division.get(division.id, []) %}
-                    <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-division-id="{{ division.id }}" style="--division-color: {{ division.color or '#4cc9f0' }};">
+                    <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-division-id="{{ division.id }}" style="--division-color: {{ division_color_map.get(division.id, '#4cc9f0') }};">
                       {% set tree_can_manage_project = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
                       <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" draggable="true">
                         <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
@@ -631,13 +631,13 @@
                 {% if item.type == "project" %}
                   {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, True, None) }}
                 {% else %}
-                  <div class="sidebar-division" style="--division-color: {{ item.division.color or '#4cc9f0' }}; color: {{ item.division.color or '#4cc9f0' }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ item.division.color or '#4cc9f0' }}">
+                  <div class="sidebar-division" style="--division-color: {{ division_color_map.get(item.division.id, '#4cc9f0') }}; color: {{ division_color_map.get(item.division.id, '#4cc9f0') }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ division_color_map.get(item.division.id, '#4cc9f0') }}">
                     <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
-                      <h3 class="sidebar-division-title" style="color: {{ item.division.color or '#4cc9f0' }};">{{ item.division.name }}</h3>
+                      <h3 class="sidebar-division-title" style="color: {{ division_color_map.get(item.division.id, '#4cc9f0') }};">{{ item.division.name }}</h3>
                     </div>
                     <div class="project-list">
                       {% for project in projects_by_division.get(item.division.id, []) %}
-                        {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, False, item.division.color) }}
+                        {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, False, division_color_map.get(item.division.id, '#4cc9f0')) }}
                       {% endfor %}
                     </div>
                   </div>
@@ -1458,16 +1458,9 @@
     <div id="division-color-submenu" class="context-submenu-panel">
       <div class="color-menu-title">Division Color</div>
       <div class="color-preset-grid">
-        <button type="button" class="color-preset" data-color-value="#1f77b4" style="--swatch:#1f77b4;" aria-label="Choose blue"></button>
-        <button type="button" class="color-preset" data-color-value="#ff7f0e" style="--swatch:#ff7f0e;" aria-label="Choose orange"></button>
-        <button type="button" class="color-preset" data-color-value="#2ca02c" style="--swatch:#2ca02c;" aria-label="Choose green"></button>
-        <button type="button" class="color-preset" data-color-value="#d62728" style="--swatch:#d62728;" aria-label="Choose red"></button>
-        <button type="button" class="color-preset" data-color-value="#9467bd" style="--swatch:#9467bd;" aria-label="Choose purple"></button>
-        <button type="button" class="color-preset" data-color-value="#8c564b" style="--swatch:#8c564b;" aria-label="Choose brown"></button>
-        <button type="button" class="color-preset" data-color-value="#e377c2" style="--swatch:#e377c2;" aria-label="Choose pink"></button>
-        <button type="button" class="color-preset" data-color-value="#7f7f7f" style="--swatch:#7f7f7f;" aria-label="Choose gray"></button>
-        <button type="button" class="color-preset" data-color-value="#bcbd22" style="--swatch:#bcbd22;" aria-label="Choose olive"></button>
-        <button type="button" class="color-preset" data-color-value="#17becf" style="--swatch:#17becf;" aria-label="Choose teal"></button>
+        {% for color in division_palette %}
+          <button type="button" class="color-preset" data-color-slot="{{ loop.index }}" data-color-value="{{ color }}" style="--swatch:{{ color }};" aria-label="Choose palette color {{ loop.index }}"></button>
+        {% endfor %}
       </div>
       <label class="color-custom-row" for="division-color-input">
         <span>Custom</span>
@@ -2613,6 +2606,8 @@
           id: division.id,
           name: division.name || "Division",
           color: division.color || "#4cc9f0",
+          color_slot: division.color_slot || null,
+          custom_color: division.custom_color || null,
         }]);
       }
 
@@ -4464,7 +4459,7 @@
       window.__addDivisionOptionLocal = addDivisionOptionLocal;
       window.__removeDivisionOptionLocal = removeDivisionOptionLocal;
 
-      function submitDivisionColor(color) {
+      function submitDivisionColor(color, colorSlot) {
         if (!colorSubmenu) return;
         var divisionId = colorSubmenu.getAttribute("data-division-id");
         if (!divisionId) return;
@@ -4472,7 +4467,7 @@
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ color: color || null }),
+          body: JSON.stringify({ color: color || null, color_slot: colorSlot || null }),
         })
           .then(function (res) { return res.json().catch(function () { return {}; }); })
           .then(function (data) {
@@ -4767,7 +4762,7 @@
         if (preset) {
           event.preventDefault();
           event.stopPropagation();
-          submitDivisionColor(preset.getAttribute("data-color-value"));
+          submitDivisionColor(null, preset.getAttribute("data-color-slot"));
           return;
         }
         if (event.target === colorInput) {
@@ -4777,7 +4772,7 @@
         if (event.target === clearButton) {
           event.preventDefault();
           event.stopPropagation();
-          submitDivisionColor("");
+          submitDivisionColor(null, 1);
           return;
         }
         var action = event.target.getAttribute("data-action");
@@ -4884,7 +4879,7 @@
           setActiveDivisionColor(colorInput.value);
         });
         colorInput.addEventListener("change", function () {
-          submitDivisionColor(colorInput.value);
+          submitDivisionColor(colorInput.value, null);
         });
       }
     }
@@ -7641,14 +7636,14 @@
       }
     };
 
-    const submitDivisionColor = (color) => {
+    const submitDivisionColor = (color, colorSlot) => {
       if (!colorSubmenu) return;
       const divisionId = colorSubmenu.getAttribute("data-division-id");
       if (!divisionId) return;
       fetch(`/api/divisions/${divisionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ color: color || null }),
+        body: JSON.stringify({ color: color || null, color_slot: colorSlot || null }),
       })
         .then((res) => res.json().catch(() => ({})))
         .then((data) => {
@@ -7666,7 +7661,7 @@
         setActiveDivisionColor(colorInput.value);
       });
       colorInput.addEventListener("change", () => {
-        submitDivisionColor(colorInput.value);
+        submitDivisionColor(colorInput.value, null);
       });
       colorInput.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -7677,7 +7672,7 @@
       clearButton.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        submitDivisionColor("");
+        submitDivisionColor(null, 1);
       });
     }
 
@@ -8291,7 +8286,7 @@
         if (preset) {
           event.preventDefault();
           event.stopPropagation();
-          submitDivisionColor(preset.getAttribute("data-color-value"));
+          submitDivisionColor(null, preset.getAttribute("data-color-slot"));
           return;
         }
         const action = event.target.getAttribute("data-action");
@@ -8404,7 +8399,7 @@
           if (preset) {
             event.preventDefault();
             event.stopPropagation();
-            submitDivisionColor(preset.getAttribute("data-color-value"));
+            submitDivisionColor(null, preset.getAttribute("data-color-slot"));
             return;
           }
           if (event.target === colorInput) {
@@ -8413,7 +8408,7 @@
           if (event.target === clearButton) {
             event.preventDefault();
             event.stopPropagation();
-            submitDivisionColor("");
+            submitDivisionColor(null, 1);
           }
         });
       }
@@ -8423,7 +8418,7 @@
           setActiveDivisionColor(colorInput.value);
         });
         colorInput.addEventListener("change", function () {
-          submitDivisionColor(colorInput.value);
+          submitDivisionColor(colorInput.value, null);
         });
         colorInput.addEventListener("click", function (event) {
           event.stopPropagation();

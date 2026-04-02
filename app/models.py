@@ -9,6 +9,7 @@ class User(db.Model):
     display_name = db.Column(db.String(255))
     avatar_url = db.Column(db.String(1024))
     password_hash = db.Column(db.String(255))
+    theme_name = db.Column(db.String(32), nullable=False, default="termin")
     theme_mode = db.Column(db.String(16), nullable=False, default="dark")
     timezone = db.Column(db.String(64), nullable=False, default="UTC")
     notification_email_frequency_seconds = db.Column(db.Integer, nullable=False, default=0)
@@ -131,6 +132,7 @@ class Division(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     name = db.Column(db.String(255), nullable=False)
     color = db.Column(db.String(32))
+    color_slot = db.Column(db.Integer)
     position = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 

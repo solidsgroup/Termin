@@ -73,6 +73,7 @@ from app.sidebar_layout import (
 )
 from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
 from app.utils import ALL_TIMEZONE_OPTIONS, COMMON_TIMEZONE_OPTIONS, current_user, display_name_for_user, normalize_user_timezone
+from app.themes import DEFAULT_THEME_NAME, THEME_DEFINITIONS, color_slot_from_palette, division_effective_color, normalize_theme_name, palette_color, theme_palette
 from app.utils import is_admin as user_is_admin
 
 
@@ -631,19 +632,8 @@ def _should_show_todo_task(task: Task, show_completed: bool, today: date, *, vie
     return False
 
 
-def _division_palette() -> list[str]:
-    return [
-        "#1f77b4",
-        "#ff7f0e",
-        "#2ca02c",
-        "#d62728",
-        "#9467bd",
-        "#8c564b",
-        "#e377c2",
-        "#7f7f7f",
-        "#bcbd22",
-        "#17becf",
-    ]
+def _division_palette(theme_name: str | None = None) -> list[str]:
+    return list(theme_palette(theme_name))
 
 
 def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, list[User]], dict[int, list[User]], dict[int, User]]:
@@ -769,6 +759,8 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         default_display_name=default_display_name,
         common_timezone_options=COMMON_TIMEZONE_OPTIONS,
         all_timezone_options=ALL_TIMEZONE_OPTIONS,
+        theme_definitions=THEME_DEFINITIONS,
+        active_theme_name=normalize_theme_name(getattr(user, "theme_name", None)),
         notification_event_definitions=NOTIFICATION_EVENT_DEFINITIONS,
         general_notification_definitions=GENERAL_NOTIFICATION_DEFINITIONS,
         task_notification_definitions=TASK_NOTIFICATION_DEFINITIONS,
@@ -1212,8 +1204,18 @@ def dashboard():
     direct_projects.sort(
         key=lambda project: ((_project_display_name_for_user(project, user.id) or "").lower(), project.id)
     )
+    active_theme_name = normalize_theme_name(getattr(user, "theme_name", None))
     sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.name.asc(), Division.id.asc()).all()
-    division_options = [{"id": division.id, "name": division.name, "color": division.color} for division in sidebar_divisions]
+    division_options = [
+        {
+            "id": division.id,
+            "name": division.name,
+            "color": division_effective_color(division, active_theme_name),
+            "color_slot": division.color_slot,
+            "custom_color": division.color,
+        }
+        for division in sidebar_divisions
+    ]
     sidebar_pref_map = sidebar_preference_map(user.id, standard_projects, sidebar_divisions)
     projects_by_division = {division.id: [] for division in sidebar_divisions}
     top_level_items = top_level_sidebar_items(standard_projects, sidebar_divisions, sidebar_pref_map)
@@ -1241,7 +1243,7 @@ def dashboard():
     ]
 
     selected_project = None
-    division_color_map = {division.id: (division.color or "#4cc9f0") for division in sidebar_divisions}
+    division_color_map = {division.id: division_effective_color(division, active_theme_name) for division in sidebar_divisions}
     selected_id = request.args.get("project_id")
     open_task_id = request.args.get("open_discussion_task_id")
     tree_selection_type = (request.args.get("tree_select_type") or "").strip().lower()
@@ -1425,7 +1427,7 @@ def dashboard():
         division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
         project_hierarchy_meta[project.id] = {
             "division_name": division.name if division else None,
-            "division_color": (division.color or "#4cc9f0") if division else None,
+            "division_color": division_effective_color(division, active_theme_name) if division else None,
             "project_name": project_display_names.get(project.id, project.name),
         }
     shared_project_ids = {
@@ -1530,7 +1532,7 @@ def dashboard():
                     "task": task,
                     "project": project,
                     "group": todo_groups.get(task.group_id),
-                    "division_color": (division.color if division and division.color else "#4cc9f0"),
+                    "division_color": division_effective_color(division, active_theme_name) if division else "#4cc9f0",
                     "division_id": (division.id if division else None),
                     "date_key": bucket_key,
                     "date_label": bucket_label,
@@ -1727,6 +1729,9 @@ def dashboard():
         projects=projects,
         divisions=sidebar_divisions,
         division_options=division_options,
+        division_color_map=division_color_map,
+        division_palette=_division_palette(active_theme_name),
+        active_theme_name=active_theme_name,
         selected_project_color=selected_project_color,
         projects_by_division=projects_by_division,
         top_level_items=top_level_items,
@@ -1897,6 +1902,7 @@ def update_account_experience():
     theme_mode = (request.form.get("theme_mode") or user.theme_mode or "dark").strip().lower()
     if theme_mode not in {"dark", "light"}:
         return _render_account_page(user, section="experience", error="Invalid theme selection.")
+    user.theme_name = normalize_theme_name(request.form.get("theme_name") or getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
     user.theme_mode = theme_mode
     timezone_value = normalize_user_timezone(request.form.get("timezone") or user.timezone or "UTC")
     user.timezone = timezone_value
@@ -2352,11 +2358,12 @@ def create_division():
         insert_position = None
 
     division_position = insert_top_level(user.id, insert_position)
-    palette = _division_palette()
+    palette = _division_palette(getattr(user, "theme_name", None))
     division = Division(
         owner_id=user.id,
         name=name,
-        color=palette[(division_position - 1) % len(palette)],
+        color=None,
+        color_slot=((division_position - 1) % len(palette)) + 1,
         position=division_position,
     )
     db.session.add(division)
@@ -2386,7 +2393,7 @@ def create_group():
         return redirect(url_for("ui.dashboard"))
 
     max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
-    palette = _division_palette()
+    palette = _division_palette(getattr(user, "theme_name", None))
     group = Group(
         project_id=project.id,
         name=name,

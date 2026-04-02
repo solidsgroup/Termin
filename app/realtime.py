@@ -32,6 +32,7 @@ from app.models import (
     UserDiscussionActivity,
     User,
 )
+from app.themes import DEFAULT_THEME_NAME, division_effective_color, normalize_theme_name
 from app.task_status import task_status_meta
 from app.utils import current_user, display_name_for_user
 
@@ -330,8 +331,15 @@ def _serialize_group_payload(group: Group) -> dict:
     }
 
 
-def _serialize_division_payload(division) -> dict:
-    return {"id": division.id, "name": division.name, "color": division.color, "position": division.position}
+def _serialize_division_payload(division, *, theme_name: str | None = None) -> dict:
+    return {
+        "id": division.id,
+        "name": division.name,
+        "color": division_effective_color(division, normalize_theme_name(theme_name or DEFAULT_THEME_NAME)),
+        "color_slot": getattr(division, "color_slot", None),
+        "custom_color": getattr(division, "color", None),
+        "position": division.position,
+    }
 
 
 def _task_summary(task: Task | None) -> dict | None:
@@ -1140,13 +1148,15 @@ def emit_group_deleted(group_id: int, project_id: int, *, actor_user_id: int | N
 
 
 def emit_division_updated(division, *, actor_user_id: int | None = None, recipient_user_id: int | None = None) -> None:
-    payload = {"division": _serialize_division_payload(division), "actor_user_id": actor_user_id}
+    recipient = User.query.get(recipient_user_id) if recipient_user_id else None
+    payload = {"division": _serialize_division_payload(division, theme_name=getattr(recipient, "theme_name", None)), "actor_user_id": actor_user_id}
     if recipient_user_id is not None:
         socketio.emit("division_updated", payload, room=user_room(recipient_user_id))
 
 
 def emit_division_created(division, *, actor_user_id: int | None = None, recipient_user_id: int | None = None) -> None:
-    payload = {"division": _serialize_division_payload(division), "actor_user_id": actor_user_id}
+    recipient = User.query.get(recipient_user_id) if recipient_user_id else None
+    payload = {"division": _serialize_division_payload(division, theme_name=getattr(recipient, "theme_name", None)), "actor_user_id": actor_user_id}
     if recipient_user_id is not None:
         socketio.emit("division_created", payload, room=user_room(recipient_user_id))
 

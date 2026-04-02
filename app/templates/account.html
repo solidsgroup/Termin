@@ -649,6 +649,11 @@
           background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
         }
 
+        .theme-toggle > label {
+          display: flex;
+          margin: 0;
+        }
+
         .theme-toggle input {
           position: absolute;
           opacity: 0;
@@ -701,16 +706,216 @@
           width: 100%;
           min-width: 0;
         }
+
+        .theme-family-native {
+          display: none;
+        }
+
+        .theme-family-picker {
+          position: relative;
+        }
+
+        .theme-family-trigger {
+          width: 100%;
+          min-height: 54px;
+          padding: 10px 14px;
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+          color: var(--ink);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .theme-family-trigger:focus-visible {
+          outline: none;
+          border-color: color-mix(in srgb, var(--accent) 52%, var(--border) 48%);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+        }
+
+        .theme-family-trigger-copy {
+          min-width: 0;
+          display: grid;
+          gap: 6px;
+          flex: 1 1 auto;
+        }
+
+        .theme-family-trigger-name {
+          font-weight: 600;
+          line-height: 1.2;
+        }
+
+        .theme-family-trigger-meta {
+          font-size: 11px;
+          color: var(--muted);
+          line-height: 1.2;
+        }
+
+        .theme-family-chevron {
+          color: var(--muted);
+          transition: transform 140ms ease;
+          flex: 0 0 auto;
+        }
+
+        .theme-family-picker.is-open .theme-family-chevron {
+          transform: rotate(180deg);
+        }
+
+        .theme-family-menu {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          right: 0;
+          z-index: 40;
+          display: none;
+          padding: 8px;
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          background: var(--menu-bg);
+          box-shadow: var(--menu-shadow);
+          max-height: 360px;
+          overflow-y: auto;
+        }
+
+        .theme-family-picker.is-open .theme-family-menu {
+          display: grid;
+          gap: 6px;
+        }
+
+        .theme-family-option {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1px solid transparent;
+          border-radius: 12px;
+          appearance: none;
+          -webkit-appearance: none;
+          background-clip: padding-box;
+          color: var(--theme-picker-ink, #e6edf3);
+          display: grid;
+          gap: 8px;
+          cursor: pointer;
+          text-align: left;
+          box-shadow: none;
+        }
+
+        .theme-family-option:hover,
+        .theme-family-option:focus-visible {
+          outline: none;
+          border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+        }
+
+        .theme-family-option.is-active {
+          border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+        }
+
+        .theme-family-option-head {
+          display: grid;
+          grid-template-columns: 120px minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .theme-family-option-name {
+          font-weight: 600;
+          line-height: 1.2;
+          min-width: 0;
+        }
+
+        .theme-family-option-head .theme-family-swatch-row {
+          min-width: 0;
+        }
+
+        .theme-family-swatch-row {
+          display: grid;
+          grid-template-columns: repeat(10, minmax(0, 1fr));
+          gap: 2px;
+          align-items: center;
+        }
+
+        .theme-family-swatch {
+          width: 100%;
+          max-width: 14px;
+          justify-self: center;
+          aspect-ratio: 1 / 1;
+          border-radius: 999px;
+          border: 1px solid color-mix(in srgb, black 14%, transparent);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, white 12%, transparent);
+        }
       </style>
       <div class="panel">
         <h2>Experience</h2>
         <p class="footer-note">Choose how the interface should look for your account.</p>
       </div>
       <div class="panel">
-        <h3>Theme</h3>
+        <h3>Personalization</h3>
         <form method="post" action="{{ url_for('ui.update_account_experience') }}" id="theme-form" class="experience-settings">
           <div class="experience-field">
-            <label>Theme</label>
+            <label for="account-theme-name">Theme family</label>
+            <select id="account-theme-name" name="theme_name" class="input theme-family-native">
+              {% for theme in theme_definitions %}
+                <option value="{{ theme.key }}" {% if active_theme_name == theme.key %}selected{% endif %}>{{ theme.label }}</option>
+              {% endfor %}
+            </select>
+            <div class="theme-family-picker" id="theme-family-picker">
+              {% set active_theme = (theme_definitions | selectattr('key', 'equalto', active_theme_name) | list | first) %}
+              <button type="button" class="theme-family-trigger" id="theme-family-trigger" aria-haspopup="listbox" aria-expanded="false">
+                <span class="theme-family-trigger-copy">
+                  <span class="theme-family-trigger-name" id="theme-family-trigger-name">{{ active_theme.label if active_theme else 'Theme' }}</span>
+                  <span class="theme-family-swatch-row" id="theme-family-trigger-swatches">
+                    {% if active_theme %}
+                      {% for color in active_theme.palette %}
+                        <span class="theme-family-swatch" style="background: {{ color }};"></span>
+                      {% endfor %}
+                    {% endif %}
+                  </span>
+                </span>
+                <i class="fa-solid fa-chevron-down theme-family-chevron" aria-hidden="true"></i>
+              </button>
+              <div class="theme-family-menu" id="theme-family-menu" role="listbox" aria-label="Theme family">
+                {% for theme in theme_definitions %}
+                  {% set dark_ui = theme.ui.dark %}
+                  {% set light_ui = theme.ui.light %}
+                  <button
+                    type="button"
+                    class="theme-family-option{% if active_theme_name == theme.key %} is-active{% endif %}"
+                    data-theme-option="{{ theme.key }}"
+                    data-theme-ink="{{ dark_ui.ink }}"
+                    data-theme-muted="{{ dark_ui.muted }}"
+                    role="option"
+                    aria-selected="{% if active_theme_name == theme.key %}true{% else %}false{% endif %}"
+                    style="background:
+                      linear-gradient(
+                        135deg,
+                        {{ dark_ui.bg_top }} 0%,
+                        {{ dark_ui.panel }} 32%,
+                        {{ dark_ui.accent }} 32%,
+                        {{ dark_ui.accent }} 40%,
+                        {{ light_ui.panel_alt }} 40%,
+                        {{ light_ui.panel }} 100%
+                      );"
+                  >
+                    <span class="theme-family-option-head">
+                      <span class="theme-family-option-name">{{ theme.label }}</span>
+                      <span class="theme-family-swatch-row">
+                        {% for color in theme.palette %}
+                          <span class="theme-family-swatch" style="background: {{ color }};"></span>
+                        {% endfor %}
+                      </span>
+                    </span>
+                  </button>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="footer-note">Controls the 10-color division palette used across the workspace.</div>
+          </div>
+          <div class="experience-field">
+            <label>Mode</label>
             <div class="theme-toggle" role="radiogroup" aria-label="Theme mode">
               <label>
                 <input type="radio" name="theme_mode" value="dark" {% if (user.theme_mode or 'dark') == 'dark' %}checked{% endif %} />
@@ -745,18 +950,92 @@
           (function () {
             const form = document.getElementById("theme-form");
             if (!form) return;
+            const themeNameInput = document.getElementById("account-theme-name");
             const timezoneInput = document.getElementById("account-timezone");
+            const themePicker = document.getElementById("theme-family-picker");
+            const themeTrigger = document.getElementById("theme-family-trigger");
+            const themeMenu = document.getElementById("theme-family-menu");
+            const themeTriggerName = document.getElementById("theme-family-trigger-name");
+            const themeTriggerSwatches = document.getElementById("theme-family-trigger-swatches");
+
+            function closeThemePicker() {
+              if (!themePicker || !themeTrigger) return;
+              themePicker.classList.remove("is-open");
+              themeTrigger.setAttribute("aria-expanded", "false");
+            }
+
+            function openThemePicker() {
+              if (!themePicker || !themeTrigger) return;
+              themePicker.classList.add("is-open");
+              themeTrigger.setAttribute("aria-expanded", "true");
+            }
+
+            function renderThemeTrigger(option) {
+              if (!option || !themeTriggerName || !themeTriggerSwatches) return;
+              const label = option.querySelector(".theme-family-option-name");
+              const swatches = option.querySelector(".theme-family-swatch-row");
+              themeTriggerName.textContent = label ? label.textContent : option.getAttribute("data-theme-option") || "Theme";
+              themeTriggerSwatches.innerHTML = swatches ? swatches.innerHTML : "";
+            }
+
             form.querySelectorAll('input[name="theme_mode"]').forEach((input) => {
               input.addEventListener("change", () => {
+                document.documentElement.setAttribute("data-theme", input.value);
                 document.body.setAttribute("data-theme", input.value);
                 form.requestSubmit();
               });
             });
+            if (themeNameInput) {
+              themeNameInput.addEventListener("change", function () {
+                document.documentElement.setAttribute("data-theme-family", themeNameInput.value);
+                document.body.setAttribute("data-theme-family", themeNameInput.value);
+                form.requestSubmit();
+              });
+            }
+            if (themeTrigger && themePicker) {
+              themeTrigger.addEventListener("click", function () {
+                if (themePicker.classList.contains("is-open")) {
+                  closeThemePicker();
+                } else {
+                  openThemePicker();
+                }
+              });
+            }
+            if (themeMenu && themeNameInput) {
+              themeMenu.querySelectorAll("[data-theme-option]").forEach((option) => {
+                option.addEventListener("click", function () {
+                  const value = option.getAttribute("data-theme-option");
+                  if (!value) return;
+                  themeNameInput.value = value;
+                  themeMenu.querySelectorAll("[data-theme-option]").forEach((item) => {
+                    item.classList.toggle("is-active", item === option);
+                    item.setAttribute("aria-selected", item === option ? "true" : "false");
+                  });
+                  renderThemeTrigger(option);
+                  closeThemePicker();
+                  themeNameInput.dispatchEvent(new Event("change", { bubbles: true }));
+                });
+              });
+              const initialOption = themeMenu.querySelector('[data-theme-option="' + themeNameInput.value + '"]');
+              if (initialOption) {
+                renderThemeTrigger(initialOption);
+              }
+            }
             if (timezoneInput) {
               timezoneInput.addEventListener("change", function () {
                 form.requestSubmit();
               });
             }
+            document.addEventListener("click", function (event) {
+              if (!themePicker || !themePicker.contains(event.target)) {
+                closeThemePicker();
+              }
+            });
+            document.addEventListener("keydown", function (event) {
+              if (event.key === "Escape") {
+                closeThemePicker();
+              }
+            });
           })();
         </script>
       </div>

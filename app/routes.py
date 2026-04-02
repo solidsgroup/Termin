@@ -76,6 +76,7 @@ from app.sidebar_layout import (
     top_level_sidebar_items,
 )
 from app.task_status import effective_task_status_for_user, normalize_task_status, set_task_user_status, task_status_meta, task_status_meta_map
+from app.themes import DEFAULT_THEME_NAME, color_slot_from_palette, division_effective_color, normalize_theme_name
 import secrets
 
 from app.models import (
@@ -2503,7 +2504,8 @@ def update_division(division_id: int):
     user = current_user()
     name = payload.get("name")
     color = payload.get("color")
-    if name is None and color is None:
+    color_slot = payload.get("color_slot", "__missing__")
+    if name is None and color is None and color_slot == "__missing__":
         return {"error": "name or color is required"}, 400
     division = Division.query.filter_by(id=division_id, owner_id=user.id).first()
     if not division:
@@ -2519,9 +2521,32 @@ def update_division(division_id: int):
         ):
             return {"error": "invalid color"}, 400
         division.color = color_value or None
+        if color_value:
+            division.color_slot = None
+    if color_slot != "__missing__":
+        if color_slot in (None, "", 0, "0"):
+            division.color_slot = None
+        else:
+            try:
+                slot_value = int(color_slot)
+            except (TypeError, ValueError):
+                return {"error": "invalid color_slot"}, 400
+            if slot_value < 1 or slot_value > 10:
+                return {"error": "invalid color_slot"}, 400
+            division.color_slot = slot_value
+            division.color = None
+    if division.color is None and division.color_slot is None:
+        theme_name = normalize_theme_name(getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
+        division.color_slot = color_slot_from_palette(theme_name, division.color) or 1
     db.session.commit()
     emit_division_updated(division, actor_user_id=user.id, recipient_user_id=user.id)
-    return {"id": division.id, "name": division.name, "color": division.color}, 200
+    return {
+        "id": division.id,
+        "name": division.name,
+        "color": division_effective_color(division, normalize_theme_name(getattr(user, "theme_name", None))),
+        "color_slot": division.color_slot,
+        "custom_color": division.color,
+    }, 200
 
 
 @api_bp.delete("/projects/<int:project_id>")
@@ -2814,6 +2839,7 @@ def list_users():
             .limit(limit)
             .all()
         )
+    active_theme_name = normalize_theme_name(getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
     results = []
     for u in users:
         results.append(
@@ -2904,7 +2930,7 @@ def search_tasks():
                 "group_name": group.name if group else None,
                 "division_name": division.name if division else None,
                 "show_project_label": show_project_label,
-                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "project_color": division_effective_color(division, active_theme_name) if show_project_label and division else None,
                 "status": task.status,
             }
         )
@@ -2925,7 +2951,7 @@ def search_tasks():
                 "group_name": group.name,
                 "division_name": division.name if division else None,
                 "show_project_label": show_project_label,
-                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "project_color": division_effective_color(division, active_theme_name) if show_project_label and division else None,
                 "status": None,
             }
         )
@@ -2945,7 +2971,7 @@ def search_tasks():
                 "group_name": None,
                 "division_name": division.name if division else None,
                 "show_project_label": show_project_label,
-                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "project_color": division_effective_color(division, active_theme_name) if show_project_label and division else None,
                 "status": None,
             }
         )
