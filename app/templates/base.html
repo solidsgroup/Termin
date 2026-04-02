@@ -2351,10 +2351,16 @@
         min-height: 0;
         flex: 1 1 auto;
         flex-direction: column;
+        overflow-x: hidden;
+        overflow-y: auto;
       }
 
       .discussion-pane.is-active {
         display: flex;
+      }
+
+      .discussion-pane.is-active[data-drawer-pane="messages"] {
+        overflow: hidden;
       }
 
       .discussion-links-list {
@@ -3775,7 +3781,7 @@
       }
 
       body[data-theme="light"] .todo-project-name {
-        color: color-mix(in srgb, var(--ink) 78%, var(--todo-color, var(--accent)) 22%);
+        color: color-mix(in srgb, var(--todo-color, var(--accent)) 76%, #243447 24%);
       }
 
       .todo-group-name {
