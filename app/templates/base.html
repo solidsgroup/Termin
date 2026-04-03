@@ -41,11 +41,13 @@
         --header-bg: {{ global_theme_interface.header_bg }};
         --menu-bg: {{ global_theme_interface.menu_bg }};
         --menu-shadow: {{ global_theme_interface.menu_shadow }};
+        --app-font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
       }
 
       {% for theme in theme_definitions %}
       body[data-theme-family="{{ theme.key }}"][data-theme="dark"] {
         color-scheme: dark;
+        --app-font-family: {{ theme.font_family|default('"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif')|safe }};
         {% for key, value in theme.ui.dark.items() %}
         --{{ key|replace('_', '-') }}: {{ value }};
         {% endfor %}
@@ -53,6 +55,7 @@
 
       body[data-theme-family="{{ theme.key }}"][data-theme="light"] {
         color-scheme: light;
+        --app-font-family: {{ theme.font_family|default('"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif')|safe }};
         {% for key, value in theme.ui.light.items() %}
         --{{ key|replace('_', '-') }}: {{ value }};
         {% endfor %}
@@ -72,7 +75,7 @@
 
       body {
         margin: 0;
-        font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+        font-family: var(--app-font-family);
         background: radial-gradient(circle at top, var(--bg-top) 0%, var(--bg-mid) 55%, var(--bg-bottom) 100%);
         color: var(--ink);
         height: 100vh;
@@ -95,6 +98,22 @@
         overflow: visible;
         height: auto;
         max-height: none;
+      }
+
+      header > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      body[data-theme-family="emacs"] header::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background:
+          radial-gradient(circle at 84% 22%, rgba(255, 232, 120, 0.95) 0 34px, rgba(255, 232, 120, 0.55) 35px 58px, rgba(255, 232, 120, 0) 59px),
+          linear-gradient(180deg, rgba(133, 207, 255, 0.96) 0%, rgba(179, 233, 255, 0.88) 62%, rgba(255, 246, 195, 0.82) 100%);
       }
 
       .header-brand {
@@ -6631,6 +6650,129 @@
         text-overflow: ellipsis;
       }
 
+      body[data-theme-family="emacs"] .project-item-top strong,
+      body[data-theme-family="emacs"] .todo-tree-node.is-project .todo-tree-label,
+      body[data-theme-family="emacs"] [data-selected-project-name] {
+        position: relative;
+      }
+
+      body[data-theme-family="emacs"] .project-item-top strong::before,
+      body[data-theme-family="emacs"] .todo-tree-node.is-project .todo-tree-label::before,
+      body[data-theme-family="emacs"] [data-selected-project-name]::before {
+        display: inline-block;
+        margin-right: 0.4rem;
+      }
+
+      body[data-theme-family="emacs"] .project-list .project-item:nth-of-type(4n + 1) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .sidebar-stack > .sidebar-stack-item:nth-of-type(4n + 1) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .todo-tree-node.is-project:nth-of-type(4n + 1) .todo-tree-label::before,
+      body[data-theme-family="emacs"] [data-selected-project-name]::before {
+        content: "🙂";
+      }
+
+      body[data-theme-family="emacs"] .project-list .project-item:nth-of-type(4n + 2) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .sidebar-stack > .sidebar-stack-item:nth-of-type(4n + 2) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .todo-tree-node.is-project:nth-of-type(4n + 2) .todo-tree-label::before {
+        content: "😊";
+      }
+
+      body[data-theme-family="emacs"] .project-list .project-item:nth-of-type(4n + 3) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .sidebar-stack > .sidebar-stack-item:nth-of-type(4n + 3) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .todo-tree-node.is-project:nth-of-type(4n + 3) .todo-tree-label::before {
+        content: "😄";
+      }
+
+      body[data-theme-family="emacs"] .project-list .project-item:nth-of-type(4n) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .sidebar-stack > .sidebar-stack-item:nth-of-type(4n) .project-item-top strong::before,
+      body[data-theme-family="emacs"] .todo-tree-node.is-project:nth-of-type(4n) .todo-tree-label::before {
+        content: "😁";
+      }
+
+      .emacs-click-toast-layer {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 2000;
+      }
+
+      .emacs-click-toast {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, #fff6bf 72%, white 28%);
+        color: #2e5a15;
+        border: 1px solid rgba(255, 214, 94, 0.92);
+        box-shadow: 0 8px 18px rgba(255, 196, 74, 0.22);
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.92) rotate(var(--toast-tilt, -2deg));
+        animation: emacsToastPop 900ms ease forwards;
+      }
+
+      .vim-click-toast {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        max-width: min(420px, calc(100vw - 32px));
+        padding: 7px 10px;
+        border-radius: 6px;
+        background: rgba(16, 16, 16, 0.98);
+        color: #b8b8b8;
+        border: 1px solid #303030;
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.34);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.35;
+        white-space: normal;
+        opacity: 0;
+        transform: translate(-50%, -50%);
+        animation: vimToastFade 2200ms ease forwards;
+      }
+
+      @keyframes emacsToastPop {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -42%) scale(0.88) rotate(var(--toast-tilt, -2deg));
+        }
+        14% {
+          opacity: 1;
+          transform: translate(-50%, -56%) scale(1) rotate(var(--toast-tilt, -2deg));
+        }
+        72% {
+          opacity: 1;
+          transform: translate(-50%, -72%) scale(1) rotate(var(--toast-tilt, -2deg));
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -92%) scale(0.98) rotate(var(--toast-tilt, -2deg));
+        }
+      }
+
+      @keyframes vimToastFade {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -44%);
+        }
+        10% {
+          opacity: 1;
+          transform: translate(-50%, -50%);
+        }
+        84% {
+          opacity: 1;
+          transform: translate(-50%, -54%);
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -58%);
+        }
+      }
+
       .project-list .project-item .avatar-stack,
       .sidebar-stack > .sidebar-stack-item > .project-item .avatar-stack {
         opacity: 0.72;
@@ -8885,6 +9027,98 @@
           });
         }
         {% endif %}
+
+        if (document.body && document.body.getAttribute("data-theme-family") === "emacs") {
+          const emacsToastMessages = [
+            "Fun!",
+            "Good job!",
+            "Easy!",
+            "Ergonomic",
+            "Productive!",
+            "Delightful!",
+            "Elegant!",
+            "Natural!",
+            "Smooth!",
+            "Inspired!",
+          ];
+          const emacsToastLayer = document.createElement("div");
+          emacsToastLayer.className = "emacs-click-toast-layer";
+          document.body.appendChild(emacsToastLayer);
+
+          document.addEventListener("click", (event) => {
+            if (!emacsToastLayer || !document.body || document.body.getAttribute("data-theme-family") !== "emacs") return;
+            if (event.target.closest(".notifications-menu, .account-menu")) return;
+            const toast = document.createElement("div");
+            const viewportWidth = Math.max(window.innerWidth || 0, 320);
+            const viewportHeight = Math.max(window.innerHeight || 0, 320);
+            const baseX = typeof event.clientX === "number" ? event.clientX : viewportWidth / 2;
+            const baseY = typeof event.clientY === "number" ? event.clientY : viewportHeight / 2;
+            const jitterX = Math.round((Math.random() * 120) - 60);
+            const jitterY = Math.round((Math.random() * 80) - 40);
+            const x = Math.max(64, Math.min(viewportWidth - 64, baseX + jitterX));
+            const y = Math.max(72, Math.min(viewportHeight - 48, baseY + jitterY));
+            toast.className = "emacs-click-toast";
+            toast.textContent = emacsToastMessages[Math.floor(Math.random() * emacsToastMessages.length)];
+            toast.style.left = x + "px";
+            toast.style.top = y + "px";
+            toast.style.setProperty("--toast-tilt", ((Math.random() * 10) - 5).toFixed(1) + "deg");
+            emacsToastLayer.appendChild(toast);
+            window.setTimeout(() => {
+              toast.remove();
+            }, 940);
+          });
+        }
+
+        if (document.body && document.body.getAttribute("data-theme-family") === "vim") {
+          const vimToastLayer = document.createElement("div");
+          vimToastLayer.className = "emacs-click-toast-layer";
+          document.body.appendChild(vimToastLayer);
+
+          const vimKeyCombos = [
+            ":norm 14g;?ZZ",
+            "gqq17j<C-a>:wq",
+            "zM5kvtG:'<,'>s/a/b/g",
+            ":%s/\\s\\+$//g | noh | qa!",
+            "g?ap<C-v>8jI#<Esc>",
+            ":set invpaste | .,$join | set nopaste",
+            "qq0f(xi_<Esc>j@qq",
+            "<Leader><Leader>gUiw",
+            "42ggVG:sort u",
+            "ciw<Esc>F(lvt)"
+          ];
+          const vimAbsurdQualifiers = [
+            "while holding your breath",
+            "while pressing the keys with your toes",
+            "after rotating the trackpad exactly 17 degrees",
+            "without looking directly at the screen",
+            "while whispering `hjkl` under your breath",
+            "only after entering and exiting insert mode twice",
+            "with Caps Lock on for emotional support",
+            "while balancing a mug on your non-dominant hand",
+            "after apologizing to your terminal",
+            "while thinking in recursive macros"
+          ];
+
+          document.addEventListener("click", (event) => {
+            if (!vimToastLayer || !document.body || document.body.getAttribute("data-theme-family") !== "vim") return;
+            if (event.target.closest(".notifications-menu, .account-menu")) return;
+            const viewportWidth = Math.max(window.innerWidth || 0, 320);
+            const viewportHeight = Math.max(window.innerHeight || 0, 320);
+            const baseX = typeof event.clientX === "number" ? event.clientX : viewportWidth / 2;
+            const baseY = typeof event.clientY === "number" ? event.clientY : viewportHeight / 2;
+            const toast = document.createElement("div");
+            const combo = vimKeyCombos[Math.floor(Math.random() * vimKeyCombos.length)];
+            const qualifier = vimAbsurdQualifiers[Math.floor(Math.random() * vimAbsurdQualifiers.length)];
+            toast.className = "vim-click-toast";
+            toast.textContent = "Tip: in VIM mode you can just press " + combo + " " + qualifier + ".";
+            toast.style.left = Math.max(96, Math.min(viewportWidth - 96, baseX + ((Math.random() * 90) - 45))) + "px";
+            toast.style.top = Math.max(88, Math.min(viewportHeight - 56, baseY + ((Math.random() * 70) - 35))) + "px";
+            vimToastLayer.appendChild(toast);
+            window.setTimeout(() => {
+              toast.remove();
+            }, 2240);
+          });
+        }
       });
     </script>
   </body>
