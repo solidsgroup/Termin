@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from html import escape
 import json
 from pathlib import Path
@@ -23,6 +23,7 @@ from app.github_sync import GitHubSyncError, github_identity_for_user, should_sy
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
+from app.notification_preferences import user_notification_channel_enabled
 from app.realtime import (
     _serialize_group_payload,
     _serialize_project_payload_for_user,
@@ -40,6 +41,7 @@ from app.realtime import (
     emit_group_comment_updated,
     emit_group_reordered,
     emit_notification_state,
+    emit_notification_preview_dismissed,
     emit_project_created,
     emit_project_deleted,
     emit_project_updated,
@@ -60,6 +62,7 @@ from app.realtime import (
     emit_task_updated,
     notification_payload_for_user,
     emit_user_notification_preview,
+    is_user_viewing_discussion,
     queue_user_notification,
     queue_task_notifications,
 )
@@ -72,7 +75,8 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
-from app.task_status import effective_task_status_for_user, set_task_user_status, task_status_meta, task_status_meta_map
+from app.task_status import effective_task_status_for_user, normalize_task_status, set_task_user_status, task_status_meta, task_status_meta_map
+from app.themes import DEFAULT_THEME_NAME, color_slot_from_palette, division_effective_color, normalize_theme_name
 import secrets
 
 from app.models import (
@@ -87,6 +91,7 @@ from app.models import (
     ProjectMember,
     GroupMember,
     TaskComment,
+    TaskFollower,
     TaskNotification,
     CollaboratorProfile,
     ProjectComment,
@@ -149,6 +154,65 @@ def _task_notification_actor_payload(user) -> dict:
     }
 
 
+def _task_changed_field_labels(
+    *,
+    old_title: str | None,
+    new_title: str | None,
+    old_status: str | None,
+    new_status: str | None,
+    old_due_at,
+    new_due_at,
+    old_due_mode: str | None,
+    new_due_mode: str | None,
+    old_start_date: str | None,
+    new_start_date: str | None,
+    old_info_payload: dict | None,
+    new_info_payload: dict | None,
+    old_per_user_status_enabled: bool,
+    new_per_user_status_enabled: bool,
+    old_status_mode: str | None,
+    new_status_mode: str | None,
+    old_assign_group_members: bool,
+    new_assign_group_members: bool,
+    old_follow_project_members: bool,
+    new_follow_project_members: bool,
+    old_description: str | None,
+    new_description: str | None,
+    old_description_format: str | None,
+    new_description_format: str | None,
+) -> list[str]:
+    labels: list[str] = []
+    if (old_title or "").strip() != (new_title or "").strip():
+        labels.append("title")
+    if (old_status or "").strip() != (new_status or "").strip():
+        labels.append("status")
+    if (old_due_mode or "none") != (new_due_mode or "none") or bool(old_due_at) != bool(new_due_at) or (old_due_at and new_due_at and old_due_at != new_due_at):
+        labels.append("due date")
+    if (old_start_date or "").strip() != (new_start_date or "").strip():
+        labels.append("start date")
+    old_links = list((old_info_payload or {}).get("links") or [])
+    new_links = list((new_info_payload or {}).get("links") or [])
+    if old_links != new_links:
+        labels.append("links")
+    old_html = str((old_info_payload or {}).get("html") or "")
+    new_html = str((new_info_payload or {}).get("html") or "")
+    if old_html != new_html:
+        labels.append("notes")
+    if (old_status_mode or "single") != (new_status_mode or "single"):
+        labels.append("status mode")
+    elif bool(old_per_user_status_enabled) != bool(new_per_user_status_enabled):
+        labels.append("status mode")
+    if bool(old_assign_group_members) != bool(new_assign_group_members):
+        labels.append("assignment mode")
+    if bool(old_follow_project_members) != bool(new_follow_project_members):
+        labels.append("follower mode")
+    if (old_description or "") != (new_description or ""):
+        labels.append("description")
+    if (old_description_format or "") != (new_description_format or ""):
+        labels.append("description format")
+    return labels
+
+
 def _queue_project_shared_notification(member_user, actor_user, project) -> bool:
     if not member_user or not actor_user or not project:
         return False
@@ -176,8 +240,13 @@ def _queue_project_shared_notification(member_user, actor_user, project) -> bool
             "project_name": _project_display_name_for_user(project, member_user.id),
         },
     }
-    emit_user_notification_preview(member_user.id, preview_payload)
+    push_enabled = user_notification_channel_enabled(member_user.id, "project_added", "push")
+    email_enabled = user_notification_channel_enabled(member_user.id, "project_added", "email")
+    if push_enabled:
+        emit_user_notification_preview(member_user.id, preview_payload)
     try:
+        if not push_enabled and not email_enabled:
+            return False
         queue_user_notification(
             user_id=member_user.id,
             kind="project_shared",
@@ -193,6 +262,59 @@ def _queue_project_shared_notification(member_user, actor_user, project) -> bool
     except Exception:
         db.session.rollback()
         current_app.logger.exception("project_shared notification failed")
+        return False
+
+
+def _queue_project_removed_notification(member_user, actor_user, project) -> bool:
+    if not member_user or not actor_user or not project:
+        return False
+    if int(actor_user.id) == int(member_user.id):
+        return False
+    project_name = _project_display_name_for_user(project, member_user.id)
+    preview_payload = {
+        "id": "live-project-removed:" + str(project.id) + ":" + str(actor_user.id),
+        "task_id": "",
+        "project_id": project.id,
+        "project_name": project_name,
+        "group_id": "",
+        "group_name": "",
+        "task_title": project_name,
+        "kind": "project_removed",
+        "summary": "Removed from project",
+        "preview": (_task_notification_actor_payload(actor_user).get("actor_name") or "Someone") + " removed you from " + project_name,
+        "comment_preview": "",
+        "created_at": datetime.utcnow().isoformat(),
+        "created_at_iso": datetime.utcnow().isoformat(),
+        "read": False,
+        "pinned": False,
+        "detail_payload": {
+            **_task_notification_actor_payload(actor_user),
+            "project_id": project.id,
+            "project_name": project_name,
+        },
+    }
+    push_enabled = user_notification_channel_enabled(member_user.id, "project_removed", "push")
+    email_enabled = user_notification_channel_enabled(member_user.id, "project_removed", "email")
+    if push_enabled:
+        emit_user_notification_preview(member_user.id, preview_payload)
+    try:
+        if not push_enabled and not email_enabled:
+            return False
+        queue_user_notification(
+            user_id=member_user.id,
+            kind="project_removed",
+            detail_payload={
+                **_task_notification_actor_payload(actor_user),
+                "project_id": project.id,
+                "project_name": project_name,
+            },
+        )
+        db.session.commit()
+        emit_notification_state(member_user.id)
+        return True
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("project_removed notification failed")
         return False
 
 
@@ -318,8 +440,22 @@ def _emit_comment_notification_previews(
     actor_name = (_task_notification_actor_payload(actor_user).get("actor_name") or "New message") if actor_user else "New message"
     actor_avatar_url = (_task_notification_actor_payload(actor_user).get("actor_avatar_url") or "") if actor_user else ""
     created_at = datetime.utcnow().isoformat()
+    task = Task.query.get(task_id) if task_id else None
     for recipient_id in sorted({int(user_id) for user_id in (recipient_ids or []) if user_id}):
         if exclude_user_id is not None and int(recipient_id) == int(exclude_user_id):
+            continue
+        event_key = "task_message"
+        if group_id:
+            event_key = "group_message"
+        elif project_id and not task_id:
+            event_key = "project_message"
+        if not user_notification_channel_enabled(recipient_id, event_key, "push", task=task):
+            continue
+        if task_id and is_user_viewing_discussion(recipient_id, "task", int(task_id)):
+            continue
+        if group_id and is_user_viewing_discussion(recipient_id, "group", int(group_id)):
+            continue
+        if project_id and not group_id and not task_id and is_user_viewing_discussion(recipient_id, "project", int(project_id)):
             continue
         live_id_parts = ["live-comment", str(task_id or ""), str(project_id or ""), str(group_id or ""), created_at]
         emit_user_notification_preview(
@@ -401,6 +537,78 @@ def _normalize_due_mode(value: str | None, *, fallback: str = "date") -> str:
     return mode if mode in TASK_DUE_MODE_OPTIONS else fallback
 
 
+def _task_start_date(task: Task) -> str:
+    info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    return str((info.get("meta") or {}).get("start_date") or "").strip()
+
+
+def _task_status_mode(task: Task) -> str:
+    info = load_info_payload(task.info, task.link)
+    raw = str((info.get("meta") or {}).get("status_mode") or "").strip().lower()
+    if raw in {"single", "per_user", "percentage"}:
+        return raw
+    return "per_user" if bool(task.per_user_status_enabled) else "single"
+
+
+def _set_task_status_mode(task: Task, status_mode_raw) -> tuple[bool, str | None]:
+    value = str(status_mode_raw or "").strip().lower() or "single"
+    if value not in {"single", "per_user", "percentage"}:
+        return False, "Invalid status_mode"
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    if value == "single":
+        meta.pop("status_mode", None)
+        task.per_user_status_enabled = False
+    else:
+        meta["status_mode"] = value
+        task.per_user_status_enabled = True
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    return True, None
+
+
+def _task_status_percentage(task: Task) -> int:
+    info = load_info_payload(task.info, task.link)
+    raw = str((info.get("meta") or {}).get("status_percentage") or "").strip()
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        value = 100 if normalize_task_status(task.status).lower() in {"complete", "completed", "done", "closed", "pr closed", "pr merged"} else 0
+    return max(0, min(100, value))
+
+
+def _set_task_status_percentage(task: Task, percentage_raw) -> tuple[bool, str | None]:
+    try:
+        value = int(float(str(percentage_raw or "0").strip() or "0"))
+    except (TypeError, ValueError):
+        return False, "Invalid status_percentage"
+    value = max(0, min(100, value))
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    meta["status_percentage"] = str(value)
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    task.status = "complete" if value >= 100 else "open"
+    return True, None
+
+
+def _set_task_start_date(task: Task, start_date_raw) -> tuple[bool, str | None]:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    value = str(start_date_raw or "").strip()
+    if not value:
+        meta.pop("start_date", None)
+    else:
+        try:
+            date.fromisoformat(value)
+        except ValueError:
+            return False, "Invalid start_date format"
+        meta["start_date"] = value
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    return True, None
+
+
 def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bool, str | None]:
     info_payload = load_info_payload(task.info, task.link)
     meta = dict(info_payload.get("meta") or {})
@@ -408,9 +616,11 @@ def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bo
     if mode == "none":
         task.due_at = None
         meta.pop("due_mode", None)
+        meta.pop("start_date", None)
     elif mode == "asap":
         task.due_at = None
         meta["due_mode"] = "asap"
+        meta.pop("start_date", None)
     else:
         if due_at_raw == "":
             task.due_at = None
@@ -449,6 +659,18 @@ def dismiss_notification(notification_id: int):
     notification.pinned = False
     db.session.commit()
     emit_notification_state(user.id)
+    return {"status": "ok"}, 200
+
+
+@api_bp.post("/notifications/preview/dismiss")
+@login_required
+def dismiss_notification_preview():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    notification_id = str(payload.get("notification_id") or "").strip()
+    if not notification_id:
+        return {"error": "notification_id is required"}, 400
+    emit_notification_preview_dismissed(user.id, notification_id)
     return {"status": "ok"}, 200
 
 
@@ -508,6 +730,11 @@ def _task_notification_user_ids(task: Task) -> set[int]:
     user_ids.update(
         row.user_id
         for row in Assignment.query.filter_by(task_id=task.id).all()
+        if row.user_id
+    )
+    user_ids.update(
+        row.user_id
+        for row in TaskFollower.query.filter_by(task_id=task.id).all()
         if row.user_id
     )
     return {user_id for user_id in user_ids if user_id}
@@ -584,6 +811,49 @@ def _serialize_assignment_row(assignment: Assignment) -> dict:
     }
 
 
+def _serialize_follower_row(follower: TaskFollower) -> dict:
+    account_user = User.query.get(follower.user_id) if follower.user_id else None
+    return {
+        "id": follower.id,
+        "task_id": follower.task_id,
+        "user_id": follower.user_id,
+        "display_name": account_user.display_name if account_user else None,
+        "display_email": account_user.email if account_user else None,
+        "avatar_url": account_user.avatar_url if account_user else None,
+    }
+
+
+def _project_access_user_ids(project_id: int) -> list[int]:
+    return sorted(
+        int(user_id)
+        for user_id in project_access_map(project_id).keys()
+        if user_id
+    )
+
+
+def _task_follow_project_members(task: Task) -> bool:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = info_payload.get("meta") if isinstance(info_payload, dict) else {}
+    return str((meta or {}).get("follow_project_members") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _set_task_follow_project_members(task: Task, enabled: bool) -> None:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    if enabled:
+        meta["follow_project_members"] = "1"
+    else:
+        meta.pop("follow_project_members", None)
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+
+
+def _serialize_project_follower_members(task: Task) -> list[dict]:
+    members = list(project_access_map(task.project_id).values())
+    members.sort(key=lambda item: ((item.get("display_name") or item.get("email") or "").lower(), item.get("id") or 0))
+    return members
+
+
 def _account_user_has_project_access(project_id: int, account_user_id: int | None) -> bool:
     if not account_user_id:
         return False
@@ -656,6 +926,11 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         .order_by(Assignment.created_at.asc(), Assignment.id.asc())
         .all()
     )
+    followers = (
+        TaskFollower.query.filter_by(task_id=task.id)
+        .order_by(TaskFollower.created_at.asc(), TaskFollower.id.asc())
+        .all()
+    )
     status_meta = task_status_meta(task, viewer_user_id=viewer_user_id)
     creator = User.query.get(task.creator_user_id) if task.creator_user_id else None
     return {
@@ -672,10 +947,15 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
         "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
+        "follow_project_members": _task_follow_project_members(task),
+        "project_follower_members": _serialize_project_follower_members(task) if _task_follow_project_members(task) else [],
         "status_meta": status_meta,
         "description": task.description,
         "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
@@ -686,6 +966,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         ),
         "info": info,
         "assignments": [_serialize_assignment_row(row) for row in assignments],
+        "followers": [_serialize_follower_row(row) for row in followers],
     }
 
 
@@ -874,6 +1155,7 @@ def create_task():
     group_id = payload.get("group_id")
     due_at = payload.get("due_at")
     due_mode = payload.get("due_mode")
+    start_date = payload.get("start_date")
     assignee_email = payload.get("assignee_email")
 
     if not title or not project_id:
@@ -909,6 +1191,9 @@ def create_task():
         owner_calendar_opt_in=project.default_owner_calendar_opt_in,
     )
     ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
+    if not ok:
+        return {"error": error}, 400
+    ok, error = _set_task_start_date(task, start_date if _task_due_mode(task) == "date" else "")
     if not ok:
         return {"error": error}, 400
     db.session.add(task)
@@ -999,6 +1284,14 @@ def update_task(task_id: int):
     old_status = task.status
     old_due_at = task.due_at
     old_due_mode = _task_due_mode(task)
+    old_start_date = _task_start_date(task)
+    old_status_mode = _task_status_mode(task)
+    old_info_payload = _info_payload_for(task)
+    old_per_user_status_enabled = bool(task.per_user_status_enabled)
+    old_assign_group_members = bool(task.assign_group_members)
+    old_follow_project_members = _task_follow_project_members(task)
+    old_description = task.description
+    old_description_format = task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT
 
     title = payload.get("title")
     link = payload.get("link")
@@ -1008,15 +1301,19 @@ def update_task(task_id: int):
     status_user_id = payload.get("status_user_id")
     due_at = payload.get("due_at")
     due_mode = payload.get("due_mode")
+    start_date = payload.get("start_date")
+    status_mode = payload.get("status_mode")
+    status_percentage = payload.get("status_percentage")
     info = payload.get("info")
     per_user_status_enabled = payload.get("per_user_status_enabled")
     assign_group_members = payload.get("assign_group_members")
+    follow_project_members = payload.get("follow_project_members")
     description = payload.get("description")
     description_format = payload.get("description_format")
 
     if title is not None:
         task.title = title.strip()
-    info_payload = _info_payload_for(task)
+    info_payload = dict(old_info_payload)
     if links is None and link is not None:
         stripped_link = link.strip()
         links = [stripped_link] if stripped_link else []
@@ -1025,7 +1322,11 @@ def update_task(task_id: int):
         task.link = (info_payload.get("links") or [None])[0]
     if status is not None:
         task.status = status.strip() or task.status
-    if per_user_status_enabled is not None:
+    if status_mode is not None:
+        ok, error = _set_task_status_mode(task, status_mode)
+        if not ok:
+            return {"error": error}, 400
+    elif per_user_status_enabled is not None:
         task.per_user_status_enabled = bool(per_user_status_enabled)
     if assign_group_members is not None:
         next_group_mode = bool(assign_group_members)
@@ -1045,6 +1346,10 @@ def update_task(task_id: int):
         personal_row = set_task_user_status(task.id, target_user_id, user_status)
         if per_user_status_enabled is False and personal_row.status:
             task.status = personal_row.status
+    if status_percentage is not None:
+        ok, error = _set_task_status_percentage(task, status_percentage)
+        if not ok:
+            return {"error": error}, 400
     if info is not None:
         if isinstance(info, dict):
             info_payload["html"] = info.get("html")
@@ -1058,6 +1363,10 @@ def update_task(task_id: int):
         ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
         if not ok:
             return {"error": error}, 400
+    if start_date is not None or due_at is not None or due_mode is not None:
+        ok, error = _set_task_start_date(task, start_date if _task_due_mode(task) == "date" else "")
+        if not ok:
+            return {"error": error}, 400
     if description is not None:
         task.description = description
     if description_format is not None:
@@ -1065,8 +1374,22 @@ def update_task(task_id: int):
         if normalized is None:
             return {"error": "invalid description_format"}, 400
         task.description_format = normalized
+    if follow_project_members is not None:
+        _set_task_follow_project_members(task, bool(follow_project_members))
+        if bool(follow_project_members):
+            desired_user_ids = set(_project_access_user_ids(task.project_id))
+            existing_rows = TaskFollower.query.filter_by(task_id=task.id).all()
+            existing_by_user_id = {int(row.user_id): row for row in existing_rows if row.user_id}
+            for row in existing_rows:
+                if row.user_id and int(row.user_id) not in desired_user_ids:
+                    db.session.delete(row)
+            for follower_user_id in desired_user_ids:
+                if follower_user_id not in existing_by_user_id:
+                    db.session.add(TaskFollower(task_id=task.id, user_id=follower_user_id))
     db.session.commit()
     new_due_mode = _task_due_mode(task)
+    new_start_date = _task_start_date(task)
+    new_status_mode = _task_status_mode(task)
     notification_kind = _task_update_notification_kind(
         old_title=old_title,
         new_title=task.title,
@@ -1095,6 +1418,35 @@ def update_task(task_id: int):
             "old_status": old_status or "",
             "new_status": user_status or task.status or "",
         })
+    elif notification_kind == "task_update":
+        detail_payload.update({
+            "changed_fields": _task_changed_field_labels(
+                old_title=old_title,
+                new_title=task.title,
+                old_status=old_status,
+                new_status=task.status,
+                old_due_at=old_due_at,
+                new_due_at=task.due_at,
+                old_due_mode=old_due_mode,
+                new_due_mode=new_due_mode,
+                old_start_date=old_start_date,
+                new_start_date=new_start_date,
+                old_info_payload=old_info_payload,
+                new_info_payload=_info_payload_for(task),
+                old_per_user_status_enabled=old_per_user_status_enabled,
+                new_per_user_status_enabled=bool(task.per_user_status_enabled),
+                old_status_mode=old_status_mode,
+                new_status_mode=new_status_mode,
+                old_assign_group_members=old_assign_group_members,
+                new_assign_group_members=bool(task.assign_group_members),
+                old_follow_project_members=old_follow_project_members,
+                new_follow_project_members=_task_follow_project_members(task),
+                old_description=old_description,
+                new_description=task.description,
+                old_description_format=old_description_format,
+                new_description_format=task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
+            ),
+        })
     queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
     db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
@@ -1102,22 +1454,29 @@ def update_task(task_id: int):
     info_payload = _info_payload_for(task)
     status_meta = task_status_meta(task, viewer_user_id=user.id)
     assignments = Assignment.query.filter_by(task_id=task.id).all()
+    followers = TaskFollower.query.filter_by(task_id=task.id).all()
     return {
         "id": task.id,
         "title": task.title,
         "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
+        "follow_project_members": _task_follow_project_members(task),
+        "project_follower_members": _serialize_project_follower_members(task) if _task_follow_project_members(task) else [],
         "status_meta": status_meta,
         "user_status": status_meta.get("my_status"),
         "info": info_payload,
         "link": task.link,
         "links": info_payload.get("links", []),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
+        "followers": [_serialize_follower_row(row) for row in followers],
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "description": task.description,
         "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
@@ -1135,6 +1494,8 @@ def get_task(task_id: int):
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
     assignments = Assignment.query.filter_by(task_id=task.id).all()
+    followers = TaskFollower.query.filter_by(task_id=task.id).all()
+    info_payload = _info_payload_for(task)
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -1145,15 +1506,23 @@ def get_task(task_id: int):
         "link": task.link,
         "links": _info_payload_for(task).get("links", []),
         "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": bool(task.per_user_status_enabled),
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
+        "follow_project_members": _task_follow_project_members(task),
+        "project_follower_members": _serialize_project_follower_members(task) if _task_follow_project_members(task) else [],
         "status_meta": task_status_meta(task, viewer_user_id=user.id),
+        "info": info_payload,
         "description": task.description,
         "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
+        "followers": [_serialize_follower_row(row) for row in followers],
         "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
     }, 200
@@ -1175,6 +1544,8 @@ def get_project(project_id: int):
         "description": project.description,
         "description_format": project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),
+        "start_date": project.start_date.isoformat() if project.start_date else None,
+        "end_date": project.end_date.isoformat() if project.end_date else None,
         "is_direct": bool(project.is_direct),
         "created_at": project.created_at.isoformat() if project.created_at else None,
     }, 200
@@ -1822,6 +2193,8 @@ def update_project(project_id: int):
     links = payload.get("links")
     description = payload.get("description")
     description_format = payload.get("description_format")
+    start_date_raw = payload.get("start_date", "__missing__")
+    end_date_raw = payload.get("end_date", "__missing__")
     if (
         name is None
         and division_id == "__missing__"
@@ -1829,13 +2202,17 @@ def update_project(project_id: int):
         and link is None
         and description is None
         and description_format is None
+        and start_date_raw == "__missing__"
+        and end_date_raw == "__missing__"
     ):
-        return {"error": "name, links, or division_id is required"}, 400
+        return {"error": "name, links, division_id, or dates are required"}, 400
     if name is not None and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if (links is not None or link is not None) and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if (description is not None or description_format is not None) and not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    if (start_date_raw != "__missing__" or end_date_raw != "__missing__") and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if division_id != "__missing__" and not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
@@ -1896,6 +2273,24 @@ def update_project(project_id: int):
         if normalized is None:
             return {"error": "invalid description_format"}, 400
         project.description_format = normalized
+    if start_date_raw != "__missing__":
+        if start_date_raw in (None, ""):
+            project.start_date = None
+        else:
+            try:
+                project.start_date = date.fromisoformat(str(start_date_raw))
+            except ValueError:
+                return {"error": "invalid start_date"}, 400
+    if end_date_raw != "__missing__":
+        if end_date_raw in (None, ""):
+            project.end_date = None
+        else:
+            try:
+                project.end_date = date.fromisoformat(str(end_date_raw))
+            except ValueError:
+                return {"error": "invalid end_date"}, 400
+    if project.start_date and project.end_date and project.end_date < project.start_date:
+        return {"error": "end_date must be on or after start_date"}, 400
     db.session.commit()
     emit_project_updated(project, actor_user_id=user.id)
     if division_id != "__missing__":
@@ -1906,6 +2301,8 @@ def update_project(project_id: int):
         "name": project.name,
         "division_id": current_pref.division_id if current_pref else None,
         "links": _info_payload_for(project).get("links", []),
+        "start_date": project.start_date.isoformat() if project.start_date else None,
+        "end_date": project.end_date.isoformat() if project.end_date else None,
         "description": project.description,
         "description_format": project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),
@@ -2107,7 +2504,8 @@ def update_division(division_id: int):
     user = current_user()
     name = payload.get("name")
     color = payload.get("color")
-    if name is None and color is None:
+    color_slot = payload.get("color_slot", "__missing__")
+    if name is None and color is None and color_slot == "__missing__":
         return {"error": "name or color is required"}, 400
     division = Division.query.filter_by(id=division_id, owner_id=user.id).first()
     if not division:
@@ -2123,9 +2521,32 @@ def update_division(division_id: int):
         ):
             return {"error": "invalid color"}, 400
         division.color = color_value or None
+        if color_value:
+            division.color_slot = None
+    if color_slot != "__missing__":
+        if color_slot in (None, "", 0, "0"):
+            division.color_slot = None
+        else:
+            try:
+                slot_value = int(color_slot)
+            except (TypeError, ValueError):
+                return {"error": "invalid color_slot"}, 400
+            if slot_value < 1 or slot_value > 10:
+                return {"error": "invalid color_slot"}, 400
+            division.color_slot = slot_value
+            division.color = None
+    if division.color is None and division.color_slot is None:
+        theme_name = normalize_theme_name(getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
+        division.color_slot = color_slot_from_palette(theme_name, division.color) or 1
     db.session.commit()
     emit_division_updated(division, actor_user_id=user.id, recipient_user_id=user.id)
-    return {"id": division.id, "name": division.name, "color": division.color}, 200
+    return {
+        "id": division.id,
+        "name": division.name,
+        "color": division_effective_color(division, normalize_theme_name(getattr(user, "theme_name", None))),
+        "color_slot": division.color_slot,
+        "custom_color": division.color,
+    }, 200
 
 
 @api_bp.delete("/projects/<int:project_id>")
@@ -2418,6 +2839,7 @@ def list_users():
             .limit(limit)
             .all()
         )
+    active_theme_name = normalize_theme_name(getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
     results = []
     for u in users:
         results.append(
@@ -2508,7 +2930,7 @@ def search_tasks():
                 "group_name": group.name if group else None,
                 "division_name": division.name if division else None,
                 "show_project_label": show_project_label,
-                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "project_color": division_effective_color(division, active_theme_name) if show_project_label and division else None,
                 "status": task.status,
             }
         )
@@ -2529,7 +2951,7 @@ def search_tasks():
                 "group_name": group.name,
                 "division_name": division.name if division else None,
                 "show_project_label": show_project_label,
-                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "project_color": division_effective_color(division, active_theme_name) if show_project_label and division else None,
                 "status": None,
             }
         )
@@ -2549,7 +2971,7 @@ def search_tasks():
                 "group_name": None,
                 "division_name": division.name if division else None,
                 "show_project_label": show_project_label,
-                "project_color": (division.color or "#4cc9f0") if show_project_label and division else None,
+                "project_color": division_effective_color(division, active_theme_name) if show_project_label and division else None,
                 "status": None,
             }
         )
@@ -2669,6 +3091,7 @@ def add_project_member(project_id: int):
         GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
+    _sync_project_follow_mode_tasks(project_id, actor_user_id=user.id)
     project = Project.query.get(project_id)
     emit_project_created(project, actor_user_id=user.id, recipient_user_id=user_id)
     _queue_project_shared_notification(member_user, user, project)
@@ -2703,6 +3126,7 @@ def add_group_member(group_id: int):
         GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(group.project_id, actor_user_id=user.id)
+    _sync_project_follow_mode_tasks(group.project_id, actor_user_id=user.id)
     project = Project.query.get(group.project_id)
     emit_project_created(project, actor_user_id=user.id, recipient_user_id=user_id)
     _queue_project_shared_notification(member_user, user, project)
@@ -2716,7 +3140,7 @@ def add_group_member(group_id: int):
 @login_required
 def list_project_members(project_id: int):
     user = current_user()
-    if not _can_manage_project(user, project_id):
+    if not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
     project = Project.query.get(project_id)
     if not project:
@@ -2740,7 +3164,7 @@ def list_group_members(group_id: int):
     group = Group.query.get(group_id)
     if not group:
         return {"error": "group not found"}, 404
-    if not _can_manage_project(user, group.project_id):
+    if not _can_access_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
 
     members = list(project_access_map(group.project_id).values())
@@ -2754,13 +3178,18 @@ def remove_project_member(project_id: int, user_id: int):
     user = current_user()
     if not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
+    member_user = User.query.get(user_id)
+    project = Project.query.get(project_id)
     ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).delete()
     group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
     if group_ids:
         GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
+    _sync_project_follow_mode_tasks(project_id, actor_user_id=user.id)
     emit_project_deleted(project_id, actor_user_id=user.id, recipient_user_ids=[user_id], include_project_room=False)
+    if member_user and project:
+        _queue_project_removed_notification(member_user, user, project)
     emit_project_members_updated(project_id, actor_user_id=user.id)
     for group_id in group_ids:
         emit_group_members_updated(group_id, actor_user_id=user.id)
@@ -2785,6 +3214,7 @@ def update_project_member_scope(project_id: int, user_id: int):
         return {"error": "invalid scope"}, 400
 
     existing = ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).first()
+    member_user = User.query.get(user_id)
     if scope == "full":
         if not existing:
             db.session.add(ProjectMember(project_id=project_id, user_id=user_id))
@@ -2796,6 +3226,9 @@ def update_project_member_scope(project_id: int, user_id: int):
             GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
+    _sync_project_follow_mode_tasks(project_id, actor_user_id=user.id)
+    if scope == "partial" and member_user:
+        _queue_project_removed_notification(member_user, user, project)
     emit_project_members_updated(project_id, actor_user_id=user.id)
     for group_id in [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]:
         emit_group_members_updated(group_id, actor_user_id=user.id)
@@ -2811,13 +3244,17 @@ def remove_group_member(group_id: int, user_id: int):
         return {"error": "group not found"}, 404
     if not _can_manage_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
+    member_user = User.query.get(user_id)
     ProjectMember.query.filter_by(project_id=group.project_id, user_id=user_id).delete()
     group_ids = [item_id for (item_id,) in db.session.query(Group.id).filter(Group.project_id == group.project_id).all()]
     if group_ids:
         GroupMember.query.filter(GroupMember.group_id.in_(group_ids), GroupMember.user_id == user_id).delete(synchronize_session=False)
     db.session.commit()
     _sync_project_group_mode_tasks(group.project_id, actor_user_id=user.id)
+    _sync_project_follow_mode_tasks(group.project_id, actor_user_id=user.id)
     emit_project_deleted(group.project_id, actor_user_id=user.id, recipient_user_ids=[user_id], include_project_room=False)
+    if member_user:
+        _queue_project_removed_notification(member_user, user, Project.query.get(group.project_id))
     emit_project_members_updated(group.project_id, actor_user_id=user.id)
     for item_id in group_ids:
         emit_group_members_updated(item_id, actor_user_id=user.id)
@@ -3122,6 +3559,104 @@ def assign_all_task_members(task_id: int):
     }, 200
 
 
+@api_bp.post("/tasks/<int:task_id>/followers")
+@login_required
+def create_task_follower(task_id: int):
+    payload = request.get_json(silent=True) or {}
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    follower_user = None
+    follower_user_id = payload.get("user_id")
+    email = (payload.get("email") or "").strip().lower()
+    if follower_user_id not in (None, "", 0, "0"):
+        try:
+            follower_user_id = int(follower_user_id)
+        except (TypeError, ValueError):
+            return {"error": "invalid user_id"}, 400
+        follower_user = User.query.get(follower_user_id)
+    elif email:
+        follower_user = find_user_by_email(email)
+    if not follower_user:
+        return {"error": "account user not found"}, 400
+    if not _account_user_has_project_access(task.project_id, follower_user.id):
+        return {"error": "user must have project access to follow this task"}, 400
+
+    existing = TaskFollower.query.filter_by(task_id=task.id, user_id=follower_user.id).first()
+    if existing:
+        return _serialize_follower_row(existing), 200
+
+    follower = TaskFollower(task_id=task.id, user_id=follower_user.id)
+    db.session.add(follower)
+    db.session.commit()
+    emit_task_updated(task, actor_user_id=user.id)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
+    return _serialize_follower_row(follower), 201
+
+
+@api_bp.post("/tasks/<int:task_id>/follow_all")
+@login_required
+def create_task_followers_for_project(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    _set_task_follow_project_members(task, True)
+    desired_user_ids = set(_project_access_user_ids(task.project_id))
+    existing_rows = TaskFollower.query.filter_by(task_id=task.id).all()
+    existing_by_user_id = {int(row.user_id): row for row in existing_rows if row.user_id}
+    changed = False
+    for row in existing_rows:
+        if row.user_id and int(row.user_id) not in desired_user_ids:
+            db.session.delete(row)
+            changed = True
+    for follower_user_id in desired_user_ids:
+        if follower_user_id in existing_by_user_id:
+            continue
+        db.session.add(TaskFollower(task_id=task.id, user_id=follower_user_id))
+        changed = True
+
+    db.session.commit()
+    if changed or _task_follow_project_members(task):
+        emit_task_updated(task, actor_user_id=user.id)
+        emit_task_notification_updates(task, exclude_user_id=user.id)
+
+    followers = TaskFollower.query.filter_by(task_id=task.id).all()
+    return {
+        "follow_project_members": True,
+        "project_follower_members": _serialize_project_follower_members(task),
+        "followers": [_serialize_follower_row(row) for row in followers],
+    }, 200
+
+
+@api_bp.delete("/task-followers/<int:follower_id>")
+@login_required
+def delete_task_follower(follower_id: int):
+    user = current_user()
+    follower = TaskFollower.query.get(follower_id)
+    if not follower:
+        return {"error": "task follower not found"}, 404
+
+    task = Task.query.get(follower.task_id) if follower.task_id else None
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+
+    db.session.delete(follower)
+    db.session.commit()
+    emit_task_updated(task, actor_user_id=user.id)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
+    return {"status": "deleted"}, 200
+
+
 def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -> None:
     tasks = Task.query.filter_by(group_id=group_id, assign_group_members=True).all()
     if not tasks:
@@ -3144,6 +3679,31 @@ def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -
 def _sync_project_group_mode_tasks(project_id: int, *, actor_user_id: int | None = None) -> None:
     for group in Group.query.filter_by(project_id=project_id).all():
         _sync_group_mode_tasks(group.id, actor_user_id=actor_user_id)
+
+
+def _sync_project_follow_mode_tasks(project_id: int, *, actor_user_id: int | None = None) -> None:
+    desired_user_ids = set(_project_access_user_ids(project_id))
+    tasks = [task for task in Task.query.filter_by(project_id=project_id).all() if _task_follow_project_members(task)]
+    if not tasks:
+        return
+    for task in tasks:
+        existing_rows = TaskFollower.query.filter_by(task_id=task.id).all()
+        existing_by_user_id = {int(row.user_id): row for row in existing_rows if row.user_id}
+        changed = False
+        for row in existing_rows:
+            if row.user_id and int(row.user_id) not in desired_user_ids:
+                db.session.delete(row)
+                changed = True
+        for follower_user_id in desired_user_ids:
+            if follower_user_id in existing_by_user_id:
+                continue
+            db.session.add(TaskFollower(task_id=task.id, user_id=follower_user_id))
+            changed = True
+        if changed:
+            db.session.flush()
+    db.session.commit()
+    for task in tasks:
+        emit_task_updated(task, actor_user_id=actor_user_id)
 
 
 @api_bp.post("/assignments/<int:assignment_id>/send_link")

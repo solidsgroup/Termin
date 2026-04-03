@@ -1,6 +1,7 @@
-{% set active_theme = user.theme_mode if user and user.theme_mode else 'dark' %}
+{% set active_theme = global_active_theme_mode %}
+{% set active_theme_name = global_active_theme_name %}
 <!doctype html>
-<html lang="en" data-theme="{{ active_theme }}" style="background-color: {{ '#eef3f8' if active_theme == 'light' else '#0b0d12' }}; color-scheme: {{ active_theme }};">
+<html lang="en" data-theme="{{ active_theme }}" data-theme-family="{{ active_theme_name }}" style="background-color: {{ global_theme_interface.bg }}; color-scheme: {{ active_theme }};">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -24,45 +25,39 @@
     <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <style>
       :root {
-        --bg: #0b0d12;
-        --panel: #151a22;
-        --panel-alt: #10141b;
-        --ink: #e6edf3;
-        --muted: #9aa3ad;
-        --accent: #4cc9f0;
-        --accent-strong: #00b4d8;
-        --border: #232a36;
-        --success: #6ee7b7;
-        --grid: rgba(255, 255, 255, 0.06);
+        --bg: {{ global_theme_interface.bg }};
+        --panel: {{ global_theme_interface.panel }};
+        --panel-alt: {{ global_theme_interface.panel_alt }};
+        --ink: {{ global_theme_interface.ink }};
+        --muted: {{ global_theme_interface.muted }};
+        --accent: {{ global_theme_interface.accent }};
+        --accent-strong: {{ global_theme_interface.accent_strong }};
+        --border: {{ global_theme_interface.border }};
+        --success: {{ global_theme_interface.success }};
+        --grid: {{ global_theme_interface.grid }};
+        --bg-top: {{ global_theme_interface.bg_top }};
+        --bg-mid: {{ global_theme_interface.bg_mid }};
+        --bg-bottom: {{ global_theme_interface.bg_bottom }};
+        --header-bg: {{ global_theme_interface.header_bg }};
+        --menu-bg: {{ global_theme_interface.menu_bg }};
+        --menu-shadow: {{ global_theme_interface.menu_shadow }};
       }
 
-      body[data-theme="dark"] {
+      {% for theme in theme_definitions %}
+      body[data-theme-family="{{ theme.key }}"][data-theme="dark"] {
         color-scheme: dark;
-        --bg: #0b0d12;
-        --panel: #151a22;
-        --panel-alt: #10141b;
-        --ink: #e6edf3;
-        --muted: #9aa3ad;
-        --accent: #4cc9f0;
-        --accent-strong: #00b4d8;
-        --border: #232a36;
-        --success: #6ee7b7;
-        --grid: rgba(255, 255, 255, 0.06);
+        {% for key, value in theme.ui.dark.items() %}
+        --{{ key|replace('_', '-') }}: {{ value }};
+        {% endfor %}
       }
 
-      body[data-theme="light"] {
+      body[data-theme-family="{{ theme.key }}"][data-theme="light"] {
         color-scheme: light;
-        --bg: #eef3f8;
-        --panel: #ffffff;
-        --panel-alt: #f7fafc;
-        --ink: #17202b;
-        --muted: #5f6b7a;
-        --accent: #1677c8;
-        --accent-strong: #0b5ea4;
-        --border: #d7e0ea;
-        --success: #15803d;
-        --grid: rgba(23, 32, 43, 0.08);
+        {% for key, value in theme.ui.light.items() %}
+        --{{ key|replace('_', '-') }}: {{ value }};
+        {% endfor %}
       }
+      {% endfor %}
 
       * { box-sizing: border-box; }
 
@@ -78,14 +73,10 @@
       body {
         margin: 0;
         font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
-        background: radial-gradient(circle at top, #141a24 0%, var(--bg) 55%, #0a0d12 100%);
+        background: radial-gradient(circle at top, var(--bg-top) 0%, var(--bg-mid) 55%, var(--bg-bottom) 100%);
         color: var(--ink);
         height: 100vh;
         overflow: hidden;
-      }
-
-      body[data-theme="light"] {
-        background: radial-gradient(circle at top, #ffffff 0%, #f5f8fc 42%, var(--bg) 100%);
       }
 
 
@@ -96,7 +87,7 @@
         align-items: end;
         gap: 16px;
         border-bottom: 1px solid var(--border);
-        background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
+        background: var(--header-bg);
         backdrop-filter: blur(8px);
         position: sticky;
         top: 0;
@@ -228,19 +219,16 @@
         right: 0;
         top: calc(100% + 10px);
         width: 320px;
+        max-height: min(56vh, 420px);
         border: 1px solid var(--border);
         border-radius: 16px;
-        background: rgba(17, 21, 28, 0.96);
-        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+        background: var(--menu-bg);
+        box-shadow: var(--menu-shadow);
         padding: 10px;
         display: none;
+        overflow-y: auto;
         z-index: 340;
         backdrop-filter: blur(10px);
-      }
-
-      body[data-theme="light"] .notifications-menu {
-        background: rgba(255, 255, 255, 0.98);
-        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
       }
 
       .notifications-shell.is-open .notifications-menu {
@@ -535,10 +523,34 @@
       body[data-theme="light"] .admin-content input[type="text"],
       body[data-theme="light"] .admin-content input[type="email"],
       body[data-theme="light"] .admin-content input[type="password"],
-      body[data-theme="light"] .admin-content input[type="search"] {
+      body[data-theme="light"] .admin-content input[type="search"],
+      body[data-theme="light"] .admin-content select {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
         border-color: color-mix(in srgb, var(--border) 88%, white 12%);
         color: var(--ink);
+      }
+
+      .admin-content select {
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+        border: 1px solid var(--border);
+        color: var(--ink);
+        appearance: none;
+        -webkit-appearance: none;
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+          linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+        background-position:
+          calc(100% - 18px) calc(50% - 2px),
+          calc(100% - 12px) calc(50% - 2px);
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+        padding-right: 34px;
+      }
+
+      .admin-content select:focus {
+        outline: none;
+        border-color: color-mix(in srgb, var(--accent) 52%, var(--border) 48%);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
       }
 
       .account-email-actions {
@@ -590,17 +602,12 @@
         width: 250px;
         border: 1px solid var(--border);
         border-radius: 16px;
-        background: rgba(17, 21, 28, 0.96);
-        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+        background: var(--menu-bg);
+        box-shadow: var(--menu-shadow);
         padding: 10px;
         display: none;
         z-index: 340;
         backdrop-filter: blur(10px);
-      }
-
-      body[data-theme="light"] .account-menu {
-        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
-        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.14);
       }
 
       .account-shell.is-open .account-menu {
@@ -1047,6 +1054,10 @@
         flex: 1 1 auto;
       }
 
+      .todo-tree-row[data-tree-project-row] .todo-tree-label {
+        font-weight: 500;
+      }
+
       .tree-select-button {
         flex: 1 1 auto;
         min-width: 0;
@@ -1109,6 +1120,11 @@
       .todo-tree-row.is-active .todo-tree-label {
         font-weight: 700;
         color: #fff !important;
+      }
+
+      .todo-tree-row[data-tree-project-row].is-active .todo-tree-label,
+      .todo-tree-row[data-tree-project-row].is-included .todo-tree-label {
+        font-weight: 600;
       }
 
       .todo-tree-row.is-active .tree-select-button,
@@ -1175,6 +1191,10 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
+      }
+
+      .tree-board[data-tree-ready="0"] {
+        visibility: hidden;
       }
 
       .tree-project-board[hidden] {
@@ -1349,6 +1369,10 @@
         max-width: 100%;
         overflow-x: clip;
         overflow-y: auto;
+      }
+
+      .content.project-content {
+        padding-top: 0;
       }
 
       .dashboard-notice {
@@ -2258,6 +2282,11 @@
         overflow: hidden;
       }
 
+      .discussion-presence .avatar-chip.is-online {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 80%, transparent);
+        border-color: color-mix(in srgb, var(--success) 90%, transparent);
+      }
+
       .discussion-presence .avatar-chip + .avatar-chip {
         margin-left: -6px;
       }
@@ -2322,10 +2351,16 @@
         min-height: 0;
         flex: 1 1 auto;
         flex-direction: column;
+        overflow-x: hidden;
+        overflow-y: auto;
       }
 
       .discussion-pane.is-active {
         display: flex;
+      }
+
+      .discussion-pane.is-active[data-drawer-pane="messages"] {
+        overflow: hidden;
       }
 
       .discussion-links-list {
@@ -2500,22 +2535,42 @@
 
       .discussion-setting-due-wrap select,
       .discussion-setting-field select {
+        appearance: none;
+        -webkit-appearance: none;
         border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.03);
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
         color: var(--ink);
         border-radius: 10px;
         padding: 10px 12px;
         font: inherit;
+        line-height: 1.2;
         letter-spacing: normal;
         text-transform: none;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
       }
 
       .discussion-setting-due-wrap select {
         flex: 0 0 120px;
+        padding-right: 34px;
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+          linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+        background-position:
+          calc(100% - 18px) calc(50% - 2px),
+          calc(100% - 12px) calc(50% - 2px);
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
       }
 
       .discussion-setting-due-wrap input {
         flex: 1 1 auto;
+      }
+
+      .discussion-setting-due-wrap select:focus-visible,
+      .discussion-setting-field select:focus-visible {
+        outline: none;
+        border-color: color-mix(in srgb, var(--accent) 52%, var(--border) 48%);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
       }
 
       .discussion-setting-field--description {
@@ -2676,11 +2731,14 @@
 
       .discussion-setting-status {
         width: 100%;
+        min-height: 42px;
+        height: 42px;
+        box-sizing: border-box;
         border: 1px solid var(--border);
         background: rgba(255, 255, 255, 0.03);
         color: var(--ink);
         border-radius: 10px;
-        padding: 10px 12px;
+        padding: 0 12px;
         font: inherit;
         display: flex;
         align-items: center;
@@ -2692,6 +2750,59 @@
         width: auto;
         min-width: 0;
         flex: 1 1 auto;
+      }
+
+      .discussion-setting-status-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .discussion-setting-mode-picker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        height: 42px;
+        box-sizing: border-box;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 10px;
+        overflow: hidden;
+        flex: 0 0 auto;
+      }
+
+      .discussion-setting-mode-button {
+        width: 40px;
+        height: 42px;
+        border: 0;
+        border-right: 1px solid var(--border);
+        background: transparent;
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+
+      .discussion-setting-mode-button:last-child {
+        border-right: 0;
+      }
+
+      .discussion-setting-mode-button:hover {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .discussion-setting-mode-button.is-active {
+        color: var(--ink);
+        background: color-mix(in srgb, var(--accent) 16%, var(--panel) 84%);
+      }
+
+      .discussion-setting-mode-button:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+        outline-offset: -2px;
       }
 
       .discussion-setting-readonly {
@@ -2946,12 +3057,25 @@
       body[data-theme="light"] .discussion-setting-due-wrap select,
       body[data-theme="light"] .discussion-setting-field select {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
       }
 
       body[data-theme="light"] .discussion-setting-status,
       body[data-theme="light"] .discussion-setting-readonly,
       body[data-theme="light"] .discussion-settings-assign-add input {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      }
+
+      body[data-theme="light"] .discussion-setting-mode-picker {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      }
+
+      body[data-theme="light"] .discussion-setting-mode-button:hover {
+        background: rgba(37, 99, 235, 0.06);
+      }
+
+      body[data-theme="light"] .discussion-setting-mode-button.is-active {
+        background: color-mix(in srgb, var(--accent) 12%, white 88%);
       }
 
       body[data-theme="light"] .discussion-description-format select,
@@ -3202,7 +3326,7 @@
 
       .todo-item {
         display: grid;
-        grid-template-columns: minmax(0, var(--todo-col-meta)) minmax(0, var(--todo-col-main)) max-content;
+        grid-template-columns: minmax(0, var(--todo-col-meta)) minmax(0, var(--todo-col-main)) minmax(0, var(--todo-col-controls, 240px));
         grid-template-areas: "meta main controls";
         align-items: center;
         gap: 0;
@@ -3372,7 +3496,7 @@
         white-space: nowrap;
         grid-area: meta;
         overflow: hidden;
-        padding: 0 var(--todo-cell-pad);
+        padding: 0 calc(var(--todo-cell-pad) + 6px) 0 var(--todo-cell-pad);
       }
 
       .todo-item-controls {
@@ -3496,6 +3620,39 @@
         overflow: hidden;
       }
 
+      .task-status-percentage {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-width: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink);
+      }
+
+      .task-status-percentage-button {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, #35d07f 28%, transparent) 0,
+            color-mix(in srgb, #35d07f 28%, transparent) var(--status-progress, 0%),
+            rgba(255, 255, 255, 0.03) var(--status-progress, 0%),
+            rgba(255, 255, 255, 0.03) 100%
+          );
+      }
+
+      body[data-theme="light"] .task-status-percentage-button {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, #35d07f 20%, white 80%) 0,
+            color-mix(in srgb, #35d07f 20%, white 80%) var(--status-progress, 0%),
+            color-mix(in srgb, white 96%, var(--panel-alt) 4%) var(--status-progress, 0%),
+            color-mix(in srgb, white 96%, var(--panel-alt) 4%) 100%
+          );
+      }
+
       .task-status-count {
         display: inline-flex;
         align-items: center;
@@ -3566,7 +3723,8 @@
       .todo-control-assignees {
         min-width: 0;
         justify-content: flex-end;
-        flex: 0 0 auto;
+        flex: 0 0 68px;
+        width: 68px;
       }
 
       .todo-project-name,
@@ -3582,8 +3740,8 @@
 
       .todo-item-controls .todo-assignments {
         justify-content: flex-end;
-        width: max-content;
-        max-width: 100%;
+        width: 68px;
+        max-width: 68px;
         flex-wrap: nowrap;
         overflow: hidden;
         margin-left: 0;
@@ -3615,19 +3773,34 @@
       .todo-project-name {
         color: color-mix(in srgb, var(--todo-color, var(--accent)) 70%, white 30%);
         font-weight: 600;
+        display: block;
+        max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       body[data-theme="light"] .todo-project-name {
-        color: color-mix(in srgb, var(--ink) 78%, var(--todo-color, var(--accent)) 22%);
+        color: color-mix(in srgb, var(--todo-color, var(--accent)) 76%, #243447 24%);
       }
 
       .todo-group-name {
         color: var(--muted);
+        display: block;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 120px;
+        white-space: nowrap;
+        max-width: 100%;
+      }
+
+      .todo-project-meta:not(:has(.todo-group-name)) .todo-project-name {
+        white-space: normal;
+        overflow: hidden;
+        text-overflow: initial;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
       }
 
       .todo-group-name::before {
@@ -3736,6 +3909,12 @@
         border-color: var(--border);
       }
 
+      .todo-assignments .badge-overflow-count .badge-icon {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
       .todo-assignments .badge.user .badge-icon {
         background: rgba(255, 255, 255, 0.06);
         color: var(--muted);
@@ -3800,12 +3979,594 @@
         margin-top: 16px;
       }
 
+      .project-view-shell {
+        margin: 0 0 14px;
+      }
+
+      .project-view-shell .project-board-header {
+        margin-top: 0;
+      }
+
       .group-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
         margin-bottom: 12px;
+      }
+
+      .tree-project-board {
+        --project-color: var(--accent);
+        margin-bottom: 40px;
+      }
+
+      .tree-project-board + .tree-project-board {
+        margin-top: 24px;
+      }
+
+      .project-board-header {
+        position: relative;
+        margin: -40px -18px 14px;
+        padding: 40px 18px 14px;
+        border: 0;
+        border-radius: 0;
+        background:
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--project-color) 18%, transparent) 0%,
+            color-mix(in srgb, var(--project-color) 8%, transparent) 28%,
+            color-mix(in srgb, var(--project-color) 3%, transparent) 55%,
+            transparent 100%
+          ),
+          color-mix(in srgb, var(--panel) 97%, transparent);
+      }
+
+      .project-board-header::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(135deg, color-mix(in srgb, var(--project-color) 8%, transparent), transparent 46%);
+        pointer-events: none;
+      }
+
+      .project-board-header-inner {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 10px;
+      }
+
+      .project-board-header h3 {
+        margin: 0;
+      }
+
+      .project-board-mode-tabs {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        padding: 12px 10px 0;
+      }
+
+      .project-gantt-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0 4px;
+        flex-wrap: wrap;
+      }
+
+      .project-gantt-mark-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .project-gantt-mark-label {
+        white-space: nowrap;
+      }
+
+      .project-gantt-mark-control select {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid color-mix(in srgb, var(--project-color) 18%, var(--border));
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 5px 30px 5px 10px;
+        font: inherit;
+        font-size: 11px;
+        letter-spacing: normal;
+        text-transform: none;
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+          linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+        background-position:
+          calc(100% - 16px) calc(50% - 2px),
+          calc(100% - 10px) calc(50% - 2px);
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+      }
+
+      .project-gantt-mark-control select:focus-visible {
+        outline: none;
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+      }
+
+      .project-board-mode-tab {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+
+      .project-board-mode-tab:hover {
+        color: var(--ink);
+        background: color-mix(in srgb, var(--project-color) 10%, transparent);
+      }
+
+      .project-board-mode-tab.is-active {
+        color: var(--ink);
+        background: color-mix(in srgb, var(--project-color) 14%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--project-color) 20%, var(--border));
+      }
+
+      .project-board-mode-panel[hidden] {
+        display: none !important;
+      }
+
+      .project-gantt {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 6px 0 0;
+      }
+
+      .project-gantt-shell {
+        position: relative;
+        border-left: 3px solid var(--project-color, var(--accent));
+        background: color-mix(in srgb, var(--panel) 95%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--project-color) 16%, transparent);
+      }
+
+      .project-gantt-axis {
+        display: grid;
+        grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+        gap: 14px;
+        padding: 12px 14px 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .project-gantt-axis-spacer {
+        min-width: 0;
+      }
+
+      .project-gantt-axis-track {
+        position: relative;
+        min-width: 0;
+        height: 36px;
+      }
+
+      .project-gantt-axis-line {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        height: 1px;
+        background: color-mix(in srgb, var(--project-color) 16%, var(--border));
+        transform: translateY(-50%);
+      }
+
+      .project-gantt-grid {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .project-gantt-guide {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        transform: translateX(-50%);
+      }
+
+      .project-gantt-guide.is-minor {
+        background: color-mix(in srgb, var(--project-color) 10%, var(--border));
+      }
+
+      .project-gantt-guide.is-major {
+        background: color-mix(in srgb, var(--project-color) 18%, var(--border));
+      }
+
+      .project-gantt-axis-edge {
+        position: absolute;
+        top: 0;
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      .project-gantt-axis-edge.is-start {
+        left: 0;
+      }
+
+      .project-gantt-axis-edge.is-end {
+        right: 0;
+      }
+
+      .project-gantt-axis-label {
+        position: absolute;
+        top: 0;
+        transform: translateX(-50%);
+        font-size: 11px;
+        color: color-mix(in srgb, var(--project-color) 56%, var(--ink));
+        white-space: nowrap;
+      }
+
+      .project-gantt-list {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .project-gantt-body {
+        position: relative;
+      }
+
+      .project-gantt-overlay {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        top: 12px;
+        bottom: 0;
+        display: grid;
+        grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+        gap: 14px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .project-gantt-overlay-spacer {
+        min-width: 0;
+      }
+
+      .project-gantt-overlay-track {
+        position: relative;
+        min-width: 0;
+      }
+
+      .project-gantt-axis,
+      .project-gantt-body,
+      .project-gantt-list,
+      .project-gantt-section,
+      .project-gantt-section-list,
+      .project-gantt-row,
+      .project-gantt-task,
+      .project-gantt-track {
+        position: relative;
+        z-index: 1;
+      }
+
+      .project-gantt-section {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .project-gantt-section-title {
+        padding: 0 14px 6px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: color-mix(in srgb, var(--project-color, var(--accent)) 82%, var(--muted));
+      }
+
+      .project-gantt-section-list {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .project-gantt-row {
+        display: grid;
+        grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+        gap: 14px;
+        align-items: center;
+        padding: 4px 14px;
+      }
+
+      .project-gantt-task {
+        min-width: 0;
+      }
+
+      .project-gantt-task-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .project-gantt-task-title {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        margin: 0;
+        text-align: left;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .project-gantt-task-title:hover {
+        color: color-mix(in srgb, var(--ink) 84%, var(--accent) 16%);
+      }
+
+      .project-gantt-task-title:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+
+      .project-gantt-track {
+        position: relative;
+        height: 22px;
+      }
+
+      .project-gantt-track::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        height: 2px;
+        border-radius: 999px;
+        transform: translateY(-50%);
+        background: color-mix(in srgb, var(--project-color) 14%, var(--border));
+      }
+
+      .project-gantt-marker {
+        position: absolute;
+        top: 50%;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        transform: translate(-50%, -50%);
+        background: var(--project-color, var(--accent));
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--project-color) 20%, transparent);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      .project-gantt-marker-icon {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        display: block;
+      }
+
+      .project-gantt-marker.icon-check .project-gantt-marker-icon::before {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 2px;
+        width: 4px;
+        height: 7px;
+        border-right: 2px solid white;
+        border-bottom: 2px solid white;
+        transform: rotate(45deg);
+      }
+
+      .project-gantt-marker.icon-bang .project-gantt-marker-icon::before {
+        content: "";
+        position: absolute;
+        left: 6px;
+        top: 2px;
+        width: 2px;
+        height: 6px;
+        border-radius: 999px;
+        background: white;
+      }
+
+      .project-gantt-marker.icon-bang .project-gantt-marker-icon::after {
+        content: "";
+        position: absolute;
+        left: 6px;
+        bottom: 2px;
+        width: 2px;
+        height: 2px;
+        border-radius: 999px;
+        background: white;
+      }
+
+      .project-gantt-marker.icon-dot .project-gantt-marker-icon::before {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 4px;
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: white;
+      }
+
+      .project-gantt-marker.icon-ring .project-gantt-marker-icon::before {
+        content: "";
+        position: absolute;
+        inset: 4px;
+        border-radius: 999px;
+        background: white;
+      }
+
+      .project-gantt-span {
+        position: absolute;
+        top: 50%;
+        height: 8px;
+        border-radius: 999px;
+        transform: translateY(-50%);
+        background: color-mix(in srgb, var(--project-color) 72%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--project-color) 18%, transparent);
+        overflow: hidden;
+      }
+
+      .project-gantt-span-progress {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        border-radius: inherit;
+        background: color-mix(in srgb, white 28%, var(--project-color) 72%);
+      }
+
+      .project-gantt-span.status-open {
+        color: var(--project-color);
+        background: color-mix(in srgb, var(--project-color) 36%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--project-color) 18%, transparent);
+      }
+
+      .project-gantt-span.status-critical,
+      .project-gantt-marker.status-critical {
+        background: #ff6b6b;
+      }
+
+      .project-gantt-span.status-critical {
+        color: #ff6b6b;
+        box-shadow: 0 0 0 1px color-mix(in srgb, #ff6b6b 24%, transparent);
+      }
+
+      .project-gantt-span.status-complete,
+      .project-gantt-marker.status-complete {
+        background: #35d07f;
+      }
+
+      .project-gantt-span.status-complete {
+        color: #35d07f;
+        box-shadow: 0 0 0 1px color-mix(in srgb, #35d07f 24%, transparent);
+      }
+
+      .project-gantt-span.mode-percentage .project-gantt-span-progress {
+        background: color-mix(in srgb, white 34%, currentColor 66%);
+      }
+
+      .project-gantt-span.is-outside {
+        background: color-mix(in srgb, var(--project-color) 36%, var(--muted));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--project-color) 10%, transparent);
+      }
+
+      .project-gantt-marker.is-outside {
+        background: color-mix(in srgb, var(--project-color) 48%, var(--muted));
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--project-color) 12%, transparent);
+      }
+
+      .project-gantt-handle {
+        position: absolute;
+        top: 50%;
+        width: 12px;
+        height: 18px;
+        transform: translate(-50%, -50%);
+        border: 1px solid color-mix(in srgb, var(--panel) 22%, var(--border));
+        border-radius: 999px;
+        background: color-mix(in srgb, white 82%, var(--project-color) 18%);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+        cursor: ew-resize;
+        z-index: 4;
+        padding: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease;
+      }
+
+      .project-gantt-handle::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 4px;
+        bottom: 4px;
+        width: 2px;
+        transform: translateX(-50%);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--project-color) 64%, var(--muted));
+      }
+
+      .project-gantt-handle:hover {
+        background: color-mix(in srgb, white 70%, var(--project-color) 30%);
+      }
+
+      .project-gantt-handle:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
+        outline-offset: 2px;
+      }
+
+      .project-gantt-track:hover .project-gantt-handle,
+      .project-gantt-track:focus-within .project-gantt-handle {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      body.is-gantt-dragging {
+        user-select: none;
+        cursor: ew-resize;
+      }
+
+      .project-gantt-drag-tooltip {
+        position: fixed;
+        transform: translate(-50%, -100%);
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--panel) 88%, black 12%);
+        color: var(--ink);
+        border: 1px solid color-mix(in srgb, var(--border) 78%, var(--ink) 22%);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: normal;
+        text-transform: none;
+        white-space: nowrap;
+        z-index: 1200;
+        pointer-events: none;
+      }
+
+      .project-gantt-guide.is-today {
+        width: 2px;
+        margin-left: -1px;
+        background: color-mix(in srgb, var(--accent) 82%, white 18%);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+        opacity: 0.95;
+        z-index: 2;
+      }
+
+      .project-gantt-empty {
+        padding: 18px 14px;
+        color: var(--muted);
+        font-size: 13px;
       }
 
       .share-avatars {
@@ -3855,6 +4616,31 @@
       body[data-theme="light"] .project-share-trigger {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
         border-color: color-mix(in srgb, var(--border) 86%, white 14%);
+      }
+
+      body[data-theme="light"] .project-board-header {
+        background:
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--project-color) 16%, white 84%) 0%,
+            color-mix(in srgb, var(--project-color) 7%, white 93%) 28%,
+            color-mix(in srgb, var(--project-color) 3%, white 97%) 55%,
+            rgba(255, 255, 255, 0.99) 100%
+          );
+        box-shadow: none;
+      }
+
+      body[data-theme="light"] .project-board-mode-tab.is-active {
+        background: color-mix(in srgb, var(--project-color) 12%, white 88%);
+      }
+
+      body[data-theme="light"] .project-gantt-mark-control select {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      }
+
+      body[data-theme="light"] .project-gantt-shell {
+        background: color-mix(in srgb, white 97%, var(--panel) 3%);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--project-color) 22%, transparent);
       }
 
       .avatar-stack {
@@ -4668,6 +5454,28 @@
         padding: 8px;
       }
 
+      .percentage-status-menu {
+        min-width: 220px;
+        padding: 10px 12px;
+      }
+
+      .percentage-status-menu-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .percentage-status-menu-value {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .percentage-status-menu input[type="range"] {
+        width: 100%;
+        margin: 0;
+      }
+
       .multi-status-row {
         display: flex;
         align-items: center;
@@ -5279,6 +6087,28 @@
 
       .due-summary.is-fallback {
         color: var(--muted);
+      }
+
+      .due-summary.is-progress {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--accent) 18%, transparent) 0,
+            color-mix(in srgb, var(--accent) 18%, transparent) var(--due-progress, 0%),
+            rgba(255, 255, 255, 0.03) var(--due-progress, 0%),
+            rgba(255, 255, 255, 0.03) 100%
+          );
+      }
+
+      body[data-theme="light"] .due-summary.is-progress {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--accent) 16%, white 84%) 0,
+            color-mix(in srgb, var(--accent) 16%, white 84%) var(--due-progress, 0%),
+            color-mix(in srgb, white 94%, var(--panel-alt) 6%) var(--due-progress, 0%),
+            color-mix(in srgb, white 94%, var(--panel-alt) 6%) 100%
+          );
       }
 
       .due-summary-label {
@@ -6294,6 +7124,12 @@
           z-index: 520;
         }
 
+        .notifications-menu,
+        .account-menu {
+          max-height: calc(100dvh - var(--mobile-header-menu-top, var(--mobile-sidebar-top, 96px)) - 12px);
+          overflow-y: auto;
+        }
+
         .view-search-menu {
           left: 12px;
           right: 12px;
@@ -6778,6 +7614,8 @@
           min-width: max-content;
           width: max-content;
           max-width: 40%;
+          padding-left: 8px;
+          overflow: hidden;
           text-align: right;
         }
 
@@ -6793,6 +7631,17 @@
           text-overflow: ellipsis;
           text-align: right;
           margin-left: auto;
+        }
+
+        .todo-project-meta:not(:has(.todo-group-name)) .todo-project-name {
+          white-space: normal;
+          overflow: hidden;
+          text-overflow: initial;
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          line-clamp: 2;
+          max-width: 100%;
         }
 
         .todo-project-meta a {
@@ -7307,7 +8156,7 @@
       }
     </style>
   </head>
-  <body data-theme="{{ active_theme }}">
+  <body data-theme="{{ active_theme }}" data-theme-family="{{ active_theme_name }}">
     <header>
       <div class="header-brand">
         <a href="{{ url_for('ui.dashboard') }}" aria-label="Termin dashboard">
@@ -7828,6 +8677,162 @@
             }
           });
         });
+
+        {% if current_view is not defined and task_notifications is defined %}
+        const headerNotificationState = {
+          regular_notifications: {{ (task_notifications or []) | tojson }},
+          message_notifications: {{ (message_notifications or []) | tojson }},
+        };
+        const liveHeaderRegularNotifications = [];
+        const liveHeaderMessageNotifications = [];
+
+        function setHeaderNotificationCount(kind, count) {
+          const shell = document.querySelector('[data-notification-kind="' + kind + '"]');
+          const trigger = shell ? shell.querySelector(".notifications-trigger") : null;
+          if (!trigger) return;
+          let badge = trigger.querySelector(".notifications-count");
+          if (!count) {
+            if (badge) badge.remove();
+            return;
+          }
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "notifications-count";
+            trigger.appendChild(badge);
+          }
+          badge.textContent = String(count);
+        }
+
+        function headerNotificationHref(item) {
+          const projectId = item && item.project_id ? String(item.project_id) : "";
+          return projectId
+            ? "/?project_id=" + encodeURIComponent(projectId) + "&view=tree&show_completed=1"
+            : "/?view=tree&show_completed=1";
+        }
+
+        function headerNotificationKey(item) {
+          return [
+            String(item && item.kind || ""),
+            String(item && item.task_id || ""),
+            String(item && item.project_id || ""),
+            String(item && item.group_id || ""),
+          ].join("|");
+        }
+
+        function headerMessageThreadKey(item) {
+          if (!item) return "";
+          if (item.task_id) return "comment|task|" + String(item.task_id);
+          if (item.group_id) return "comment|group|" + String(item.group_id);
+          if (item.project_id) return "comment|project|" + String(item.project_id);
+          return "comment|misc|" + String(item.id || "");
+        }
+
+        function renderHeaderNotificationMenu(kind, items) {
+          const shell = document.querySelector('[data-notification-kind="' + kind + '"]');
+          const menu = shell ? shell.querySelector(".notifications-menu") : null;
+          if (!menu) return;
+          if (!items || !items.length) {
+            menu.innerHTML = kind === "message"
+              ? '<div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread messages.</div>'
+              : '<div class="account-menu-header" style="border-bottom: 0; margin-bottom: 0;">No unread notifications.</div>';
+            return;
+          }
+          menu.innerHTML = items.map(function (item) {
+            const preview = item.preview || item.comment_preview || "New activity";
+            const isMessage = (item.kind || kind) === "comment" || kind === "message";
+            const title = isMessage ? (item.sender_name || "New message") : (item.task_title || "Task");
+            const copy = isMessage
+              ? (Number(item.unread_count || 0) > 1 ? escapeHtml(String(item.unread_count) + " new messages") + " · " : "") +
+                escapeHtml(item.task_title || "Task") +
+                (item.project_name ? " · " + escapeHtml(item.project_name) : "") +
+                (preview ? " · " + escapeHtml(preview) : "")
+              : (item.project_name ? escapeHtml(item.project_name) + " · " : "") + escapeHtml(preview);
+            return (
+              '<div class="notifications-item' + (item.pinned ? ' is-pinned' : '') + '" data-notification-id="' + item.id + '">' +
+                '<button class="notifications-open" type="button" data-notification-open=\'' + escapeHtml(JSON.stringify({
+                  notification_id: item.id,
+                  task_id: item.task_id,
+                  project_id: item.project_id || "",
+                  group_id: item.group_id || "",
+                  kind: item.kind || kind,
+                })) + '\' data-notification-href="' + escapeHtml(headerNotificationHref(item)) + '">' +
+                  '<div class="notifications-title">' + escapeHtml(title) + '</div>' +
+                  '<div class="notifications-copy">' + copy + '</div>' +
+                '</button>' +
+              '</div>'
+            );
+          }).join("");
+        }
+
+        function applyHeaderNotificationState(data) {
+          if (!data) return;
+          if (Array.isArray(data.regular_notifications)) {
+            headerNotificationState.regular_notifications = data.regular_notifications.slice();
+          }
+          if (Array.isArray(data.message_notifications)) {
+            headerNotificationState.message_notifications = data.message_notifications.slice();
+          }
+          const regularServerKeys = new Set((headerNotificationState.regular_notifications || []).map(headerNotificationKey));
+          const messageServerKeys = new Set((headerNotificationState.message_notifications || []).map(headerMessageThreadKey));
+          const mergedRegular = liveHeaderRegularNotifications.filter((item) => !regularServerKeys.has(headerNotificationKey(item))).concat(headerNotificationState.regular_notifications || []);
+          const mergedMessages = liveHeaderMessageNotifications.filter((item) => !messageServerKeys.has(headerMessageThreadKey(item))).concat(headerNotificationState.message_notifications || []);
+          setHeaderNotificationCount("regular", mergedRegular.length);
+          setHeaderNotificationCount("message", mergedMessages.length);
+          renderHeaderNotificationMenu("regular", mergedRegular);
+          renderHeaderNotificationMenu("message", mergedMessages);
+        }
+
+        function addHeaderLiveNotification(item) {
+          if (!item) return;
+          if ((item.kind || "") === "comment") {
+            const key = headerMessageThreadKey(item);
+            for (let i = liveHeaderMessageNotifications.length - 1; i >= 0; i -= 1) {
+              if (headerMessageThreadKey(liveHeaderMessageNotifications[i]) === key) {
+                liveHeaderMessageNotifications.splice(i, 1);
+              }
+            }
+            liveHeaderMessageNotifications.unshift(item);
+          } else {
+            const key = headerNotificationKey(item);
+            for (let i = liveHeaderRegularNotifications.length - 1; i >= 0; i -= 1) {
+              if (headerNotificationKey(liveHeaderRegularNotifications[i]) === key) {
+                liveHeaderRegularNotifications.splice(i, 1);
+              }
+            }
+            liveHeaderRegularNotifications.unshift(item);
+          }
+          applyHeaderNotificationState({});
+        }
+
+        applyHeaderNotificationState(headerNotificationState);
+
+        if (window.io) {
+          const headerSocket = window.io({
+            transports: ["websocket", "polling"],
+          });
+          headerSocket.on("notification_state", function (data) {
+            applyHeaderNotificationState(data || {});
+          });
+          headerSocket.on("notification_preview", function (data) {
+            addHeaderLiveNotification(data);
+          });
+          headerSocket.on("notification_preview_dismissed", function (data) {
+            const notificationId = data && data.notification_id ? String(data.notification_id) : "";
+            if (!notificationId) return;
+            for (let i = liveHeaderRegularNotifications.length - 1; i >= 0; i -= 1) {
+              if (String(liveHeaderRegularNotifications[i] && liveHeaderRegularNotifications[i].id || "") === notificationId) {
+                liveHeaderRegularNotifications.splice(i, 1);
+              }
+            }
+            for (let i = liveHeaderMessageNotifications.length - 1; i >= 0; i -= 1) {
+              if (String(liveHeaderMessageNotifications[i] && liveHeaderMessageNotifications[i].id || "") === notificationId) {
+                liveHeaderMessageNotifications.splice(i, 1);
+              }
+            }
+            applyHeaderNotificationState({});
+          });
+        }
+        {% endif %}
       });
     </script>
   </body>

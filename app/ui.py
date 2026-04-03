@@ -31,7 +31,22 @@ from app.identity import (
     set_primary_user_email,
 )
 from app.info_utils import load_info_payload, normalize_info_payload
+from app.notification_preferences import (
+    GENERAL_NOTIFICATION_DEFINITIONS,
+    NOTIFICATION_EVENT_DEFINITIONS,
+    TASK_NOTIFICATION_DEFINITIONS,
+    TASK_NOTIFICATION_SCOPES,
+    user_notification_channel_enabled,
+    user_notification_preference_map,
+)
+from app.notification_emailer import (
+    EMAIL_FREQUENCY_OPTIONS,
+    build_test_notification_email_items,
+    normalize_notification_email_frequency,
+    send_notification_digest_email,
+)
 from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
+from app.models import UserNotificationPreference
 from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
     emit_assignment_updated,
@@ -44,6 +59,7 @@ from app.realtime import (
     emit_task_notification_updates,
     emit_task_updated,
     emit_user_notification_preview,
+    is_user_viewing_discussion,
     queue_task_notifications,
     is_user_viewing_task,
     _task_notification_user_ids,
@@ -56,7 +72,8 @@ from app.sidebar_layout import (
     top_level_sidebar_items,
 )
 from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
-from app.utils import current_user, display_name_for_user
+from app.utils import ALL_TIMEZONE_OPTIONS, COMMON_TIMEZONE_OPTIONS, current_user, display_name_for_user, normalize_user_timezone
+from app.themes import DEFAULT_THEME_NAME, THEME_DEFINITIONS, color_slot_from_palette, division_effective_color, normalize_theme_name, palette_color, theme_palette
 from app.utils import is_admin as user_is_admin
 
 
@@ -490,10 +507,21 @@ def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> 
                 project_label = str(detail.get("project_name") or (project.name if project else "") or "Project").strip()
                 preview = ((actor_name + " added you to " + project_label) if actor_name else ("Added to " + project_label))
                 inbox_preview = "added you to this project"
+            elif row.kind == "project_removed":
+                summary = "Removed from project"
+                project_label = str(detail.get("project_name") or (project.name if project else "") or "Project").strip()
+                preview = ((actor_name + " removed you from " + project_label) if actor_name else ("Removed from " + project_label))
+                inbox_preview = "removed you from this project"
             else:
                 summary = "Task updated"
-                preview = "Task updated"
-                inbox_preview = "updated"
+                changed_fields = [str(value).strip() for value in (detail.get("changed_fields") or []) if str(value).strip()]
+                if actor_name and changed_fields:
+                    preview = actor_name + " updated " + task_label + " (" + ", ".join(changed_fields) + ")"
+                elif changed_fields:
+                    preview = "Updated " + ", ".join(changed_fields)
+                else:
+                    preview = "Task updated"
+                inbox_preview = ("updated " + ", ".join(changed_fields)) if changed_fields else "updated"
         items.append({
             "id": row.id,
             "task_id": row.task_id,
@@ -532,6 +560,10 @@ def _emit_collaborator_comment_previews(task: Task, collaborator: CollaboratorPr
     created_at = datetime.utcnow().isoformat()
     actor_name = collaborator.display_name or collaborator.email or "New message"
     for recipient_id in sorted(task_discussion_user_ids(task)):
+        if is_user_viewing_discussion(recipient_id, "task", task.id):
+            continue
+        if not user_notification_channel_enabled(recipient_id, "task_message", "push", task=task):
+            continue
         emit_user_notification_preview(
             recipient_id,
             {
@@ -600,19 +632,8 @@ def _should_show_todo_task(task: Task, show_completed: bool, today: date, *, vie
     return False
 
 
-def _division_palette() -> list[str]:
-    return [
-        "#1f77b4",
-        "#ff7f0e",
-        "#2ca02c",
-        "#d62728",
-        "#9467bd",
-        "#8c564b",
-        "#e377c2",
-        "#7f7f7f",
-        "#bcbd22",
-        "#17becf",
-    ]
+def _division_palette(theme_name: str | None = None) -> list[str]:
+    return list(theme_palette(theme_name))
 
 
 def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, list[User]], dict[int, list[User]], dict[int, User]]:
@@ -714,6 +735,17 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
     ).order_by(EmailVerification.created_at.desc()).all()
     github_identity = github_identity_for_user(user.id)
     github_sync_state = github_sync_state_for_user(user.id)
+    notification_preferences = user_notification_preference_map(user.id)
+    notification_rows = (
+        TaskNotification.query.filter_by(user_id=user.id)
+        .filter(or_(TaskNotification.read_at.is_(None), TaskNotification.pinned.is_(True)))
+        .order_by(TaskNotification.pinned.desc(), TaskNotification.created_at.desc(), TaskNotification.id.desc())
+        .limit(24)
+        .all()
+    )
+    notification_items = _build_notification_items(notification_rows, user_id=user.id)
+    task_notifications = [item for item in notification_items if item["kind"] != "comment"]
+    message_notifications = [item for item in notification_items if item["kind"] == "comment"]
     return render_template(
         "account.html",
         user=user,
@@ -725,6 +757,19 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         title="Settings",
         account_section=section,
         default_display_name=default_display_name,
+        common_timezone_options=COMMON_TIMEZONE_OPTIONS,
+        all_timezone_options=ALL_TIMEZONE_OPTIONS,
+        theme_definitions=THEME_DEFINITIONS,
+        active_theme_name=normalize_theme_name(getattr(user, "theme_name", None)),
+        notification_event_definitions=NOTIFICATION_EVENT_DEFINITIONS,
+        general_notification_definitions=GENERAL_NOTIFICATION_DEFINITIONS,
+        task_notification_definitions=TASK_NOTIFICATION_DEFINITIONS,
+        task_notification_scopes=TASK_NOTIFICATION_SCOPES,
+        notification_preferences=notification_preferences,
+        email_frequency_options=EMAIL_FREQUENCY_OPTIONS,
+        notification_email_frequency_seconds=normalize_notification_email_frequency(user.notification_email_frequency_seconds),
+        task_notifications=task_notifications,
+        message_notifications=message_notifications,
         error=error,
         merge_message=message,
     )
@@ -1159,8 +1204,18 @@ def dashboard():
     direct_projects.sort(
         key=lambda project: ((_project_display_name_for_user(project, user.id) or "").lower(), project.id)
     )
+    active_theme_name = normalize_theme_name(getattr(user, "theme_name", None))
     sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.name.asc(), Division.id.asc()).all()
-    division_options = [{"id": division.id, "name": division.name, "color": division.color} for division in sidebar_divisions]
+    division_options = [
+        {
+            "id": division.id,
+            "name": division.name,
+            "color": division_effective_color(division, active_theme_name),
+            "color_slot": division.color_slot,
+            "custom_color": division.color,
+        }
+        for division in sidebar_divisions
+    ]
     sidebar_pref_map = sidebar_preference_map(user.id, standard_projects, sidebar_divisions)
     projects_by_division = {division.id: [] for division in sidebar_divisions}
     top_level_items = top_level_sidebar_items(standard_projects, sidebar_divisions, sidebar_pref_map)
@@ -1188,7 +1243,7 @@ def dashboard():
     ]
 
     selected_project = None
-    division_color_map = {division.id: (division.color or "#4cc9f0") for division in sidebar_divisions}
+    division_color_map = {division.id: division_effective_color(division, active_theme_name) for division in sidebar_divisions}
     selected_id = request.args.get("project_id")
     open_task_id = request.args.get("open_discussion_task_id")
     tree_selection_type = (request.args.get("tree_select_type") or "").strip().lower()
@@ -1279,6 +1334,7 @@ def dashboard():
             ]
         project_groups = Group.query.filter_by(project_id=project.id).order_by(Group.position.asc(), Group.id.asc()).all()
         project_tasks_by_group = {group.id: [] for group in project_groups}
+        group_name_by_id = {group.id: group.name for group in project_groups}
         for task in project_tasks:
             if task.group_id and task.group_id in project_tasks_by_group:
                 project_tasks_by_group[task.group_id].append(task)
@@ -1308,6 +1364,38 @@ def dashboard():
                 group.id: load_info_payload(group.info, group.link)
                 for group in project_groups
             },
+            "gantt_items": [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "start_date": str((load_info_payload(task.info, task.link).get("meta") or {}).get("start_date") or ""),
+                    "due_at": task.due_at.isoformat() if task.due_at else None,
+                    "due_mode": str((load_info_payload(task.info, task.link).get("meta") or {}).get("due_mode") or ("date" if task.due_at else "none")),
+                    "status": task.status,
+                    "status_mode": (project_status_map.get(task.id) or {}).get("mode") or "single",
+                    "status_percentage": (project_status_map.get(task.id) or {}).get("percentage_complete") or 0,
+                    "status_meta": project_status_map.get(task.id) or {},
+                    "group_id": group.id,
+                    "group_name": group.name,
+                }
+                for group in project_groups
+                for task in project_tasks_by_group.get(group.id, [])
+            ] + [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "start_date": str((load_info_payload(task.info, task.link).get("meta") or {}).get("start_date") or ""),
+                    "due_at": task.due_at.isoformat() if task.due_at else None,
+                    "due_mode": str((load_info_payload(task.info, task.link).get("meta") or {}).get("due_mode") or ("date" if task.due_at else "none")),
+                    "status": task.status,
+                    "status_mode": (project_status_map.get(task.id) or {}).get("mode") or "single",
+                    "status_percentage": (project_status_map.get(task.id) or {}).get("percentage_complete") or 0,
+                    "status_meta": project_status_map.get(task.id) or {},
+                    "group_id": None,
+                    "group_name": "",
+                }
+                for task in project_ungrouped_tasks
+            ],
             "display_name": _project_display_name_for_user(project, user.id),
         }
 
@@ -1339,7 +1427,7 @@ def dashboard():
         division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
         project_hierarchy_meta[project.id] = {
             "division_name": division.name if division else None,
-            "division_color": (division.color or "#4cc9f0") if division else None,
+            "division_color": division_effective_color(division, active_theme_name) if division else None,
             "project_name": project_display_names.get(project.id, project.name),
         }
     shared_project_ids = {
@@ -1444,7 +1532,7 @@ def dashboard():
                     "task": task,
                     "project": project,
                     "group": todo_groups.get(task.group_id),
-                    "division_color": (division.color if division and division.color else "#4cc9f0"),
+                    "division_color": division_effective_color(division, active_theme_name) if division else "#4cc9f0",
                     "division_id": (division.id if division else None),
                     "date_key": bucket_key,
                     "date_label": bucket_label,
@@ -1641,6 +1729,9 @@ def dashboard():
         projects=projects,
         divisions=sidebar_divisions,
         division_options=division_options,
+        division_color_map=division_color_map,
+        division_palette=_division_palette(active_theme_name),
+        active_theme_name=active_theme_name,
         selected_project_color=selected_project_color,
         projects_by_division=projects_by_division,
         top_level_items=top_level_items,
@@ -1793,21 +1884,30 @@ def dev_mailbox():
 def account():
     user = current_user()
     section = (request.args.get("section") or "emails").strip().lower()
-    if section not in {"emails", "experience"}:
+    if section not in {"emails", "experience", "notifications"}:
         section = "emails"
     return _render_account_page(user, section=section)
+
+
+@ui_bp.get("/account/notifications")
+@login_required
+def account_notifications():
+    return _render_account_page(current_user(), section="notifications")
 
 
 @ui_bp.post("/account/experience")
 @login_required
 def update_account_experience():
     user = current_user()
-    theme_mode = (request.form.get("theme_mode") or "dark").strip().lower()
+    theme_mode = (request.form.get("theme_mode") or user.theme_mode or "dark").strip().lower()
     if theme_mode not in {"dark", "light"}:
         return _render_account_page(user, section="experience", error="Invalid theme selection.")
+    user.theme_name = normalize_theme_name(request.form.get("theme_name") or getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
     user.theme_mode = theme_mode
+    timezone_value = normalize_user_timezone(request.form.get("timezone") or user.timezone or "UTC")
+    user.timezone = timezone_value
     db.session.commit()
-    return _render_account_page(user, section="experience", message="Theme updated.")
+    return _render_account_page(user, section="experience", message="Experience settings updated.")
 
 
 @ui_bp.post("/account/display-name")
@@ -1822,6 +1922,87 @@ def update_account_display_name():
     else:
         message = "Display name cleared. Default name will be used."
     return _render_account_page(user, section="emails", message=message)
+
+
+@ui_bp.post("/account/notifications")
+@login_required
+def update_account_notifications():
+    user = current_user()
+    user.notification_email_frequency_seconds = normalize_notification_email_frequency(
+        request.form.get("notification_email_frequency_seconds")
+    )
+    existing = {
+        (row.event_key, row.scope_key or "default"): row
+        for row in UserNotificationPreference.query.filter_by(user_id=user.id).all()
+    }
+    for definition in GENERAL_NOTIFICATION_DEFINITIONS:
+        key = definition["key"]
+        push_enabled = "1" in request.form.getlist(f"push__{key}")
+        email_enabled = "1" in request.form.getlist(f"email__{key}")
+        row = existing.get((key, "default"))
+        if row is None:
+            row = UserNotificationPreference(
+                user_id=user.id,
+                event_key=key,
+                scope_key="default",
+                push_enabled=push_enabled,
+                email_enabled=email_enabled,
+            )
+            db.session.add(row)
+        else:
+            row.push_enabled = push_enabled
+            row.email_enabled = email_enabled
+        row.updated_at = datetime.utcnow()
+    for definition in TASK_NOTIFICATION_DEFINITIONS:
+        key = definition["key"]
+        for scope in TASK_NOTIFICATION_SCOPES:
+            scope_key = scope["key"]
+            push_enabled = "1" in request.form.getlist(f"push__{key}__{scope_key}")
+            email_enabled = "1" in request.form.getlist(f"email__{key}__{scope_key}")
+            row = existing.get((key, scope_key))
+            if row is None:
+                row = UserNotificationPreference(
+                    user_id=user.id,
+                    event_key=key,
+                    scope_key=scope_key,
+                    push_enabled=push_enabled,
+                    email_enabled=email_enabled,
+                )
+                db.session.add(row)
+            else:
+                row.push_enabled = push_enabled
+                row.email_enabled = email_enabled
+            row.updated_at = datetime.utcnow()
+    db.session.commit()
+    return _render_account_page(
+        user,
+        section="notifications",
+        message="Notification preferences updated.",
+    )
+
+
+@ui_bp.post("/account/notifications/test-email")
+@login_required
+def send_account_notification_test_email():
+    user = current_user()
+    preference_map = user_notification_preference_map(user.id)
+    items = build_test_notification_email_items(user, preference_map)
+    if not user.email:
+        return _render_account_page(user, section="notifications", error="No primary email is available for test delivery.")
+    if not items:
+        return _render_account_page(user, section="notifications", error="Enable at least one email notification type before sending a test email.")
+    try:
+        send_notification_digest_email(
+            user.email,
+            recipient_name=display_name_for_user(user) or user.email,
+            notifications=items,
+        )
+    except MailDeliveryError as exc:
+        return _render_account_page(user, section="notifications", error=str(exc))
+    except Exception:
+        current_app.logger.exception("notification test email failed", extra={"user_id": user.id})
+        return _render_account_page(user, section="notifications", error="Unable to send the test email.")
+    return _render_account_page(user, section="notifications", message="Test email sent.")
 
 
 @ui_bp.get("/admin")
@@ -2177,11 +2358,12 @@ def create_division():
         insert_position = None
 
     division_position = insert_top_level(user.id, insert_position)
-    palette = _division_palette()
+    palette = _division_palette(getattr(user, "theme_name", None))
     division = Division(
         owner_id=user.id,
         name=name,
-        color=palette[(division_position - 1) % len(palette)],
+        color=None,
+        color_slot=((division_position - 1) % len(palette)) + 1,
         position=division_position,
     )
     db.session.add(division)
@@ -2211,7 +2393,7 @@ def create_group():
         return redirect(url_for("ui.dashboard"))
 
     max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
-    palette = _division_palette()
+    palette = _division_palette(getattr(user, "theme_name", None))
     group = Group(
         project_id=project.id,
         name=name,

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from app.extensions import db
 
 
@@ -9,7 +9,11 @@ class User(db.Model):
     display_name = db.Column(db.String(255))
     avatar_url = db.Column(db.String(1024))
     password_hash = db.Column(db.String(255))
+    theme_name = db.Column(db.String(32), nullable=False, default="termin")
     theme_mode = db.Column(db.String(16), nullable=False, default="dark")
+    timezone = db.Column(db.String(64), nullable=False, default="UTC")
+    notification_email_frequency_seconds = db.Column(db.Integer, nullable=False, default=0)
+    notification_email_last_sent_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -21,6 +25,22 @@ class UserEmail(db.Model):
     avatar_url = db.Column(db.String(1024))
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class UserNotificationPreference(db.Model):
+    __tablename__ = "user_notification_preferences"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    event_key = db.Column(db.String(64), nullable=False)
+    scope_key = db.Column(db.String(32), nullable=False, default="default")
+    push_enabled = db.Column(db.Boolean, default=True, nullable=False)
+    email_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "event_key", "scope_key", name="uq_user_notification_preferences_user_event_scope"),
+    )
 
 
 class CalendarFeed(db.Model):
@@ -79,6 +99,8 @@ class Project(db.Model):
     link = db.Column(db.String(1024))
     description = db.Column(db.Text)
     description_format = db.Column(db.String(32), default="markdown")
+    start_date = db.Column(db.Date)
+    end_date = db.Column(db.Date)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -110,6 +132,7 @@ class Division(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     name = db.Column(db.String(255), nullable=False)
     color = db.Column(db.String(32))
+    color_slot = db.Column(db.Integer)
     position = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -226,6 +249,18 @@ class Assignment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class TaskFollower(db.Model):
+    __tablename__ = "task_followers"
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("task_id", "user_id", name="uq_task_followers_task_user"),
+    )
+
+
 class Invite(db.Model):
     __tablename__ = "invites"
     id = db.Column(db.Integer, primary_key=True)
@@ -296,6 +331,7 @@ class TaskNotification(db.Model):
     notification_data = db.Column(db.Text)
     pinned = db.Column(db.Boolean, nullable=False, default=False)
     read_at = db.Column(db.DateTime)
+    emailed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
