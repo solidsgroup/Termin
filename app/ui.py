@@ -49,6 +49,7 @@ from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, 
 from app.models import UserNotificationPreference
 from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
+    _render_description,
     emit_assignment_updated,
     emit_discussion_activity_updated,
     emit_division_created,
@@ -181,6 +182,14 @@ def _calendar_feed_tasks(email: str) -> list[Task]:
     if user_ids:
         assignment_filter = or_(assignment_filter, Assignment.user_id.in_(user_ids))
     assignments = assignment_query.filter(assignment_filter).all()
+    invites = (
+        Invite.query
+        .filter(
+            func.lower(Invite.email) == normalized,
+            Invite.status != "declined",
+        )
+        .all()
+    )
     task_ids: list[int] = []
     seen_task_ids: set[int] = set()
     for assignment in assignments:
@@ -188,6 +197,11 @@ def _calendar_feed_tasks(email: str) -> list[Task]:
             continue
         seen_task_ids.add(assignment.task_id)
         task_ids.append(assignment.task_id)
+    for invite in invites:
+        if not invite.task_id or invite.task_id in seen_task_ids:
+            continue
+        seen_task_ids.add(invite.task_id)
+        task_ids.append(invite.task_id)
     if not task_ids:
         return []
     tasks = (
@@ -947,6 +961,7 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     task_ids.update({assignment.task_id for assignment in assignments if assignment.task_id})
     tasks = {task.id: task for task in Task.query.filter(Task.id.in_(task_ids)).all()} if task_ids else {}
     task_status_map = task_status_meta_map(list(tasks.values()), viewer_email=collaborator.email) if tasks else {}
+    task_info_map = {task.id: load_info_payload(task.info, task.link) for task in tasks.values()} if tasks else {}
     project_ids = {task.project_id for task in tasks.values() if task and task.project_id}
     projects = {project.id: project for project in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
     entries: list[dict] = []
@@ -985,6 +1000,12 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                 "created_at": (invite.created_at if invite else assignment.created_at),
                 "work_status": work_status,
                 "is_complete": _is_complete_status(work_status),
+                "links": list((task_info_map.get(task.id, {}) or {}).get("links") or []) if task else [],
+                "description_html": _render_description(
+                    task.description,
+                    task.description_format,
+                    "markdown",
+                ) if task else "",
             }
         )
 
@@ -1012,6 +1033,12 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                 "created_at": invite.created_at,
                 "work_status": work_status,
                 "is_complete": _is_complete_status(work_status),
+                "links": list((task_info_map.get(task.id, {}) or {}).get("links") or []) if task else [],
+                "description_html": _render_description(
+                    task.description,
+                    task.description_format,
+                    "markdown",
+                ) if task else "",
             }
         )
 
@@ -1053,6 +1080,32 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
 def _collaborator_task_ids(collaborator: CollaboratorProfile) -> set[int]:
     entries = _build_collaborator_entries(collaborator)
     return {entry["task"].id for entry in entries if entry.get("task")}
+
+
+def _collaborator_task_row_context(collaborator: CollaboratorProfile, task_id: int) -> dict | None:
+    entries = _build_collaborator_entries(collaborator)
+    entry = next((item for item in entries if item.get("task") and int(item["task"].id) == int(task_id)), None)
+    if not entry or not entry.get("task"):
+        return None
+    task = entry["task"]
+    comment_count = TaskComment.query.filter_by(task_id=task.id).count()
+    latest_comment_at = (
+        db.session.query(db.func.max(TaskComment.created_at))
+        .filter(TaskComment.task_id == task.id)
+        .scalar()
+    )
+    last_read_at = (
+        CollaboratorTaskRead.query.filter_by(collaborator_id=collaborator.id, task_id=task.id)
+        .with_entities(CollaboratorTaskRead.last_read_at)
+        .scalar()
+    )
+    unread_task_ids = {task.id} if latest_comment_at and latest_comment_at > (last_read_at or datetime.min) else set()
+    return {
+        "entry": entry,
+        "collaborator": collaborator,
+        "task_comment_counts": {task.id: comment_count},
+        "unread_task_ids": unread_task_ids,
+    }
 
 
 def _work_item_status(task: Task | None) -> str:
@@ -2610,6 +2663,18 @@ def collaborator_portal(token: str):
     )
 
 
+@ui_bp.get("/collaborators/<token>/tasks/<int:task_id>/snapshot")
+def collaborator_task_snapshot(token: str, task_id: int):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return {"error": "invalid collaborator"}, 404
+    context = _collaborator_task_row_context(collaborator, task_id)
+    if not context:
+        return {"exists": False, "task_id": task_id}, 200
+    html = render_template("_collaborator_task_row.html", **context)
+    return {"exists": True, "task_id": task_id, "html": html}, 200
+
+
 @ui_bp.route("/collaborators/<token>/invites/<int:invite_id>/quick/<action>", methods=["GET", "POST"])
 def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
     collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
@@ -2752,14 +2817,6 @@ def update_collaborator_settings(token: str):
         return render_template("collaborator_portal.html", status="invalid", collaborator=None, entries=[])
 
     collaborator.display_name = (request.form.get("display_name") or "").strip() or None
-    notification_preference = (request.form.get("notification_preference") or "email").strip().lower()
-    if notification_preference not in {"email", "calendar", "none"}:
-        notification_preference = "email"
-    follow_up_updates = request.form.get("follow_up_updates") == "on"
-    collaborator.notification_preference = notification_preference
-    collaborator.new_task_notification_preference = notification_preference
-    collaborator.update_notification_preference = notification_preference if follow_up_updates else "none"
-    collaborator.default_calendar_opt_in = notification_preference == "calendar"
     collaborator.updated_at = datetime.utcnow()
     db.session.commit()
     return redirect(url_for("ui.collaborator_portal", token=token))
@@ -2776,28 +2833,16 @@ def update_collaborator_invite(token: str, invite_id: int):
         return redirect(url_for("ui.collaborator_portal", token=token))
 
     action = request.form.get("action")
-    calendar_opt_in = request.form.get("calendar_opt_in") == "on"
     task = _resolve_work_item(invite.task_id)
-    project = Project.query.get(task.project_id) if task and task.project_id else None
     if action in {"accept", "decline"}:
-        _apply_invite_response(invite, action, calendar_opt_in)
-    elif action == "calendar":
-        invite.calendar_opt_in = True
+        _apply_invite_response(invite, action, False)
     elif action == "complete":
         _set_collaborator_work_item_status(task, collaborator.email, "complete")
     elif action == "uncomplete":
         _set_collaborator_work_item_status(task, collaborator.email, "open")
 
-    sent_calendar_invite = False
-    if action == "calendar":
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
-    elif invite.status == "accepted" and invite.calendar_opt_in and not invite.calendar_invite_sent_at:
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
-
     db.session.commit()
 
-    if task and (sent_calendar_invite or (invite.status == "accepted" and invite.calendar_opt_in)):
-        _safe_ensure_task_event(task.id, invite.email)
     if task and action in {"complete", "uncomplete"}:
         emit_task_updated(task)
     if invite.assignment_id and task:
@@ -2817,30 +2862,18 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     if not assignment:
         return redirect(url_for("ui.collaborator_portal", token=token))
 
-    calendar_opt_in = request.form.get("calendar_opt_in") == "on"
-    invite = _ensure_assignment_invite(assignment, calendar_opt_in=calendar_opt_in)
+    invite = _ensure_assignment_invite(assignment, calendar_opt_in=False)
     action = request.form.get("action")
     task = _resolve_work_item(assignment.task_id)
-    project = Project.query.get(task.project_id) if task and task.project_id else None
     if action in {"accept", "decline"}:
-        _apply_invite_response(invite, action, calendar_opt_in)
-    elif action == "calendar":
-        invite.calendar_opt_in = True
+        _apply_invite_response(invite, action, False)
     elif action == "complete":
         _set_collaborator_work_item_status(task, collaborator.email, "complete")
     elif action == "uncomplete":
         _set_collaborator_work_item_status(task, collaborator.email, "open")
 
-    sent_calendar_invite = False
-    if action == "calendar":
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
-    elif invite.status == "accepted" and invite.calendar_opt_in and not invite.calendar_invite_sent_at:
-        sent_calendar_invite = _send_collaborator_calendar_invite(collaborator, invite, task, project)
-
     db.session.commit()
 
-    if task and (sent_calendar_invite or (invite.status == "accepted" and invite.calendar_opt_in)):
-        _safe_ensure_task_event(task.id, invite.email)
     if task and action in {"complete", "uncomplete"}:
         emit_task_updated(task)
     if task:

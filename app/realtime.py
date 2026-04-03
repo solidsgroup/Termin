@@ -3,7 +3,7 @@ from collections import defaultdict
 from html import escape
 import json
 from markdown import markdown as render_markdown
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
 from flask import request
 from flask_socketio import emit, join_room, leave_room
@@ -21,6 +21,7 @@ from app.models import (
     Group,
     GroupComment,
     GroupMember,
+    Invite,
     Project,
     ProjectComment,
     ProjectMember,
@@ -38,6 +39,7 @@ from app.utils import current_user, display_name_for_user
 
 _handlers_registered = False
 _sid_user = {}
+_sid_collaborator = {}
 _sid_projects = defaultdict(set)
 _sid_tasks = defaultdict(set)
 _sid_discussions = defaultdict(set)
@@ -50,6 +52,10 @@ _user_active_projects = defaultdict(set)
 
 def user_room(user_id: int) -> str:
     return f"user:{user_id}"
+
+
+def collaborator_room(collaborator_id: int) -> str:
+    return f"collaborator:{collaborator_id}"
 
 
 def task_room(task_id: int) -> str:
@@ -209,6 +215,29 @@ def _task_notification_user_ids(task: Task) -> set[int]:
         if row.user_id
     )
     return {user_id for user_id in user_ids if user_id}
+
+
+def _task_collaborator_ids(task: Task) -> set[int]:
+    if not task:
+        return set()
+    emails = {
+        (row.email or "").strip().lower()
+        for row in Assignment.query.filter_by(task_id=task.id).all()
+        if (row.email or "").strip()
+    }
+    emails.update(
+        (row.email or "").strip().lower()
+        for row in Invite.query.filter_by(task_id=task.id).all()
+        if (row.email or "").strip()
+    )
+    if not emails:
+        return set()
+    collaborators = (
+        CollaboratorProfile.query
+        .filter(func.lower(CollaboratorProfile.email).in_(list(emails)))
+        .all()
+    )
+    return {row.id for row in collaborators if row and row.access_token}
 
 
 def _project_comment_user_ids(project_id: int) -> set[int]:
@@ -806,6 +835,17 @@ def emit_assignment_updated(task: Task, assignment: Assignment, *, action: str =
     socketio.emit("assignment_updated", payload, room=project_room(task.project_id))
     for recipient_id in _task_notification_user_ids(task):
         socketio.emit("assignment_updated", payload, room=user_room(recipient_id))
+    for collaborator_id in _task_collaborator_ids(task):
+        socketio.emit("assignment_updated", payload, room=collaborator_room(collaborator_id))
+    assignment_email = (assignment.email or "").strip().lower()
+    if assignment_email:
+      collaborator = (
+          CollaboratorProfile.query
+          .filter(func.lower(CollaboratorProfile.email) == assignment_email)
+          .first()
+      )
+      if collaborator and collaborator.access_token:
+          socketio.emit("assignment_updated", payload, room=collaborator_room(collaborator.id))
 
 
 def _serialize_members(users) -> list[dict]:
@@ -873,39 +913,42 @@ def emit_group_members_updated(group_id: int, *, actor_user_id: int | None = Non
 
 def emit_task_comment_created(task_id: int, comment_payload: dict) -> None:
     comment_count = TaskComment.query.filter_by(task_id=task_id).count()
-    socketio.emit(
-        "task_comment_created",
-        {
-            "task_id": task_id,
-            "comment": comment_payload,
-            "comment_count": comment_count,
-        },
-        room=task_room(task_id),
-    )
+    payload = {
+        "task_id": task_id,
+        "comment": comment_payload,
+        "comment_count": comment_count,
+    }
+    socketio.emit("task_comment_created", payload, room=task_room(task_id))
+    task = Task.query.get(task_id)
+    if task:
+        for collaborator_id in _task_collaborator_ids(task):
+            socketio.emit("task_comment_created", payload, room=collaborator_room(collaborator_id))
 
 
 def emit_task_comment_updated(task_id: int, comment_payload: dict) -> None:
-    socketio.emit(
-        "task_comment_updated",
-        {
-            "task_id": task_id,
-            "comment": comment_payload,
-        },
-        room=task_room(task_id),
-    )
+    payload = {
+        "task_id": task_id,
+        "comment": comment_payload,
+    }
+    socketio.emit("task_comment_updated", payload, room=task_room(task_id))
+    task = Task.query.get(task_id)
+    if task:
+        for collaborator_id in _task_collaborator_ids(task):
+            socketio.emit("task_comment_updated", payload, room=collaborator_room(collaborator_id))
 
 
 def emit_task_comment_deleted(task_id: int, comment_id: int) -> None:
     comment_count = TaskComment.query.filter_by(task_id=task_id).count()
-    socketio.emit(
-        "task_comment_deleted",
-        {
-            "task_id": task_id,
-            "comment_id": comment_id,
-            "comment_count": comment_count,
-        },
-        room=task_room(task_id),
-    )
+    payload = {
+        "task_id": task_id,
+        "comment_id": comment_id,
+        "comment_count": comment_count,
+    }
+    socketio.emit("task_comment_deleted", payload, room=task_room(task_id))
+    task = Task.query.get(task_id)
+    if task:
+        for collaborator_id in _task_collaborator_ids(task):
+            socketio.emit("task_comment_deleted", payload, room=collaborator_room(collaborator_id))
 
 
 def emit_project_comment_created(project_id: int, comment_payload: dict) -> None:
@@ -1041,6 +1084,8 @@ def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: in
         socketio.emit("task_updated", payload, room=project_room(old_project_id))
     for recipient_id in _task_notification_user_ids(task):
         socketio.emit("task_updated", payload, room=user_room(recipient_id))
+    for collaborator_id in _task_collaborator_ids(task):
+        socketio.emit("task_updated", payload, room=collaborator_room(collaborator_id))
 
 def queue_task_notifications(
     task: Task,
@@ -1186,12 +1231,21 @@ def register_socket_handlers() -> None:
     @socketio.on("connect")
     def handle_connect():
         user = current_user()
-        if not user:
+        if user:
+            _sid_user[request.sid] = user.id
+            _user_socket_counts[user.id] += 1
+            join_room(user_room(user.id))
+            emit("socket_ready", {"user_id": user.id})
+            return
+        collaborator_token = str(request.args.get("collaborator_token") or "").strip()
+        if not collaborator_token:
             return False
-        _sid_user[request.sid] = user.id
-        _user_socket_counts[user.id] += 1
-        join_room(user_room(user.id))
-        emit("socket_ready", {"user_id": user.id})
+        collaborator = CollaboratorProfile.query.filter_by(access_token=collaborator_token).first()
+        if not collaborator:
+            return False
+        _sid_collaborator[request.sid] = collaborator.id
+        join_room(collaborator_room(collaborator.id))
+        emit("socket_ready", {"collaborator_id": collaborator.id})
 
     @socketio.on("join_task")
     def handle_join_task(data):
@@ -1365,6 +1419,7 @@ def register_socket_handlers() -> None:
     def handle_disconnect():
         sid = request.sid
         user_id = _sid_user.pop(sid, None)
+        _sid_collaborator.pop(sid, None)
         project_ids = list(_sid_projects.pop(sid, set()))
         task_ids = list(_sid_tasks.pop(sid, set()))
         discussion_keys = list(_sid_discussions.pop(sid, set()))

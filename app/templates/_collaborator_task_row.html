@@ -1,0 +1,52 @@
+{% set invite = entry.invite %}
+{% set assignment = entry.assignment %}
+{% set task = entry.task %}
+{% set project = entry.project %}
+<div class="collab-row{% if entry.is_complete %} complete{% endif %}" id="task-{{ task.id if task else entry.assignment.task_id if entry.assignment else entry.invite.task_id if entry.invite else '' }}" data-collab-task-row="{{ task.id if task else entry.assignment.task_id if entry.assignment else entry.invite.task_id if entry.invite else '' }}">
+  <div>
+    <div class="collab-title">
+      <span>{{ task.title if task else 'Unknown task' }}</span>
+      {% if entry.links %}
+        {% for link in entry.links %}
+          <a class="collab-link-chip" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
+            <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link|urlencode }}" alt="" referrerpolicy="no-referrer" />
+          </a>
+        {% endfor %}
+      {% endif %}
+      {% if task %}
+        <button class="btn secondary collab-chat-btn{% if task.id in unread_task_ids %} has-comments{% endif %}" type="button" data-open-collab-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ project.name|e if project else '' }}" title="Open discussion" aria-label="Open discussion">
+          <i class="fa-regular fa-comments" aria-hidden="true"></i>
+          <span>{{ (task_comment_counts|default({})).get(task.id, 0) }}</span>
+          {% if task.id in unread_task_ids %}
+            <span class="collab-chat-dot" aria-hidden="true"></span>
+          {% endif %}
+        </button>
+      {% endif %}
+    </div>
+    <div class="collab-due">
+      {% if task and task.due_at %}
+        Due {{ task.due_at.strftime('%Y-%m-%d') }}
+      {% elif task %}
+        Created {{ task.created_at.strftime('%Y-%m-%d') }}
+      {% endif %}
+    </div>
+    {% if entry.description_html %}
+      <div class="collab-description">{{ entry.description_html|safe }}</div>
+    {% endif %}
+    <div class="collab-meta">
+      {% if project %}{{ project.name }} · {% endif %}
+      {{ entry.status }}
+      {% if entry.is_complete %} · complete{% endif %}
+      {% if invite %}
+        · link ready {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}
+      {% else %}
+        · assigned {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}
+      {% endif %}
+    </div>
+  </div>
+  <form class="collab-actions" method="post" action="{% if invite %}{{ url_for('ui.update_collaborator_invite', token=collaborator.access_token, invite_id=invite.id) }}{% else %}{{ url_for('ui.update_collaborator_assignment', token=collaborator.access_token, assignment_id=assignment.id) }}{% endif %}">
+    <button class="btn choice-btn accept{% if entry.status == 'accepted' %} is-selected{% endif %}" type="submit" name="action" value="accept">Accept</button>
+    <button class="btn choice-btn decline{% if entry.status in ['declined', 'denied'] %} is-selected{% endif %}" type="submit" name="action" value="decline">Decline</button>
+    <button class="btn choice-btn complete{% if entry.is_complete %} is-selected{% endif %}" type="submit" name="action" value="{% if entry.is_complete %}uncomplete{% else %}complete{% endif %}">{% if entry.is_complete %}Undo complete{% else %}Mark complete{% endif %}</button>
+  </form>
+</div>

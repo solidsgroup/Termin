@@ -12,7 +12,7 @@
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 12px;
-      align-items: center;
+      align-items: end;
       padding: 10px 0;
       border-bottom: 1px solid var(--grid);
     }
@@ -38,6 +38,7 @@
     .collab-title {
       display: inline-flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 8px;
       font-weight: 600;
     }
@@ -49,6 +50,33 @@
       color: var(--ink);
     }
 
+    .collab-description {
+      margin-top: 6px;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .collab-description > :first-child {
+      margin-top: 0;
+    }
+
+    .collab-description > :last-child {
+      margin-bottom: 0;
+    }
+
+    .collab-description p,
+    .collab-description ul,
+    .collab-description ol,
+    .collab-description blockquote {
+      margin: 0 0 8px;
+    }
+
+    .collab-description ul,
+    .collab-description ol {
+      padding-left: 18px;
+    }
+
     .collab-meta {
       color: var(--muted);
       font-size: 12px;
@@ -58,9 +86,45 @@
       text-overflow: ellipsis;
     }
 
+    .collab-link-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: #a8b0bc;
+      text-decoration: none;
+      overflow: hidden;
+      flex: 0 0 auto;
+    }
+
+    .collab-link-chip:hover {
+      border-color: rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
+    }
+
+    .collab-link-chip img {
+      width: 14px;
+      height: 14px;
+      object-fit: contain;
+      display: block;
+    }
+
+    body[data-theme="light"] .collab-link-chip {
+      border-color: color-mix(in srgb, var(--border) 82%, white 18%);
+      background: color-mix(in srgb, white 94%, var(--panel-alt) 6%);
+      color: color-mix(in srgb, var(--muted) 76%, var(--ink) 24%);
+    }
+
     .collab-actions {
       display: inline-flex;
       align-items: center;
+      align-self: end;
       gap: 8px;
       flex-wrap: wrap;
       justify-content: flex-end;
@@ -83,6 +147,59 @@
       font-size: 13px;
       font-weight: 600;
       color: var(--muted);
+    }
+
+    .collab-settings-row input:not([type="checkbox"]),
+    .collab-settings-row select {
+      width: 100%;
+      min-height: 38px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+      color: var(--ink);
+      padding: 8px 12px;
+      font: inherit;
+      box-sizing: border-box;
+    }
+
+    .collab-settings-row select {
+      appearance: none;
+      -webkit-appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+        linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position:
+        calc(100% - 18px) calc(50% - 2px),
+        calc(100% - 12px) calc(50% - 2px);
+      background-size: 6px 6px, 6px 6px;
+      background-repeat: no-repeat;
+      padding-right: 34px;
+    }
+
+    .collab-settings-row input:not([type="checkbox"]):focus,
+    .collab-settings-row select:focus {
+      outline: none;
+      border-color: color-mix(in srgb, var(--accent) 52%, var(--border) 48%);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+
+    .collab-settings-row input:not([type="checkbox"]):disabled {
+      background: color-mix(in srgb, var(--panel-alt) 76%, var(--panel) 24%);
+      color: color-mix(in srgb, var(--muted) 86%, var(--ink) 14%);
+      cursor: not-allowed;
+      opacity: 1;
+    }
+
+    body[data-theme="light"] .collab-settings-row input:not([type="checkbox"]),
+    body[data-theme="light"] .collab-settings-row select {
+      background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+      color: var(--ink);
+    }
+
+    body[data-theme="light"] .collab-settings-row input:not([type="checkbox"]):disabled {
+      background: color-mix(in srgb, white 88%, var(--panel-alt) 12%);
+      color: color-mix(in srgb, var(--muted) 82%, var(--ink) 18%);
     }
 
     .collab-settings-toggle {
@@ -110,6 +227,21 @@
       .collab-settings-row {
         grid-template-columns: 1fr;
         gap: 6px;
+      }
+
+      .collab-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      .collab-actions {
+        width: 100%;
+        justify-content: flex-start;
+        align-self: stretch;
+      }
+
+      .collab-actions .btn {
+        flex: 0 0 auto;
       }
     }
 
@@ -153,48 +285,6 @@
       box-shadow: inset 0 0 0 1px rgba(76, 201, 240, 0.22);
     }
 
-    .calendar-btn {
-      height: 24px;
-      min-width: 24px;
-      padding: 0 6px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 999px;
-      border-color: rgba(255, 255, 255, 0.08);
-      background: rgba(255, 255, 255, 0.03);
-      color: #8e98a7;
-    }
-
-    .calendar-btn.is-selected {
-      border-color: rgba(110, 231, 183, 0.45);
-      background: rgba(21, 128, 61, 0.12);
-      color: #7dd3a7;
-    }
-
-    .calendar-btn:hover {
-      border-color: rgba(255, 255, 255, 0.14);
-      background: rgba(255, 255, 255, 0.06);
-      color: #c6ccd5;
-    }
-
-    .calendar-btn.is-selected:hover {
-      border-color: rgba(110, 231, 183, 0.58);
-      background: rgba(21, 128, 61, 0.18);
-      color: #d8fbea;
-    }
-
-    .calendar-btn:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-
-    .calendar-btn svg {
-      width: 14px;
-      height: 14px;
-      fill: currentColor;
-    }
-
     .collab-chat-btn {
       height: 24px;
       padding: 0 8px;
@@ -231,60 +321,9 @@
   {% if status != "invalid" %}
     <div class="panel">
       <h3>Assignments And Decisions</h3>
-      <div class="collab-list">
+      <div class="collab-list" id="collab-task-list">
       {% for entry in entries %}
-        {% set invite = entry.invite %}
-        {% set assignment = entry.assignment %}
-        {% set task = entry.task %}
-        {% set project = entry.project %}
-        <div class="collab-row{% if entry.is_complete %} complete{% endif %}" id="task-{{ task.id if task else entry.assignment.task_id if entry.assignment else entry.invite.task_id if entry.invite else '' }}" data-collab-task-row="{{ task.id if task else entry.assignment.task_id if entry.assignment else entry.invite.task_id if entry.invite else '' }}">
-          <div>
-            <div class="collab-title">
-              <span>{{ task.title if task else 'Unknown task' }}</span>
-              {% if task %}
-                <button class="btn secondary collab-chat-btn{% if task.id in unread_task_ids %} has-comments{% endif %}" type="button" data-open-collab-discussion="{{ task.id }}" data-task-title="{{ task.title|e }}" data-project-name="{{ project.name|e if project else '' }}" title="Open discussion" aria-label="Open discussion">
-                  <i class="fa-regular fa-comments" aria-hidden="true"></i>
-                  <span>{{ (task_comment_counts|default({})).get(task.id, 0) }}</span>
-                  {% if task.id in unread_task_ids %}
-                    <span class="collab-chat-dot" aria-hidden="true"></span>
-                  {% endif %}
-                </button>
-              {% endif %}
-            </div>
-            <div class="collab-due">
-              {% if task and task.due_at %}
-                Due {{ task.due_at.strftime('%Y-%m-%d') }}
-              {% elif task %}
-                Created {{ task.created_at.strftime('%Y-%m-%d') }}
-              {% endif %}
-            </div>
-            <div class="collab-meta">
-              {% if project %}{{ project.name }} · {% endif %}
-              {{ entry.status }}
-              {% if entry.is_complete %} · complete{% endif %}
-              {% if invite %}
-                · link ready {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}
-              {% else %}
-                · assigned {{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}
-              {% endif %}
-            </div>
-          </div>
-          <form class="collab-actions" method="post" action="{% if invite %}{{ url_for('ui.update_collaborator_invite', token=collaborator.access_token, invite_id=invite.id) }}{% else %}{{ url_for('ui.update_collaborator_assignment', token=collaborator.access_token, assignment_id=assignment.id) }}{% endif %}">
-            <input type="hidden" name="calendar_opt_in" value="{% if entry.calendar_opt_in %}on{% endif %}" />
-            <button class="btn choice-btn accept{% if entry.status == 'accepted' %} is-selected{% endif %}" type="submit" name="action" value="accept">Accept</button>
-            <button class="btn choice-btn decline{% if entry.status in ['declined', 'denied'] %} is-selected{% endif %}" type="submit" name="action" value="decline">Decline</button>
-            <button class="btn choice-btn complete{% if entry.is_complete %} is-selected{% endif %}" type="submit" name="action" value="{% if entry.is_complete %}uncomplete{% else %}complete{% endif %}">{% if entry.is_complete %}Undo complete{% else %}Mark complete{% endif %}</button>
-            <button class="btn secondary calendar-btn{% if entry.calendar_opt_in %} is-selected{% endif %}" type="submit" name="action" value="calendar" title="{% if entry.calendar_available %}{% if entry.calendar_invite_sent_at %}Resend calendar invitation{% else %}Send calendar invitation{% endif %}{% else %}Add a due date before sending a calendar invitation{% endif %}" aria-label="{% if entry.calendar_available %}{% if entry.calendar_invite_sent_at %}Resend calendar invitation{% else %}Send calendar invitation{% endif %}{% else %}Add a due date before sending a calendar invitation{% endif %}" {% if not entry.calendar_available %}disabled{% endif %}>
-              {% if entry.calendar_opt_in %}
-                <i class="fa-solid fa-check" aria-hidden="true"></i>
-              {% else %}
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M7 2h2v2h6V2h2v2h3v18H4V4h3V2Zm11 8H6v10h12V10ZM6 8h12V6H6v2Zm2 4h3v3H8v-3Z"></path>
-                </svg>
-              {% endif %}
-            </button>
-          </form>
-        </div>
+        {% include "_collaborator_task_row.html" %}
       {% else %}
         <p class="footer-note">No assignments or invites found for this collaborator email yet.</p>
       {% endfor %}
@@ -302,27 +341,14 @@
           <label class="collab-settings-label" for="collaborator-display-name">Full name</label>
           <input id="collaborator-display-name" name="display_name" value="{{ collaborator.display_name or '' }}" placeholder="Your name" />
         </div>
-        <div class="collab-settings-row">
-          <label class="collab-settings-label" for="collaborator-notification-preference">Notifications</label>
-          <select id="collaborator-notification-preference" name="notification_preference">
-            <option value="email"{% if collaborator.new_task_notification_preference == "email" %} selected{% endif %}>Notify by email</option>
-            <option value="calendar"{% if collaborator.new_task_notification_preference == "calendar" %} selected{% endif %}>Notify by calendar invitation</option>
-            <option value="none"{% if collaborator.new_task_notification_preference == "none" %} selected{% endif %}>Do not notify</option>
-          </select>
-        </div>
-        <div class="collab-settings-row">
-          <span class="collab-settings-label">Follow-up updates</span>
-          <label class="collab-settings-toggle" for="collaborator-follow-up-updates">
-            <input id="collaborator-follow-up-updates" type="checkbox" name="follow_up_updates"{% if collaborator.update_notification_preference != "none" %} checked{% endif %} />
-            <span>Notify me again when things change</span>
-          </label>
-        </div>
         {% if calendar_subscription_url %}
           <div class="collab-settings-row">
             <span class="collab-settings-label">Calendar feed</span>
             <div class="collab-settings-toggle">
-              <button class="btn secondary" type="button" title="{{ calendar_subscription_url }}" data-copy-text="{{ calendar_subscription_url }}" data-copy-feedback="Calendar URL copied">Copy URL</button>
-              <span class="footer-note">Use this same subscription if this email later becomes a full account.</span>
+              <button class="btn secondary" type="button" title="{{ calendar_subscription_url }}" data-copy-text="{{ calendar_subscription_url }}">
+                <span data-copy-label>Copy URL</span>
+              </button>
+              <span class="footer-note">This feed updates from the tasks currently assigned or invited to this email address.</span>
             </div>
           </div>
         {% endif %}
@@ -370,6 +396,7 @@
   <script>
     (function () {
       const drawer = document.getElementById("collab-discussion-drawer");
+      const taskListEl = document.getElementById("collab-task-list");
       const listEl = document.getElementById("collab-discussion-list");
       const inputEl = document.getElementById("collab-discussion-input");
       const sendEl = document.getElementById("collab-discussion-send");
@@ -377,6 +404,7 @@
       const subtitleEl = document.getElementById("collab-discussion-subtitle");
       const closeEls = [document.getElementById("collab-discussion-close"), document.getElementById("collab-discussion-cancel")].filter(Boolean);
       let currentTaskId = null;
+      const collaboratorToken = {{ collaborator.access_token|tojson }};
       const params = new URLSearchParams(window.location.search);
 
       function escapeHtml(value) {
@@ -388,7 +416,12 @@
           .replace(/'/g, "&#39;");
       }
 
-      function renderCommentBody(value) {
+      function renderCommentBody(comment) {
+        var rendered = (comment && comment.rendered_body) || "";
+        if (String(rendered || "").trim()) {
+          return rendered;
+        }
+        var value = comment && comment.body ? comment.body : "";
         return escapeHtml(value).replace(/(https?:\/\/[^\s<]+)/g, function (url) {
           return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + "</a>";
         });
@@ -420,12 +453,19 @@
               '<div class="discussion-comment-avatar">' + avatar + '</div>' +
               '<div class="discussion-comment-meta">' +
                 '<div class="discussion-comment-author">' + escapeHtml(name) + '</div>' +
-                '<div class="discussion-comment-time">' + escapeHtml(relativeTime(comment.created_at)) + '</div>' +
+                '<div class="discussion-comment-time">' + escapeHtml(relativeTime(comment.updated_at || comment.created_at)) + '</div>' +
               '</div>' +
             '</div>' +
-            '<div class="discussion-comment-body">' + renderCommentBody(comment.body) + '</div>' +
+            '<div class="discussion-comment-body" data-comment-raw="' + escapeHtml(comment.body || "") + '">' + renderCommentBody(comment) + '</div>' +
           '</div>'
         );
+      }
+
+      function typesetCollabMath(scope) {
+        if (!scope || typeof MathJax === "undefined" || !MathJax.typesetPromise) return;
+        try {
+          MathJax.typesetPromise([scope]).catch(function () {});
+        } catch (error) {}
       }
 
       function loadComments(taskId, taskTitle, projectName) {
@@ -447,11 +487,36 @@
           .then((data) => {
             const comments = data.comments || [];
             listEl.innerHTML = comments.length ? comments.map(renderComment).join("") : '<div class="footer-note">No comments yet. Start the thread.</div>';
+            typesetCollabMath(listEl);
             listEl.scrollTop = listEl.scrollHeight;
           })
           .catch(() => {
             listEl.innerHTML = '<div class="footer-note">Could not load comments.</div>';
           });
+      }
+
+      function fetchTaskSnapshot(taskId) {
+        return fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/" + taskId + "/snapshot", {
+          cache: "no-store",
+        }).then((res) => res.json().catch(() => ({})));
+      }
+
+      function applyTaskSnapshot(snapshot) {
+        if (!snapshot || !taskListEl) return;
+        const taskId = String(snapshot.task_id || "");
+        if (!taskId) return;
+        const existingRow = document.querySelector('[data-collab-task-row="' + taskId + '"]');
+        if (!snapshot.exists) {
+          if (existingRow) existingRow.remove();
+          return;
+        }
+        const emptyNote = taskListEl.querySelector(".footer-note");
+        if (emptyNote) emptyNote.remove();
+        if (existingRow) {
+          existingRow.outerHTML = snapshot.html || "";
+        } else if (snapshot.html) {
+          taskListEl.insertAdjacentHTML("beforeend", snapshot.html);
+        }
       }
 
       function submitComment() {
@@ -464,27 +529,22 @@
           body: JSON.stringify({ body: body }),
         })
           .then((res) => res.json().catch(() => ({})))
-          .then((data) => {
-            if (!data.comment) return;
-            const empty = listEl.querySelector(".footer-note");
-            if (empty) listEl.innerHTML = "";
-            listEl.insertAdjacentHTML("beforeend", renderComment(data.comment));
+          .then(() => {
             inputEl.value = "";
-            listEl.scrollTop = listEl.scrollHeight;
           })
           .finally(() => {
             sendEl.disabled = false;
           });
       }
 
-      document.querySelectorAll("[data-open-collab-discussion]").forEach((button) => {
-        button.addEventListener("click", () => {
-          loadComments(
-            button.getAttribute("data-open-collab-discussion"),
-            button.getAttribute("data-task-title"),
-            button.getAttribute("data-project-name")
-          );
-        });
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-open-collab-discussion]");
+        if (!button) return;
+        loadComments(
+          button.getAttribute("data-open-collab-discussion"),
+          button.getAttribute("data-task-title"),
+          button.getAttribute("data-project-name")
+        );
       });
 
       function focusTaskFromUrl() {
@@ -507,10 +567,6 @@
 
       const settingsForm = document.getElementById("collab-settings-form");
       const settingsName = document.getElementById("collaborator-display-name");
-      const settingsPreferences = [
-        document.getElementById("collaborator-notification-preference"),
-        document.getElementById("collaborator-follow-up-updates"),
-      ].filter(Boolean);
       let settingsSubmitting = false;
 
       function submitCollaboratorSettings() {
@@ -518,10 +574,6 @@
         settingsSubmitting = true;
         settingsForm.requestSubmit();
       }
-
-      settingsPreferences.forEach((selectEl) => {
-        selectEl.addEventListener("change", submitCollaboratorSettings);
-      });
 
       if (settingsName) {
         settingsName.addEventListener("blur", submitCollaboratorSettings);
@@ -535,12 +587,63 @@
       closeEls.forEach((button) => button.addEventListener("click", () => drawer.classList.remove("open")));
       sendEl.addEventListener("click", submitComment);
       inputEl.addEventListener("keydown", (event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           submitComment();
         }
       });
       focusTaskFromUrl();
+
+      if (typeof io === "function" && collaboratorToken) {
+        const socket = io({
+          query: { collaborator_token: collaboratorToken },
+        });
+
+        socket.on("task_updated", function (data) {
+          const task = data && data.task;
+          const taskId = task && task.id;
+          if (!taskId) return;
+          fetchTaskSnapshot(taskId).then(applyTaskSnapshot).catch(() => {});
+        });
+
+        socket.on("assignment_updated", function (data) {
+          const assignment = data && data.assignment;
+          const taskId = assignment && assignment.task_id;
+          if (!taskId) return;
+          fetchTaskSnapshot(taskId).then(applyTaskSnapshot).catch(() => {});
+        });
+
+        socket.on("task_comment_created", function (data) {
+          const taskId = data && data.task_id;
+          if (!taskId) return;
+          fetchTaskSnapshot(taskId).then(applyTaskSnapshot).catch(() => {});
+          if (String(currentTaskId || "") === String(taskId) && data.comment) {
+            const empty = listEl.querySelector(".footer-note");
+            if (empty) listEl.innerHTML = "";
+            listEl.insertAdjacentHTML("beforeend", renderComment(data.comment));
+            typesetCollabMath(listEl);
+            listEl.scrollTop = listEl.scrollHeight;
+          }
+        });
+
+        socket.on("task_comment_updated", function (data) {
+          const taskId = data && data.task_id;
+          if (!taskId) return;
+          fetchTaskSnapshot(taskId).then(applyTaskSnapshot).catch(() => {});
+          if (String(currentTaskId || "") === String(taskId)) {
+            loadComments(currentTaskId, titleEl.textContent, subtitleEl.textContent.replace(/ · Task discussion$/, ""));
+          }
+        });
+
+        socket.on("task_comment_deleted", function (data) {
+          const taskId = data && data.task_id;
+          if (!taskId) return;
+          fetchTaskSnapshot(taskId).then(applyTaskSnapshot).catch(() => {});
+          if (String(currentTaskId || "") === String(taskId)) {
+            loadComments(currentTaskId, titleEl.textContent, subtitleEl.textContent.replace(/ · Task discussion$/, ""));
+          }
+        });
+      }
     })();
   </script>
 {% endif %}
