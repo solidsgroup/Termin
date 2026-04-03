@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "desktop-v*"
-      - "v*"
   workflow_dispatch:
 
 permissions:

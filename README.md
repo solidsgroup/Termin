@@ -3,12 +3,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/solidsgroup/Termin/releases/latest"><img src="https://img.shields.io/github/v/release/solidsgroup/Termin?display_name=tag&label=desktop%20release" alt="Latest release" /></a>
-  <a href="https://github.com/solidsgroup/Termin/releases/latest/download/Termin-win-x64.exe">Windows installer</a>
+  <a href="https://github.com/solidsgroup/Termin/releases?q=desktop-v&expanded=true"><img src="https://img.shields.io/github/v/release/solidsgroup/Termin?display_name=tag&label=desktop%20release" alt="Latest release" /></a>
+  <a href="https://github.com/solidsgroup/Termin/releases?q=desktop-v&expanded=true">Windows installer</a>
   ·
-  <a href="https://github.com/solidsgroup/Termin/releases/latest/download/Termin-mac-x64.dmg">macOS installer</a>
+  <a href="https://github.com/solidsgroup/Termin/releases?q=desktop-v&expanded=true">macOS installer</a>
   ·
-  <a href="https://github.com/solidsgroup/Termin/releases/latest/download/Termin-linux-x64.AppImage">Linux installer</a>
+  <a href="https://github.com/solidsgroup/Termin/releases?q=desktop-v&expanded=true">Linux installer</a>
 </p>
 
 **Termin** is a lightweight, calendar-first project and task collaboration platform built for academia. It combines direct messaging-style spaces, shared projects, and todo boards with real-time sync powered by WebSockets, Markdown + MathJax descriptions, and drag-and-drop organization—covering the teaching, research, and service triad plus the unique workflows involved in managing students on grant-funded projects.
@@ -56,13 +56,11 @@ Local installer builds:
 - output goes to `dist-electron/`
 
 Release download links:
-- Windows: `https://github.com/solidsgroup/Termin/releases/latest/download/Termin-win-x64.exe`
-- macOS: `https://github.com/solidsgroup/Termin/releases/latest/download/Termin-mac-x64.dmg`
-- Linux: `https://github.com/solidsgroup/Termin/releases/latest/download/Termin-linux-x64.AppImage`
+- Desktop releases page: `https://github.com/solidsgroup/Termin/releases?q=desktop-v&expanded=true`
 
 ## GitHub Desktop Releases
 GitHub Actions now builds desktop installers automatically on:
-- tag push matching `v*` or `desktop-v*`
+- tag push matching `desktop-v*`
 - manual `workflow_dispatch`
 
 The workflow publishes release artifacts to GitHub Releases for:

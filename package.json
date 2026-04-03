@@ -10,7 +10,7 @@
   },
   "license": "UNLICENSED",
   "scripts": {
-    "electron:dev": "electron .",
+    "electron:dev": "ELECTRON_DISABLE_SANDBOX=1 electron .",
     "electron:icons": "icon-gen -i electron/assets/icon.svg -o electron/build/icons",
     "electron:dist": "npm run electron:icons && electron-builder",
     "electron:dist:dir": "npm run electron:icons && electron-builder --dir"
@@ -57,8 +57,11 @@
     }
   },
   "devDependencies": {
-    "electron": "^35.1.5",
+    "electron": "^35.7.5",
     "electron-builder": "^25.1.8",
     "icon-gen": "^3.0.1"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
   }
 }
