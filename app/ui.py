@@ -1549,7 +1549,7 @@ def dashboard():
 
         def todo_bucket(due_date):
             if due_date is None:
-                return ("none", "No Due Date", 9)
+                return ("none", "No Due Date", 10)
             if due_date < today:
                 return ("overdue", "Overdue", 0)
             if due_date == today:
@@ -1564,9 +1564,11 @@ def dashboard():
                 return ("two_weeks", "Two Weeks", 5)
             if due_date < four_weeks_start:
                 return ("three_weeks", "Three Weeks", 6)
+            if due_date < next_month_start:
+                return ("this_month", "This Month", 7)
             if next_month_start <= due_date < month_after_next_start:
-                return ("next_month", "Next Month", 7)
-            return ("later", "Later", 8)
+                return ("next_month", "Next Month", 8)
+            return ("later", "Later", 9)
 
         for task in todo_tasks:
             project = project_map.get(task.project_id)
