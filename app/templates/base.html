@@ -1037,11 +1037,59 @@
 
       .todo-tree-label-row {
         display: grid;
-        grid-template-columns: 14px 1fr 14px;
+        grid-template-columns: 14px minmax(0, 1fr) auto 14px;
         align-items: center;
         column-gap: 8px;
         width: 100%;
         margin-left: 0;
+      }
+
+      .todo-tree-only-btn {
+        appearance: none;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 11px;
+        line-height: 1;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease, color 120ms ease;
+      }
+
+      .todo-tree-row:hover .todo-tree-only-btn,
+      .todo-tree-row:focus-within .todo-tree-only-btn {
+        opacity: 0.78;
+        pointer-events: auto;
+      }
+
+      .todo-tree-only-btn:hover,
+      .todo-tree-only-btn:focus-visible {
+        color: var(--ink);
+        opacity: 1;
+        outline: none;
+      }
+
+      .todo-sidebar-subhead {
+        position: relative;
+      }
+
+      .todo-tree-heading-action {
+        margin-left: auto;
+      }
+
+      .todo-sidebar-subhead .todo-tree-heading-action {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .todo-sidebar-subhead:hover .todo-tree-heading-action,
+      .todo-sidebar-subhead:focus-within .todo-tree-heading-action {
+        opacity: 0.78;
+        pointer-events: auto;
       }
 
       .todo-tree-label {
@@ -7392,7 +7440,7 @@
 
         .sidebar[data-todo-tree] .todo-tree-label-row,
         .sidebar[data-todo-tree] .todo-assignee-row {
-          grid-template-columns: 18px minmax(0, 1fr) 28px;
+          grid-template-columns: 18px minmax(0, 1fr) auto 28px;
           align-items: center;
           gap: 10px;
         }
@@ -7430,6 +7478,10 @@
         .sidebar[data-todo-tree] .todo-tree-label {
           font-size: 14px;
           line-height: 1.25;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-only-btn {
+          display: none;
         }
 
         .sidebar[data-todo-tree] .todo-tree-completed-options {

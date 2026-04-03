@@ -342,6 +342,7 @@
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
       <div class="sidebar-heading-row todo-sidebar-subhead is-top">
         <h3 style="margin: 0;">Structure</h3>
+        <button class="todo-tree-only-btn todo-tree-heading-action" type="button" data-todo-only-all="structure" aria-label="Show all structure items">All</button>
       </div>
       <div class="todo-tree-list">
         {% for division in divisions %}
@@ -352,6 +353,7 @@
                 <label class="todo-tree-label-row">
                   <input type="checkbox" class="todo-tree-checkbox" data-todo-division="{{ division.id }}" checked />
                   <span class="todo-tree-label" style="color: {{ division_color_map.get(division.id, '#4cc9f0') }};">{{ division.name }}</span>
+                  <button class="todo-tree-only-btn" type="button" data-todo-only="division" data-todo-only-id="{{ division.id }}" aria-label="Show only {{ division.name }}">only</button>
                   <button class="todo-tree-toggle" type="button" data-toggle-division="{{ division.id }}" aria-label="Toggle division">▾</button>
                 </label>
               </div>
@@ -362,14 +364,16 @@
                       <label class="todo-tree-label-row">
                         <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="{{ division.id }}" checked />
                         <span class="todo-tree-label">{{ project.name }}</span>
+                        <button class="todo-tree-only-btn" type="button" data-todo-only="project" data-todo-only-id="{{ project.id }}" aria-label="Show only {{ project.name }}">only</button>
                         <button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
                       </label>
                     </div>
                     <div class="todo-tree-children todo-tree-groups">
                       {% for group in groups_by_project.get(project.id, []) %}
-                        <label class="todo-tree-row todo-tree-group-row">
+                        <label class="todo-tree-row todo-tree-group-row todo-tree-label-row">
                           <input type="checkbox" class="todo-tree-checkbox" data-todo-group="{{ group.id }}" data-project-id="{{ project.id }}" data-division-id="{{ division.id }}" checked />
                           <span class="todo-tree-label">{{ group.name }}</span>
+                          <button class="todo-tree-only-btn" type="button" data-todo-only="group" data-todo-only-id="{{ group.id }}" aria-label="Show only {{ group.name }}">only</button>
                         </label>
                       {% endfor %}
                       {% if not groups_by_project.get(project.id) %}
@@ -388,6 +392,7 @@
               <label class="todo-tree-label-row">
                 <input type="checkbox" class="todo-tree-checkbox" data-todo-division="none" checked />
                 <span class="todo-tree-label">Other Projects</span>
+                <button class="todo-tree-only-btn" type="button" data-todo-only="division" data-todo-only-id="none" aria-label="Show only Other Projects">only</button>
                 <button class="todo-tree-toggle" type="button" data-toggle-division="none" aria-label="Toggle division">▾</button>
               </label>
             </div>
@@ -398,14 +403,16 @@
                     <label class="todo-tree-label-row">
                       <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="none" checked />
                       <span class="todo-tree-label">{{ project.name }}</span>
+                      <button class="todo-tree-only-btn" type="button" data-todo-only="project" data-todo-only-id="{{ project.id }}" aria-label="Show only {{ project.name }}">only</button>
                       <button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
                     </label>
                   </div>
                   <div class="todo-tree-children todo-tree-groups">
                     {% for group in groups_by_project.get(project.id, []) %}
-                      <label class="todo-tree-row todo-tree-group-row">
+                      <label class="todo-tree-row todo-tree-group-row todo-tree-label-row">
                         <input type="checkbox" class="todo-tree-checkbox" data-todo-group="{{ group.id }}" data-project-id="{{ project.id }}" data-division-id="none" checked />
                         <span class="todo-tree-label">{{ group.name }}</span>
+                        <button class="todo-tree-only-btn" type="button" data-todo-only="group" data-todo-only-id="{{ group.id }}" aria-label="Show only {{ group.name }}">only</button>
                       </label>
                     {% endfor %}
                     {% if not groups_by_project.get(project.id) %}
@@ -423,6 +430,7 @@
               <label class="todo-tree-label-row">
                 <input type="checkbox" class="todo-tree-checkbox" data-todo-division="direct" checked />
                 <span class="todo-tree-label">Direct Projects</span>
+                <button class="todo-tree-only-btn" type="button" data-todo-only="division" data-todo-only-id="direct" aria-label="Show only Direct Projects">only</button>
                 <button class="todo-tree-toggle" type="button" data-toggle-division="direct" aria-label="Toggle direct projects">▾</button>
               </label>
             </div>
@@ -433,6 +441,7 @@
                     <label class="todo-tree-label-row">
                       <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="direct" checked />
                       <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
+                      <button class="todo-tree-only-btn" type="button" data-todo-only="project" data-todo-only-id="{{ project.id }}" aria-label="Show only {{ project_display_names.get(project.id, project.name) }}">only</button>
                     </label>
                   </div>
                 </div>
@@ -458,6 +467,10 @@
               <label class="todo-tree-row todo-tree-group-row">
                 <input type="checkbox" class="todo-tree-checkbox" data-todo-show-completed-window="past" checked />
                 <span class="todo-tree-label">Past</span>
+              </label>
+              <label class="todo-tree-row todo-tree-group-row">
+                <input type="checkbox" class="todo-tree-checkbox" data-todo-show-completed-window="asap" checked />
+                <span class="todo-tree-label">ASAP</span>
               </label>
               <label class="todo-tree-row todo-tree-group-row">
                 <input type="checkbox" class="todo-tree-checkbox" data-todo-show-completed-window="today" checked />
@@ -725,7 +738,7 @@
                 {% set todo_status_state = todo_status_payload.get('aggregate_state') or todo_status_payload.get('my_status_state') or status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
                 {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
-                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else ('direct' if item.project.is_direct else 'none') }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-completed-window="{% if item.task.due_at and item.task.due_at.date() < now_utc.date() %}past{% elif item.task.due_at and item.task.due_at.date() == now_utc.date() %}today{% else %}future{% endif %}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
+                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else ('direct' if item.project.is_direct else 'none') }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-completed-window="{% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' and not item.task.due_at %}asap{% elif item.task.due_at and item.task.due_at.date() < now_utc.date() %}past{% elif item.task.due_at and item.task.due_at.date() == now_utc.date() %}today{% else %}future{% endif %}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
                   <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
                   <div class="todo-project-meta">
                     <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='tree', show_completed=1, tree_select_type='project', tree_select_id=item.project.id) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
@@ -776,7 +789,13 @@
                     <div class="todo-control-cluster">
                       <div class="todo-control todo-control-due due-cell todo-due-cell" data-due-cell data-todo-due="1" onclick="return window.__openDueInput(this);">
                         <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
-                          <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
+                          <span class="due-summary-label">
+                            {% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' %}
+                              <span>S</span>
+                            {% else %}
+                              <i class="fa-regular fa-calendar" aria-hidden="true"></i>
+                            {% endif %}
+                          </span>
                         </div>
                         <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-due-mode="{{ todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
                       </div>
@@ -4298,6 +4317,7 @@
               '<label class="todo-tree-label-row">' +
                 '<input type="checkbox" class="todo-tree-checkbox" data-todo-division="' + divisionId + '" checked />' +
                 '<span class="todo-tree-label"></span>' +
+                '<button class="todo-tree-only-btn" type="button" data-todo-only="division" data-todo-only-id="' + divisionId + '">only</button>' +
                 '<button class="todo-tree-toggle" type="button" data-toggle-division="' + divisionId + '" aria-label="Toggle division">▾</button>' +
               '</label>' +
             '</div>' +
@@ -4330,6 +4350,7 @@
               '<label class="todo-tree-label-row">' +
                 '<input type="checkbox" class="todo-tree-checkbox" data-todo-project="' + projectId + '" checked />' +
                 '<span class="todo-tree-label"></span>' +
+                '<button class="todo-tree-only-btn" type="button" data-todo-only="project" data-todo-only-id="' + projectId + '">only</button>' +
                 '<button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="' + projectId + '" aria-label="Toggle project groups">▸</button>' +
               '</label>' +
             '</div>' +
@@ -4370,10 +4391,11 @@
         var row = groupsContainer.querySelector('[data-todo-group="' + groupId + '"]');
         if (!row) {
           var label = document.createElement("label");
-          label.className = "todo-tree-row todo-tree-group-row";
+          label.className = "todo-tree-row todo-tree-group-row todo-tree-label-row";
           label.innerHTML =
             '<input type="checkbox" class="todo-tree-checkbox" data-todo-group="' + groupId + '" data-project-id="' + projectId + '" checked />' +
-            '<span class="todo-tree-label"></span>';
+            '<span class="todo-tree-label"></span>' +
+            '<button class="todo-tree-only-btn" type="button" data-todo-only="group" data-todo-only-id="' + groupId + '">only</button>';
           row = label;
           groupsContainer.appendChild(row);
         }
@@ -5349,9 +5371,13 @@
       var isTodo = !!(cell && cell.closest(".todo-item"));
       if (label) {
         if (isTodo) {
-          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span></span>';
-          var compactText = label.querySelector("span");
-          if (compactText) compactText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode);
+          if (String(dueMode || "").toLowerCase() === "asap") {
+            label.innerHTML = '<span>S</span>';
+          } else {
+            label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span></span>';
+            var compactText = label.querySelector("span");
+            if (compactText) compactText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode);
+          }
         } else {
           label.textContent = formatDueSummary(dueValue, createdValue, dueMode);
         }
@@ -12493,6 +12519,7 @@
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
         matched = true;
         row.setAttribute("data-status-state", aggregateState);
+        row.setAttribute("data-completed-window", todoCompletedWindowFor(normalizedDue, normalizedDueMode));
         if (effectiveTask.position !== undefined && effectiveTask.position !== null) {
           row.setAttribute("data-task-position", String(effectiveTask.position));
         }
@@ -13163,9 +13190,23 @@
       }).filter(Boolean).join(",");
     }
 
+    function todoCompletedWindowFor(dueValue, dueMode) {
+      var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "asap" && !dueValue) return "asap";
+      if (!dueValue) return "future";
+      var today = new Date();
+      var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      var dueDate = new Date(String(dueValue).slice(0, 10) + "T00:00:00");
+      var dueDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+      if (dueDay < nowDay) return "past";
+      if (dueDay.getTime() === nowDay.getTime()) return "today";
+      return "future";
+    }
+
     function buildTodoItem(task) {
       if (!task || !task.id) return null;
       var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var dueMode = task.due_mode || (dueValue ? "date" : "none");
       var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
       var meta = todoMetaFor(task.project_id, task.group_id);
       var projectUrl = projectViewHref(task.project_id);
@@ -13182,8 +13223,10 @@
       item.setAttribute("data-group-id", task.group_id ? String(task.group_id) : "");
       item.setAttribute("data-division-id", meta.divisionId);
       item.setAttribute("data-due-at", dueValue);
+      item.setAttribute("data-due-mode", dueMode);
       item.setAttribute("data-created-at", createdValue);
       item.setAttribute("data-status-state", statusState);
+      item.setAttribute("data-completed-window", todoCompletedWindowFor(dueValue, dueMode));
       item.setAttribute("data-assignee-keys", taskAssigneeKeys(task));
       item.innerHTML = `
         <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
@@ -13205,9 +13248,9 @@
           <div class="todo-control-cluster">
             <div class="todo-control todo-control-due due-cell todo-due-cell" data-due-cell data-todo-due="1" onclick="return window.__openDueInput(this);">
               <div class="due-summary${dueValue ? "" : " is-fallback"}" data-due-summary title="${dueValue ? "Due " + dueValue : "Created " + createdValue}">
-                <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
+                <span class="due-summary-label">${dueMode === "asap" ? "<span>S</span>" : '<i class="fa-regular fa-calendar" aria-hidden="true"></i>'}</span>
               </div>
-              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${task.due_mode || (dueValue ? "date" : "none")}" value="${dueValue}" />
+              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" value="${dueValue}" />
             </div>
             <div class="todo-control todo-control-status" title="${status}" aria-label="Status: ${status}"><div data-task-status-host="${task.id}">${renderTaskStatusCellHtml(task, { todo: true })}</div></div>
           </div>
@@ -13227,16 +13270,27 @@
       var board = document.querySelector(".todo-board");
       if (!board) return false;
       var existing = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
-      if (existing) existing.remove();
       var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
       var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
-      var bucket = todoBucketFor(dueValue, createdValue);
+      var dueMode = task.due_mode || (dueValue ? "date" : "none");
+      var bucket = todoBucketFor(dueValue, createdValue, dueMode);
+      var existingGroup = existing ? existing.closest(".todo-date-group") : null;
+      var sameBucket = !!(existingGroup && existingGroup.getAttribute("data-todo-date-key") === bucket.key);
       var group = ensureTodoGroup(bucket);
       var list = group ? group.querySelector(".todo-list") : null;
       if (!list) return false;
       var item = buildTodoItem(task);
       if (!item) return false;
-      list.appendChild(item);
+      if (existing && sameBucket) {
+        existing.replaceWith(item);
+      } else {
+        if (existing) existing.remove();
+        list.appendChild(item);
+      }
+      var dueInput = item.querySelector('.due-input[data-task-id="' + task.id + '"]');
+      if (dueInput && typeof window.__updateDueDisplay === "function") {
+        window.__updateDueDisplay(dueInput);
+      }
       syncTaskStatusUi(task);
       if (typeof window.__renderTaskAssignments === "function") {
         window.__renderTaskAssignments(task.id, task.assignments || []);
@@ -16370,7 +16424,80 @@
         });
       }
 
+      function setTodoStructureChecked(checked) {
+        document.querySelectorAll("[data-todo-division], [data-todo-project], [data-todo-group]").forEach(function (cb) {
+          cb.checked = checked;
+          cb.indeterminate = false;
+        });
+      }
+
+      function applyTodoOnlySelection(kind, id) {
+        if (!kind) return;
+        var normalizedId = String(id || "");
+        setTodoStructureChecked(false);
+        if (kind === "division") {
+          var divisionNode = todoTree.querySelector('.todo-tree-node[data-division-id="' + normalizedId + '"]:not(.is-project)');
+          var divisionBox = todoTree.querySelector('[data-todo-division="' + normalizedId + '"]');
+          if (divisionBox) divisionBox.checked = true;
+          cascadeCheckboxes(divisionNode, true);
+        } else if (kind === "project") {
+          var projectNode = todoTree.querySelector('.todo-tree-node.is-project[data-project-id="' + normalizedId + '"]');
+          var projectBox = todoTree.querySelector('[data-todo-project="' + normalizedId + '"]');
+          if (projectBox) {
+            projectBox.checked = true;
+            var projectDivisionId = projectBox.getAttribute("data-division-id");
+            if (projectDivisionId) {
+              var projectDivisionBox = todoTree.querySelector('[data-todo-division="' + projectDivisionId + '"]');
+              if (projectDivisionBox) projectDivisionBox.checked = true;
+            }
+          }
+          if (projectNode) {
+            projectNode.querySelectorAll('[data-todo-group]').forEach(function (cb) {
+              cb.checked = true;
+            });
+          }
+        } else if (kind === "group") {
+          var groupBox = todoTree.querySelector('[data-todo-group="' + normalizedId + '"]');
+          if (groupBox) {
+            groupBox.checked = true;
+            var parentProjectId = groupBox.getAttribute("data-project-id");
+            var parentDivisionId = groupBox.getAttribute("data-division-id");
+            if (parentProjectId) {
+              var parentProjectBox = todoTree.querySelector('[data-todo-project="' + parentProjectId + '"]');
+              if (parentProjectBox) parentProjectBox.checked = true;
+            }
+            if (parentDivisionId) {
+              var parentDivisionBox = todoTree.querySelector('[data-todo-division="' + parentDivisionId + '"]');
+              if (parentDivisionBox) parentDivisionBox.checked = true;
+            }
+          }
+        }
+        updateParentCheckboxStates();
+        applyFilters();
+        saveState();
+      }
+
       todoTree.addEventListener("click", function (event) {
+        var onlyButton = event.target.closest("[data-todo-only]");
+        if (onlyButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          applyTodoOnlySelection(
+            onlyButton.getAttribute("data-todo-only"),
+            onlyButton.getAttribute("data-todo-only-id")
+          );
+          return;
+        }
+        var allButton = event.target.closest("[data-todo-only-all]");
+        if (allButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          setTodoStructureChecked(true);
+          updateParentCheckboxStates();
+          applyFilters();
+          saveState();
+          return;
+        }
         if (assigneeTrigger && event.target.closest("[data-todo-assignee-trigger]")) {
           setAssigneeMenuOpen(assigneeMenu ? assigneeMenu.hidden : true);
           return;
