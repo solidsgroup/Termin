@@ -1957,7 +1957,10 @@ def update_account_experience():
     theme_mode = (request.form.get("theme_mode") or user.theme_mode or "dark").strip().lower()
     if theme_mode not in {"dark", "light"}:
         return _render_account_page(user, section="experience", error="Invalid theme selection.")
-    user.theme_name = normalize_theme_name(request.form.get("theme_name") or getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
+    theme_name = normalize_theme_name(request.form.get("theme_name") or getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
+    if theme_name == "lcars":
+        theme_mode = "dark"
+    user.theme_name = theme_name
     user.theme_mode = theme_mode
     timezone_value = normalize_user_timezone(request.form.get("timezone") or user.timezone or "UTC")
     user.timezone = timezone_value

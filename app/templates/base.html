@@ -42,12 +42,14 @@
         --menu-bg: {{ global_theme_interface.menu_bg }};
         --menu-shadow: {{ global_theme_interface.menu_shadow }};
         --app-font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+        --theme-display-font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
       }
 
       {% for theme in theme_definitions %}
       body[data-theme-family="{{ theme.key }}"][data-theme="dark"] {
         color-scheme: dark;
         --app-font-family: {{ theme.font_family|default('"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif')|safe }};
+        --theme-display-font-family: {{ theme.display_font_family|default(theme.font_family|default('"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif'))|safe }};
         {% for key, value in theme.ui.dark.items() %}
         --{{ key|replace('_', '-') }}: {{ value }};
         {% endfor %}
@@ -56,6 +58,7 @@
       body[data-theme-family="{{ theme.key }}"][data-theme="light"] {
         color-scheme: light;
         --app-font-family: {{ theme.font_family|default('"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif')|safe }};
+        --theme-display-font-family: {{ theme.display_font_family|default(theme.font_family|default('"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif'))|safe }};
         {% for key, value in theme.ui.light.items() %}
         --{{ key|replace('_', '-') }}: {{ value }};
         {% endfor %}
@@ -116,6 +119,1056 @@
           linear-gradient(180deg, rgba(133, 207, 255, 0.96) 0%, rgba(179, 233, 255, 0.88) 62%, rgba(255, 246, 195, 0.82) 100%);
       }
 
+      body[data-theme-family="lcars"] {
+        --lcars-sidebar-width: 240px;
+        letter-spacing: 0.025em;
+        background:
+          radial-gradient(circle at 16% 22%, rgba(255, 255, 255, 0.88) 0 1px, transparent 1.4px),
+          radial-gradient(circle at 72% 14%, rgba(255, 243, 218, 0.78) 0 1px, transparent 1.5px),
+          radial-gradient(circle at 83% 31%, rgba(173, 216, 255, 0.62) 0 1px, transparent 1.6px),
+          radial-gradient(circle at 28% 74%, rgba(255, 255, 255, 0.72) 0 1px, transparent 1.5px),
+          radial-gradient(circle at 61% 67%, rgba(255, 223, 186, 0.68) 0 1px, transparent 1.5px),
+          radial-gradient(circle at 45% 48%, rgba(255, 255, 255, 0.54) 0 1px, transparent 1.6px),
+          linear-gradient(180deg, #06070d 0%, #000000 54%, #03040a 100%);
+        background-attachment: fixed;
+      }
+
+      body[data-theme-family="lcars"] header {
+        border-bottom: 0;
+        padding-top: 8px;
+        padding-bottom: 18px;
+        overflow: visible;
+        background: #000000;
+        backdrop-filter: none;
+      }
+
+      body[data-theme-family="lcars"] header::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: calc(var(--lcars-sidebar-width) + 32px);
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+        background: #c88fb8;
+        border-bottom-left-radius: 96px 34px;
+      }
+
+      body[data-theme-family="lcars"] header::after {
+        content: "";
+        position: absolute;
+        left: var(--lcars-sidebar-width);
+        right: 0;
+        bottom: 0;
+        height: 16px;
+        pointer-events: none;
+        z-index: 0;
+        background:
+          linear-gradient(
+            90deg,
+            #c88fb8 0 96px,
+            #000000 96px 100px,
+            #a47fd6 100px 220px,
+            #000000 220px 224px,
+            #7f9dff 224px 340px,
+            #000000 340px 344px,
+            #79c7d9 344px 820px,
+            #000000 820px 824px,
+            #b79bcf 824px 100%
+          );
+        border-radius: 0;
+        border-top-left-radius: 34px;
+        box-shadow: none;
+      }
+
+      body[data-theme-family="lcars"] .header-center {
+        position: relative;
+        z-index: 1;
+        align-self: end;
+        padding-top: 0;
+        padding-left: 10px;
+        padding-bottom: 0;
+      }
+
+      body[data-theme-family="lcars"] .header-center::before {
+        content: "";
+        position: fixed;
+        left: var(--lcars-sidebar-width);
+        top: 0;
+        right: 0;
+        height: 88px;
+        background: #000000;
+        border-bottom-left-radius: 34px 22px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      body[data-theme-family="lcars"] .header-brand {
+        min-height: 76px;
+        align-items: flex-start;
+        padding-top: 10px;
+      }
+
+      body[data-theme-family="lcars"] .header-actions {
+        align-self: start;
+        padding-top: 12px;
+      }
+
+      body[data-theme-family="lcars"] .view-switcher {
+        position: relative;
+        z-index: 1;
+        padding-left: 8px;
+      }
+
+      body[data-theme-family="lcars"] .mobile-sidebar-trigger {
+        margin-right: 8px;
+      }
+
+      body[data-theme-family="lcars"] .view-switcher::before {
+        content: "";
+        position: absolute;
+        left: -18px;
+        right: -10px;
+        top: -8px;
+        bottom: -8px;
+        border-radius: 30px 8px 22px 8px;
+        background: linear-gradient(90deg, rgba(0, 0, 0, 0.54) 0%, rgba(21, 13, 28, 0.18) 100%);
+        z-index: -1;
+      }
+
+      body[data-theme-family="lcars"] .header-actions,
+      body[data-theme-family="lcars"] .header-brand,
+      body[data-theme-family="lcars"] .header-tabs {
+        padding-bottom: 4px;
+      }
+
+      body[data-theme-family="lcars"] .layout,
+      body[data-theme-family="lcars"] .content,
+      body[data-theme-family="lcars"] main {
+        position: relative;
+      }
+
+      body[data-theme-family="lcars"] .layout {
+        margin-top: 14px;
+      }
+
+      body[data-theme-family="lcars"] .content,
+      body[data-theme-family="lcars"] main {
+        background: transparent;
+      }
+
+      body[data-theme-family="lcars"] .content::before {
+        content: "";
+        position: fixed;
+        inset: 56px 0 0 0;
+        pointer-events: none;
+        z-index: -1;
+        background:
+          radial-gradient(circle at 14% 18%, rgba(255, 255, 255, 0.32) 0 1px, transparent 1.4px),
+          radial-gradient(circle at 77% 26%, rgba(255, 255, 255, 0.24) 0 1px, transparent 1.5px),
+          radial-gradient(circle at 58% 74%, rgba(255, 232, 196, 0.18) 0 1px, transparent 1.6px),
+          linear-gradient(180deg, rgba(0, 0, 0, 0.14) 0%, rgba(0, 0, 0, 0.04) 100%);
+      }
+
+      body[data-theme-family="lcars"] .sidebar {
+        position: relative;
+        background: #f29a5c;
+        border-right: 0;
+        overflow-x: visible;
+        padding-top: 30px;
+        border-top-left-radius: 96px 34px;
+        z-index: 2;
+      }
+
+      body[data-theme-family="lcars"] .sidebar.todo-tree .todo-sidebar-section {
+        border-top: 0;
+      }
+
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-tree-list {
+        width: calc(100% + 28px);
+        margin-left: -14px;
+        padding-left: 14px;
+        padding-right: 14px;
+        box-sizing: border-box;
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-tree-list .todo-tree-node,
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-tree-list .todo-tree-children {
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-sidebar-section:not(.is-top),
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-sidebar-section:not(.is-top) .todo-tree-list,
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-sidebar-section:not(.is-top) .todo-tree-node,
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-sidebar-section:not(.is-top) .todo-tree-children,
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-sidebar-section:not(.is-top) .todo-assignee-dropdown {
+        background: #b78fd6;
+      }
+
+      body[data-theme-family="lcars"] .sidebar[data-todo-tree] > .todo-sidebar-section:not(.is-top) {
+        width: calc(100% + 28px);
+        margin-left: -14px;
+        padding-left: 14px;
+        padding-right: 14px;
+        box-sizing: border-box;
+      }
+
+      body[data-theme-family="lcars"] .sidebar[data-tree-sidebar] [data-sidebar-split-pane="bottom"] {
+        background: #8fb8ff;
+      }
+
+      body[data-theme-family="lcars"] .direct-projects-section,
+      body[data-theme-family="lcars"] .direct-projects-heading {
+        background: #d98fcf;
+      }
+
+      body[data-theme-family="lcars"] .sidebar-split-divider {
+        width: calc(100% + 28px);
+        margin-left: -14px;
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .sidebar-split-divider::before {
+        width: 100%;
+        height: 100%;
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .sidebar-split-divider::after {
+        display: none;
+      }
+
+      body[data-theme-family="lcars"] .sidebar::before {
+        content: none;
+      }
+
+      body[data-theme-family="lcars"] .sidebar > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      body[data-theme-family="lcars"] .content {
+        z-index: 1;
+      }
+
+      body[data-theme-family="lcars"] .content > * {
+        position: relative;
+        z-index: 4;
+      }
+
+      body[data-theme-family="lcars"] .content::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 38px;
+        background:
+          linear-gradient(
+            90deg,
+            #f29a5c 0 96px,
+            #000000 96px 100px,
+            #f7cc7a 100px 220px,
+            #000000 220px 224px,
+            #d98fcf 224px 340px,
+            #000000 340px 344px,
+            #8fb8ff 344px 820px,
+            #000000 820px 824px,
+            #f29a5c 824px 100%
+          );
+        border-top-right-radius: 0;
+        z-index: 2;
+        pointer-events: none;
+      }
+
+      body[data-theme-family="lcars"] .content::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 10px;
+        width: 100%;
+        height: calc(100% - 10px);
+        background: #000000;
+        border-top-left-radius: 44px 28px;
+        pointer-events: none;
+        z-index: 3;
+      }
+
+      body[data-theme-family="lcars"] .panel,
+      body[data-theme-family="lcars"] .notifications-menu,
+      body[data-theme-family="lcars"] .account-menu,
+      body[data-theme-family="lcars"] .auth-card,
+      body[data-theme-family="lcars"] .project-list .project-item,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item,
+      body[data-theme-family="lcars"] .todo-item,
+      body[data-theme-family="lcars"] .inbox-shell,
+      body[data-theme-family="lcars"] .project-board-mode-panel,
+      body[data-theme-family="lcars"] .group-header,
+      body[data-theme-family="lcars"] .discussion-drawer,
+      body[data-theme-family="lcars"] .discussion-card {
+        border-radius: 26px 8px 26px 8px;
+        border-color: color-mix(in srgb, var(--accent-strong) 28%, var(--border) 72%);
+        box-shadow: 0 12px 28px rgba(31, 10, 36, 0.22);
+      }
+
+      body[data-theme-family="lcars"] .panel,
+      body[data-theme-family="lcars"] .auth-card,
+      body[data-theme-family="lcars"] .discussion-drawer,
+      body[data-theme-family="lcars"] .discussion-card,
+      body[data-theme-family="lcars"] .notifications-menu,
+      body[data-theme-family="lcars"] .account-menu {
+        position: relative;
+        overflow: hidden;
+      }
+
+      body[data-theme-family="lcars"] .notifications-menu,
+      body[data-theme-family="lcars"] .account-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 10px);
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+
+      body[data-theme-family="lcars"] .discussion-drawer {
+        position: fixed;
+        top: 92px;
+        right: 0;
+        bottom: 0;
+        z-index: 120;
+        overflow: hidden;
+      }
+
+      body[data-theme-family="lcars"] .admin-content .panel {
+        overflow: visible;
+      }
+
+      body[data-theme-family="lcars"] .panel::before,
+      body[data-theme-family="lcars"] .auth-card::before,
+      body[data-theme-family="lcars"] .discussion-drawer::before,
+      body[data-theme-family="lcars"] .discussion-card::before,
+      body[data-theme-family="lcars"] .notifications-menu::before,
+      body[data-theme-family="lcars"] .account-menu::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 14px;
+        background: linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent-strong) 75%, var(--accent) 25%) 100%);
+        opacity: 0.95;
+      }
+
+      body[data-theme-family="lcars"] .btn,
+      body[data-theme-family="lcars"] .account-trigger,
+      body[data-theme-family="lcars"] .notifications-trigger,
+      body[data-theme-family="lcars"] .messages-trigger,
+      body[data-theme-family="lcars"] .project-board-mode-tab,
+      body[data-theme-family="lcars"] .task-pill,
+      body[data-theme-family="lcars"] .task-pill-segment,
+      body[data-theme-family="lcars"] .tree-select-button,
+      body[data-theme-family="lcars"] .todo-tree-toggle {
+        border-radius: 18px 6px 18px 6px;
+      }
+
+      body[data-theme-family="lcars"] .btn,
+      body[data-theme-family="lcars"] .project-board-mode-tab,
+      body[data-theme-family="lcars"] .task-pill-segment,
+      body[data-theme-family="lcars"] .tree-select-button,
+      body[data-theme-family="lcars"] .account-trigger,
+      body[data-theme-family="lcars"] .notifications-trigger,
+      body[data-theme-family="lcars"] .messages-trigger,
+      body[data-theme-family="lcars"] .view-switch,
+      body[data-theme-family="lcars"] .discussion-tab,
+      body[data-theme-family="lcars"] .discussion-setting-status,
+      body[data-theme-family="lcars"] .discussion-setting-mode-picker,
+      body[data-theme-family="lcars"] .discussion-setting-readonly {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+      }
+
+      body[data-theme-family="lcars"] .btn,
+      body[data-theme-family="lcars"] .project-board-mode-tab {
+        border-color: color-mix(in srgb, var(--accent-strong) 38%, var(--border) 62%);
+        background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 26%, var(--panel) 74%) 0%, color-mix(in srgb, var(--panel-alt) 76%, var(--panel) 24%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .view-switcher,
+      body[data-theme-family="lcars"] .discussion-tabs,
+      body[data-theme-family="lcars"] .project-board-mode-tabs {
+        gap: 6px;
+      }
+
+      body[data-theme-family="lcars"] .view-switch,
+      body[data-theme-family="lcars"] .discussion-tab,
+      body[data-theme-family="lcars"] .project-board-mode-tab {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid color-mix(in srgb, var(--accent-strong) 38%, var(--border) 62%);
+        background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, var(--panel) 78%) 0%, color-mix(in srgb, var(--panel-alt) 82%, var(--panel) 18%) 100%);
+        border-radius: 22px 6px 22px 6px;
+        padding-left: 18px;
+        padding-right: 16px;
+        border-bottom-width: 1px;
+      }
+
+      body[data-theme-family="lcars"] .view-switch::before,
+      body[data-theme-family="lcars"] .discussion-tab::before,
+      body[data-theme-family="lcars"] .project-board-mode-tab::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 12px;
+        background: linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent-strong) 72%, var(--accent) 28%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .view-switch:hover,
+      body[data-theme-family="lcars"] .discussion-tab:hover,
+      body[data-theme-family="lcars"] .project-board-mode-tab:hover {
+        color: var(--ink);
+        background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 30%, var(--panel) 70%) 0%, color-mix(in srgb, var(--panel-alt) 76%, var(--panel) 24%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .project-board-mode-tab.is-active,
+      body[data-theme-family="lcars"] .btn.primary,
+      body[data-theme-family="lcars"] .btn:not(.secondary):not(.ghost) {
+        background: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent-strong) 72%, var(--accent) 28%) 100%);
+        color: color-mix(in srgb, #2b1231 86%, var(--ink) 14%);
+      }
+
+      body[data-theme-family="lcars"] .view-switch.active,
+      body[data-theme-family="lcars"] .discussion-tab.is-active,
+      body[data-theme-family="lcars"] .project-board-mode-tab.is-active {
+        color: color-mix(in srgb, #2b1231 86%, var(--ink) 14%);
+        background: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent-strong) 72%, var(--accent) 28%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .view-switch.active::before,
+      body[data-theme-family="lcars"] .discussion-tab.is-active::before,
+      body[data-theme-family="lcars"] .project-board-mode-tab.is-active::before {
+        background: linear-gradient(180deg, color-mix(in srgb, #f7d9bf 84%, white 16%) 0%, color-mix(in srgb, #e7b88f 92%, var(--accent) 8%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .task-pill {
+        background: color-mix(in srgb, var(--panel-alt) 72%, var(--accent) 28%);
+        border: 1px solid color-mix(in srgb, var(--accent-strong) 34%, var(--border) 66%);
+      }
+
+      body[data-theme-family="lcars"] .project-board-header {
+        background:
+          linear-gradient(90deg, color-mix(in srgb, var(--accent) 20%, transparent) 0 18%, transparent 18% 20%, color-mix(in srgb, var(--accent-strong) 14%, transparent) 20% 100%),
+          linear-gradient(180deg, color-mix(in srgb, var(--panel) 74%, var(--bg-top) 26%) 0%, color-mix(in srgb, var(--panel-alt) 88%, var(--panel) 12%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .tree-project-board {
+        position: relative;
+      }
+
+      body[data-theme-family="lcars"] .tree-project-board::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 18px;
+        border-radius: 18px 0 18px 0;
+        background: linear-gradient(180deg, var(--project-color, var(--accent)) 0%, color-mix(in srgb, var(--project-color, var(--accent)) 62%, var(--accent-strong) 38%) 100%);
+        opacity: 0.9;
+        pointer-events: none;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header,
+      body[data-theme-family="lcars"] .project-board-mode-panel {
+        margin-left: 16px;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header {
+        border-top-left-radius: 34px;
+        border-top-right-radius: 8px;
+        border-bottom-right-radius: 24px;
+        border-bottom-left-radius: 8px;
+        padding-left: 22px;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header::after {
+        background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--project-color, var(--accent)) 55%, transparent) 100%);
+        height: 4px;
+        border-radius: 999px;
+      }
+
+      body[data-theme-family="lcars"] .project-board-mode-tabs {
+        gap: 6px;
+        padding-top: 4px;
+      }
+
+      body[data-theme-family="lcars"] .group-header {
+        padding: 10px 14px 8px 18px;
+        margin-bottom: 10px;
+        background: linear-gradient(90deg, color-mix(in srgb, var(--group-color, var(--accent)) 18%, transparent) 0%, transparent 100%);
+        border-radius: 18px 6px 18px 6px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      body[data-theme-family="lcars"] .group-header::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 12px;
+        background: linear-gradient(180deg, var(--group-color, var(--accent)) 0%, color-mix(in srgb, var(--group-color, var(--accent)) 64%, var(--accent-strong) 36%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .sidebar-division {
+        padding-left: 10px;
+        position: relative;
+      }
+
+      body[data-theme-family="lcars"] .sidebar-division::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 14px;
+        border-radius: 14px 0 14px 0;
+        background: linear-gradient(180deg, var(--division-color, var(--accent)) 0%, color-mix(in srgb, var(--division-color, var(--accent)) 64%, var(--accent-strong) 36%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .sidebar-heading-row {
+        min-height: 30px;
+        padding-left: 12px;
+      }
+
+      body[data-theme-family="lcars"] .todo-sidebar-section.is-top .sidebar-heading-row {
+        margin-top: -6px;
+      }
+
+      body[data-theme-family="lcars"] .sidebar-heading-row h3,
+      body[data-theme-family="lcars"] .todo-sidebar-subhead h3 {
+        font-family: var(--theme-display-font-family);
+        color: #000000;
+        text-transform: uppercase;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        font-stretch: condensed;
+        font-size: 20px;
+        line-height: 1;
+        transform: scaleX(0.72);
+        transform-origin: left center;
+      }
+
+      body[data-theme-family="lcars"] .project-list .project-item,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item {
+        border-radius: 22px 6px 22px 6px;
+        padding-left: 18px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      body[data-theme-family="lcars"] .project-list .project-item::before,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item::before {
+        width: 14px;
+        opacity: 1;
+        background: linear-gradient(180deg, var(--project-color, var(--accent)) 0%, color-mix(in srgb, var(--project-color, var(--accent)) 65%, var(--accent-strong) 35%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .project-list .project-item.active,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item.active {
+        background: linear-gradient(90deg, color-mix(in srgb, var(--project-color, var(--accent)) 22%, transparent) 0%, color-mix(in srgb, var(--panel) 92%, transparent) 100%);
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-node {
+        margin-bottom: 4px;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row {
+        border-radius: 18px 6px 18px 6px;
+        padding: 2px 6px 2px 0;
+        position: relative;
+        overflow: hidden;
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-division-row],
+      body[data-theme-family="lcars"] .todo-tree-node[data-division-id] > .todo-tree-row {
+        padding-left: 12px;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-division-row]::before,
+      body[data-theme-family="lcars"] .todo-tree-node[data-division-id] > .todo-tree-row::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 2px;
+        bottom: 2px;
+        width: 12px;
+        border-radius: 12px 0 12px 0;
+        background: linear-gradient(180deg, var(--division-color, var(--accent)) 0%, color-mix(in srgb, var(--division-color, var(--accent)) 60%, var(--accent-strong) 40%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-project-row],
+      body[data-theme-family="lcars"] .todo-tree-node.is-project > .todo-tree-row {
+        padding-left: 16px;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-project-row]::before,
+      body[data-theme-family="lcars"] .todo-tree-node.is-project > .todo-tree-row::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 10px;
+        border-radius: 10px 0 10px 0;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--division-color, var(--accent)) 72%, var(--accent) 28%) 0%, color-mix(in srgb, var(--division-color, var(--accent)) 48%, var(--accent-strong) 52%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .sidebar-heading-row h3,
+      body[data-theme-family="lcars"] .project-board-header h3,
+      body[data-theme-family="lcars"] .group-title-text,
+      body[data-theme-family="lcars"] .inbox-title {
+        font-family: var(--theme-display-font-family);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 900;
+        font-stretch: ultra-condensed;
+        transform: scaleX(0.82);
+        transform-origin: left center;
+      }
+
+      body[data-theme-family="lcars"] .discussion-drawer {
+        border-radius: 34px 10px 26px 10px;
+      }
+
+      body[data-theme-family="lcars"] .discussion-tabs {
+        padding: 8px 8px 2px;
+      }
+
+      body[data-theme-family="lcars"] .discussion-setting-status,
+      body[data-theme-family="lcars"] .discussion-setting-mode-picker,
+      body[data-theme-family="lcars"] .discussion-setting-readonly {
+        border-radius: 18px 6px 18px 6px;
+        border-color: color-mix(in srgb, var(--accent-strong) 34%, var(--border) 66%);
+        background: linear-gradient(90deg, color-mix(in srgb, var(--panel-alt) 74%, var(--accent) 26%) 0%, color-mix(in srgb, var(--panel) 88%, var(--panel-alt) 12%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .discussion-setting-mode-button {
+        border-right-color: color-mix(in srgb, var(--accent-strong) 26%, var(--border) 74%);
+      }
+
+      body[data-theme-family="lcars"] .discussion-setting-mode-button.is-active {
+        color: color-mix(in srgb, #2b1231 82%, var(--ink) 18%);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #f0c9a7 18%) 0%, color-mix(in srgb, var(--accent-strong) 80%, var(--accent) 20%) 100%);
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row.is-active,
+      body[data-theme-family="lcars"] .todo-tree-row.is-included,
+      body[data-theme-family="lcars"] .project-list .project-item.active,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item.active {
+        background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 28%, transparent) 0%, color-mix(in srgb, var(--panel) 92%, transparent) 100%);
+      }
+
+      body[data-theme-family="lcars"] .inbox-item.is-unread,
+      body[data-theme-family="lcars"] .notifications-item.is-pinned {
+        background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 100%);
+      }
+
+      body[data-theme-family="lcars"] .panel,
+      body[data-theme-family="lcars"] .notifications-menu,
+      body[data-theme-family="lcars"] .account-menu,
+      body[data-theme-family="lcars"] .auth-card,
+      body[data-theme-family="lcars"] .project-list .project-item,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item,
+      body[data-theme-family="lcars"] .todo-item,
+      body[data-theme-family="lcars"] .inbox-shell,
+      body[data-theme-family="lcars"] .project-board-mode-panel,
+      body[data-theme-family="lcars"] .group-header,
+      body[data-theme-family="lcars"] .discussion-drawer,
+      body[data-theme-family="lcars"] .discussion-card,
+      body[data-theme-family="lcars"] .project-board-header,
+      body[data-theme-family="lcars"] .sidebar-division,
+      body[data-theme-family="lcars"] .todo-tree-row,
+      body[data-theme-family="lcars"] .project-board-mode-tab,
+      body[data-theme-family="lcars"] .discussion-tab,
+      body[data-theme-family="lcars"] .discussion-setting-status,
+      body[data-theme-family="lcars"] .discussion-setting-mode-picker,
+      body[data-theme-family="lcars"] .discussion-setting-readonly,
+      body[data-theme-family="lcars"] .btn,
+      body[data-theme-family="lcars"] .task-pill,
+      body[data-theme-family="lcars"] .task-pill-segment,
+      body[data-theme-family="lcars"] .tree-select-button,
+      body[data-theme-family="lcars"] .todo-tree-toggle {
+        border-radius: 12px;
+        background: var(--panel);
+        border-color: var(--border);
+        box-shadow: none;
+        text-transform: none;
+        letter-spacing: normal;
+      }
+
+      body[data-theme-family="lcars"] .panel::before,
+      body[data-theme-family="lcars"] .auth-card::before,
+      body[data-theme-family="lcars"] .discussion-drawer::before,
+      body[data-theme-family="lcars"] .discussion-card::before,
+      body[data-theme-family="lcars"] .notifications-menu::before,
+      body[data-theme-family="lcars"] .account-menu::before,
+      body[data-theme-family="lcars"] .tree-project-board::before,
+      body[data-theme-family="lcars"] .group-header::before,
+      body[data-theme-family="lcars"] .sidebar-division::before,
+      body[data-theme-family="lcars"] .project-list .project-item::before,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item::before,
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-division-row]::before,
+      body[data-theme-family="lcars"] .todo-tree-node[data-division-id] > .todo-tree-row::before,
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-project-row]::before,
+      body[data-theme-family="lcars"] .todo-tree-node.is-project > .todo-tree-row::before,
+      body[data-theme-family="lcars"] .view-switch::before,
+      body[data-theme-family="lcars"] .discussion-tab::before,
+      body[data-theme-family="lcars"] .project-board-mode-tab::before {
+        display: none;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header,
+      body[data-theme-family="lcars"] .group-header,
+      body[data-theme-family="lcars"] .sidebar-division,
+      body[data-theme-family="lcars"] .project-list .project-item,
+      body[data-theme-family="lcars"] .sidebar-stack > .sidebar-stack-item > .project-item,
+      body[data-theme-family="lcars"] .project-board-mode-tab,
+      body[data-theme-family="lcars"] .discussion-tab {
+        padding-left: unset;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row {
+        border-radius: 0;
+        background: #000000;
+        border-color: #000000;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-list {
+        gap: 0;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-node {
+        margin-bottom: 0;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row.is-included {
+        background: #000000;
+        border-color: #000000;
+        box-shadow: none;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row.is-active {
+        background: #000000;
+        border-color: #000000;
+        box-shadow: none;
+      }
+
+      body[data-theme-family="lcars"] .group-block,
+      body[data-theme-family="lcars"] .group-insert-wrap,
+      body[data-theme-family="lcars"] .panel.group,
+      body[data-theme-family="lcars"] .group-header,
+      body[data-theme-family="lcars"] .tree-project-board,
+      body[data-theme-family="lcars"] .project-board-mode-panel,
+      body[data-theme-family="lcars"] .panel.group .table {
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .group-block,
+      body[data-theme-family="lcars"] .group-insert-wrap,
+      body[data-theme-family="lcars"] .panel.group,
+      body[data-theme-family="lcars"] .panel.group .table,
+      body[data-theme-family="lcars"] .project-board-mode-panel {
+        border-color: #000000;
+        box-shadow: none;
+      }
+
+      body[data-theme-family="lcars"] .group-header {
+        background: #000000;
+        border-color: #000000;
+      }
+
+      body[data-theme-family="lcars"] .todo-date-group {
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .todo-date-group:first-child {
+        margin-top: 26px;
+        padding-top: 14px;
+      }
+
+      body[data-theme-family="lcars"] .inbox-panel {
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+      }
+
+      body[data-theme-family="lcars"] .sidebar .todo-tree-list.tree-select-list {
+        margin-top: 14px;
+      }
+
+      body[data-theme-family="lcars"] .tasks-table,
+      body[data-theme-family="lcars"] .tasks-table tbody,
+      body[data-theme-family="lcars"] .tasks-table tbody tr,
+      body[data-theme-family="lcars"] .tasks-table tbody td,
+      body[data-theme-family="lcars"] .tasks-table thead th {
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .panel.group .table,
+      body[data-theme-family="lcars"] .tasks-table {
+        border-left: 4px solid var(--group-color, var(--project-color, var(--accent)));
+        border-right: 4px solid var(--group-color, var(--project-color, var(--accent)));
+        border-top: 0;
+        border-bottom: 0;
+        border-radius: 14px 4px 14px 4px;
+        box-shadow: none;
+      }
+
+      body[data-theme-family="lcars"] .tasks-table::after {
+        display: none;
+      }
+
+      body[data-theme-family="lcars"] .table tbody tr:hover {
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .tree-select-button {
+        background: #000000;
+        border-color: #000000;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-project-row] .tree-select-button,
+      body[data-theme-family="lcars"] .todo-tree-node.is-project > .todo-tree-row > .tree-select-button {
+        padding-left: 26px !important;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-group-row .tree-select-button {
+        padding-left: 54px !important;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-row[data-tree-project-row] .todo-tree-label,
+      body[data-theme-family="lcars"] .todo-tree-node.is-project > .todo-tree-row > .tree-select-button .todo-tree-label {
+        margin-left: 8px;
+      }
+
+      body[data-theme-family="lcars"] .todo-tree-group-row .todo-tree-label {
+        margin-left: 36px;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header,
+      body[data-theme-family="lcars"] .project-board-mode-panel {
+        margin-left: 0;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header {
+        margin: 14px 0 14px;
+        height: 60px;
+        padding: 0 20px 0 0;
+        border: 0;
+        border-radius: 999px;
+        background: var(--project-color, var(--accent));
+        overflow: visible;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header-inner {
+        height: 60px;
+        align-items: stretch;
+        padding: 0;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header h3 {
+        height: 60px;
+        display: inline-flex;
+        align-items: center;
+        margin: 0 0 0 30px;
+        padding: 0 14px 0 18px;
+        border-radius: 0;
+        background: #000000;
+      }
+
+      body[data-theme-family="lcars"] .project-board-header::after,
+      body[data-theme-family="lcars"] .view-switcher::before {
+        display: none;
+      }
+
+      body[data-theme-family="lcars"] .discussion-tabs {
+        gap: 0;
+        padding: 0 8px;
+      }
+
+      body[data-theme-family="lcars"] .discussion-tab {
+        border: 0;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        background: transparent;
+        color: #d7b497;
+        padding: 12px 14px 9px;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      body[data-theme-family="lcars"] .discussion-tab::before {
+        display: none;
+      }
+
+      body[data-theme-family="lcars"] .discussion-tab:hover,
+      body[data-theme-family="lcars"] .discussion-tab:focus-visible {
+        background: transparent;
+        color: #f6c98f;
+        border-color: transparent;
+      }
+
+      body[data-theme-family="lcars"] .discussion-tab.is-active {
+        background: transparent;
+        color: #ffffff;
+        border-bottom-color: #f6c98f;
+      }
+
+      body[data-theme-family="lcars"] .view-switcher {
+        gap: 16px;
+        align-items: flex-end;
+        margin-top: -16px;
+      }
+
+      body[data-theme-family="lcars"] .view-switch,
+      body[data-theme-family="lcars"] .view-search-trigger {
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        border-radius: 0;
+        padding: 0;
+        color: #f6c98f;
+      }
+
+      body[data-theme-family="lcars"] .view-switch {
+        font-family: var(--theme-display-font-family);
+        font-size: 28px;
+        font-weight: 900;
+        font-stretch: ultra-condensed;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        transform: scaleX(0.72);
+        transform-origin: left center;
+      }
+
+      body[data-theme-family="lcars"] .view-switch:hover,
+      body[data-theme-family="lcars"] .view-search-trigger:hover,
+      body[data-theme-family="lcars"] .view-search.is-open .view-search-trigger {
+        background: transparent;
+        border: 0;
+        color: #f6c98f;
+      }
+
+      body[data-theme-family="lcars"] .view-switch.active {
+        position: relative;
+        background: transparent;
+        border: 0;
+        color: #ffffff;
+      }
+
+      body[data-theme-family="lcars"] .view-switch.active::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -6px;
+        height: 8px;
+        background: #f6c98f;
+        border-radius: 2px;
+      }
+
+      body[data-theme-family="lcars"] .view-search-trigger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: auto;
+        font-size: 24px;
+        line-height: 1;
+      }
+
+      body[data-theme-family="lcars"] .notifications-trigger,
+      body[data-theme-family="lcars"] .messages-trigger {
+        width: 42px;
+        height: 42px;
+        min-width: 42px;
+        min-height: 42px;
+        border-radius: 999px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      body[data-theme-family="lcars"] .account-trigger {
+        min-height: 42px;
+        border-radius: 999px;
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+
+      body[data-theme-family="lcars"] .admin-nav-link,
+      body[data-theme-family="lcars"] .admin-nav-link:hover,
+      body[data-theme-family="lcars"] .admin-nav-link.active {
+        color: #000000;
+      }
+
+      body[data-theme-family="lcars"] .project-board-mode-tabs {
+        display: flex;
+        justify-content: flex-start;
+        gap: 10px;
+        position: relative;
+        z-index: 3;
+        margin: -14px 0 12px 30px;
+        padding: 0 0 0 18px;
+        align-items: flex-end;
+      }
+
+      body[data-theme-family="lcars"] .project-board-mode-tab {
+        display: inline-flex;
+        align-items: flex-end;
+        min-height: auto;
+        line-height: 1;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: #f6c9a2;
+        font-family: var(--theme-display-font-family);
+        font-size: 12px;
+        font-weight: 900;
+        font-stretch: ultra-condensed;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        transform: scaleX(0.82);
+        transform-origin: left center;
+      }
+
+      body[data-theme-family="lcars"] .project-board-mode-tab:hover,
+      body[data-theme-family="lcars"] .project-board-mode-tab:focus-visible {
+        background: transparent;
+        color: #f6c9a2;
+      }
+
+      body[data-theme-family="lcars"] .project-board-mode-tab.is-active {
+        background: transparent;
+        color: #f6c9a2;
+        text-decoration: underline;
+        text-decoration-thickness: 2px;
+        text-underline-offset: 0.18em;
+      }
+
+      body[data-theme-family="lcars"] .tree-project-board {
+        position: static;
+      }
+
       .header-brand {
         min-height: 54px;
         display: flex;
@@ -144,6 +1197,14 @@
       }
 
       body[data-theme="light"] .header-brand-logo.is-light {
+        display: block;
+      }
+
+      body[data-theme-family="lcars"] .header-brand-logo.is-dark {
+        display: none;
+      }
+
+      body[data-theme-family="lcars"] .header-brand-logo.is-light {
         display: block;
       }
 
@@ -7587,13 +8648,46 @@
           gap: 10px;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-group-row,
-        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-row {
+        .sidebar[data-todo-tree] .todo-tree-group-row {
           display: grid;
           grid-template-columns: 18px minmax(0, 1fr);
           align-items: center;
           gap: 10px;
           padding: 0 18px 0 calc(18px + var(--tree-row-indent, 0px));
+        }
+
+        .sidebar[data-todo-tree] [data-todo-completed-node] > .todo-tree-row {
+          --tree-row-indent: 0px;
+        }
+
+        .sidebar[data-todo-tree] [data-todo-completed-node] {
+          width: calc(100% + 28px);
+          margin-left: -14px;
+          background: #000000;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-row {
+          --tree-row-indent: 12px;
+          width: calc(100% + 28px) !important;
+          margin-left: -14px !important;
+          padding: 0 18px 0 18px !important;
+          background: #000000;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-completed-options {
+          width: calc(100% + 28px);
+          margin-left: -14px;
+          padding-left: 0 !important;
+          padding-right: 0 !important;
+          background: #000000;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-group-row {
+          padding-left: 42px !important;
+        }
+
+        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-group-row .todo-tree-label {
+          margin-left: 0;
         }
 
         .sidebar[data-todo-tree] .todo-tree-checkbox {

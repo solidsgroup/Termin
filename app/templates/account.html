@@ -952,11 +952,27 @@
             if (!form) return;
             const themeNameInput = document.getElementById("account-theme-name");
             const timezoneInput = document.getElementById("account-timezone");
+            const themeModeInputs = Array.from(form.querySelectorAll('input[name="theme_mode"]'));
+            const darkModeInput = form.querySelector('input[name="theme_mode"][value="dark"]');
+            const lightModeInput = form.querySelector('input[name="theme_mode"][value="light"]');
             const themePicker = document.getElementById("theme-family-picker");
             const themeTrigger = document.getElementById("theme-family-trigger");
             const themeMenu = document.getElementById("theme-family-menu");
             const themeTriggerName = document.getElementById("theme-family-trigger-name");
             const themeTriggerSwatches = document.getElementById("theme-family-trigger-swatches");
+
+            function syncThemeModeAvailability() {
+              if (!themeNameInput) return;
+              const isLcars = (themeNameInput.value || "").toLowerCase() === "lcars";
+              if (lightModeInput) {
+                lightModeInput.disabled = isLcars;
+              }
+              if (isLcars && darkModeInput) {
+                darkModeInput.checked = true;
+                document.documentElement.setAttribute("data-theme", "dark");
+                document.body.setAttribute("data-theme", "dark");
+              }
+            }
 
             function closeThemePicker() {
               if (!themePicker || !themeTrigger) return;
@@ -978,7 +994,7 @@
               themeTriggerSwatches.innerHTML = swatches ? swatches.innerHTML : "";
             }
 
-            form.querySelectorAll('input[name="theme_mode"]').forEach((input) => {
+            themeModeInputs.forEach((input) => {
               input.addEventListener("change", () => {
                 document.documentElement.setAttribute("data-theme", input.value);
                 document.body.setAttribute("data-theme", input.value);
@@ -987,6 +1003,7 @@
             });
             if (themeNameInput) {
               themeNameInput.addEventListener("change", function () {
+                syncThemeModeAvailability();
                 document.documentElement.setAttribute("data-theme-family", themeNameInput.value);
                 document.body.setAttribute("data-theme-family", themeNameInput.value);
                 form.requestSubmit();
@@ -1021,6 +1038,7 @@
                 renderThemeTrigger(initialOption);
               }
             }
+            syncThemeModeAvailability();
             if (timezoneInput) {
               timezoneInput.addEventListener("change", function () {
                 form.requestSubmit();
