@@ -1361,7 +1361,12 @@
     </div>
     <div class="discussion-compose">
       <textarea id="discussion-input" placeholder="Write a comment..." autocomplete="termin-nope-discussion" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+      <div class="discussion-compose-actions">
+        <div class="discussion-compose-tools">
+          <div class="discussion-mention-menu" id="discussion-mention-menu" role="menu" aria-label="Person mentions"></div>
+          <button class="btn secondary discussion-emoji-trigger" type="button" id="discussion-emoji-trigger" aria-haspopup="menu" aria-expanded="false" title="Insert emoji shortcode">:)</button>
+          <div class="discussion-emoji-menu" id="discussion-emoji-menu" role="menu" aria-label="Emoji shortcodes"></div>
+        </div>
         <button class="btn secondary" type="button" id="discussion-cancel">Close</button>
         <button class="btn" type="button" id="discussion-send">Comment</button>
       </div>
@@ -10005,6 +10010,59 @@
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
     var discussionShowHistory = true;
     var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
+    var emojiShortcodeEntries = [
+      [":grinning:", "😀"], [":smiley:", "😃"], [":smile:", "😄"], [":grin:", "😁"], [":laughing:", "😆"], [":sweat_smile:", "😅"],
+      [":joy:", "😂"], [":rofl:", "🤣"], [":wink:", "😉"], [":blush:", "😊"], [":innocent:", "😇"], [":slight_smile:", "🙂"],
+      [":upside_down:", "🙃"], [":melting:", "🫠"], [":heart_eyes:", "😍"], [":star_struck:", "🤩"], [":kissing_heart:", "😘"], [":yum:", "😋"],
+      [":stuck_out_tongue:", "😛"], [":money_mouth:", "🤑"], [":hugging:", "🤗"], [":thinking:", "🤔"], [":saluting:", "🫡"], [":zipper_mouth:", "🤐"],
+      [":neutral_face:", "😐"], [":expressionless:", "😑"], [":unamused:", "😒"], [":rolling_eyes:", "🙄"], [":grimacing:", "😬"], [":lying_face:", "🤥"],
+      [":relieved:", "😌"], [":pensive:", "😔"], [":sleepy:", "😪"], [":drooling:", "🤤"], [":sleeping:", "😴"], [":mask:", "😷"],
+      [":thermometer_face:", "🤒"], [":head_bandage:", "🤕"], [":nauseated_face:", "🤢"], [":vomiting_face:", "🤮"], [":sneezing_face:", "🤧"], [":hot_face:", "🥵"],
+      [":cold_face:", "🥶"], [":woozy_face:", "🥴"], [":mind_blown:", "🤯"], [":cowboy:", "🤠"], [":partying_face:", "🥳"], [":sunglasses:", "😎"],
+      [":nerd:", "🤓"], [":monocle:", "🧐"], [":confused:", "😕"], [":worried:", "😟"], [":frown:", "☹️"], [":open_mouth:", "😮"],
+      [":hushed:", "😯"], [":astonished:", "😲"], [":flushed:", "😳"], [":pleading_face:", "🥺"], [":frowning:", "😦"], [":anguished:", "😧"],
+      [":fearful:", "😨"], [":cold_sweat:", "😰"], [":cry:", "😢"], [":sob:", "😭"], [":scream:", "😱"], [":confounded:", "😖"],
+      [":persevere:", "😣"], [":disappointed:", "😞"], [":sweat:", "😓"], [":weary:", "😩"], [":tired_face:", "😫"], [":yawning_face:", "🥱"],
+      [":triumph:", "😤"], [":angry:", "😠"], [":rage:", "😡"], [":cursing_face:", "🤬"], [":smiling_imp:", "😈"], [":skull:", "💀"],
+      [":poop:", "💩"], [":clown_face:", "🤡"], [":ghost:", "👻"], [":alien:", "👽"], [":robot:", "🤖"], [":wave:", "👋"],
+      [":raised_hand:", "✋"], [":ok_hand:", "👌"], [":pinched_fingers:", "🤌"], [":pinching_hand:", "🤏"], [":v:", "✌️"], [":crossed_fingers:", "🤞"],
+      [":love_you_gesture:", "🤟"], [":metal:", "🤘"], [":call_me:", "🤙"], [":point_left:", "👈"], [":point_right:", "👉"], [":point_up:", "👆"],
+      [":point_down:", "👇"], [":thumbsup:", "👍"], [":thumbsdown:", "👎"], [":fist:", "✊"], [":facepalm:", "🤦"], [":shrug:", "🤷"],
+      [":pray:", "🙏"], [":clap:", "👏"], [":muscle:", "💪"], [":mechanical_arm:", "🦾"], [":leg:", "🦵"], [":foot:", "🦶"],
+      [":ear:", "👂"], [":nose:", "👃"], [":brain:", "🧠"], [":eyes:", "👀"], [":tongue:", "👅"], [":mouth:", "👄"],
+      [":heart:", "❤️"], [":orange_heart:", "🧡"], [":yellow_heart:", "💛"], [":green_heart:", "💚"], [":blue_heart:", "💙"], [":purple_heart:", "💜"],
+      [":black_heart:", "🖤"], [":broken_heart:", "💔"], [":sparkling_heart:", "💖"], [":fire:", "🔥"], [":star:", "⭐"], [":sparkles:", "✨"],
+      [":boom:", "💥"], [":collision:", "💥"], [":zzz:", "💤"], [":wave_dash:", "〰️"], [":warning:", "⚠️"], [":no_entry:", "⛔"],
+      [":check:", "✅"], [":x:", "❌"], [":heavy_plus_sign:", "➕"], [":heavy_minus_sign:", "➖"], [":question:", "❓"], [":grey_question:", "❔"],
+      [":grey_exclamation:", "❕"], [":exclamation:", "❗"], [":bulb:", "💡"], [":memo:", "📝"], [":pushpin:", "📌"], [":paperclip:", "📎"],
+      [":link:", "🔗"], [":email:", "✉️"], [":envelope:", "✉️"], [":incoming_envelope:", "📨"], [":rocket:", "🚀"], [":airplane:", "✈️"],
+      [":car:", "🚗"], [":train:", "🚆"], [":bike:", "🚲"], [":computer:", "💻"], [":keyboard:", "⌨️"], [":phone:", "📱"],
+      [":camera:", "📷"], [":video_camera:", "📹"], [":microphone:", "🎤"], [":headphones:", "🎧"], [":hourglass:", "⏳"], [":alarm_clock:", "⏰"],
+      [":calendar:", "📅"], [":mag:", "🔍"], [":lock:", "🔒"], [":unlock:", "🔓"], [":key:", "🔑"], [":hammer:", "🔨"],
+      [":wrench:", "🔧"], [":gear:", "⚙️"], [":test_tube:", "🧪"], [":dna:", "🧬"], [":pill:", "💊"], [":moneybag:", "💰"],
+      [":chart_with_upwards_trend:", "📈"], [":bar_chart:", "📊"], [":trophy:", "🏆"], [":medal:", "🏅"], [":soccer:", "⚽"], [":basketball:", "🏀"],
+      [":coffee:", "☕"], [":beer:", "🍺"], [":pizza:", "🍕"], [":hamburger:", "🍔"], [":apple:", "🍎"], [":banana:", "🍌"],
+      [":tada:", "🎉"], [":confetti_ball:", "🎊"], [":gift:", "🎁"], [":balloon:", "🎈"], [":party_popper:", "🎉"], [":crown:", "👑"],
+      [":white_check_mark:", "✅"], [":construction:", "🚧"], [":bug:", "🐛"], [":sparkles:", "✨"], [":beers:", "🍻"], [":clinking_glasses:", "🥂"],
+      [":raised_hands:", "🙌"], [":pray:", "🙏"], [":100:", "💯"], [":dart:", "🎯"], [":triangular_flag_on_post:", "🚩"], [":bookmark:", "🔖"],
+      [":bell:", "🔔"], [":mega:", "📣"], [":loudspeaker:", "📢"], [":satellite:", "📡"], [":globe_with_meridians:", "🌐"], [":earth_americas:", "🌎"],
+      [":earth_africa:", "🌍"], [":earth_asia:", "🌏"], [":moon:", "🌙"], [":sunny:", "☀️"], [":cloud:", "☁️"], [":umbrella:", "☔"],
+      [":snowflake:", "❄️"], [":zap:", "⚡"], [":droplet:", "💧"], [":seedling:", "🌱"], [":deciduous_tree:", "🌳"], [":palm_tree:", "🌴"],
+      [":dog:", "🐶"], [":cat:", "🐱"], [":mouse:", "🐭"], [":hamster:", "🐹"], [":rabbit:", "🐰"], [":bear:", "🐻"],
+      [":panda_face:", "🐼"], [":koala:", "🐨"], [":tiger:", "🐯"], [":lion:", "🦁"], [":cow:", "🐮"], [":pig:", "🐷"],
+      [":frog:", "🐸"], [":monkey_face:", "🐵"], [":chicken:", "🐔"], [":penguin:", "🐧"], [":bird:", "🐦"], [":hatching_chick:", "🐣"],
+      [":octopus:", "🐙"], [":fish:", "🐟"], [":whale:", "🐳"], [":dolphin:", "🐬"], [":snail:", "🐌"], [":butterfly:", "🦋"],
+      [":rose:", "🌹"], [":sunflower:", "🌻"], [":hibiscus:", "🌺"], [":tulip:", "🌷"], [":cherry_blossom:", "🌸"], [":fallen_leaf:", "🍂"],
+      [":peach:", "🍑"], [":grapes:", "🍇"], [":watermelon:", "🍉"], [":strawberry:", "🍓"], [":melon:", "🍈"], [":pineapple:", "🍍"],
+      [":avocado:", "🥑"], [":broccoli:", "🥦"], [":carrot:", "🥕"], [":corn:", "🌽"], [":taco:", "🌮"], [":burrito:", "🌯"],
+      [":cake:", "🍰"], [":birthday:", "🎂"], [":icecream:", "🍦"], [":cookie:", "🍪"], [":chocolate_bar:", "🍫"], [":popcorn:", "🍿"],
+      [":violin:", "🎻"], [":guitar:", "🎸"], [":musical_note:", "🎵"], [":notes:", "🎶"], [":clapper:", "🎬"], [":art:", "🎨"],
+      [":game_die:", "🎲"], [":joystick:", "🕹️"], [":performing_arts:", "🎭"], [":books:", "📚"], [":book:", "📖"], [":newspaper:", "📰"],
+      [":clipboard:", "📋"], [":file_folder:", "📁"], [":open_file_folder:", "📂"], [":package:", "📦"], [":mailbox:", "📫"], [":mailbox_with_mail:", "📬"],
+      [":shield:", "🛡️"], [":crossed_swords:", "⚔️"], [":toolbox:", "🧰"], [":mag_right:", "🔎"], [":unlock:", "🔓"], [":hourglass_flowing_sand:", "⏳"]
+    ];
+    var emojiShortcodeMap = Object.fromEntries(emojiShortcodeEntries);
+    var emojiShortcodeOptions = emojiShortcodeEntries.map(function (entry) { return entry[0]; });
 
     function drawerEscapeHtml(value) {
       return String(value || "")
@@ -10963,7 +11021,7 @@
 
     function autoLinkText(value) {
       if (!value) return "";
-      return escapeHtml(value).replace(
+      return escapeEmojiShortcodes(escapeHtml(value)).replace(
         /(https?:\/\/[^\s<]+)/g,
         function (url) {
           return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + "</a>";
@@ -10971,12 +11029,24 @@
       );
     }
 
+    function escapeEmojiShortcodes(value) {
+      return String(value || "").replace(/:[a-z0-9_+\-]+:/gi, function (token) {
+        return emojiShortcodeMap[token.toLowerCase()] || token;
+      });
+    }
+
+    function replaceEmojiShortcodesInHtml(value) {
+      return String(value || "").replace(/:[a-z0-9_+\-]+:/gi, function (token) {
+        return emojiShortcodeMap[token.toLowerCase()] || token;
+      });
+    }
+
     function renderCommentBody(value) {
       if (!value) return "";
       if (typeof value === "object") {
         var rendered = value.rendered_body || value.body || "";
         if (rendered) {
-          return rendered;
+          return replaceEmojiShortcodesInHtml(rendered);
         }
         value = rendered;
       }
@@ -13454,6 +13524,7 @@
       if (!bodyEl) return;
       var currentBody = bodyEl.dataset.commentRaw || bodyEl.textContent || "";
       bodyEl.dataset.originalBody = currentBody;
+      bodyEl.dataset.originalRendered = bodyEl.innerHTML;
       bodyEl.innerHTML =
         '<div class="discussion-comment-editor">' +
           '<textarea data-comment-edit-input="' + commentId + '">' + escapeHtml(currentBody) + '</textarea>' +
@@ -13472,8 +13543,9 @@
     function cancelInlineCommentEdit(commentId) {
       var bodyEl = listEl.querySelector('[data-comment-id="' + commentId + '"] .discussion-comment-body');
       if (!bodyEl) return;
-      bodyEl.innerHTML = renderCommentBody(bodyEl.dataset.originalBody || "");
+      bodyEl.innerHTML = bodyEl.dataset.originalRendered || renderCommentBody(bodyEl.dataset.originalBody || "");
       delete bodyEl.dataset.originalBody;
+      delete bodyEl.dataset.originalRendered;
     }
 
     function saveInlineCommentEdit(commentId) {
@@ -15067,6 +15139,227 @@
       });
     }
     sendEl.addEventListener("click", submitComment);
+    var mentionMenuEl = document.getElementById("discussion-mention-menu");
+    var emojiTriggerEl = document.getElementById("discussion-emoji-trigger");
+    var emojiMenuEl = document.getElementById("discussion-emoji-menu");
+    var discussionEmojiState = { mode: null, options: [], activeIndex: 0, start: null, end: null };
+    var discussionMentionState = { options: [], activeIndex: 0, start: null, end: null, query: "", requestId: 0 };
+    function closeDiscussionMentionMenu() {
+      if (!mentionMenuEl) return;
+      mentionMenuEl.classList.remove("is-open");
+      discussionMentionState = { options: [], activeIndex: 0, start: null, end: null, query: "", requestId: discussionMentionState.requestId };
+    }
+    function renderDiscussionMentionMenu() {
+      if (!mentionMenuEl) return;
+      mentionMenuEl.innerHTML = discussionMentionState.options.map(function (option, index) {
+        var initial = ((option.display_name || option.email || "?").trim().charAt(0) || "?").toUpperCase();
+        return '<button class="discussion-mention-option' + (index === discussionMentionState.activeIndex ? ' is-active' : '') + '" type="button" data-discussion-mention-email="' + escapeHtml(option.email) + '" role="menuitem">' +
+          '<span class="discussion-mention-avatar">' +
+            (option.avatar_url
+              ? '<img src="' + escapeHtml(option.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(initial) + '; this.remove();" />'
+              : escapeHtml(initial)) +
+          '</span>' +
+          '<span class="discussion-mention-copy">' +
+            '<span class="discussion-mention-name">' + escapeHtml(option.display_name || option.email) + '</span>' +
+            '<span class="discussion-mention-email">' + escapeHtml(option.email) + '</span>' +
+          '</span>' +
+        '</button>';
+      }).join("");
+    }
+    function openDiscussionMentionMenu(options, state) {
+      if (!mentionMenuEl) return;
+      discussionMentionState.options = (options || []).slice();
+      discussionMentionState.activeIndex = 0;
+      discussionMentionState.start = state && typeof state.start === "number" ? state.start : null;
+      discussionMentionState.end = state && typeof state.end === "number" ? state.end : null;
+      discussionMentionState.query = state && typeof state.query === "string" ? state.query : "";
+      renderDiscussionMentionMenu();
+      mentionMenuEl.classList.add("is-open");
+      closeDiscussionEmojiMenu();
+    }
+    function currentDiscussionMentionQuery() {
+      if (!inputEl || typeof inputEl.selectionStart !== "number" || inputEl.selectionStart !== inputEl.selectionEnd) return null;
+      var end = inputEl.selectionStart;
+      var prefix = inputEl.value.slice(0, end);
+      var match = prefix.match(/(^|[\s([{])@([^\s@{}]*)$/i);
+      if (!match) return null;
+      return {
+        query: String(match[2] || "").toLowerCase(),
+        start: end - match[2].length - 1,
+        end: end,
+      };
+    }
+    function buildDiscussionMentionOptions(results) {
+      var options = [];
+      var seen = new Set();
+      (results || []).forEach(function (item) {
+        var emails = Array.isArray(item.emails) && item.emails.length ? item.emails : (item.email ? [item.email] : []);
+        emails.forEach(function (email) {
+          var normalizedEmail = String(email || "").trim();
+          if (!normalizedEmail) return;
+          var key = String(item.id || "") + ":" + normalizedEmail.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          options.push({
+            user_id: item.id,
+            display_name: item.display_name || normalizedEmail,
+            email: normalizedEmail,
+            avatar_url: item.avatar_url || "",
+          });
+        });
+      });
+      return options;
+    }
+    function syncDiscussionMentionAutocomplete() {
+      var state = currentDiscussionMentionQuery();
+      if (!state) {
+        closeDiscussionMentionMenu();
+        return;
+      }
+      var requestId = discussionMentionState.requestId + 1;
+      discussionMentionState.requestId = requestId;
+      var mentionUrl = "/api/users?q=" + encodeURIComponent(state.query);
+      if (currentEntityType && currentEntityId) {
+        mentionUrl += "&entity_type=" + encodeURIComponent(currentEntityType) + "&entity_id=" + encodeURIComponent(currentEntityId);
+      }
+      fetch(mentionUrl, { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+        .then(function (data) {
+          if (discussionMentionState.requestId !== requestId) return;
+          var latestState = currentDiscussionMentionQuery();
+          if (!latestState) {
+            closeDiscussionMentionMenu();
+            return;
+          }
+          var options = buildDiscussionMentionOptions(data.results || []);
+          if (!options.length) {
+            closeDiscussionMentionMenu();
+            return;
+          }
+          openDiscussionMentionMenu(options, latestState);
+        })
+        .catch(function () {
+          if (discussionMentionState.requestId === requestId) {
+            closeDiscussionMentionMenu();
+          }
+        });
+    }
+    function moveDiscussionMentionSelection(delta) {
+      if (!mentionMenuEl || !mentionMenuEl.classList.contains("is-open") || !discussionMentionState.options.length) return false;
+      var count = discussionMentionState.options.length;
+      discussionMentionState.activeIndex = (discussionMentionState.activeIndex + delta + count) % count;
+      renderDiscussionMentionMenu();
+      return true;
+    }
+    function insertDiscussionMention(option) {
+      if (!inputEl || !option || !option.email) return;
+      var start = typeof discussionMentionState.start === "number" ? discussionMentionState.start : inputEl.selectionStart;
+      var end = typeof discussionMentionState.end === "number" ? discussionMentionState.end : inputEl.selectionEnd;
+      var token = "@{" + option.email + "}";
+      var prefix = inputEl.value.slice(0, start);
+      var suffix = inputEl.value.slice(end);
+      var needsTrailingSpace = suffix && !/^\s/.test(suffix);
+      var insertText = token + (needsTrailingSpace ? " " : "");
+      inputEl.value = prefix + insertText + suffix;
+      var nextPos = prefix.length + insertText.length;
+      inputEl.focus();
+      if (typeof inputEl.setSelectionRange === "function") {
+        inputEl.setSelectionRange(nextPos, nextPos);
+      }
+      closeDiscussionMentionMenu();
+    }
+    function closeDiscussionEmojiMenu() {
+      if (!emojiMenuEl || !emojiTriggerEl) return;
+      emojiMenuEl.classList.remove("is-open");
+      emojiTriggerEl.setAttribute("aria-expanded", "false");
+      discussionEmojiState = { mode: null, options: [], activeIndex: 0, start: null, end: null };
+    }
+    function renderDiscussionEmojiMenu(options) {
+      if (!emojiMenuEl) return;
+      emojiMenuEl.innerHTML = (options || []).map(function (code, index) {
+        return '<button class="discussion-emoji-option' + (index === discussionEmojiState.activeIndex ? ' is-active' : '') + '" type="button" data-discussion-emoji="' + escapeHtml(code) + '" role="menuitem">' +
+          '<span class="discussion-emoji-glyph">' + escapeHtml(emojiShortcodeMap[code] || "") + '</span>' +
+          '<span class="discussion-emoji-code">' + escapeHtml(code) + '</span>' +
+        '</button>';
+      }).join("");
+    }
+    function openDiscussionEmojiMenu(options, mode) {
+      if (!emojiMenuEl || !emojiTriggerEl) return;
+      discussionEmojiState.options = (options || emojiShortcodeOptions).slice();
+      discussionEmojiState.activeIndex = Math.max(0, Math.min(discussionEmojiState.activeIndex || 0, discussionEmojiState.options.length - 1));
+      discussionEmojiState.mode = mode || "button";
+      renderDiscussionEmojiMenu(discussionEmojiState.options);
+      emojiMenuEl.classList.add("is-open");
+      emojiTriggerEl.setAttribute("aria-expanded", "true");
+    }
+    function currentDiscussionEmojiQuery() {
+      if (!inputEl || typeof inputEl.selectionStart !== "number" || inputEl.selectionStart !== inputEl.selectionEnd) return null;
+      var end = inputEl.selectionStart;
+      var prefix = inputEl.value.slice(0, end);
+      var match = prefix.match(/(^|[\s([{])\:([a-z0-9_+\-]*)$/i);
+      if (!match) return null;
+      return {
+        query: String(match[2] || "").toLowerCase(),
+        start: end - match[2].length - 1,
+        end: end,
+      };
+    }
+    function syncDiscussionEmojiAutocomplete() {
+      var state = currentDiscussionEmojiQuery();
+      if (!state) {
+        if (discussionEmojiState.mode === "autocomplete") closeDiscussionEmojiMenu();
+        return;
+      }
+      var options = emojiShortcodeOptions.filter(function (code) {
+        return String(code).slice(1, -1).indexOf(state.query) !== -1;
+      });
+      if (!options.length) {
+        closeDiscussionEmojiMenu();
+        return;
+      }
+      discussionEmojiState.start = state.start;
+      discussionEmojiState.end = state.end;
+      discussionEmojiState.activeIndex = 0;
+      openDiscussionEmojiMenu(options, "autocomplete");
+    }
+    function moveDiscussionEmojiSelection(delta) {
+      if (!emojiMenuEl || !emojiMenuEl.classList.contains("is-open") || !discussionEmojiState.options.length) return false;
+      var count = discussionEmojiState.options.length;
+      discussionEmojiState.activeIndex = (discussionEmojiState.activeIndex + delta + count) % count;
+      renderDiscussionEmojiMenu(discussionEmojiState.options);
+      return true;
+    }
+    function insertDiscussionEmojiShortcode(code, replacementState) {
+      if (!inputEl || !code) return;
+      var start = replacementState && typeof replacementState.start === "number"
+        ? replacementState.start
+        : (typeof inputEl.selectionStart === "number" ? inputEl.selectionStart : inputEl.value.length);
+      var end = replacementState && typeof replacementState.end === "number"
+        ? replacementState.end
+        : (typeof inputEl.selectionEnd === "number" ? inputEl.selectionEnd : start);
+      var prefix = inputEl.value.slice(0, start);
+      var suffix = inputEl.value.slice(end);
+      var needsLeadingSpace = prefix && !/\s$/.test(prefix);
+      var needsTrailingSpace = suffix && !/^\s/.test(suffix);
+      var insertText = (needsLeadingSpace ? " " : "") + code + (needsTrailingSpace ? " " : "");
+      inputEl.value = prefix + insertText + suffix;
+      var nextPos = prefix.length + insertText.length;
+      inputEl.focus();
+      if (typeof inputEl.setSelectionRange === "function") {
+        inputEl.setSelectionRange(nextPos, nextPos);
+      }
+    }
+    if (emojiTriggerEl) {
+      emojiTriggerEl.addEventListener("click", function (event) {
+        event.preventDefault();
+        closeDiscussionMentionMenu();
+        if (emojiMenuEl && emojiMenuEl.classList.contains("is-open")) {
+          closeDiscussionEmojiMenu();
+        } else {
+          openDiscussionEmojiMenu(emojiShortcodeOptions, "button");
+        }
+      });
+    }
     listEl.addEventListener("click", function (event) {
       var unreadButton = event.target.closest("[data-comment-unread]");
       if (unreadButton && currentEntityType === "task" && currentTaskId) {
@@ -15146,6 +15439,43 @@
             }
           })
           .catch(function (err) { console.error('deleteHistory failed', err); });
+      }
+    });
+    document.addEventListener("click", function (event) {
+      var mentionOption = event.target.closest("[data-discussion-mention-email]");
+      if (mentionOption) {
+        event.preventDefault();
+        var selectedMention = discussionMentionState.options.find(function (option) {
+          return option.email === mentionOption.getAttribute("data-discussion-mention-email");
+        });
+        if (selectedMention) {
+          insertDiscussionMention(selectedMention);
+        }
+        return;
+      }
+      var emojiOption = event.target.closest("[data-discussion-emoji]");
+      if (emojiOption) {
+        event.preventDefault();
+        insertDiscussionEmojiShortcode(
+          emojiOption.getAttribute("data-discussion-emoji") || "",
+          discussionEmojiState.mode === "autocomplete"
+            ? { start: discussionEmojiState.start, end: discussionEmojiState.end }
+            : null
+        );
+        closeDiscussionEmojiMenu();
+        return;
+      }
+      if (mentionMenuEl && mentionMenuEl.classList.contains("is-open")) {
+        if (event.target.closest("#discussion-mention-menu")) {
+          return;
+        }
+        closeDiscussionMentionMenu();
+      }
+      if (emojiMenuEl && emojiMenuEl.classList.contains("is-open")) {
+        if (event.target.closest("#discussion-emoji-menu") || event.target.closest("#discussion-emoji-trigger")) {
+          return;
+        }
+        closeDiscussionEmojiMenu();
       }
     });
     if (linksListEl) {
@@ -15435,9 +15765,80 @@
     })();
 
     inputEl.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && mentionMenuEl && mentionMenuEl.classList.contains("is-open")) {
+        event.preventDefault();
+        closeDiscussionMentionMenu();
+        return;
+      }
+      if (event.key === "Escape" && emojiMenuEl && emojiMenuEl.classList.contains("is-open")) {
+        event.preventDefault();
+        closeDiscussionEmojiMenu();
+        return;
+      }
+      if (event.key === "ArrowDown" && mentionMenuEl && mentionMenuEl.classList.contains("is-open")) {
+        if (moveDiscussionMentionSelection(1)) {
+          event.preventDefault();
+          return;
+        }
+      }
+      if (event.key === "ArrowUp" && mentionMenuEl && mentionMenuEl.classList.contains("is-open")) {
+        if (moveDiscussionMentionSelection(-1)) {
+          event.preventDefault();
+          return;
+        }
+      }
+      if ((event.key === "Tab" || event.key === "Enter") && mentionMenuEl && mentionMenuEl.classList.contains("is-open") && discussionMentionState.options.length) {
+        event.preventDefault();
+        insertDiscussionMention(discussionMentionState.options[discussionMentionState.activeIndex]);
+        return;
+      }
+      if (event.key === "ArrowDown" && emojiMenuEl && emojiMenuEl.classList.contains("is-open")) {
+        if (moveDiscussionEmojiSelection(1)) {
+          event.preventDefault();
+          return;
+        }
+      }
+      if (event.key === "ArrowUp" && emojiMenuEl && emojiMenuEl.classList.contains("is-open")) {
+        if (moveDiscussionEmojiSelection(-1)) {
+          event.preventDefault();
+          return;
+        }
+      }
+      if (event.key === "Tab" && emojiMenuEl && emojiMenuEl.classList.contains("is-open") && discussionEmojiState.options.length) {
+        event.preventDefault();
+        insertDiscussionEmojiShortcode(
+          discussionEmojiState.options[discussionEmojiState.activeIndex],
+          discussionEmojiState.mode === "autocomplete"
+            ? { start: discussionEmojiState.start, end: discussionEmojiState.end }
+            : null
+        );
+        closeDiscussionEmojiMenu();
+        return;
+      }
+      if (event.key === "Enter" && emojiMenuEl && emojiMenuEl.classList.contains("is-open") && discussionEmojiState.options.length) {
+        event.preventDefault();
+        insertDiscussionEmojiShortcode(
+          discussionEmojiState.options[discussionEmojiState.activeIndex],
+          discussionEmojiState.mode === "autocomplete"
+            ? { start: discussionEmojiState.start, end: discussionEmojiState.end }
+            : null
+        );
+        closeDiscussionEmojiMenu();
+        return;
+      }
       if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         submitComment();
+      }
+    });
+    inputEl.addEventListener("input", function () {
+      syncDiscussionMentionAutocomplete();
+      syncDiscussionEmojiAutocomplete();
+    });
+    inputEl.addEventListener("click", function () {
+      syncDiscussionMentionAutocomplete();
+      if (discussionEmojiState.mode === "autocomplete") {
+        syncDiscussionEmojiAutocomplete();
       }
     });
     listEl.addEventListener("keydown", function (event) {

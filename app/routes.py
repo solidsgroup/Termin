@@ -27,7 +27,7 @@ from app.discussion_history import (
 )
 from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
-from app.identity import find_user_by_email, search_users_by_identity
+from app.identity import find_user_by_email, normalize_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
 from app.notification_preferences import user_notification_channel_enabled
 from app.realtime import (
@@ -96,6 +96,7 @@ from app.models import (
     Group,
     ProjectMember,
     GroupMember,
+    UserEmail,
     DiscussionEvent,
     TaskComment,
     TaskFollower,
@@ -111,6 +112,7 @@ api_bp = Blueprint("api", __name__)
 
 
 URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+MENTION_PATTERN = re.compile(r"@\{([^{}\s]+)\}")
 DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
 DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
@@ -730,8 +732,64 @@ def _render_description(description: str | None, description_format: str | None,
 def _render_comment_body(body: str | None) -> str:
     if not body:
         return ""
-    rendered = render_markdown(body, extensions=["extra", "sane_lists"])
+    rendered = render_markdown(_render_mentions_for_html(body), extensions=["extra", "sane_lists"])
     return sanitize_info_html(rendered)
+
+
+def _render_mentions_for_display(body: str | None) -> str:
+    text = str(body or "")
+    if not text:
+        return ""
+
+    def replace(match):
+      email = normalize_email(match.group(1))
+      user = find_user_by_email(email)
+      if not user:
+          return match.group(0)
+      label = display_name_for_user(user) or user.email or email
+      return "@" + label
+
+    return MENTION_PATTERN.sub(replace, text)
+
+
+def _render_mentions_for_html(body: str | None) -> str:
+    text = str(body or "")
+    if not text:
+        return ""
+
+    def replace(match):
+        email = normalize_email(match.group(1))
+        user = find_user_by_email(email)
+        if not user:
+            return match.group(0)
+        label = display_name_for_user(user) or user.email or email
+        return (
+            '<span class="discussion-mention-tag"'
+            + ' data-mentioned-user-id="' + str(user.id) + '"'
+            + ' data-mentioned-email="' + escape(email) + '"'
+            + '>@' + escape(label) + '</span>'
+        )
+
+    return MENTION_PATTERN.sub(replace, text)
+
+
+def _mentioned_users(body: str | None, *, exclude_user_id: int | None = None):
+    users: list[User] = []
+    seen_ids: set[int] = set()
+    for match in MENTION_PATTERN.finditer(str(body or "")):
+        email = normalize_email(match.group(1))
+        if not email:
+            continue
+        user = find_user_by_email(email)
+        if not user:
+            continue
+        if exclude_user_id is not None and int(user.id) == int(exclude_user_id):
+            continue
+        if int(user.id) in seen_ids:
+            continue
+        seen_ids.add(int(user.id))
+        users.append(user)
+    return users
 
 
 def _task_due_mode(task: Task) -> str:
@@ -1902,6 +1960,9 @@ def create_task_comment(task_id: int):
     db.session.add(comment)
     db.session.flush()
     links_changed = _merge_comment_links(task, body)
+    rendered_preview = _render_mentions_for_display(body)
+    mentioned_users = [mentioned_user for mentioned_user in _mentioned_users(body, exclude_user_id=user.id) if _can_access_task(mentioned_user, task)]
+    mentioned_user_ids = {int(mentioned_user.id) for mentioned_user in mentioned_users}
     activity_rows = upsert_discussion_activity(
         user_ids=task_discussion_user_ids(task),
         entity_type="task",
@@ -1911,11 +1972,13 @@ def create_task_comment(task_id: int):
         group_id=task.group_id,
         comment_id=comment.id,
         actor_user_id=user.id,
-        preview=body,
+        preview=rendered_preview,
         exclude_user_id=user.id,
     )
 
     queue_task_notifications(task, exclude_user_id=user.id, kind="comment", comment_id=comment.id)
+    for mentioned_user_id in sorted(mentioned_user_ids):
+        queue_user_notification(user_id=mentioned_user_id, kind="comment", task_id=task.id, comment_id=comment.id)
 
     db.session.commit()
     comment_count = TaskComment.query.filter_by(task_id=task.id).count()
@@ -1930,9 +1993,24 @@ def create_task_comment(task_id: int):
         group_id=task.group_id,
         task_title=task.title or "Task",
         project_name=task.project.name if getattr(task, "project", None) and task.project.name else "",
-        preview=body,
+        preview=rendered_preview,
         exclude_user_id=user.id,
     )
+    extra_mentioned_user_ids = mentioned_user_ids.difference(task_discussion_user_ids(task))
+    if extra_mentioned_user_ids:
+        _emit_comment_notification_previews(
+            recipient_ids=extra_mentioned_user_ids,
+            actor_user=user,
+            task_id=task.id,
+            project_id=task.project_id,
+            group_id=task.group_id,
+            task_title=task.title or "Task",
+            project_name=task.project.name if getattr(task, "project", None) and task.project.name else "",
+            preview=rendered_preview,
+            exclude_user_id=user.id,
+        )
+    for mentioned_user_id in sorted(mentioned_user_ids):
+        emit_notification_state(mentioned_user_id)
     for row in activity_rows:
         emit_discussion_activity_updated(row.user_id, row.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
@@ -2046,6 +2124,12 @@ def create_project_comment(project_id: int):
     db.session.add(comment)
     _merge_comment_links(project, body)
     db.session.flush()
+    rendered_preview = _render_mentions_for_display(body)
+    mentioned_user_ids = {
+        int(mentioned_user.id)
+        for mentioned_user in _mentioned_users(body, exclude_user_id=user.id)
+        if _can_access_project(mentioned_user, project.id)
+    }
     activity_rows = upsert_discussion_activity(
         user_ids=project_discussion_user_ids(project.id),
         entity_type="project",
@@ -2053,7 +2137,7 @@ def create_project_comment(project_id: int):
         project_id=project.id,
         comment_id=comment.id,
         actor_user_id=user.id,
-        preview=body,
+        preview=rendered_preview,
         exclude_user_id=user.id,
     )
     db.session.commit()
@@ -2067,9 +2151,20 @@ def create_project_comment(project_id: int):
         project_id=project.id,
         task_title="Project chat",
         project_name=project.name or "Project",
-        preview=body,
+        preview=rendered_preview,
         exclude_user_id=user.id,
     )
+    extra_mentioned_user_ids = mentioned_user_ids.difference(project_discussion_user_ids(project.id))
+    if extra_mentioned_user_ids:
+        _emit_comment_notification_previews(
+            recipient_ids=extra_mentioned_user_ids,
+            actor_user=user,
+            project_id=project.id,
+            task_title="Project chat",
+            project_name=project.name or "Project",
+            preview=rendered_preview,
+            exclude_user_id=user.id,
+        )
     for row in activity_rows:
         emit_discussion_activity_updated(row.user_id, row.id)
     return {"comment": payload, "comment_count": comment_count}, 201
@@ -2182,6 +2277,12 @@ def create_group_comment(group_id: int):
     db.session.add(comment)
     _merge_comment_links(group, body)
     db.session.flush()
+    rendered_preview = _render_mentions_for_display(body)
+    mentioned_user_ids = {
+        int(mentioned_user.id)
+        for mentioned_user in _mentioned_users(body, exclude_user_id=user.id)
+        if _can_access_project(mentioned_user, group.project_id)
+    }
     activity_rows = upsert_discussion_activity(
         user_ids=group_discussion_user_ids(group.id),
         entity_type="group",
@@ -2190,7 +2291,7 @@ def create_group_comment(group_id: int):
         group_id=group.id,
         comment_id=comment.id,
         actor_user_id=user.id,
-        preview=body,
+        preview=rendered_preview,
         exclude_user_id=user.id,
     )
     db.session.commit()
@@ -2205,9 +2306,21 @@ def create_group_comment(group_id: int):
         group_id=group.id,
         task_title=(group.name or "Group") + " chat",
         project_name=group.project.name if getattr(group, "project", None) and group.project.name else "",
-        preview=body,
+        preview=rendered_preview,
         exclude_user_id=user.id,
     )
+    extra_mentioned_user_ids = mentioned_user_ids.difference(group_discussion_user_ids(group.id))
+    if extra_mentioned_user_ids:
+        _emit_comment_notification_previews(
+            recipient_ids=extra_mentioned_user_ids,
+            actor_user=user,
+            project_id=group.project_id,
+            group_id=group.id,
+            task_title=(group.name or "Group") + " chat",
+            project_name=group.project.name if getattr(group, "project", None) and group.project.name else "",
+            preview=rendered_preview,
+            exclude_user_id=user.id,
+        )
     for row in activity_rows:
         emit_discussion_activity_updated(row.user_id, row.id)
     return {"comment": payload, "comment_count": comment_count}, 201
@@ -3187,6 +3300,14 @@ def promote_group_to_project(group_id: int):
 def list_users():
     user = current_user()
     q = (request.args.get("q") or "").strip().lower()
+    entity_type = (request.args.get("entity_type") or "").strip().lower()
+    entity_id_raw = (request.args.get("entity_id") or "").strip()
+    entity_id = None
+    if entity_id_raw:
+        try:
+            entity_id = int(entity_id_raw)
+        except ValueError:
+            entity_id = None
     limit = 100
     if q:
         users = search_users_by_identity(q, exclude_user_id=user.id, limit=limit)
@@ -3197,13 +3318,42 @@ def list_users():
             .limit(limit)
             .all()
         )
+    if entity_type in {"task", "project", "group"} and entity_id:
+        allowed_user_ids: set[int] = set()
+        if entity_type == "task":
+            task = Task.query.get(entity_id)
+            if not task or not _can_access_task(user, task):
+                return {"error": "unauthorized"}, 403
+            allowed_user_ids = task_discussion_user_ids(task)
+        elif entity_type == "project":
+            project = Project.query.get(entity_id)
+            if not project or not _can_access_project(user, project.id):
+                return {"error": "unauthorized"}, 403
+            allowed_user_ids = project_discussion_user_ids(project.id)
+        else:
+            group = Group.query.get(entity_id)
+            if not group or not _can_access_project(user, group.project_id):
+                return {"error": "unauthorized"}, 403
+            allowed_user_ids = group_discussion_user_ids(group.id)
+        users = [u for u in users if int(u.id) in allowed_user_ids]
     active_theme_name = normalize_theme_name(getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
+    user_ids = [u.id for u in users]
+    email_rows = (
+        UserEmail.query.filter(UserEmail.user_id.in_(user_ids)).order_by(UserEmail.is_primary.desc(), UserEmail.email.asc()).all()
+        if user_ids else []
+    )
+    emails_by_user: dict[int, list[str]] = {}
+    for row in email_rows:
+        emails_by_user.setdefault(int(row.user_id), [])
+        if row.email and row.email not in emails_by_user[int(row.user_id)]:
+            emails_by_user[int(row.user_id)].append(row.email)
     results = []
     for u in users:
         results.append(
             {
                 "id": u.id,
                 "email": u.email,
+                "emails": emails_by_user.get(int(u.id), [u.email] if u.email else []),
                 "display_name": display_name_for_user(u),
                 "avatar_url": u.avatar_url,
             }
