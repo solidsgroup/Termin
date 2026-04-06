@@ -1,9 +1,20 @@
 from __future__ import annotations
+from datetime import UTC
 import re
 
 from app.extensions import db
 from app.models import DiscussionEvent, Group, Project, Task, User
 from app.utils import display_name_for_user
+
+
+def _utc_iso(value) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    else:
+        value = value.astimezone(UTC)
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def log_discussion_event(
@@ -48,8 +59,8 @@ def serialize_discussion_event(event: DiscussionEvent, actor: User | None = None
         "entity_id": event.entity_id,
         "kind": event.kind,
         "body": event.body or "",
-        "created_at": event.created_at.isoformat() if event.created_at else None,
-        "updated_at": event.created_at.isoformat() if event.created_at else None,
+        "created_at": _utc_iso(event.created_at),
+        "updated_at": _utc_iso(event.created_at),
         "user_id": None,
         "actor_user_id": event.actor_user_id,
         "author": {
