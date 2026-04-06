@@ -3899,7 +3899,7 @@
 	        var edgeStart = options && options.startLabel ? options.startLabel : "";
 	        var edgeEnd = options && options.endLabel ? options.endLabel : "";
         var todayPercent = options && typeof options.todayPercent === "number" ? options.todayPercent : null;
-	        var html = '<span class="project-gantt-axis-line"></span><div class="project-gantt-grid">';
+	        var html = (withLabels ? '<span class="project-gantt-axis-line"></span>' : '') + '<div class="project-gantt-grid">';
 	        (data.minorLines || []).forEach(function (line) {
 	          html += '<span class="project-gantt-guide is-minor" style="left:' + Number(line.percent || 0).toFixed(2) + '%;"></span>';
 	        });

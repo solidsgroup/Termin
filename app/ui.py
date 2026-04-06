@@ -2462,6 +2462,7 @@ def create_group():
         color=palette[(max_pos) % len(palette)],
     )
     db.session.add(group)
+    db.session.flush()
     log_group_history(group, actor=user, action="created")
     db.session.commit()
     emit_group_created(group, actor_user_id=user.id)
