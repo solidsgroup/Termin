@@ -3361,6 +3361,32 @@ def list_users():
     return {"results": results}
 
 
+@api_bp.get("/users/<int:user_id>/card")
+@login_required
+def user_card(user_id: int):
+    viewer = current_user()
+    target = User.query.get_or_404(user_id)
+    email_rows = (
+        UserEmail.query.filter(UserEmail.user_id == target.id)
+        .order_by(UserEmail.is_primary.desc(), UserEmail.email.asc())
+        .all()
+    )
+    emails: list[str] = []
+    for row in email_rows:
+        if row.email and row.email not in emails:
+            emails.append(row.email)
+    if target.email and target.email not in emails:
+        emails.append(target.email)
+    return {
+        "id": target.id,
+        "display_name": display_name_for_user(target) or target.email or "User",
+        "email": target.email,
+        "emails": emails,
+        "avatar_url": target.avatar_url,
+        "viewer_id": viewer.id,
+    }
+
+
 @api_bp.get("/tasks/search")
 @login_required
 def search_tasks():

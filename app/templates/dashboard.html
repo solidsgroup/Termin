@@ -181,7 +181,7 @@
   {% set assignee = user_map.get(assignment.user_id) %}
   {% set label = (assignee.display_name or assignee.email) if assignee else assignment.email %}
   <span class="badge {% if assignee %}user{% else %}email{% endif %}{% if assignment.status == 'accepted' %} status-accepted{% elif assignment.status == 'denied' %} status-denied{% endif %}" data-assignment-id="{{ assignment.id }}" {% if assignment.email %}data-assignment-email="{{ assignment.email }}"{% endif %} title="Assignment status: {{ assignment.status }}" aria-label="Assignment status: {{ assignment.status }}">
-    <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
+    <button class="badge-icon{% if assignee and assignee.avatar_url %} has-photo{% endif %}" type="button" data-remove-assignment="{{ assignment.id }}" {% if assignee %}data-user-id="{{ assignee.id }}"{% endif %} aria-label="Remove assignment for {{ label }}. Status: {{ assignment.status }}">
       <span class="badge-initial">{{ label[0]|upper }}</span>
       {% if assignee and assignee.avatar_url %}
         <img class="badge-photo" src="{{ assignee.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest('.badge-icon').classList.remove('has-photo'); this.remove();" />
@@ -1491,6 +1491,7 @@
     <div class="discussion-links-list" id="discussion-links-list"></div>
   </div>
 </aside>
+<div class="person-hover-card" id="person-hover-card" hidden aria-hidden="true"></div>
 
 <div id="context-menu" class="context-menu">
   <button data-action="add-project">Add Project</button>
@@ -6433,7 +6434,7 @@
           : "";
       return `
         <span class="badge ${assignment.user_id ? "user" : "email"}${statusClass}" data-assignment-id="${assignment.id}"${assignmentEmail ? ` data-assignment-email="${assignmentEmail}"` : ""} title="Assignment status: ${status}" aria-label="Assignment status: ${status}">
-          <button class="badge-icon${avatarUrl ? " has-photo" : ""}" type="button" data-remove-assignment="${assignment.id}" aria-label="Remove assignment for ${label}. Status: ${status}">
+          <button class="badge-icon${avatarUrl ? " has-photo" : ""}" type="button" data-remove-assignment="${assignment.id}"${assignment.user_id ? ` data-user-id="${assignment.user_id}"` : ""} aria-label="Remove assignment for ${label}. Status: ${status}">
             <span class="badge-initial">${initial}</span>
             ${
               avatarUrl
@@ -11621,7 +11622,7 @@
         return (
           '<div class="discussion-assignment-row" data-assignment-id="' + assignment.id + '">' +
             '<div class="discussion-assignment-user">' +
-              '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-assignment="' + assignment.id + '" aria-label="Remove assignment for ' + escapeHtml(label) + '">' +
+              '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-assignment="' + assignment.id + '"' + (assignment.user_id ? ' data-user-id="' + escapeHtml(String(assignment.user_id)) + '"' : '') + ' aria-label="Remove assignment for ' + escapeHtml(label) + '">' +
                 '<span class="badge-initial">' + escapeHtml(initial) + '</span>' +
                 (avatarUrl ? '<img class="badge-photo" src="' + escapeHtml(avatarUrl) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.discussion-assignment-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
                 '<span class="badge-x">×</span>' +
@@ -11668,7 +11669,7 @@
         return (
           '<div class="discussion-assignment-row" data-follower-id="' + follower.id + '">' +
             '<div class="discussion-assignment-user">' +
-              '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-follower="' + follower.id + '" aria-label="Remove follower ' + escapeHtml(label) + '">' +
+              '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-follower="' + follower.id + '"' + (follower.user_id ? ' data-user-id="' + escapeHtml(String(follower.user_id)) + '"' : '') + ' aria-label="Remove follower ' + escapeHtml(label) + '">' +
                 '<span class="badge-initial">' + escapeHtml(initial) + '</span>' +
                 (avatarUrl ? '<img class="badge-photo" src="' + escapeHtml(avatarUrl) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.discussion-assignment-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
                 '<span class="badge-x">×</span>' +
@@ -12595,6 +12596,164 @@
       });
     }
 
+    var personHoverCardEl = document.getElementById("person-hover-card");
+    var personHoverState = {
+      cache: {},
+      activeUserId: "",
+      activeTarget: null,
+      hideTimer: 0,
+      requestId: 0,
+    };
+
+    function personHoverTargetForNode(node) {
+      if (!node || typeof node.closest !== "function") return null;
+      var target = node.closest(".avatar-chip[data-user-id], .discussion-comment-avatar[data-user-id], .discussion-mention-tag[data-mentioned-user-id], .badge-icon[data-user-id], .discussion-assignment-avatar[data-user-id], .multi-status-avatar[data-user-id]");
+      if (!target) return null;
+      var userId = target.getAttribute("data-user-id") || target.getAttribute("data-mentioned-user-id") || "";
+      if (!userId) return null;
+      return { target: target, userId: String(userId) };
+    }
+
+    function cancelHidePersonHoverCard() {
+      if (personHoverState.hideTimer) {
+        window.clearTimeout(personHoverState.hideTimer);
+        personHoverState.hideTimer = 0;
+      }
+    }
+
+    function scheduleHidePersonHoverCard() {
+      cancelHidePersonHoverCard();
+      personHoverState.hideTimer = window.setTimeout(function () {
+        if (!personHoverCardEl) return;
+        personHoverCardEl.hidden = true;
+        personHoverCardEl.setAttribute("aria-hidden", "true");
+        personHoverState.activeTarget = null;
+        personHoverState.activeUserId = "";
+      }, 120);
+    }
+
+    function personHoverInitial(person) {
+      var label = String((person && (person.display_name || person.email)) || "?").trim();
+      return (label.charAt(0) || "?").toUpperCase();
+    }
+
+    function renderPersonHoverCard(person) {
+      if (!personHoverCardEl || !person) return;
+      var emails = Array.isArray(person.emails) ? person.emails.filter(Boolean) : [];
+      personHoverCardEl.innerHTML =
+        '<div class="person-hover-card-header">' +
+          '<span class="person-hover-card-avatar' + (person.avatar_url ? ' has-photo' : '') + '">' +
+            (person.avatar_url
+              ? '<img src="' + escapeHtml(person.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove(&quot;has-photo&quot;); this.remove();" />'
+              : escapeHtml(personHoverInitial(person))) +
+          '</span>' +
+          '<div class="person-hover-card-meta">' +
+            '<div class="person-hover-card-name">' + escapeHtml(person.display_name || person.email || "User") + '</div>' +
+          '</div>' +
+          (String(person.viewer_id || "") !== String(person.id || "")
+            ? '<button class="person-hover-card-chat" type="button" data-person-card-chat="' + escapeHtml(String(person.id)) + '" aria-label="Open direct chat" title="Open direct chat">' +
+                '<i class="fa-regular fa-comments" aria-hidden="true"></i>' +
+              '</button>'
+            : '') +
+        '</div>' +
+        '<div class="person-hover-card-emails">' +
+          (emails.length
+            ? emails.map(function (email) {
+                return (
+                  '<div class="person-hover-card-email-row">' +
+                    '<span class="person-hover-card-email">' + escapeHtml(email) + '</span>' +
+                    '<button class="person-hover-card-copy" type="button" data-person-card-copy="' + escapeHtml(email) + '" aria-label="Copy ' + escapeHtml(email) + '" title="Copy email">' +
+                      '<i class="fa-regular fa-copy" aria-hidden="true"></i>' +
+                    '</button>' +
+                  '</div>'
+                );
+              }).join("")
+            : '<div class="person-hover-card-email-row"><span class="person-hover-card-email">No email addresses</span></div>') +
+        '</div>';
+      personHoverCardEl.hidden = false;
+      personHoverCardEl.setAttribute("aria-hidden", "false");
+    }
+
+    function positionPersonHoverCard(target) {
+      if (!personHoverCardEl || !target || personHoverCardEl.hidden) return;
+      var rect = target.getBoundingClientRect();
+      var cardRect = personHoverCardEl.getBoundingClientRect();
+      var left = Math.max(12, Math.min(rect.left, window.innerWidth - cardRect.width - 12));
+      var aboveTop = rect.top - cardRect.height - 10;
+      var belowTop = rect.bottom + 10;
+      var top = aboveTop >= 12 ? aboveTop : belowTop;
+      if (top + cardRect.height > window.innerHeight - 12) {
+        top = Math.max(12, window.innerHeight - cardRect.height - 12);
+      }
+      personHoverCardEl.style.left = Math.round(left) + "px";
+      personHoverCardEl.style.top = Math.round(top) + "px";
+    }
+
+    function fetchPersonHoverCard(userId) {
+      var key = String(userId || "");
+      if (!key) return Promise.reject(new Error("Missing user id"));
+      if (personHoverState.cache[key]) {
+        return Promise.resolve(personHoverState.cache[key]);
+      }
+      return fetch("/api/users/" + encodeURIComponent(key) + "/card", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok || !result.data || !result.data.id) throw new Error("Failed to load user card");
+          personHoverState.cache[key] = result.data;
+          return result.data;
+        });
+    }
+
+    function showPersonHoverCard(target, userId) {
+      if (!personHoverCardEl || !target || !userId) return;
+      cancelHidePersonHoverCard();
+      personHoverState.activeTarget = target;
+      personHoverState.activeUserId = String(userId);
+      var requestId = ++personHoverState.requestId;
+      if (personHoverState.cache[String(userId)]) {
+        renderPersonHoverCard(personHoverState.cache[String(userId)]);
+        positionPersonHoverCard(target);
+      }
+      fetchPersonHoverCard(userId)
+        .then(function (person) {
+          if (personHoverState.requestId !== requestId) return;
+          if (String(personHoverState.activeUserId || "") !== String(userId)) return;
+          renderPersonHoverCard(person);
+          positionPersonHoverCard(target);
+        })
+        .catch(function () {});
+    }
+
+    function openDirectChatForUser(userId) {
+      if (!userId) return Promise.resolve();
+      return fetch("/api/direct-projects", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: !!res.ok, data: data || {} };
+          });
+        })
+        .then(function (result) {
+          var project = result && result.data ? result.data.project : null;
+          if (!result.ok || !project || !project.id) return;
+          scheduleHidePersonHoverCard();
+          openEntity(
+            "messages",
+            "project",
+            project.id,
+            project.display_name || project.name || "Direct Chat",
+            ""
+          );
+        })
+        .catch(function (err) {
+          console.error("openDirectChatForUser failed", err);
+        });
+    }
+
     function persistEntityLinks() {
       if (!currentEntityId) return Promise.resolve();
       var payload = Array.isArray(currentEntityLinks) ? currentEntityLinks.slice() : [];
@@ -13495,7 +13654,7 @@
       return (
         '<div class="discussion-comment' + (isHistory ? ' is-history' : '') + (isStatusHistory ? ' is-status-history' : '') + '" data-comment-id="' + escapeHtml(comment.id) + '" data-comment-entry-type="' + escapeHtml(comment.entry_type || "comment") + '">' +
           '<div class="discussion-comment-header">' +
-            '<div class="discussion-comment-avatar">' + avatar + '</div>' +
+            '<div class="discussion-comment-avatar"' + (comment.user_id ? ' data-user-id="' + escapeHtml(String(comment.user_id)) + '"' : '') + '>' + avatar + '</div>' +
             '<div class="discussion-comment-meta">' +
               '<div class="discussion-comment-author">' + escapeHtml(name) + '</div>' +
               '<div class="discussion-comment-time">' + escapeHtml(relativeTime(comment.updated_at || comment.created_at)) + '</div>' +
@@ -13999,7 +14158,7 @@
         return '' +
           '<div class="multi-status-row' + (editableByViewer ? ' is-current-user' : ' is-other-user') + '" data-multi-status-row="' + escapeHtml(assignee.user_id != null ? String(assignee.user_id) : "email:" + String(index)) + '" data-status-state="' + escapeHtml(statusState) + '">' +
             '<div class="multi-status-user">' +
-              '<span class="multi-status-avatar' + (avatarUrl ? ' has-photo' : '') + '">' +
+              '<span class="multi-status-avatar' + (avatarUrl ? ' has-photo' : '') + '"' + (assignee.user_id ? ' data-user-id="' + escapeHtml(String(assignee.user_id)) + '"' : '') + '>' +
                 '<span class="multi-status-avatar-initial">' + escapeHtml(label.trim().slice(0, 1).toUpperCase()) + '</span>' +
                 (avatarUrl ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.multi-status-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
               '</span>' +
@@ -15136,6 +15295,65 @@
               copyTaskPermalinkEl.textContent = original;
             }, 1400);
           });
+      });
+    }
+    if (personHoverCardEl) {
+      personHoverCardEl.addEventListener("mouseenter", cancelHidePersonHoverCard);
+      personHoverCardEl.addEventListener("mouseleave", scheduleHidePersonHoverCard);
+      personHoverCardEl.addEventListener("click", function (event) {
+        var chatButton = event.target.closest("[data-person-card-chat]");
+        if (chatButton) {
+          openDirectChatForUser(String(chatButton.getAttribute("data-person-card-chat") || ""));
+          return;
+        }
+        var copyButton = event.target.closest("[data-person-card-copy]");
+        if (!copyButton) return;
+        var value = String(copyButton.getAttribute("data-person-card-copy") || "");
+        if (!value) return;
+        copyTextToClipboard(value)
+          .then(function () {
+            var icon = copyButton.querySelector("i");
+            if (!icon) return;
+            icon.className = "fa-solid fa-check";
+            window.setTimeout(function () {
+              icon.className = "fa-regular fa-copy";
+            }, 1200);
+          })
+          .catch(function () {});
+      });
+      document.addEventListener("mouseover", function (event) {
+        var info = personHoverTargetForNode(event.target);
+        if (!info) return;
+        showPersonHoverCard(info.target, info.userId);
+      });
+      document.addEventListener("mouseout", function (event) {
+        var info = personHoverTargetForNode(event.target);
+        if (!info) return;
+        var next = event.relatedTarget;
+        if (next && (info.target.contains(next) || personHoverCardEl.contains(next))) return;
+        scheduleHidePersonHoverCard();
+      });
+      document.addEventListener("focusin", function (event) {
+        var info = personHoverTargetForNode(event.target);
+        if (!info) return;
+        showPersonHoverCard(info.target, info.userId);
+      });
+      document.addEventListener("focusout", function (event) {
+        var info = personHoverTargetForNode(event.target);
+        if (!info) return;
+        var next = event.relatedTarget;
+        if (next && personHoverCardEl.contains(next)) return;
+        scheduleHidePersonHoverCard();
+      });
+      window.addEventListener("scroll", function () {
+        if (personHoverState.activeTarget && !personHoverCardEl.hidden) {
+          positionPersonHoverCard(personHoverState.activeTarget);
+        }
+      }, true);
+      window.addEventListener("resize", function () {
+        if (personHoverState.activeTarget && !personHoverCardEl.hidden) {
+          positionPersonHoverCard(personHoverState.activeTarget);
+        }
       });
     }
     sendEl.addEventListener("click", submitComment);
