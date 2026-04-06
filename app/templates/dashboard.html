@@ -10000,6 +10000,7 @@
     var discussionAudienceMembers = [];
     var discussionActiveUserIds = new Set();
     var currentUserId = {{ user.id|tojson }};
+    var currentUserIsAdmin = {{ (1 if is_admin_user else 0)|tojson }};
     var currentUserEmail = {{ user.email|tojson }};
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
     var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
@@ -10984,15 +10985,14 @@
     function relativeTime(value) {
       var date = new Date(value);
       if (Number.isNaN(date.getTime())) return "";
-      var diff = Math.max(0, Date.now() - date.getTime());
-      var minutes = Math.floor(diff / 60000);
-      if (minutes < 1) return "Just now";
-      if (minutes < 60) return minutes + "m ago";
-      var hours = Math.floor(minutes / 60);
-      if (hours < 24) return hours + "h ago";
-      var days = Math.floor(hours / 24);
-      if (days < 7) return days + "d ago";
-      return date.toISOString().slice(0, 10);
+      return date.toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      });
     }
 
     function entityKey(type, id) {
@@ -13388,13 +13388,35 @@
     }
 
     function renderComment(comment) {
+      var isHistory = !!(comment && (comment.system || comment.entry_type === "history"));
+      var historyText = String((comment && comment.body) || "");
+      var isStatusHistory = !!(isHistory && /\((?:[^)]*status|status[^)]*)\)/i.test(historyText));
       var author = comment.author || {};
       var name = author.display_name || author.email || "User";
-      var avatar = author.avatar_url
+      if (isHistory) {
+        return (
+          '<div class="discussion-comment is-history' + (isStatusHistory ? ' is-status-history' : '') + '" data-comment-id="' + escapeHtml(comment.id) + '" data-comment-entry-type="' + escapeHtml(comment.entry_type || "comment") + '">' +
+            '<div class="discussion-history-meta">' +
+              '<div class="discussion-history-time-row">' +
+                '<div class="discussion-comment-time">' + escapeHtml(relativeTime(comment.updated_at || comment.created_at)) + '</div>' +
+                '<div class="discussion-comment-actions">' +
+                  (currentUserIsAdmin
+                    ? '<button class="discussion-comment-action" type="button" data-history-delete="' + escapeHtml(String(comment.history_id || "").trim()) + '" title="Delete history entry" aria-label="Delete history entry"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>'
+                    : '') +
+                '</div>' +
+              '</div>' +
+              '<div class="discussion-comment-body" data-comment-raw="' + escapeHtml(comment.body || "") + '">' + renderCommentBody(comment) + '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }
+      var avatar = isHistory
+        ? '<i class="fa-regular fa-clock" aria-hidden="true"></i>'
+        : author.avatar_url
         ? '<img src="' + escapeHtml(author.avatar_url) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(name.charAt(0).toUpperCase()) + '; this.remove();" />'
         : escapeHtml(name.charAt(0).toUpperCase());
       return (
-        '<div class="discussion-comment" data-comment-id="' + escapeHtml(comment.id) + '">' +
+        '<div class="discussion-comment' + (isHistory ? ' is-history' : '') + (isStatusHistory ? ' is-status-history' : '') + '" data-comment-id="' + escapeHtml(comment.id) + '" data-comment-entry-type="' + escapeHtml(comment.entry_type || "comment") + '">' +
           '<div class="discussion-comment-header">' +
             '<div class="discussion-comment-avatar">' + avatar + '</div>' +
             '<div class="discussion-comment-meta">' +
@@ -13402,11 +13424,14 @@
               '<div class="discussion-comment-time">' + escapeHtml(relativeTime(comment.updated_at || comment.created_at)) + '</div>' +
             '</div>' +
             '<div class="discussion-comment-actions">' +
+              (isHistory
+                ? '<button class="discussion-comment-action" type="button" data-history-delete="' + escapeHtml(String(comment.history_id || "").trim()) + '" title="Delete history entry" aria-label="Delete history entry"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>'
+                :
               ((comment.user_id && String(comment.user_id) === String(currentUserId))
                 ? '<button class="discussion-comment-action" type="button" data-comment-edit="' + escapeHtml(comment.id) + '" title="Edit message" aria-label="Edit message"><i class="fa-regular fa-pen-to-square" aria-hidden="true"></i></button>' +
                   '<button class="discussion-comment-action" type="button" data-comment-delete="' + escapeHtml(comment.id) + '" title="Delete message" aria-label="Delete message"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>'
                 : '') +
-              '<button class="discussion-comment-action" type="button" data-comment-unread="' + escapeHtml(comment.id) + '" title="Mark unread from here" aria-label="Mark unread from here"><i class="fa-regular fa-envelope" aria-hidden="true"></i></button>' +
+              '<button class="discussion-comment-action" type="button" data-comment-unread="' + escapeHtml(comment.id) + '" title="Mark unread from here" aria-label="Mark unread from here"><i class="fa-regular fa-envelope" aria-hidden="true"></i></button>') +
             '</div>' +
           '</div>' +
         '<div class="discussion-comment-body" data-comment-raw="' + escapeHtml(comment.body || "") + '">' + renderCommentBody(comment) + '</div>' +
@@ -13797,7 +13822,7 @@
 
     function syncCommentCount(entityType, entityId) {
       if (!entityId) return;
-      var count = listEl ? listEl.querySelectorAll("[data-comment-id]").length : 0;
+      var count = listEl ? listEl.querySelectorAll('[data-comment-id][data-comment-entry-type="comment"], [data-comment-id]:not([data-comment-entry-type])').length : 0;
       setCommentCount(entityType, entityId, count);
     }
 
@@ -14253,6 +14278,33 @@
       return "/api/groups/" + id;
     }
 
+    function historyBaseUrl(type, id) {
+      if (type === "task") return "/api/tasks/" + id;
+      if (type === "project") return "/api/projects/" + id;
+      return "/api/groups/" + id;
+    }
+
+    function refreshOpenDiscussionTimeline() {
+      if (!currentEntityId || !drawer.classList.contains("open") || activeDrawerTab !== "messages") return;
+      fetch(commentBaseUrl(currentEntityType, currentEntityId) + "/comments", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          var comments = data.comments || [];
+          commentSnapshot = JSON.stringify(comments);
+          if (!comments.length) {
+            listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
+          } else {
+            listEl.innerHTML = comments.map(renderComment).join("");
+            typesetMathNodes(listEl.querySelectorAll(".discussion-comment-body"));
+          }
+          setCommentCount(currentEntityType, currentEntityId, Number(data.comment_count || 0));
+          scrollDiscussionToBottom();
+        })
+        .catch(function (err) {
+          console.error("refreshDiscussionTimeline failed", err);
+        });
+    }
+
     function loadEntityComments(entityType, entityId, entityTitle, projectName) {
       if (entityType === "task") {
         loadTaskMeta(entityId, entityTitle, projectName);
@@ -14273,7 +14325,7 @@
             listEl.innerHTML = comments.map(renderComment).join("");
             typesetMathNodes(listEl.querySelectorAll(".discussion-comment-body"));
           }
-          setCommentCount(entityType, entityId, comments.length);
+          setCommentCount(entityType, entityId, Number(data.comment_count || 0));
           if (entityType === "task") {
             setTaskUnread(entityId, false);
             markRead(entityId);
@@ -15054,6 +15106,28 @@
             }
           })
           .catch(function (err) { console.error('deleteComment failed', err); });
+        return;
+      }
+
+      var deleteHistoryButton = event.target.closest('[data-history-delete]');
+      if (deleteHistoryButton && currentEntityId) {
+        var historyId = deleteHistoryButton.getAttribute('data-history-delete');
+        if (!historyId) return;
+        if (!window.confirm('Delete this history entry?')) return;
+        fetch(historyBaseUrl(currentEntityType, currentEntityId) + '/history/' + historyId, {
+          method: 'DELETE',
+          credentials: 'same-origin',
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) return;
+            var row = listEl.querySelector('[data-comment-id="history-' + historyId + '"]');
+            if (row) row.remove();
+            if (!listEl.querySelector('[data-comment-id]')) {
+              listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
+            }
+          })
+          .catch(function (err) { console.error('deleteHistory failed', err); });
       }
     });
     if (linksListEl) {
@@ -15532,6 +15606,15 @@
         if (taskId && (affectsCurrentViewer || hasStatusHost || String(currentTaskId || "") === String(taskId))) {
           fetchTaskSnapshot(taskId).then(function (task) {
             if (!task) return;
+            if (activeDrawerTab === "messages") {
+              if (currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
+                refreshOpenDiscussionTimeline();
+              } else if (currentEntityType === "group" && String(currentEntityId || "") === String(task.group_id || "")) {
+                refreshOpenDiscussionTimeline();
+              } else if (currentEntityType === "project" && String(currentEntityId || "") === String(task.project_id || "")) {
+                refreshOpenDiscussionTimeline();
+              }
+            }
             applyTaskRowUpdate(task);
             renderTaskAssignments(task.id, task.assignments || []);
             if (typeof window.__ensureTreeTaskVisible === "function") {
@@ -15546,6 +15629,15 @@
         if (!updated && !isOwnEvent && taskId) {
           fetchTaskSnapshot(taskId).then(function (task) {
             if (!task) return;
+            if (activeDrawerTab === "messages") {
+              if (currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
+                refreshOpenDiscussionTimeline();
+              } else if (currentEntityType === "group" && String(currentEntityId || "") === String(task.group_id || "")) {
+                refreshOpenDiscussionTimeline();
+              } else if (currentEntityType === "project" && String(currentEntityId || "") === String(task.project_id || "")) {
+                refreshOpenDiscussionTimeline();
+              }
+            }
             renderTaskAssignments(task.id, task.assignments || []);
             applyTaskRowUpdate(task);
             if (typeof window.__ensureTreeTaskVisible === "function") {
@@ -15680,6 +15772,9 @@
       socket.on("project_updated", function (data) {
         if (!data || !data.project) return;
         var project = data.project;
+        if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(project.id || "")) {
+          refreshOpenDiscussionTimeline();
+        }
         var projectLabel = project.display_name || project.name || "Project";
         if (currentEntityType === "project" && String(currentEntityId || "") === String(project.id || "")) {
           currentEntityData = Object.assign({}, currentEntityData || {}, project);
@@ -15783,6 +15878,11 @@
       socket.on("group_updated", function (data) {
         if (!data || !data.group) return;
         var group = data.group;
+        if (activeDrawerTab === "messages" && currentEntityType === "group" && String(currentEntityId || "") === String(group.id || "")) {
+          refreshOpenDiscussionTimeline();
+        } else if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(group.project_id || "")) {
+          refreshOpenDiscussionTimeline();
+        }
         if (typeof window.__setGroupNameLocal === "function") {
           window.__setGroupNameLocal(String(group.id), group.name || "Group");
         }
@@ -15803,6 +15903,9 @@
       socket.on("group_created", function (data) {
         if (!data || !data.group) return;
         var group = data.group;
+        if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(group.project_id || "")) {
+          refreshOpenDiscussionTimeline();
+        }
         if (typeof isTreeRealtimeView === "function" && isTreeRealtimeView() && typeof refreshTreeProjectSnapshotLocal === "function") {
           refreshTreeProjectSnapshotLocal(group.project_id, { id: group.project_id, can_manage: true });
         } else {
@@ -15850,6 +15953,9 @@
 
       socket.on("group_deleted", function (data) {
         if (!data || !data.group_id) return;
+        if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(data.project_id || "")) {
+          refreshOpenDiscussionTimeline();
+        }
         var groupId = String(data.group_id);
         if (typeof window.__removeGroupLocal === "function") {
           window.__removeGroupLocal(groupId);
@@ -15940,6 +16046,27 @@
       socket.on("task_updated", function (data) {
         if (!data || !data.task) return;
         var task = data.task;
+        if (activeDrawerTab === "messages" && currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
+          refreshOpenDiscussionTimeline();
+        } else if (
+          activeDrawerTab === "messages" &&
+          currentEntityType === "group" &&
+          (
+            String(currentEntityId || "") === String(task.group_id || "") ||
+            String(currentEntityId || "") === String(data.old_group_id || "")
+          )
+        ) {
+          refreshOpenDiscussionTimeline();
+        } else if (
+          activeDrawerTab === "messages" &&
+          currentEntityType === "project" &&
+          (
+            String(currentEntityId || "") === String(task.project_id || "") ||
+            String(currentEntityId || "") === String(data.old_project_id || "")
+          )
+        ) {
+          refreshOpenDiscussionTimeline();
+        }
         function refreshMovedTaskProject(taskData) {
           if (!taskData || !taskData.project_id) return;
           if (typeof window.__refreshTreeProjectSnapshotLocal !== "function") return;
@@ -16030,7 +16157,7 @@
           } else {
             listEl.innerHTML = comments.map(renderComment).join("");
           }
-          setCommentCount(currentEntityType, currentEntityId, comments.length);
+          setCommentCount(currentEntityType, currentEntityId, Number(data.comment_count || 0));
           if (currentEntityType === "task") {
             setTaskUnread(currentTaskId, false);
             markRead(currentTaskId);

@@ -17,6 +17,7 @@ from app.emailer import MailDeliveryError, send_account_verification_email, send
 from app.emailer import _escape_ics_text, _format_ics_timestamp
 from app.extensions import db
 from app.discussion_activity import build_discussion_activity_items, task_discussion_user_ids, upsert_discussion_activity
+from app.discussion_history import log_group_history, log_project_history, log_task_history
 from app.github_sync import GitHubSyncError, github_identity_for_user, github_sync_state_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.identity import (
     add_user_email,
@@ -1835,6 +1836,7 @@ def dashboard():
         tree_selection_type=tree_selection_type,
         tree_selection_id=tree_selection_id,
         project_hierarchy_meta=project_hierarchy_meta,
+        is_admin_user=user_is_admin(user),
     )
 
 
@@ -2396,6 +2398,7 @@ def create_project():
             position=project_position,
         )
     )
+    log_project_history(project, actor=user, action="created")
     db.session.commit()
     emit_project_created(project, actor_user_id=user.id, recipient_user_id=user.id)
     emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
@@ -2459,6 +2462,7 @@ def create_group():
         color=palette[(max_pos) % len(palette)],
     )
     db.session.add(group)
+    log_group_history(group, actor=user, action="created")
     db.session.commit()
     emit_group_created(group, actor_user_id=user.id)
     return redirect(url_for("ui.dashboard", project_id=project.id))
@@ -2505,6 +2509,7 @@ def create_task():
         owner_calendar_opt_in=owner_calendar_opt_in,
     )
     db.session.add(task)
+    log_task_history(task, actor=user, action="created")
     db.session.commit()
 
     if owner_calendar_opt_in:

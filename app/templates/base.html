@@ -4231,6 +4231,17 @@
         box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
       }
 
+      .discussion-comment.is-history {
+        padding: 4px 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+      }
+
+      body[data-theme="light"] .discussion-comment.is-history {
+        background: transparent;
+      }
+
       .discussion-comment-header {
         display: flex;
         align-items: center;
@@ -4257,6 +4268,49 @@
         height: 100%;
         object-fit: cover;
       }
+
+      .discussion-history-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .discussion-history-time-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .discussion-comment.is-history .discussion-comment-body {
+        font-size: 11px;
+        line-height: 1.25;
+        color: color-mix(in srgb, var(--ink) 82%, var(--muted) 18%);
+      }
+
+      .discussion-comment.is-status-history {
+        padding-top: 2px;
+        padding-bottom: 2px;
+        background: transparent;
+      }
+
+      .discussion-comment.is-status-history .discussion-comment-body {
+        font-size: 11px;
+      }
+
+      .discussion-comment.is-history .discussion-comment-time {
+        font-size: 10px;
+        white-space: nowrap;
+      }
+
+      .discussion-comment.is-history .discussion-comment-actions {
+        margin-left: auto;
+      }
+
+      .discussion-comment.is-history .discussion-comment-action {
+        width: 18px;
+        height: 18px;
+      }
+
 
       .discussion-comment-meta {
         min-width: 0;

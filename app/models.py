@@ -356,6 +356,20 @@ class UserDiscussionActivity(db.Model):
     )
 
 
+class DiscussionEvent(db.Model):
+    __tablename__ = "discussion_events"
+    id = db.Column(db.Integer, primary_key=True)
+    entity_type = db.Column(db.String(16), nullable=False)
+    entity_id = db.Column(db.Integer, nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"))
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"))
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id"))
+    actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    kind = db.Column(db.String(32), nullable=False, default="updated")
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class GitHubSyncState(db.Model):
     __tablename__ = "github_sync_states"
     id = db.Column(db.Integer, primary_key=True)

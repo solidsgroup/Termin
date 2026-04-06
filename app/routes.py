@@ -19,6 +19,12 @@ from app.discussion_activity import (
     task_discussion_user_ids,
     upsert_discussion_activity,
 )
+from app.discussion_history import (
+    log_group_history,
+    log_project_history,
+    log_task_history,
+    serialized_discussion_events_for_entity,
+)
 from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, search_users_by_identity
@@ -90,6 +96,7 @@ from app.models import (
     Group,
     ProjectMember,
     GroupMember,
+    DiscussionEvent,
     TaskComment,
     TaskFollower,
     TaskNotification,
@@ -211,6 +218,211 @@ def _task_changed_field_labels(
     if (old_description_format or "") != (new_description_format or ""):
         labels.append("description format")
     return labels
+
+
+def _project_changed_field_labels(
+    *,
+    old_name: str | None,
+    new_name: str | None,
+    old_links: list[str] | None,
+    new_links: list[str] | None,
+    old_description: str | None,
+    new_description: str | None,
+    old_description_format: str | None,
+    new_description_format: str | None,
+    old_start_date,
+    new_start_date,
+    old_end_date,
+    new_end_date,
+    old_division_id: int | None,
+    new_division_id: int | None,
+) -> list[str]:
+    labels: list[str] = []
+    if (old_name or "").strip() != (new_name or "").strip():
+        labels.append("title")
+    if list(old_links or []) != list(new_links or []):
+        labels.append("links")
+    if (old_description or "") != (new_description or ""):
+        labels.append("description")
+    if (old_description_format or "") != (new_description_format or ""):
+        labels.append("description format")
+    if old_start_date != new_start_date:
+        labels.append("start date")
+    if old_end_date != new_end_date:
+        labels.append("end date")
+    if (old_division_id or None) != (new_division_id or None):
+        labels.append("division")
+    return labels
+
+
+def _group_changed_field_labels(
+    *,
+    old_name: str | None,
+    new_name: str | None,
+    old_links: list[str] | None,
+    new_links: list[str] | None,
+    old_description: str | None,
+    new_description: str | None,
+    old_description_format: str | None,
+    new_description_format: str | None,
+) -> list[str]:
+    labels: list[str] = []
+    if (old_name or "").strip() != (new_name or "").strip():
+        labels.append("title")
+    if list(old_links or []) != list(new_links or []):
+        labels.append("links")
+    if (old_description or "") != (new_description or ""):
+        labels.append("description")
+    if (old_description_format or "") != (new_description_format or ""):
+        labels.append("description format")
+    return labels
+
+
+def _quoted_history_value(value: str | None, fallback: str) -> str:
+    text = (value or "").strip() or fallback
+    return '"' + text + '"'
+
+
+def _task_due_history_value(*, due_mode: str | None, due_at) -> str:
+    normalized_mode = str(due_mode or "none").strip().lower()
+    if normalized_mode == "asap":
+        return "ASAP"
+    if normalized_mode != "date" or not due_at:
+        return "no date"
+    return '"' + due_at.strftime("%Y-%m-%d") + '"'
+
+
+def _task_start_history_value(start_date: str | None) -> str:
+    value = str(start_date or "").strip()
+    return '"' + value + '"' if value else "no start date"
+
+
+def _task_status_mode_label(value: str | None) -> str:
+    normalized = str(value or "single").strip().lower() or "single"
+    if normalized == "per_user":
+        return "per-user"
+    if normalized == "percentage":
+        return "percentage"
+    return "single"
+
+
+def _task_update_history_bodies(
+    *,
+    actor_name: str,
+    task_title: str | None,
+    changed_fields: list[str],
+    new_title: str | None,
+    new_due_mode: str | None,
+    new_due_at,
+    new_start_date: str | None,
+    new_status: str | None,
+    new_status_mode: str | None,
+    new_status_percentage: int | None,
+    assignments: list | None = None,
+    followers: list | None = None,
+) -> tuple[str, str]:
+    clauses_task: list[str] = []
+    clauses_scoped: list[str] = []
+    title_label = _quoted_history_value(task_title, "Task")
+    changed = {str(value).strip().lower() for value in changed_fields}
+    if "title" in changed:
+        next_title = _quoted_history_value(new_title, "Untitled")
+        clauses_task.append("changed the title to " + next_title)
+        clauses_scoped.append("changed the title of task " + title_label + " to " + next_title)
+    if "due date" in changed:
+        due_label = _task_due_history_value(due_mode=new_due_mode, due_at=new_due_at)
+        clauses_task.append("updated the due date to " + due_label)
+        clauses_scoped.append("updated the due date of task " + title_label + " to " + due_label)
+    if "start date" in changed:
+        start_label = _task_start_history_value(new_start_date)
+        clauses_task.append("updated the start date to " + start_label)
+        clauses_scoped.append("updated the start date of task " + title_label + " to " + start_label)
+    if "status" in changed:
+        normalized_status = str(new_status or "").strip().lower()
+        if normalized_status in {"complete", "completed", "done", "closed", "pr closed", "pr merged"}:
+            clauses_task.append("marked as completed")
+            clauses_scoped.append("marked task " + title_label + " as completed")
+        else:
+            status_label = _quoted_history_value(new_status, "open")
+            clauses_task.append("updated the status to " + status_label)
+            clauses_scoped.append("updated the status of task " + title_label + " to " + status_label)
+    if "status mode" in changed:
+        if str(new_status_mode or "").strip().lower() == "percentage" and new_status_percentage is not None:
+            progress_label = '"' + str(max(0, min(100, int(new_status_percentage)))) + '%"'
+            clauses_task.append("updated the progress to " + progress_label)
+            clauses_scoped.append("updated the progress of task " + title_label + " to " + progress_label)
+        else:
+            mode_label = '"' + _task_status_mode_label(new_status_mode) + '"'
+            clauses_task.append("changed the status mode to " + mode_label)
+            clauses_scoped.append("changed the status mode of task " + title_label + " to " + mode_label)
+    if "assignees" in changed:
+        assignee_names = []
+        for assignment in assignments or []:
+            label = (
+                (assignment.get("display_name") if isinstance(assignment, dict) else None)
+                or (assignment.get("display_email") if isinstance(assignment, dict) else None)
+                or (assignment.get("email") if isinstance(assignment, dict) else None)
+                or ""
+            ).strip()
+            if label:
+                assignee_names.append(label)
+        if assignee_names:
+            assignee_text = ", ".join(_quoted_history_value(value, value) for value in assignee_names[:3])
+            clauses_task.append("assigned to " + assignee_text)
+            clauses_scoped.append("assigned task " + title_label + " to " + assignee_text)
+        else:
+            clauses_task.append("updated the assignees")
+            clauses_scoped.append("updated the assignees for task " + title_label)
+    if "followers" in changed:
+        follower_names = []
+        for follower in followers or []:
+            label = (
+                (follower.get("display_name") if isinstance(follower, dict) else None)
+                or (follower.get("display_email") if isinstance(follower, dict) else None)
+                or ""
+            ).strip()
+            if label:
+                follower_names.append(label)
+        if follower_names:
+            follower_text = ", ".join(_quoted_history_value(value, value) for value in follower_names[:3])
+            clauses_task.append("added followers " + follower_text)
+            clauses_scoped.append("added followers " + follower_text + " to task " + title_label)
+        else:
+            clauses_task.append("updated the followers")
+            clauses_scoped.append("updated the followers for task " + title_label)
+    for simple_label in ["links", "notes", "description", "description format", "assignment mode", "follower mode"]:
+        if simple_label not in changed:
+            continue
+        clause = "updated the " + simple_label
+        clauses_task.append(clause)
+        clauses_scoped.append(clause + " for task " + title_label)
+    if not clauses_task:
+        clauses_task.append("updated the task")
+        clauses_scoped.append("updated task " + title_label)
+    return (
+        actor_name + " " + "; ".join(clauses_task) + ".",
+        actor_name + " " + "; ".join(clauses_scoped) + ".",
+    )
+
+
+def _assignment_history_label(assignment_row) -> str:
+    if not assignment_row:
+        return '"someone"'
+    if isinstance(assignment_row, dict):
+        label = (
+            assignment_row.get("display_name")
+            or assignment_row.get("display_email")
+            or assignment_row.get("email")
+            or ""
+        )
+    else:
+        label = (
+            getattr(assignment_row, "display_name", None)
+            or getattr(assignment_row, "display_email", None)
+            or getattr(assignment_row, "email", None)
+            or ""
+        )
+    return _quoted_history_value(str(label or "").strip(), "someone")
 
 
 def _queue_project_shared_notification(member_user, actor_user, project) -> bool:
@@ -1212,6 +1424,7 @@ def create_task():
         )
         if existing_assignment:
             _reset_existing_assignment(existing_assignment)
+            log_task_history(task, actor=user, action="created")
             db.session.commit()
             task = Task.query.get(task.id) or task
             task_payload = _serialize_task_row(task, viewer_user_id=user.id)
@@ -1253,6 +1466,7 @@ def create_task():
         kind="task_created",
         detail_payload=_task_notification_actor_payload(user),
     )
+    log_task_history(task, actor=user, action="created")
     db.session.commit()
     task = Task.query.get(task.id) or task
     task_payload = _serialize_task_row(task, viewer_user_id=user.id)
@@ -1390,6 +1604,32 @@ def update_task(task_id: int):
     new_due_mode = _task_due_mode(task)
     new_start_date = _task_start_date(task)
     new_status_mode = _task_status_mode(task)
+    changed_fields = _task_changed_field_labels(
+        old_title=old_title,
+        new_title=task.title,
+        old_status=old_status,
+        new_status=task.status,
+        old_due_at=old_due_at,
+        new_due_at=task.due_at,
+        old_due_mode=old_due_mode,
+        new_due_mode=new_due_mode,
+        old_start_date=old_start_date,
+        new_start_date=new_start_date,
+        old_info_payload=old_info_payload,
+        new_info_payload=_info_payload_for(task),
+        old_per_user_status_enabled=old_per_user_status_enabled,
+        new_per_user_status_enabled=bool(task.per_user_status_enabled),
+        old_status_mode=old_status_mode,
+        new_status_mode=new_status_mode,
+        old_assign_group_members=old_assign_group_members,
+        new_assign_group_members=bool(task.assign_group_members),
+        old_follow_project_members=old_follow_project_members,
+        new_follow_project_members=_task_follow_project_members(task),
+        old_description=old_description,
+        new_description=task.description,
+        old_description_format=old_description_format,
+        new_description_format=task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
+    )
     notification_kind = _task_update_notification_kind(
         old_title=old_title,
         new_title=task.title,
@@ -1420,34 +1660,24 @@ def update_task(task_id: int):
         })
     elif notification_kind == "task_update":
         detail_payload.update({
-            "changed_fields": _task_changed_field_labels(
-                old_title=old_title,
-                new_title=task.title,
-                old_status=old_status,
-                new_status=task.status,
-                old_due_at=old_due_at,
-                new_due_at=task.due_at,
-                old_due_mode=old_due_mode,
-                new_due_mode=new_due_mode,
-                old_start_date=old_start_date,
-                new_start_date=new_start_date,
-                old_info_payload=old_info_payload,
-                new_info_payload=_info_payload_for(task),
-                old_per_user_status_enabled=old_per_user_status_enabled,
-                new_per_user_status_enabled=bool(task.per_user_status_enabled),
-                old_status_mode=old_status_mode,
-                new_status_mode=new_status_mode,
-                old_assign_group_members=old_assign_group_members,
-                new_assign_group_members=bool(task.assign_group_members),
-                old_follow_project_members=old_follow_project_members,
-                new_follow_project_members=_task_follow_project_members(task),
-                old_description=old_description,
-                new_description=task.description,
-                old_description_format=old_description_format,
-                new_description_format=task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
-            ),
+            "changed_fields": changed_fields,
         })
     queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
+    history_task_body, history_scoped_body = _task_update_history_bodies(
+        actor_name=display_name_for_user(user) or user.email or "Someone",
+        task_title=task.title,
+        changed_fields=changed_fields,
+        new_title=task.title,
+        new_due_mode=new_due_mode,
+        new_due_at=task.due_at,
+        new_start_date=new_start_date,
+        new_status=task.status,
+        new_status_mode=new_status_mode,
+        new_status_percentage=_task_status_percentage(task),
+        assignments=[_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()],
+        followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
+    )
+    log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
@@ -1640,8 +1870,15 @@ def list_task_comments(task_id: int):
     users = {row.id: row for row in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
     collaborators = {row.id: row for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(collaborator_ids)).all()} if collaborator_ids else {}
     unread_count = TaskNotification.query.filter_by(user_id=user.id, task_id=task.id).filter(TaskNotification.read_at.is_(None)).count()
+    serialized_comments = [_serialize_task_comment(comment, users.get(comment.user_id), collaborators.get(comment.collaborator_id)) for comment in comments]
+    history_entries = serialized_discussion_events_for_entity("task", task.id)
+    timeline = sorted(
+        serialized_comments + history_entries,
+        key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")),
+    )
     return {
-        "comments": [_serialize_task_comment(comment, users.get(comment.user_id), collaborators.get(comment.collaborator_id)) for comment in comments],
+        "comments": timeline,
+        "comment_count": len(serialized_comments),
         "unread_count": unread_count,
     }
 
@@ -1748,6 +1985,23 @@ def delete_task_comment(task_id: int, comment_id: int):
     return {"status": "ok", "comment_id": comment_id}, 200
 
 
+@api_bp.delete("/tasks/<int:task_id>/history/<int:event_id>")
+@login_required
+def delete_task_history(task_id: int, event_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    event = DiscussionEvent.query.filter_by(id=event_id, entity_type="task", entity_id=task.id).first()
+    if not event:
+        return {"error": "history not found"}, 404
+    db.session.delete(event)
+    db.session.commit()
+    return {"status": "ok", "history_id": event_id}, 200
+
+
 @api_bp.get("/projects/<int:project_id>/comments")
 @login_required
 def list_project_comments(project_id: int):
@@ -1761,8 +2015,15 @@ def list_project_comments(project_id: int):
     comments = ProjectComment.query.filter_by(project_id=project.id).order_by(ProjectComment.created_at.asc(), ProjectComment.id.asc()).all()
     user_ids = {comment.user_id for comment in comments}
     users = {row.id: row for row in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    serialized_comments = [_serialize_simple_comment(comment, users.get(comment.user_id), project_id=project.id) for comment in comments]
+    history_entries = serialized_discussion_events_for_entity("project", project.id)
+    timeline = sorted(
+        serialized_comments + history_entries,
+        key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")),
+    )
     return {
-        "comments": [_serialize_simple_comment(comment, users.get(comment.user_id), project_id=project.id) for comment in comments],
+        "comments": timeline,
+        "comment_count": len(serialized_comments),
     }
 
 
@@ -1860,6 +2121,23 @@ def delete_project_comment(project_id: int, comment_id: int):
     return {"status": "ok", "comment_id": comment_id}, 200
 
 
+@api_bp.delete("/projects/<int:project_id>/history/<int:event_id>")
+@login_required
+def delete_project_history(project_id: int, event_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_access_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+    event = DiscussionEvent.query.filter_by(id=event_id, entity_type="project", entity_id=project.id).first()
+    if not event:
+        return {"error": "history not found"}, 404
+    db.session.delete(event)
+    db.session.commit()
+    return {"status": "ok", "history_id": event_id}, 200
+
+
 @api_bp.get("/groups/<int:group_id>/comments")
 @login_required
 def list_group_comments(group_id: int):
@@ -1873,8 +2151,15 @@ def list_group_comments(group_id: int):
     comments = GroupComment.query.filter_by(group_id=group.id).order_by(GroupComment.created_at.asc(), GroupComment.id.asc()).all()
     user_ids = {comment.user_id for comment in comments}
     users = {row.id: row for row in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    serialized_comments = [_serialize_simple_comment(comment, users.get(comment.user_id), group_id=group.id) for comment in comments]
+    history_entries = serialized_discussion_events_for_entity("group", group.id)
+    timeline = sorted(
+        serialized_comments + history_entries,
+        key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")),
+    )
     return {
-        "comments": [_serialize_simple_comment(comment, users.get(comment.user_id), group_id=group.id) for comment in comments],
+        "comments": timeline,
+        "comment_count": len(serialized_comments),
     }
 
 
@@ -1972,6 +2257,23 @@ def delete_group_comment(group_id: int, comment_id: int):
     db.session.commit()
     emit_group_comment_deleted(group.id, comment_id)
     return {"status": "ok", "comment_id": comment_id}, 200
+
+
+@api_bp.delete("/groups/<int:group_id>/history/<int:event_id>")
+@login_required
+def delete_group_history(group_id: int, event_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_access_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+    event = DiscussionEvent.query.filter_by(id=event_id, entity_type="group", entity_id=group.id).first()
+    if not event:
+        return {"error": "history not found"}, 404
+    db.session.delete(event)
+    db.session.commit()
+    return {"status": "ok", "history_id": event_id}, 200
 
 
 @api_bp.post("/tasks/<int:task_id>/notifications/read")
@@ -2109,6 +2411,13 @@ def move_task(task_id: int):
         _resequence_tasks(source_project_id, source_group_id, exclude_task_id=task.id)
 
     db.session.commit()
+    log_task_history(
+        task,
+        actor=user,
+        action="moved",
+        old_project_id=source_project_id,
+        old_group_id=source_group_id,
+    )
     queue_task_notifications(
         task,
         exclude_user_id=user.id,
@@ -2153,6 +2462,10 @@ def update_group(group_id: int):
     if not _can_manage_project(user, group.project_id):
         return {"error": "unauthorized"}, 403
 
+    old_name = group.name
+    old_links = list(_info_payload_for(group).get("links", []))
+    old_description = group.description
+    old_description_format = group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT
     if name is not None:
         group.name = name.strip() or group.name
     if description is not None:
@@ -2170,6 +2483,17 @@ def update_group(group_id: int):
         info_payload["links"] = links
         group.link = (info_payload.get("links") or [None])[0]
         group.info = normalize_info_payload(info_payload, group.link)
+    changed_fields = _group_changed_field_labels(
+        old_name=old_name,
+        new_name=group.name,
+        old_links=old_links,
+        new_links=list(_info_payload_for(group).get("links", [])) if links is None else list(links or []),
+        old_description=old_description,
+        new_description=group.description,
+        old_description_format=old_description_format,
+        new_description_format=group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
+    )
+    log_group_history(group, actor=user, action="updated", changed_fields=changed_fields)
     db.session.commit()
     emit_group_updated(group, actor_user_id=user.id)
     return {
@@ -2219,6 +2543,14 @@ def update_project(project_id: int):
     project = Project.query.get(project_id)
     if not project:
         return {"error": "project not found"}, 404
+    old_name = project.name
+    old_links = list(_info_payload_for(project).get("links", []))
+    old_description = project.description
+    old_description_format = project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT
+    old_start_date = project.start_date
+    old_end_date = project.end_date
+    current_pref_before = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
+    old_division_id = current_pref_before.division_id if current_pref_before else None
     if name is not None:
         project.name = name.strip() or project.name
     if links is None and link is not None:
@@ -2291,11 +2623,28 @@ def update_project(project_id: int):
                 return {"error": "invalid end_date"}, 400
     if project.start_date and project.end_date and project.end_date < project.start_date:
         return {"error": "end_date must be on or after start_date"}, 400
+    current_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
+    changed_fields = _project_changed_field_labels(
+        old_name=old_name,
+        new_name=project.name,
+        old_links=old_links,
+        new_links=list(_info_payload_for(project).get("links", [])),
+        old_description=old_description,
+        new_description=project.description,
+        old_description_format=old_description_format,
+        new_description_format=project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
+        old_start_date=old_start_date,
+        new_start_date=project.start_date,
+        old_end_date=old_end_date,
+        new_end_date=project.end_date,
+        old_division_id=old_division_id,
+        new_division_id=current_pref.division_id if current_pref else None,
+    )
+    log_project_history(project, actor=user, action="updated", changed_fields=changed_fields)
     db.session.commit()
     emit_project_updated(project, actor_user_id=user.id)
     if division_id != "__missing__":
         emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
-    current_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
     return {
         "id": project.id,
         "name": project.name,
@@ -2669,6 +3018,8 @@ def duplicate_project(project_id: int):
 
     db.session.commit()
     copy_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=copy.id).first()
+    log_project_history(copy, actor=user, action="created")
+    db.session.commit()
     emit_project_created(copy, actor_user_id=user.id, recipient_user_id=user.id)
     emit_sidebar_reordered(user.id, _sidebar_order_tokens(user), actor_user_id=user.id)
     return {
@@ -2694,6 +3045,7 @@ def delete_group(group_id: int):
     Invite.query.filter(Invite.task_id.in_(task_ids)).delete(synchronize_session=False)
     Task.query.filter(Task.group_id == group.id).delete(synchronize_session=False)
     GroupMember.query.filter(GroupMember.group_id == group.id).delete(synchronize_session=False)
+    log_group_history(group, actor=user, action="deleted", title=group.name)
     db.session.delete(group)
     db.session.commit()
     emit_group_deleted(group_id, project_id, actor_user_id=user.id, task_ids=task_ids)
@@ -2739,6 +3091,8 @@ def duplicate_group(group_id: int):
 
     db.session.commit()
     tasks = Task.query.filter_by(group_id=new_group.id).order_by(Task.position.asc(), Task.id.asc()).all()
+    log_group_history(new_group, actor=user, action="created")
+    db.session.commit()
     emit_group_created(new_group, actor_user_id=user.id)
     return {
         "id": new_group.id,
@@ -2805,6 +3159,10 @@ def promote_group_to_project(group_id: int):
     db.session.delete(group)
     db.session.commit()
 
+    log_project_history(new_project, actor=user, action="created")
+    for task in moved_tasks:
+        log_task_history(task, actor=user, action="moved", old_project_id=source_project_id, old_group_id=old_group_id)
+    db.session.commit()
     emit_project_created(new_project, actor_user_id=user.id)
     emit_group_deleted(old_group_id, source_project_id, actor_user_id=user.id, task_ids=[])
     for task in moved_tasks:
@@ -3028,6 +3386,7 @@ def create_direct_project():
         if not ProjectMember.query.filter_by(project_id=project.id, user_id=target_user.id).first():
             db.session.add(ProjectMember(project_id=project.id, user_id=target_user.id))
         db.session.flush()
+        log_project_history(project, actor=user, action="created")
         db.session.commit()
         emit_project_created(project, actor_user_id=user.id, recipient_user_id=user.id)
         emit_project_created(project, actor_user_id=user.id, recipient_user_id=target_user.id)
@@ -3438,6 +3797,7 @@ def delete_task(task_id: int):
 
     Assignment.query.filter_by(task_id=task.id).delete()
     Invite.query.filter_by(task_id=task.id).delete()
+    log_task_history(task, actor=user, action="deleted")
     db.session.delete(task)
     db.session.commit()
     emit_task_updated(task, action="deleted", old_project_id=task.project_id, old_group_id=task.group_id, actor_user_id=user.id)
@@ -3487,6 +3847,18 @@ def create_assignment():
         ) or existing_assignment
         _reset_existing_assignment(existing_assignment)
         db.session.commit()
+        actor_name = display_name_for_user(user) or user.email or "Someone"
+        assignee_label = _assignment_history_label(
+            {
+                "display_name": account_user.display_name if account_user else None,
+                "display_email": account_user.email if account_user else existing_assignment.email,
+                "email": existing_assignment.email,
+            }
+        )
+        history_task_body = actor_name + " assigned to " + assignee_label + "."
+        history_scoped_body = actor_name + " assigned task " + _quoted_history_value(task.title, "Task") + " to " + assignee_label + "."
+        log_task_history(task, actor=user, action="updated", changed_fields=["assignees"], task_body=history_task_body, scoped_body=history_scoped_body)
+        db.session.commit()
         _queue_assignment_added_notifications(
             task,
             actor_user=user,
@@ -3515,6 +3887,18 @@ def create_assignment():
         account_user_id=account_user.id if account_user else None,
         email=email,
     ) or assignment
+    db.session.commit()
+    actor_name = display_name_for_user(user) or user.email or "Someone"
+    assignee_label = _assignment_history_label(
+        {
+            "display_name": account_user.display_name if account_user else None,
+            "display_email": account_user.email if account_user else assignment.email,
+            "email": assignment.email,
+        }
+    )
+    history_task_body = actor_name + " assigned to " + assignee_label + "."
+    history_scoped_body = actor_name + " assigned task " + _quoted_history_value(task.title, "Task") + " to " + assignee_label + "."
+    log_task_history(task, actor=user, action="updated", changed_fields=["assignees"], task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
     _queue_assignment_added_notifications(
         task,
@@ -3545,6 +3929,16 @@ def assign_all_task_members(task_id: int):
         return {"error": "unauthorized"}, 403
     task.assign_group_members = True
     changes = sync_group_task_assignments(task)
+    db.session.commit()
+    actor_name = display_name_for_user(user) or user.email or "Someone"
+    created_labels = [_assignment_history_label(_serialize_assignment_row(row)) for row in changes["created"][:3]]
+    if created_labels:
+        history_task_body = actor_name + " assigned to group members " + ", ".join(created_labels) + "."
+        history_scoped_body = actor_name + " assigned task " + _quoted_history_value(task.title, "Task") + " to group members " + ", ".join(created_labels) + "."
+    else:
+        history_task_body = actor_name + " enabled group assignment mode."
+        history_scoped_body = actor_name + " enabled group assignment mode for task " + _quoted_history_value(task.title, "Task") + "."
+    log_task_history(task, actor=user, action="updated", changed_fields=["assignment mode", "assignees"], task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
     for assignment in changes["deleted"]:
         emit_assignment_updated(task, assignment, action="deleted", actor_user_id=user.id)
@@ -3593,6 +3987,21 @@ def create_task_follower(task_id: int):
     follower = TaskFollower(task_id=task.id, user_id=follower_user.id)
     db.session.add(follower)
     db.session.commit()
+    history_task_body, history_scoped_body = _task_update_history_bodies(
+        actor_name=display_name_for_user(user) or user.email or "Someone",
+        task_title=task.title,
+        changed_fields=["followers"],
+        new_title=task.title,
+        new_due_mode=_task_due_mode(task),
+        new_due_at=task.due_at,
+        new_start_date=_task_start_date(task),
+        new_status=task.status,
+        new_status_mode=_task_status_mode(task),
+        new_status_percentage=_task_status_percentage(task),
+        followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
+    )
+    log_task_history(task, actor=user, action="updated", changed_fields=["followers"], task_body=history_task_body, scoped_body=history_scoped_body)
+    db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return _serialize_follower_row(follower), 201
@@ -3625,6 +4034,21 @@ def create_task_followers_for_project(task_id: int):
 
     db.session.commit()
     if changed or _task_follow_project_members(task):
+        history_task_body, history_scoped_body = _task_update_history_bodies(
+            actor_name=display_name_for_user(user) or user.email or "Someone",
+            task_title=task.title,
+            changed_fields=["follower mode", "followers"],
+            new_title=task.title,
+            new_due_mode=_task_due_mode(task),
+            new_due_at=task.due_at,
+            new_start_date=_task_start_date(task),
+            new_status=task.status,
+            new_status_mode=_task_status_mode(task),
+            new_status_percentage=_task_status_percentage(task),
+            followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
+        )
+        log_task_history(task, actor=user, action="updated", changed_fields=["follower mode", "followers"], task_body=history_task_body, scoped_body=history_scoped_body)
+        db.session.commit()
         emit_task_updated(task, actor_user_id=user.id)
         emit_task_notification_updates(task, exclude_user_id=user.id)
 
@@ -3652,6 +4076,21 @@ def delete_task_follower(follower_id: int):
 
     db.session.delete(follower)
     db.session.commit()
+    history_task_body, history_scoped_body = _task_update_history_bodies(
+        actor_name=display_name_for_user(user) or user.email or "Someone",
+        task_title=task.title,
+        changed_fields=["followers"],
+        new_title=task.title,
+        new_due_mode=_task_due_mode(task),
+        new_due_at=task.due_at,
+        new_start_date=_task_start_date(task),
+        new_status=task.status,
+        new_status_mode=_task_status_mode(task),
+        new_status_percentage=_task_status_percentage(task),
+        followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
+    )
+    log_task_history(task, actor=user, action="updated", changed_fields=["followers"], task_body=history_task_body, scoped_body=history_scoped_body)
+    db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"status": "deleted"}, 200
@@ -3673,6 +4112,23 @@ def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -
             emit_assignment_updated(task, assignment, action="created", actor_user_id=actor_user_id)
         actor_user = User.query.get(actor_user_id) if actor_user_id else None
         _queue_group_assignment_notifications(task, changes["created"], actor_user)
+        actor_name = display_name_for_user(actor_user) or (actor_user.email if actor_user else "") or "Someone"
+        created_labels = [_assignment_history_label(_serialize_assignment_row(row)) for row in changes["created"][:3]]
+        removed_labels = [_assignment_history_label(_serialize_assignment_row(row)) for row in changes["deleted"][:3]]
+        if created_labels and removed_labels:
+            history_task_body = actor_name + " synced assignees; added " + ", ".join(created_labels) + " and removed " + ", ".join(removed_labels) + "."
+            history_scoped_body = actor_name + " synced assignees for task " + _quoted_history_value(task.title, "Task") + "; added " + ", ".join(created_labels) + " and removed " + ", ".join(removed_labels) + "."
+        elif created_labels:
+            history_task_body = actor_name + " assigned to group members " + ", ".join(created_labels) + "."
+            history_scoped_body = actor_name + " assigned task " + _quoted_history_value(task.title, "Task") + " to group members " + ", ".join(created_labels) + "."
+        elif removed_labels:
+            history_task_body = actor_name + " removed assignees " + ", ".join(removed_labels) + "."
+            history_scoped_body = actor_name + " removed assignees " + ", ".join(removed_labels) + " from task " + _quoted_history_value(task.title, "Task") + "."
+        else:
+            history_task_body = actor_name + " synced the assignees."
+            history_scoped_body = actor_name + " synced the assignees for task " + _quoted_history_value(task.title, "Task") + "."
+        log_task_history(task, actor=actor_user, action="updated", changed_fields=["assignment mode", "assignees"], task_body=history_task_body, scoped_body=history_scoped_body)
+        db.session.commit()
         emit_task_updated(task, actor_user_id=actor_user_id)
 
 
@@ -3703,6 +4159,22 @@ def _sync_project_follow_mode_tasks(project_id: int, *, actor_user_id: int | Non
             db.session.flush()
     db.session.commit()
     for task in tasks:
+        actor_user = User.query.get(actor_user_id) if actor_user_id else None
+        history_task_body, history_scoped_body = _task_update_history_bodies(
+            actor_name=display_name_for_user(actor_user) or (actor_user.email if actor_user else "") or "Someone",
+            task_title=task.title,
+            changed_fields=["follower mode", "followers"],
+            new_title=task.title,
+            new_due_mode=_task_due_mode(task),
+            new_due_at=task.due_at,
+            new_start_date=_task_start_date(task),
+            new_status=task.status,
+            new_status_mode=_task_status_mode(task),
+            new_status_percentage=_task_status_percentage(task),
+            followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
+        )
+        log_task_history(task, actor=actor_user, action="updated", changed_fields=["follower mode", "followers"], task_body=history_task_body, scoped_body=history_scoped_body)
+        db.session.commit()
         emit_task_updated(task, actor_user_id=actor_user_id)
 
 
@@ -3878,7 +4350,14 @@ def delete_assignment(assignment_id: int):
         return {"error": "unauthorized"}, 403
 
     Invite.query.filter_by(assignment_id=assignment.id).delete()
+    removed_assignment = _serialize_assignment_row(assignment)
     db.session.delete(assignment)
+    db.session.commit()
+    actor_name = display_name_for_user(user) or user.email or "Someone"
+    assignee_label = _assignment_history_label(removed_assignment)
+    history_task_body = actor_name + " removed assignee " + assignee_label + "."
+    history_scoped_body = actor_name + " removed assignee " + assignee_label + " from task " + _quoted_history_value(task.title, "Task") + "."
+    log_task_history(task, actor=user, action="updated", changed_fields=["assignees"], task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
     emit_assignment_updated(task, assignment, action="deleted", actor_user_id=user.id)
     return {"status": "deleted"}, 200
