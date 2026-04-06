@@ -4067,10 +4067,11 @@
               '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
           } else {
             trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
+            if (!startTaskDate && dueMode === "date" && item.due_at) {
+              trackHtml += '<button class="project-gantt-handle is-start is-provisional" type="button" data-gantt-handle="start" data-gantt-provisional-start="1" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Set start date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
+            }
           }
-          if (dueMode === "date" && item.due_at) {
-            trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
-          }
+          trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
           return trackHtml;
         }
 	        var rows = sections.map(function (section) {
@@ -4091,7 +4092,7 @@
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
 		                '</div>' +
 		              '</div>' +
-		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
+		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
 		                trackHtml +
 		              '</div>' +
 		            '</div>'
@@ -13145,6 +13146,13 @@
         if (!state || !state.track || !state.elements) return;
         var startIso = state.handle === "start" ? state.nextIso : state.task.start_date;
         var endIso = state.handle === "end" ? state.nextIso : state.task.due_at;
+        if (state.handle === "start" && !state.elements.span && endIso) {
+          var previewSpan = document.createElement("span");
+          previewSpan.className = "project-gantt-span status-open";
+          state.track.insertBefore(previewSpan, state.elements.marker || state.track.firstChild);
+          state.elements.span = previewSpan;
+          state.tempPreviewSpan = previewSpan;
+        }
         var startPercent = startIso ? ganttPercentForIso(state.track, startIso) : null;
         var endPercent = endIso ? ganttPercentForIso(state.track, endIso) : null;
         if (state.elements.startHandle && startPercent != null) {
@@ -13190,22 +13198,79 @@
           });
       }
 
+      function clearGanttStartDate(state) {
+        if (!state || !state.taskId) return;
+        fetch("/api/tasks/" + encodeURIComponent(state.taskId), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ start_date: "" }),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (task) {
+            if (!task || !task.id) return;
+            if (typeof window.__applyTaskRowUpdate === "function") {
+              window.__applyTaskRowUpdate(task);
+            }
+          })
+          .catch(function (err) {
+            console.error("gantt clear start failed", err);
+            if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+              window.__updateProjectGanttItemLocal(state.task);
+            }
+          });
+      }
+
       function finishActiveGanttDrag(commit) {
         if (!activeGanttDrag) return;
         var state = activeGanttDrag;
         activeGanttDrag = null;
         document.body.classList.remove("is-gantt-dragging");
         hideGanttTooltip();
+        if (state.tempPreviewSpan && state.tempPreviewSpan.parentNode) {
+          state.tempPreviewSpan.remove();
+        }
         if (state.pointerId != null && state.handleEl && state.handleEl.releasePointerCapture) {
           try {
             state.handleEl.releasePointerCapture(state.pointerId);
           } catch (_err) {}
         }
-        if (commit && state.nextIso && state.nextIso !== state.originalIso) {
+        if (commit && state.clearOnClick && state.nextIso === state.originalIso) {
+          clearGanttStartDate(state);
+        } else if (commit && state.nextIso && (state.nextIso !== state.originalIso || state.commitOnClick)) {
           commitGanttDrag(state, state.nextIso);
         } else if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
           window.__updateProjectGanttItemLocal(state.task);
         }
+      }
+
+      function updateProvisionalGanttStartHandle(track, clientX) {
+        if (!track || activeGanttDrag) return;
+        var handle = track.querySelector('[data-gantt-provisional-start="1"]');
+        if (!handle) return;
+        var dueIso = String(track.getAttribute("data-task-due-date") || "").trim();
+        if (!dueIso) {
+          handle.dataset.ganttProvisionalReady = "0";
+          handle.dataset.ganttProvisionalIso = "";
+          return;
+        }
+        var nextIso = ganttTrackDateFromClientX(track, clientX);
+        if (!nextIso || nextIso >= dueIso.slice(0, 10)) {
+          handle.dataset.ganttProvisionalReady = "0";
+          handle.dataset.ganttProvisionalIso = "";
+          return;
+        }
+        handle.style.left = ganttPercentForIso(track, nextIso).toFixed(2) + "%";
+        handle.dataset.ganttProvisionalReady = "1";
+        handle.dataset.ganttProvisionalIso = nextIso;
+      }
+
+      function clearProvisionalGanttStartHandle(track) {
+        if (!track) return;
+        var handle = track.querySelector('[data-gantt-provisional-start="1"]');
+        if (!handle) return;
+        handle.dataset.ganttProvisionalReady = "0";
+        handle.dataset.ganttProvisionalIso = "";
       }
 
 	    function removeProjectGanttItemLocal(taskId) {
@@ -14435,7 +14500,9 @@
       var handleType = String(handle.getAttribute("data-gantt-handle") || "").trim();
       var originalStart = String(track.getAttribute("data-task-start-date") || "").trim();
       var originalDue = String(track.getAttribute("data-task-due-date") || "").trim();
-      var originalIso = handleType === "start" ? originalStart : originalDue;
+      var effectiveDue = String(track.getAttribute("data-task-effective-due-date") || originalDue).trim();
+      var provisionalStart = String(handle.getAttribute("data-gantt-provisional-iso") || "").trim();
+      var originalIso = handleType === "start" ? (originalStart || provisionalStart) : effectiveDue;
       if (!originalIso) return;
       var existingItem = panel ? parseProjectGanttItemsLocal(panel).find(function (item) {
         return String(item && item.id || "") === taskId;
@@ -14450,7 +14517,7 @@
             ? handle.closest(".project-gantt-row").querySelector("[data-task-title]").getAttribute("data-task-title")
             : ""),
           start_date: originalStart,
-          due_at: originalDue,
+          due_at: handleType === "end" ? originalIso : originalDue,
           due_mode: track.getAttribute("data-task-due-mode") || (originalDue ? "date" : "none"),
         }),
         track: track,
@@ -14465,6 +14532,8 @@
         pointerId: event.pointerId,
         originalIso: originalIso,
         nextIso: originalIso,
+        commitOnClick: handleType === "start" && !originalStart && !!provisionalStart,
+        clearOnClick: handleType === "start" && !!originalStart,
       };
       if (handle.setPointerCapture) {
         try {
@@ -14476,7 +14545,13 @@
     });
 
     document.addEventListener("pointermove", function (event) {
-      if (!activeGanttDrag) return;
+      if (!activeGanttDrag) {
+        var hoveredTrack = event.target.closest("[data-gantt-track]");
+        if (hoveredTrack) {
+          updateProvisionalGanttStartHandle(hoveredTrack, event.clientX);
+        }
+        return;
+      }
       var nextIso = ganttTrackDateFromClientX(activeGanttDrag.track, event.clientX);
       if (!nextIso) return;
       if (activeGanttDrag.handle === "start" && activeGanttDrag.task.due_at && nextIso > activeGanttDrag.task.due_at.slice(0, 10)) {
@@ -14497,6 +14572,16 @@
     document.addEventListener("pointercancel", function () {
       finishActiveGanttDrag(false);
     });
+    document.addEventListener("pointerleave", function (event) {
+      var track = event.target && event.target.closest ? event.target.closest("[data-gantt-track]") : null;
+      if (!track || activeGanttDrag) return;
+      clearProvisionalGanttStartHandle(track);
+    }, true);
+    document.addEventListener("mouseleave", function (event) {
+      var track = event.target && event.target.closest ? event.target.closest("[data-gantt-track]") : null;
+      if (!track || activeGanttDrag) return;
+      clearProvisionalGanttStartHandle(track);
+    }, true);
     if (taskSettingsStatusEl) {
       taskSettingsStatusEl.addEventListener("click", function (event) {
         event.preventDefault();

@@ -5734,10 +5734,26 @@
         outline-offset: 2px;
       }
 
-      .project-gantt-track:hover .project-gantt-handle,
-      .project-gantt-track:focus-within .project-gantt-handle {
+      .project-gantt-track:hover .project-gantt-handle:not(.is-provisional),
+      .project-gantt-track:focus-within .project-gantt-handle:not(.is-provisional) {
         opacity: 1;
         pointer-events: auto;
+      }
+
+      .project-gantt-handle.is-provisional {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .project-gantt-track:hover .project-gantt-handle.is-provisional[data-gantt-provisional-ready="1"],
+      .project-gantt-track:focus-within .project-gantt-handle.is-provisional[data-gantt-provisional-ready="1"] {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      body.is-gantt-dragging .project-gantt-handle.is-provisional {
+        opacity: 0 !important;
+        pointer-events: none !important;
       }
 
       body.is-gantt-dragging {
