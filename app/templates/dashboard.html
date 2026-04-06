@@ -10003,6 +10003,7 @@
     var currentUserIsAdmin = {{ (1 if is_admin_user else 0)|tojson }};
     var currentUserEmail = {{ user.email|tojson }};
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
+    var discussionShowHistory = true;
     var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
 
     function drawerEscapeHtml(value) {
@@ -11340,11 +11341,6 @@
     function renderDiscussionPresence() {
       if (!presenceEl) return;
       var list = Array.isArray(discussionAudienceMembers) ? discussionAudienceMembers : [];
-      if (!list.length) {
-        presenceEl.innerHTML = "";
-        presenceEl.removeAttribute("data-presence-project-id");
-        return;
-      }
       var projectId = currentDiscussionProjectId();
       if (projectId) {
         presenceEl.setAttribute("data-presence-project-id", String(projectId));
@@ -11352,6 +11348,10 @@
         presenceEl.removeAttribute("data-presence-project-id");
       }
       presenceEl.innerHTML =
+        '<label class="discussion-history-toggle">' +
+          '<input type="checkbox" data-discussion-history-toggle ' + (discussionShowHistory ? 'checked' : '') + ' />' +
+          '<span>History</span>' +
+        '</label>' +
         '<div class="discussion-presence-stack">' +
         list.map(function (member) {
           return renderAvatarChip(member, {
@@ -11399,6 +11399,13 @@
       if (!listEl) return;
       window.requestAnimationFrame(function () {
         listEl.scrollTop = listEl.scrollHeight;
+      });
+    }
+
+    function applyDiscussionHistoryVisibility() {
+      if (!listEl) return;
+      listEl.querySelectorAll('[data-comment-entry-type="history"]').forEach(function (row) {
+        row.style.display = discussionShowHistory ? "" : "none";
       });
     }
 
@@ -13802,6 +13809,7 @@
       var existing = listEl.querySelector('[data-comment-id="' + comment.id + '"]');
       if (existing) {
         existing.outerHTML = renderComment(comment);
+        applyDiscussionHistoryVisibility();
         var updatedBody = listEl.querySelector('[data-comment-id="' + comment.id + '"] .discussion-comment-body');
         if (updatedBody) {
           typesetMathNodes(updatedBody);
@@ -13813,6 +13821,7 @@
         listEl.innerHTML = "";
       }
       listEl.insertAdjacentHTML("beforeend", renderComment(comment));
+      applyDiscussionHistoryVisibility();
       var insertedBody = listEl.querySelector('[data-comment-id="' + comment.id + '"] .discussion-comment-body');
       if (insertedBody) {
         typesetMathNodes(insertedBody);
@@ -14295,6 +14304,7 @@
             listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
           } else {
             listEl.innerHTML = comments.map(renderComment).join("");
+            applyDiscussionHistoryVisibility();
             typesetMathNodes(listEl.querySelectorAll(".discussion-comment-body"));
           }
           setCommentCount(currentEntityType, currentEntityId, Number(data.comment_count || 0));
@@ -14323,6 +14333,7 @@
             listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
           } else {
             listEl.innerHTML = comments.map(renderComment).join("");
+            applyDiscussionHistoryVisibility();
             typesetMathNodes(listEl.querySelectorAll(".discussion-comment-body"));
           }
           setCommentCount(entityType, entityId, Number(data.comment_count || 0));
@@ -14539,6 +14550,13 @@
           entityButton.getAttribute("data-entity-project")
         );
       }
+    });
+
+    document.addEventListener("change", function (event) {
+      var historyToggle = event.target.closest ? event.target.closest("[data-discussion-history-toggle]") : null;
+      if (!historyToggle) return;
+      discussionShowHistory = !!historyToggle.checked;
+      applyDiscussionHistoryVisibility();
     });
 
     document.addEventListener("pointerdown", function (event) {
@@ -16156,6 +16174,7 @@
             listEl.innerHTML = '<div class="footer-note">No comments yet. Start the thread.</div>';
           } else {
             listEl.innerHTML = comments.map(renderComment).join("");
+            applyDiscussionHistoryVisibility();
           }
           setCommentCount(currentEntityType, currentEntityId, Number(data.comment_count || 0));
           if (currentEntityType === "task") {

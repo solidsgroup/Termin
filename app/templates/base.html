@@ -3387,7 +3387,7 @@
       .discussion-presence {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: space-between;
         min-height: 30px;
         padding: 5px 18px 6px;
         border-top: 1px solid rgba(255, 255, 255, 0.04);
@@ -3396,9 +3396,23 @@
         backdrop-filter: blur(10px);
       }
 
+      .discussion-history-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted);
+        user-select: none;
+      }
+
+      .discussion-history-toggle input {
+        margin: 0;
+      }
+
       .discussion-presence-stack {
         display: flex;
         align-items: center;
+        margin-left: auto;
       }
 
       .discussion-presence .avatar-chip {
