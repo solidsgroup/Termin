@@ -3570,6 +3570,42 @@
           return sections;
         }
 
+        function loadProjectGanttCollapsedGroups() {
+          try {
+            return JSON.parse(sessionStorage.getItem("terminProjectGanttCollapsedGroups") || "{}") || {};
+          } catch (_error) {
+            return {};
+          }
+        }
+
+        function saveProjectGanttCollapsedGroups(state) {
+          try {
+            sessionStorage.setItem("terminProjectGanttCollapsedGroups", JSON.stringify(state || {}));
+          } catch (_error) {
+            // ignore
+          }
+        }
+
+        function collapsedProjectGanttGroups(projectId) {
+          var state = loadProjectGanttCollapsedGroups();
+          return Object.assign({}, state[String(projectId || "")] || {});
+        }
+
+        function setProjectGanttGroupCollapsed(projectId, sectionKey, collapsed) {
+          var normalizedProjectId = String(projectId || "");
+          var normalizedSectionKey = String(sectionKey || "");
+          if (!normalizedProjectId || !normalizedSectionKey) return;
+          var state = loadProjectGanttCollapsedGroups();
+          var row = Object.assign({}, state[normalizedProjectId] || {});
+          if (collapsed) {
+            row[normalizedSectionKey] = true;
+          } else {
+            delete row[normalizedSectionKey];
+          }
+          state[normalizedProjectId] = row;
+          saveProjectGanttCollapsedGroups(state);
+        }
+
         function ganttLatexEscape(value) {
           return String(value == null ? "" : value)
             .replace(/\\/g, "\\textbackslash{}")
@@ -3676,6 +3712,7 @@
           var projectName = projectNameNode ? String(projectNameNode.textContent || "").trim() : ("Project " + projectId);
           var items = parseProjectGanttItems(panel).filter(function (item) { return !!item; });
           var sections = buildProjectGanttSections(items, board);
+          var collapsedSections = collapsedProjectGanttGroups(projectId);
           var markUnits = projectGanttExportMarkUnits(panel);
           var minorSegments = buildProjectGanttMinorSegments(startDate, endDate, markUnits.minor);
           if (!minorSegments.length) return "";
@@ -3718,7 +3755,7 @@
           lines.push("  group left shift=0pt,");
           lines.push("  group right shift=0pt,");
           lines.push("  group height=0.5pt,");
-          lines.push("  group peaks width=0.1pt,");
+          lines.push("  group peaks width=0pt,");
           lines.push("  group peaks tip position=0,");
           lines.push("  vgrid={*1{draw=black!20, line width=.75pt}}");
           lines.push("]{" + 1 + "}{" + totalUnits + "}");
@@ -3727,8 +3764,76 @@
           });
           lines.push("  \\\\");
           lines.push("  \\ganttgroup[group/.append style={fill=black!75}]{" + ganttLatexEscape(projectName) + "}{" + 1 + "}{" + totalUnits + "} \\\\");
+          function latexTaskCommand(item, sectionIndex, options) {
+            var collapsed = !!(options && options.collapsed);
+            var dueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
+            var dueDate = null;
+            if (item.due_at) {
+              dueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
+            } else if (dueMode === "asap") {
+              dueDate = new Date(startDate.getTime());
+            } else {
+              dueDate = new Date(endDate.getTime());
+            }
+            var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
+            var hasStartDate = !!(startTaskDate && !Number.isNaN(startTaskDate.getTime()));
+            var startUnit = startTaskDate && !Number.isNaN(startTaskDate.getTime())
+              ? ganttDateToMinorIndex(startTaskDate, startDate, markUnits.minor)
+              : ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
+            var endUnit = ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
+            startUnit = Math.max(1, Math.min(totalUnits, startUnit));
+            endUnit = Math.max(1, Math.min(totalUnits, endUnit));
+            if (endUnit < startUnit) {
+              var swap = startUnit;
+              startUnit = endUnit;
+              endUnit = swap;
+            }
+            var exportStatusMeta = (function () {
+              var meta = item && item.status_meta ? item.status_meta : {};
+              var mode = String((meta.mode || item.status_mode || "single"));
+              var percentage = Math.max(0, Math.min(100, Number(item && item.status_percentage != null ? item.status_percentage : (meta.percentage_complete || 0))));
+              var summary = Array.isArray(meta.summary) ? meta.summary : [];
+              var baseStatus = String(meta.task_status || item.status || "open");
+              var aggregateState = String(meta.aggregate_state || "");
+              if (!aggregateState) {
+                if (mode === "percentage") {
+                  aggregateState = percentage >= 100 ? "complete" : "open";
+                } else if (mode === "per_user") {
+                  var total = summary.reduce(function (sum, row) { return sum + Number((row && row.count) || 0); }, 0);
+                  var completeCount = summary.reduce(function (sum, row) {
+                    return sum + ((row && row.state === "complete") ? Number(row.count || 0) : 0);
+                  }, 0);
+                  var hasCritical = summary.some(function (row) { return row && row.state === "critical" && Number(row.count || 0) > 0; });
+                  aggregateState = total > 0 && completeCount === total ? "complete" : (hasCritical ? "critical" : "open");
+                } else {
+                  var normalized = baseStatus.toLowerCase();
+                  aggregateState = normalized === "critical"
+                    ? "critical"
+                    : (["complete", "completed", "done", "closed", "pr closed", "pr merged"].indexOf(normalized) !== -1 ? "complete" : "open");
+                }
+              }
+              return {
+                mode: mode,
+                percentage: percentage,
+                state: aggregateState,
+              };
+            })();
+            var styleName = "termin bar " + sectionIndex;
+            var progressValue = exportStatusMeta.mode === "percentage"
+              ? exportStatusMeta.percentage
+              : (exportStatusMeta.state === "complete" ? 100 : 0);
+            var taskLabel = collapsed ? "" : ganttLatexEscape(item.title || "Task");
+            if (!hasStartDate) {
+              var milestoneStyle = exportStatusMeta.state === "complete"
+                ? ("termin milestone complete " + sectionIndex)
+                : ("termin milestone planned " + sectionIndex);
+              return "\\ganttmilestone[" + milestoneStyle + "]{" + taskLabel + "}{" + endUnit + "}";
+            }
+            return "\\ganttbar[" + styleName + ", progress=" + Math.round(progressValue) + "]{" + taskLabel + "}{" + startUnit + "}{" + endUnit + "}";
+          }
           sections.forEach(function (section, sectionIndex) {
             var colorName = ganttLatexColorName(sectionIndex);
+            var isCollapsed = !!collapsedSections[section.key];
             var firstUnit = null;
             var lastUnit = null;
             section.items.forEach(function (item) {
@@ -3761,73 +3866,16 @@
               firstUnit = 1;
               lastUnit = totalUnits;
             }
-            lines.push("  \\ganttgroup[termin group " + sectionIndex + "]{\\color{" + colorName + "} " + ganttLatexEscape(section.label || "Ungrouped") + "}{" + firstUnit + "}{" + lastUnit + "} \\\\");
-            section.items.forEach(function (item) {
-              var dueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
-              var dueDate = null;
-              if (item.due_at) {
-                dueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
-              } else if (dueMode === "asap") {
-                dueDate = new Date(startDate.getTime());
-              } else {
-                dueDate = new Date(endDate.getTime());
-              }
-              var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
-              var hasStartDate = !!(startTaskDate && !Number.isNaN(startTaskDate.getTime()));
-              var startUnit = startTaskDate && !Number.isNaN(startTaskDate.getTime())
-                ? ganttDateToMinorIndex(startTaskDate, startDate, markUnits.minor)
-                : ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
-              var endUnit = ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
-              startUnit = Math.max(1, Math.min(totalUnits, startUnit));
-              endUnit = Math.max(1, Math.min(totalUnits, endUnit));
-              if (endUnit < startUnit) {
-                var swap = startUnit;
-                startUnit = endUnit;
-                endUnit = swap;
-              }
-              var exportStatusMeta = (function () {
-                var meta = item && item.status_meta ? item.status_meta : {};
-                var mode = String((meta.mode || item.status_mode || "single"));
-                var percentage = Math.max(0, Math.min(100, Number(item && item.status_percentage != null ? item.status_percentage : (meta.percentage_complete || 0))));
-                var summary = Array.isArray(meta.summary) ? meta.summary : [];
-                var baseStatus = String(meta.task_status || item.status || "open");
-                var aggregateState = String(meta.aggregate_state || "");
-                if (!aggregateState) {
-                  if (mode === "percentage") {
-                    aggregateState = percentage >= 100 ? "complete" : "open";
-                  } else if (mode === "per_user") {
-                    var total = summary.reduce(function (sum, row) { return sum + Number((row && row.count) || 0); }, 0);
-                    var completeCount = summary.reduce(function (sum, row) {
-                      return sum + ((row && row.state === "complete") ? Number(row.count || 0) : 0);
-                    }, 0);
-                    var hasCritical = summary.some(function (row) { return row && row.state === "critical" && Number(row.count || 0) > 0; });
-                    aggregateState = total > 0 && completeCount === total ? "complete" : (hasCritical ? "critical" : "open");
-                  } else {
-                    var normalized = baseStatus.toLowerCase();
-                    aggregateState = normalized === "critical"
-                      ? "critical"
-                      : (["complete", "completed", "done", "closed", "pr closed", "pr merged"].indexOf(normalized) !== -1 ? "complete" : "open");
-                  }
-                }
-                return {
-                  mode: mode,
-                  percentage: percentage,
-                  state: aggregateState,
-                };
-              })();
-              var styleName = "termin bar " + sectionIndex;
-              var progressValue = exportStatusMeta.mode === "percentage"
-                ? exportStatusMeta.percentage
-                : (exportStatusMeta.state === "complete" ? 100 : 0);
-              if (!hasStartDate) {
-                var milestoneStyle = exportStatusMeta.state === "complete"
-                  ? ("termin milestone complete " + sectionIndex)
-                  : ("termin milestone planned " + sectionIndex);
-                lines.push("  \\ganttmilestone[" + milestoneStyle + "]{" + ganttLatexEscape(item.title || "Task") + "}{" + endUnit + "}\\\\");
-              } else {
-                lines.push("  \\ganttbar[" + styleName + ", progress=" + Math.round(progressValue) + "]{" + ganttLatexEscape(item.title || "Task") + "}{" + startUnit + "}{" + endUnit + "}\\\\");
-              }
-            });
+            if (isCollapsed) {
+              lines.push("  \\ganttgroup[termin group " + sectionIndex + "]{\\color{" + colorName + "} " + ganttLatexEscape(section.label || "Ungrouped") + "}{1}{0}" + section.items.map(function (item) {
+                return latexTaskCommand(item, sectionIndex, { collapsed: true });
+              }).join("") + "\\\\");
+            } else {
+              lines.push("  \\ganttgroup[termin group " + sectionIndex + "]{\\color{" + colorName + "} " + ganttLatexEscape(section.label || "Ungrouped") + "}{" + firstUnit + "}{" + lastUnit + "} \\\\");
+              section.items.forEach(function (item) {
+                lines.push("  " + latexTaskCommand(item, sectionIndex) + "\\\\");
+              });
+            }
           });
           lines.push("\\end{ganttchart}");
           return lines.join("\n");
@@ -3921,6 +3969,7 @@
         if (todayDeltaDays >= 0 && todayDeltaDays <= rangeDays) {
           todayPercent = rangeDays <= 0 ? 0 : (todayDeltaDays / rangeDays) * 100;
         }
+        var collapsedSections = collapsedProjectGanttGroups(projectId);
 	        if (!items.length) {
 	          panel.innerHTML =
 	            '<div class="project-gantt-shell">' +
@@ -3970,8 +4019,7 @@
             state: aggregateState,
           };
         }
-	        var rows = sections.map(function (section) {
-	          var sectionRows = section.items.map(function (item) {
+        function buildGanttTrackHtml(item) {
           var statusMeta = ganttStatusMeta(item);
           var statusState = statusMeta.state;
           var dueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
@@ -3984,45 +4032,58 @@
             effectiveDueDate = new Date(Math.max(endDate.getTime(), todayDate.getTime()));
           }
           var dueDate = effectiveDueDate;
-	          var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
-	          if (startTaskDate && Number.isNaN(startTaskDate.getTime())) {
-	            startTaskDate = null;
-	          }
+          var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
+          if (startTaskDate && Number.isNaN(startTaskDate.getTime())) {
+            startTaskDate = null;
+          }
           if (Number.isNaN(dueDate.getTime())) {
             dueDate = new Date(Math.max(endDate.getTime(), todayDate.getTime()));
           }
-	          var startDeltaDays = startTaskDate ? Math.round((startTaskDate.getTime() - startDate.getTime()) / 86400000) : null;
-	          var endDeltaDays = Math.round((dueDate.getTime() - startDate.getTime()) / 86400000);
-	          var clampedEnd = Math.max(0, Math.min(rangeDays, endDeltaDays));
-	          var endPercent = rangeDays <= 0 ? 0 : (clampedEnd / rangeDays) * 100;
-	          var outside = endDeltaDays < 0 || endDeltaDays > rangeDays;
-	          var hasSpan = startTaskDate && startTaskDate <= dueDate;
+          var startDeltaDays = startTaskDate ? Math.round((startTaskDate.getTime() - startDate.getTime()) / 86400000) : null;
+          var endDeltaDays = Math.round((dueDate.getTime() - startDate.getTime()) / 86400000);
+          var clampedEnd = Math.max(0, Math.min(rangeDays, endDeltaDays));
+          var endPercent = rangeDays <= 0 ? 0 : (clampedEnd / rangeDays) * 100;
+          var outside = endDeltaDays < 0 || endDeltaDays > rangeDays;
+          var hasSpan = startTaskDate && startTaskDate <= dueDate;
           var markerIcon = statusState === "complete"
             ? "check"
             : (statusState === "critical" ? "bang" : (statusMeta.mode === "percentage" ? "dot" : "ring"));
           var progressPercent = statusMeta.mode === "percentage"
             ? Math.max(0, Math.min(100, Number(item.status_percentage != null ? item.status_percentage : 0)))
             : (statusState === "complete" ? 100 : 0);
-	          var trackHtml = "";
-	          if (hasSpan) {
-	            var clampedStart = Math.max(0, Math.min(rangeDays, startDeltaDays));
-	            var startPercent = rangeDays <= 0 ? 0 : (clampedStart / rangeDays) * 100;
-	            var widthPercent = Math.max(1.2, endPercent - startPercent);
-	            var spanOutside = startDeltaDays < 0 || endDeltaDays > rangeDays;
-	            trackHtml =
-	              '<span class="project-gantt-span status-' + statusState + ' mode-' + statusMeta.mode + (spanOutside ? ' is-outside' : '') + '" style="left:' + startPercent.toFixed(2) + '%; width:' + widthPercent.toFixed(2) + '%;">' +
-                  (statusMeta.mode === "percentage"
-                    ? '<span class="project-gantt-span-progress" style="width:' + progressPercent.toFixed(2) + '%;"></span>'
-                    : '') +
-                '</span>' +
-                '<button class="project-gantt-handle is-start" type="button" data-gantt-handle="start" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust start date" style="left:' + startPercent.toFixed(2) + '%;"></button>' +
-	              '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
-	          } else {
-	            trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
-	          }
-            if (dueMode === "date" && item.due_at) {
-              trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
-            }
+          var trackHtml = "";
+          if (hasSpan) {
+            var clampedStart = Math.max(0, Math.min(rangeDays, startDeltaDays));
+            var startPercent = rangeDays <= 0 ? 0 : (clampedStart / rangeDays) * 100;
+            var widthPercent = Math.max(1.2, endPercent - startPercent);
+            var spanOutside = startDeltaDays < 0 || endDeltaDays > rangeDays;
+            trackHtml =
+              '<span class="project-gantt-span status-' + statusState + ' mode-' + statusMeta.mode + (spanOutside ? ' is-outside' : '') + '" style="left:' + startPercent.toFixed(2) + '%; width:' + widthPercent.toFixed(2) + '%;">' +
+                (statusMeta.mode === "percentage"
+                  ? '<span class="project-gantt-span-progress" style="width:' + progressPercent.toFixed(2) + '%;"></span>'
+                  : '') +
+              '</span>' +
+              '<button class="project-gantt-handle is-start" type="button" data-gantt-handle="start" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust start date" style="left:' + startPercent.toFixed(2) + '%;"></button>' +
+              '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
+          } else {
+            trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
+          }
+          if (dueMode === "date" && item.due_at) {
+            trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
+          }
+          return trackHtml;
+        }
+	        var rows = sections.map(function (section) {
+            var isCollapsed = !!collapsedSections[section.key];
+	          var sectionRows = isCollapsed
+              ? (
+                  '<div class="project-gantt-row is-collapsed-summary">' +
+                    '<div class="project-gantt-task"></div>' +
+                    '<div class="project-gantt-track">' + section.items.map(buildGanttTrackHtml).join("") + '</div>' +
+                  '</div>'
+                )
+              : section.items.map(function (item) {
+          var trackHtml = buildGanttTrackHtml(item);
 		          return (
 		            '<div class="project-gantt-row">' +
 		              '<div class="project-gantt-task">' +
@@ -4030,15 +4091,15 @@
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
 		                '</div>' +
 		              '</div>' +
-		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-due-mode="' + escapeProjectGanttText(dueMode) + '">' +
+		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
 		                trackHtml +
 		              '</div>' +
 		            '</div>'
 		          );
 	          }).join("");
 	          return (
-	            '<div class="project-gantt-section">' +
-	              '<div class="project-gantt-section-title">' + escapeProjectGanttText(section.label || "Ungrouped") + '</div>' +
+	            '<div class="project-gantt-section' + (isCollapsed ? ' is-collapsed' : '') + '" data-project-gantt-section="' + escapeProjectGanttText(section.key || "") + '">' +
+	              '<div class="project-gantt-section-title"><span class="project-gantt-section-title-text">' + escapeProjectGanttText(section.label || "Ungrouped") + '</span><button class="project-gantt-section-toggle" type="button" data-project-gantt-section-toggle="' + escapeProjectGanttText(section.key || "") + '" aria-label="' + (isCollapsed ? 'Expand' : 'Collapse') + ' group"><i class="fa-solid fa-caret-down" aria-hidden="true"></i></button></div>' +
 	              '<div class="project-gantt-section-list">' + sectionRows + '</div>' +
 	            '</div>'
 	          );
@@ -4147,6 +4208,25 @@
       });
 
       document.addEventListener("click", function (event) {
+        var sectionToggle = event.target.closest("[data-project-gantt-section-toggle]");
+        if (sectionToggle) {
+          var board = sectionToggle.closest("[data-tree-project-board]");
+          var sectionKey = String(sectionToggle.getAttribute("data-project-gantt-section-toggle") || "");
+          var projectId = board ? String(board.getAttribute("data-tree-project-board") || "") : "";
+          if (board && projectId && sectionKey) {
+            var nextCollapsed = !collapsedProjectGanttGroups(projectId)[sectionKey];
+            setProjectGanttGroupCollapsed(projectId, sectionKey, nextCollapsed);
+            var gantt = board.querySelector("[data-project-gantt]");
+            if (gantt) {
+              if (typeof window.__renderProjectGantt === "function") {
+                window.__renderProjectGantt(gantt);
+              } else {
+                renderProjectGantt(gantt);
+              }
+            }
+          }
+          return;
+        }
         var exportButton = event.target.closest("[data-project-gantt-export]");
         if (!exportButton) return;
         var projectId = String(exportButton.getAttribute("data-project-gantt-export") || "");

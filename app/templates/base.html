@@ -5429,6 +5429,9 @@
       }
 
       .project-gantt-section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         padding: 0 14px 6px;
         font-size: 12px;
         font-weight: 700;
@@ -5437,9 +5440,60 @@
         color: color-mix(in srgb, var(--project-color, var(--accent)) 82%, var(--muted));
       }
 
+      .project-gantt-section-toggle {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 140ms ease, transform 140ms ease;
+      }
+
+      .project-gantt-section:hover .project-gantt-section-toggle,
+      .project-gantt-section:focus-within .project-gantt-section-toggle,
+      .project-gantt-section.is-collapsed .project-gantt-section-toggle {
+        opacity: 1;
+      }
+
+      .project-gantt-section-toggle i {
+        font-size: 11px;
+        transform: rotate(0deg);
+        transition: transform 140ms ease;
+      }
+
+      .project-gantt-section.is-collapsed .project-gantt-section-toggle i {
+        transform: rotate(-90deg);
+      }
+
+      .project-gantt-section-title-text {
+        min-width: 0;
+      }
+
+      .project-gantt-row.is-collapsed-summary .project-gantt-task {
+        min-height: 1px;
+      }
+
       .project-gantt-section-list {
         display: flex;
         flex-direction: column;
+      }
+
+      .project-gantt-section.is-collapsed .project-gantt-section-title {
+        padding-bottom: 0;
+        margin-bottom: -4px;
+        min-height: 26px;
+        transform: translateY(22px);
+        align-items: center;
+        z-index: 2;
       }
 
       .project-gantt-row {
