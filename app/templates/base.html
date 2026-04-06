@@ -5232,6 +5232,33 @@
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
       }
 
+      .project-gantt-export-button {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid color-mix(in srgb, var(--project-color) 18%, var(--border));
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 5px 12px;
+        font: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      .project-gantt-export-button:hover {
+        border-color: color-mix(in srgb, var(--project-color) 34%, var(--border));
+        background: color-mix(in srgb, var(--project-color) 10%, var(--panel) 90%);
+      }
+
+      .project-gantt-export-button:focus-visible {
+        outline: none;
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+      }
+
       .project-board-mode-tab {
         border: 0;
         background: transparent;

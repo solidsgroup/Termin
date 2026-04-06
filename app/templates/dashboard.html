@@ -1064,6 +1064,7 @@
                       <option value="project_year">Project Year</option>
                     </select>
                   </label>
+                  <button class="project-gantt-export-button" type="button" data-project-gantt-export="{{ project.id }}">Export LaTeX</button>
                 </div>
                 <div
                   class="project-gantt"
@@ -3431,7 +3432,8 @@
             return "PQ" + (Math.floor(monthDelta / 3) + 1);
           }
           if (unit === "project_year" && projectStartDate) {
-            return "PY" + (value.getFullYear() - projectStartDate.getFullYear() + 1);
+            var projectYearMonthDelta = Math.floor((value.getFullYear() - projectStartDate.getFullYear()) * 12 + (value.getMonth() - projectStartDate.getMonth()));
+            return "PY" + (Math.floor(projectYearMonthDelta / 12) + 1);
           }
 	        if (unit === "week") {
 	          return value.toLocaleDateString([], { month: "short", day: "numeric" });
@@ -3523,11 +3525,325 @@
 	        }
 	        return {
 	          majorUnit: majorUnit,
+            minorUnit: minorUnit,
 	          minorLines: positionsFor(minorUnit),
 	          majorLines: positionsFor(majorUnit),
             projectStartDate: startDate,
 	        };
 	      }
+
+        function buildProjectGanttSections(items, ganttBoard) {
+          var orderedItems = Array.isArray(items) ? items.slice() : [];
+          if (ganttBoard && orderedItems.length) {
+            var taskOrder = new Map();
+            Array.prototype.forEach.call(ganttBoard.querySelectorAll('[data-task-row-id]'), function (row, index) {
+              var rowTaskId = String(row.getAttribute("data-task-row-id") || "").trim();
+              if (rowTaskId && !taskOrder.has(rowTaskId)) {
+                taskOrder.set(rowTaskId, index);
+              }
+            });
+            if (taskOrder.size) {
+              orderedItems.sort(function (a, b) {
+                var aId = String(a && a.id || "");
+                var bId = String(b && b.id || "");
+                var aIndex = taskOrder.has(aId) ? taskOrder.get(aId) : Number.MAX_SAFE_INTEGER;
+                var bIndex = taskOrder.has(bId) ? taskOrder.get(bId) : Number.MAX_SAFE_INTEGER;
+                if (aIndex !== bIndex) return aIndex - bIndex;
+                return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: "base" });
+              });
+            }
+          }
+          var sections = [];
+          orderedItems.forEach(function (item) {
+            var sectionKey = item.group_id ? ("group:" + String(item.group_id)) : "ungrouped";
+            var section = sections.length ? sections[sections.length - 1] : null;
+            if (!section || section.key !== sectionKey) {
+              section = {
+                key: sectionKey,
+                label: item.group_name || "Ungrouped",
+                items: [],
+              };
+              sections.push(section);
+            }
+            section.items.push(item);
+          });
+          return sections;
+        }
+
+        function ganttLatexEscape(value) {
+          return String(value == null ? "" : value)
+            .replace(/\\/g, "\\textbackslash{}")
+            .replace(/([%#$&_{}])/g, "\\$1")
+            .replace(/~/g, "\\textasciitilde{}")
+            .replace(/\^/g, "\\textasciicircum{}");
+        }
+
+        function ganttLatexColorName(index) {
+          return "C" + String(index);
+        }
+
+        function ganttLatexHexColor(value, fallback) {
+          var raw = String(value || fallback || "#999999").trim();
+          var match = raw.match(/^#([0-9a-f]{6})$/i);
+          return match ? match[1].toUpperCase() : String((fallback || "#999999")).replace(/^#/, "").toUpperCase();
+        }
+
+        function projectGanttExportMarkUnits(panel) {
+          var projectId = String(panel.getAttribute("data-project-id") || "");
+          var board = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
+          var majorSelect = board && projectId ? board.querySelector('[data-project-gantt-major="' + projectId + '"]') : null;
+          var minorSelect = board && projectId ? board.querySelector('[data-project-gantt-minor="' + projectId + '"]') : null;
+          var startRaw = String(panel.getAttribute("data-project-start-date") || "").trim();
+          var endRaw = String(panel.getAttribute("data-project-end-date") || "").trim();
+          var startDate = startRaw ? new Date(startRaw + "T00:00:00") : null;
+          var endDate = endRaw ? new Date(endRaw + "T00:00:00") : null;
+          var defaults = (startDate instanceof Date && endDate instanceof Date && !Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime()))
+            ? defaultProjectGanttMarkUnits(startDate, endDate)
+            : { major: "month", minor: "week" };
+          return {
+            major: String(majorSelect && majorSelect.value || defaults.major || "month"),
+            minor: String(minorSelect && minorSelect.value || defaults.minor || "week"),
+          };
+        }
+
+        function ganttDateToMinorIndex(dateValue, projectStartDate, minorUnit) {
+          if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) return 1;
+          var cursor = (minorUnit === "project_month" || minorUnit === "project_quarter" || minorUnit === "project_year")
+            ? new Date(projectStartDate.getTime())
+            : ganttStartOfUnit(projectStartDate, minorUnit);
+          cursor.setHours(0, 0, 0, 0);
+          var target = new Date(dateValue.getTime());
+          target.setHours(0, 0, 0, 0);
+          var index = 1;
+          var safety = 0;
+          while (cursor < target && safety < 2000) {
+            var next = ganttAdvanceUnit(cursor, minorUnit);
+            if (next > target) {
+              break;
+            }
+            cursor = next;
+            index += 1;
+            safety += 1;
+          }
+          return Math.max(1, index);
+        }
+
+        function buildProjectGanttMinorSegments(startDate, endDate, minorUnit) {
+          var segments = [];
+          var cursor = (minorUnit === "project_month" || minorUnit === "project_quarter" || minorUnit === "project_year")
+            ? new Date(startDate.getTime())
+            : ganttStartOfUnit(startDate, minorUnit);
+          cursor.setHours(0, 0, 0, 0);
+          var endBoundary = new Date(endDate.getTime());
+          endBoundary.setHours(0, 0, 0, 0);
+          var safety = 0;
+          while (cursor <= endBoundary && safety < 2000) {
+            var next = ganttAdvanceUnit(cursor, minorUnit);
+            segments.push({ start: new Date(cursor.getTime()), end: new Date(next.getTime()) });
+            cursor = next;
+            safety += 1;
+          }
+          return segments;
+        }
+
+        function buildProjectGanttMajorSegments(startDate, endDate, majorUnit, minorSegments) {
+          if (!minorSegments.length) return [];
+          var segments = [];
+          var current = null;
+          minorSegments.forEach(function (segment, index) {
+            var label = formatProjectGanttMajorLabel(majorUnit, segment.start, startDate) || formatProjectGanttDate(ganttIsoDateString(segment.start));
+            if (!current || current.label !== label) {
+              current = { label: label, start: index + 1, end: index + 1 };
+              segments.push(current);
+            } else {
+              current.end = index + 1;
+            }
+          });
+          return segments;
+        }
+
+        function projectGanttLatexString(panel) {
+          if (!panel) return "";
+          var startRaw = String(panel.getAttribute("data-project-start-date") || "").trim();
+          var endRaw = String(panel.getAttribute("data-project-end-date") || "").trim();
+          if (!startRaw || !endRaw) return "";
+          var startDate = new Date(startRaw + "T00:00:00");
+          var endDate = new Date(endRaw + "T00:00:00");
+          if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) return "";
+          var projectId = String(panel.getAttribute("data-project-id") || "");
+          var board = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
+          var projectNameNode = board ? board.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
+          var projectName = projectNameNode ? String(projectNameNode.textContent || "").trim() : ("Project " + projectId);
+          var items = parseProjectGanttItems(panel).filter(function (item) { return !!item; });
+          var sections = buildProjectGanttSections(items, board);
+          var markUnits = projectGanttExportMarkUnits(panel);
+          var minorSegments = buildProjectGanttMinorSegments(startDate, endDate, markUnits.minor);
+          if (!minorSegments.length) return "";
+          var majorSegments = buildProjectGanttMajorSegments(startDate, endDate, markUnits.major, minorSegments);
+          var totalUnits = minorSegments.length;
+          var lines = [];
+          lines.push("% Generated by Termin");
+          lines.push("% Requires \\usepackage{pgfgantt} and \\usepackage{xcolor}");
+          sections.forEach(function (section, sectionIndex) {
+            var colorName = ganttLatexColorName(sectionIndex);
+            var exportPalette = Array.isArray(window.__ganttExportPalette) ? window.__ganttExportPalette : [];
+            var paletteColor = exportPalette.length
+              ? exportPalette[sectionIndex % exportPalette.length]
+              : "#999999";
+            lines.push("\\definecolor{" + colorName + "}{HTML}{" + ganttLatexHexColor(paletteColor, "#999999") + "}");
+          });
+          lines.push("\\ganttset{");
+          lines.push("  termin group base/.style={group/.append style={draw=black, fill=black!25}},");
+          sections.forEach(function (section, sectionIndex) {
+            var colorName = ganttLatexColorName(sectionIndex);
+            lines.push("  termin group " + sectionIndex + "/.style={group/.append style={fill=" + colorName + "}},");
+            lines.push("  termin bar " + sectionIndex + "/.style={bar/.append style={fill=" + colorName + "}, bar incomplete/.append style={fill=" + colorName + "!25}},");
+            lines.push("  termin milestone planned " + sectionIndex + "/.style={milestone/.append style={fill=" + colorName + "!25, draw=" + colorName + "}, milestone label font=\\scriptsize\\it\\color{" + colorName + "}},");
+            lines.push("  termin milestone complete " + sectionIndex + "/.style={milestone/.append style={fill=" + colorName + ", draw=" + colorName + "}, milestone label font=\\scriptsize\\it\\color{" + colorName + "}},");
+          });
+          lines.push("}");
+          lines.push("\\begin{ganttchart}[");
+          lines.push("  bar/.append style={rounded corners=0pt},");
+          lines.push("  group/.append style={draw=black, fill=black!25},");
+          lines.push("  x unit=8pt,");
+          lines.push("  y unit title=10pt,");
+          lines.push("  y unit chart=8pt,");
+          lines.push("  title height=1,");
+          lines.push("  title label font=\\scriptsize\\bf,");
+          lines.push("  bar label font=\\scriptsize,");
+          lines.push("  bar height=0.5pt,");
+          lines.push("  group label font=\\scriptsize\\bf,");
+          lines.push("  milestone label font=\\scriptsize\\it,");
+          lines.push("  progress label text=,");
+          lines.push("  group left shift=0pt,");
+          lines.push("  group right shift=0pt,");
+          lines.push("  group height=0.5pt,");
+          lines.push("  group peaks width=0.1pt,");
+          lines.push("  group peaks tip position=0,");
+          lines.push("  vgrid={*1{draw=black!20, line width=.75pt}}");
+          lines.push("]{" + 1 + "}{" + totalUnits + "}");
+          majorSegments.forEach(function (segment) {
+            lines.push("  \\gantttitle{\\bf " + ganttLatexEscape(segment.label) + "}{" + (segment.end - segment.start + 1) + "}");
+          });
+          lines.push("  \\\\");
+          lines.push("  \\ganttgroup[group/.append style={fill=black!75}]{" + ganttLatexEscape(projectName) + "}{" + 1 + "}{" + totalUnits + "} \\\\");
+          sections.forEach(function (section, sectionIndex) {
+            var colorName = ganttLatexColorName(sectionIndex);
+            var firstUnit = null;
+            var lastUnit = null;
+            section.items.forEach(function (item) {
+              var dueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
+              var dueDate = null;
+              if (item.due_at) {
+                dueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
+              } else if (dueMode === "asap") {
+                dueDate = new Date(startDate.getTime());
+              } else {
+                dueDate = new Date(endDate.getTime());
+              }
+              var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
+              var hasStartDate = !!(startTaskDate && !Number.isNaN(startTaskDate.getTime()));
+              var startUnit = startTaskDate && !Number.isNaN(startTaskDate.getTime())
+                ? ganttDateToMinorIndex(startTaskDate, startDate, markUnits.minor)
+                : ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
+              var endUnit = ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
+              startUnit = Math.max(1, Math.min(totalUnits, startUnit));
+              endUnit = Math.max(1, Math.min(totalUnits, endUnit));
+              if (endUnit < startUnit) {
+                var temp = startUnit;
+                startUnit = endUnit;
+                endUnit = temp;
+              }
+              firstUnit = firstUnit == null ? startUnit : Math.min(firstUnit, startUnit);
+              lastUnit = lastUnit == null ? endUnit : Math.max(lastUnit, endUnit);
+            });
+            if (firstUnit == null || lastUnit == null) {
+              firstUnit = 1;
+              lastUnit = totalUnits;
+            }
+            lines.push("  \\ganttgroup[termin group " + sectionIndex + "]{\\color{" + colorName + "} " + ganttLatexEscape(section.label || "Ungrouped") + "}{" + firstUnit + "}{" + lastUnit + "} \\\\");
+            section.items.forEach(function (item) {
+              var dueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
+              var dueDate = null;
+              if (item.due_at) {
+                dueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
+              } else if (dueMode === "asap") {
+                dueDate = new Date(startDate.getTime());
+              } else {
+                dueDate = new Date(endDate.getTime());
+              }
+              var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
+              var hasStartDate = !!(startTaskDate && !Number.isNaN(startTaskDate.getTime()));
+              var startUnit = startTaskDate && !Number.isNaN(startTaskDate.getTime())
+                ? ganttDateToMinorIndex(startTaskDate, startDate, markUnits.minor)
+                : ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
+              var endUnit = ganttDateToMinorIndex(dueDate, startDate, markUnits.minor);
+              startUnit = Math.max(1, Math.min(totalUnits, startUnit));
+              endUnit = Math.max(1, Math.min(totalUnits, endUnit));
+              if (endUnit < startUnit) {
+                var swap = startUnit;
+                startUnit = endUnit;
+                endUnit = swap;
+              }
+              var exportStatusMeta = (function () {
+                var meta = item && item.status_meta ? item.status_meta : {};
+                var mode = String((meta.mode || item.status_mode || "single"));
+                var percentage = Math.max(0, Math.min(100, Number(item && item.status_percentage != null ? item.status_percentage : (meta.percentage_complete || 0))));
+                var summary = Array.isArray(meta.summary) ? meta.summary : [];
+                var baseStatus = String(meta.task_status || item.status || "open");
+                var aggregateState = String(meta.aggregate_state || "");
+                if (!aggregateState) {
+                  if (mode === "percentage") {
+                    aggregateState = percentage >= 100 ? "complete" : "open";
+                  } else if (mode === "per_user") {
+                    var total = summary.reduce(function (sum, row) { return sum + Number((row && row.count) || 0); }, 0);
+                    var completeCount = summary.reduce(function (sum, row) {
+                      return sum + ((row && row.state === "complete") ? Number(row.count || 0) : 0);
+                    }, 0);
+                    var hasCritical = summary.some(function (row) { return row && row.state === "critical" && Number(row.count || 0) > 0; });
+                    aggregateState = total > 0 && completeCount === total ? "complete" : (hasCritical ? "critical" : "open");
+                  } else {
+                    var normalized = baseStatus.toLowerCase();
+                    aggregateState = normalized === "critical"
+                      ? "critical"
+                      : (["complete", "completed", "done", "closed", "pr closed", "pr merged"].indexOf(normalized) !== -1 ? "complete" : "open");
+                  }
+                }
+                return {
+                  mode: mode,
+                  percentage: percentage,
+                  state: aggregateState,
+                };
+              })();
+              var styleName = "termin bar " + sectionIndex;
+              var progressValue = exportStatusMeta.mode === "percentage"
+                ? exportStatusMeta.percentage
+                : (exportStatusMeta.state === "complete" ? 100 : 0);
+              if (!hasStartDate) {
+                var milestoneStyle = exportStatusMeta.state === "complete"
+                  ? ("termin milestone complete " + sectionIndex)
+                  : ("termin milestone planned " + sectionIndex);
+                lines.push("  \\ganttmilestone[" + milestoneStyle + "]{" + ganttLatexEscape(item.title || "Task") + "}{" + endUnit + "}\\\\");
+              } else {
+                lines.push("  \\ganttbar[" + styleName + ", progress=" + Math.round(progressValue) + "]{" + ganttLatexEscape(item.title || "Task") + "}{" + startUnit + "}{" + endUnit + "}\\\\");
+              }
+            });
+          });
+          lines.push("\\end{ganttchart}");
+          return lines.join("\n");
+        }
+
+        function downloadProjectGanttLatex(filename, contents) {
+          var blob = new Blob([contents], { type: "text/x-tex;charset=utf-8" });
+          var url = URL.createObjectURL(blob);
+          var link = document.createElement("a");
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        }
 
 	      function renderProjectGanttGrid(intervals, options) {
 	        var data = intervals || {};
@@ -3593,23 +3909,9 @@
         var ganttProjectNameNode = ganttBoard ? ganttBoard.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
         var ganttProjectName = ganttProjectNameNode ? String(ganttProjectNameNode.textContent || "").trim() : "";
         if (ganttBoard && items.length) {
-          var taskOrder = new Map();
-          Array.prototype.forEach.call(ganttBoard.querySelectorAll('[data-task-row-id]'), function (row, index) {
-            var rowTaskId = String(row.getAttribute("data-task-row-id") || "").trim();
-            if (rowTaskId && !taskOrder.has(rowTaskId)) {
-              taskOrder.set(rowTaskId, index);
-            }
-          });
-          if (taskOrder.size) {
-            items = items.slice().sort(function (a, b) {
-              var aId = String(a && a.id || "");
-              var bId = String(b && b.id || "");
-              var aIndex = taskOrder.has(aId) ? taskOrder.get(aId) : Number.MAX_SAFE_INTEGER;
-              var bIndex = taskOrder.has(bId) ? taskOrder.get(bId) : Number.MAX_SAFE_INTEGER;
-              if (aIndex !== bIndex) return aIndex - bIndex;
-              return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: "base" });
-            });
-          }
+          items = buildProjectGanttSections(items, ganttBoard).reduce(function (all, section) {
+            return all.concat(section.items || []);
+          }, []);
         }
         var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
         var todayDate = new Date();
@@ -3627,20 +3929,7 @@
 	            '</div>';
 	          return;
 	        }
-	        var sections = [];
-	        items.forEach(function (item) {
-	          var sectionKey = item.group_id ? ("group:" + String(item.group_id)) : "ungrouped";
-	          var section = sections.length ? sections[sections.length - 1] : null;
-	          if (!section || section.key !== sectionKey) {
-	            section = {
-	              key: sectionKey,
-	              label: item.group_name || "Ungrouped",
-	              items: [],
-	            };
-	            sections.push(section);
-	          }
-	          section.items.push(item);
-	        });
+	        var sections = buildProjectGanttSections(items, null);
         function ganttStatusMeta(item) {
           var meta = item && item.status_meta ? item.status_meta : {};
           var mode = String((meta.mode || item.status_mode || "single"));
@@ -3854,6 +4143,41 @@
           } else {
             renderProjectGantt(gantt);
           }
+        }
+      });
+
+      document.addEventListener("click", function (event) {
+        var exportButton = event.target.closest("[data-project-gantt-export]");
+        if (!exportButton) return;
+        var projectId = String(exportButton.getAttribute("data-project-gantt-export") || "");
+        if (!projectId) return;
+        var board = exportButton.closest("[data-tree-project-board]") || document.querySelector('[data-tree-project-board="' + projectId + '"]');
+        if (!board) return;
+        var gantt = board.querySelector("[data-project-gantt]");
+        if (!gantt) return;
+        var latex = projectGanttLatexString(gantt);
+        if (!latex) return;
+        var projectNameNode = board.querySelector("[data-selected-project-name], [data-tree-project-title]");
+        var projectName = projectNameNode ? String(projectNameNode.textContent || "").trim() : ("project-" + projectId);
+        var safeName = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || ("project-" + projectId);
+        var originalLabel = exportButton.textContent;
+        function setDoneLabel(label) {
+          exportButton.textContent = label;
+          clearTimeout(exportButton.__latexResetTimer);
+          exportButton.__latexResetTimer = setTimeout(function () {
+            exportButton.textContent = originalLabel;
+          }, 1600);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(latex).then(function () {
+            setDoneLabel("Copied");
+          }).catch(function () {
+            downloadProjectGanttLatex(safeName + "-gantt.tex", latex);
+            setDoneLabel("Downloaded");
+          });
+        } else {
+          downloadProjectGanttLatex(safeName + "-gantt.tex", latex);
+          setDoneLabel("Downloaded");
         }
       });
 
@@ -7634,6 +7958,7 @@
     const dashboardUserDisplayName = {{ (user.display_name or user.email)|tojson }};
     const dashboardUserEmail = {{ user.email|tojson }};
     const dashboardUserAvatar = {{ (user.avatar_url or "")|tojson }};
+    window.__ganttExportPalette = {{ division_palette|tojson }};
     const divisionOptions = {{ division_options|tojson }};
     const contextMenu = document.getElementById("context-menu");
     const colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
