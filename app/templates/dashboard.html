@@ -2,11 +2,11 @@
 {% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
   {% set project_color = color or '#2a3442' %}
-  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}" draggable="true" data-sidebar-project="{{ project.id }}">
+  <div class="project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" style="--project-color: {{ project_color }};" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.tree_project_dashboard', project_id=project.id) }}" draggable="true" data-sidebar-project="{{ project.id }}">
     {% set viewers = project_viewers.get(project.id, []) %}
     {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
     <div class="project-item-top">
-      <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
+      <a href="{{ url_for('ui.tree_project_dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
         <strong data-project-title="{{ project.id }}">{{ project.name }}</strong>
       </a>
       {% if shared_viewers %}
@@ -30,9 +30,9 @@
 {% endmacro %}
 {% macro render_direct_project_item(project, selected_project, peer, user) %}
   {% set label = (peer.display_name or peer.email) if peer else project.name %}
-  <div class="project-item direct-project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if project.owner_id == user.id else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.dashboard', project_id=project.id) }}" data-project-direct="1">
+  <div class="project-item direct-project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if project.owner_id == user.id else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.tree_project_dashboard', project_id=project.id) }}" data-project-direct="1">
     <div class="project-item-top">
-      <a href="{{ url_for('ui.dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
+      <a href="{{ url_for('ui.tree_project_dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
         <strong data-project-title="{{ project.id }}">{{ label }}</strong>
       </a>
       <span class="avatar-stack is-direct" data-presence-project-id="{{ project.id }}">
@@ -741,11 +741,11 @@
                 <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else ('direct' if item.project.is_direct else 'none') }}" data-task-locked="{{ 1 if item.task.locked else 0 }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-completed-window="{% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' and not item.task.due_at %}asap{% elif item.task.due_at and item.task.due_at.date() < now_utc.date() %}past{% elif item.task.due_at and item.task.due_at.date() == now_utc.date() %}today{% else %}future{% endif %}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
                   <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
                   <div class="todo-project-meta">
-                    <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='tree', show_completed=1, tree_select_type='project', tree_select_id=item.project.id) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
+                    <a class="todo-project-name" href="{{ url_for('ui.tree_project_dashboard', project_id=item.project.id) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
                       {{ project_display_names.get(item.project.id, item.project.name) }}
                     </a>
                     {% if item.group %}
-                      <a class="todo-group-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='tree', show_completed=1, tree_select_type='group', tree_select_id=item.group.id) }}" title="Open {{ item.group.name }}">
+                      <a class="todo-group-name" href="{{ url_for('ui.tree_group_dashboard', project_id=item.project.id, group_id=item.group.id) }}" title="Open {{ item.group.name }}">
                         {{ item.group.name }}
                       </a>
                     {% endif %}
@@ -1183,7 +1183,7 @@
                 </div>
               {% endif %}
               {% if current_view != 'tree' %}
-                <a class="btn secondary" href="{% if selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view=current_view, show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.dashboard', view=current_view, show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
+                <a class="btn secondary" href="{% if current_view == 'tree' %}{% if selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}{% elif current_view == 'todo' %}{{ url_for('ui.todo_dashboard', show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.inbox_dashboard', show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
               {% endif %}
             </div>
           </div>
@@ -2856,12 +2856,12 @@
         wrapper.setAttribute("data-project-context", String(project.id));
         wrapper.setAttribute("data-project-manage", canManage ? "1" : "0");
         wrapper.setAttribute("data-project-drop-id", String(project.id));
-        wrapper.setAttribute("data-project-href", "/?project_id=" + encodeURIComponent(project.id));
+        wrapper.setAttribute("data-project-href", "/tree/project/" + encodeURIComponent(project.id));
         wrapper.setAttribute("draggable", "true");
         wrapper.setAttribute("data-sidebar-project", String(project.id));
         wrapper.innerHTML =
           '<div class="project-item-top">' +
-            '<a href="/?project_id=' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
+            '<a href="/tree/project/' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
               '<strong data-project-title="' + String(project.id) + '">' + escapeProjectText(project.name || "Project") + '</strong>' +
             '</a>' +
             '<div class="avatar-stack" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"></div>' +
@@ -4552,14 +4552,14 @@
         wrapper.setAttribute("data-project-context", String(project.id));
         wrapper.setAttribute("data-project-manage", canManage ? "1" : "0");
         wrapper.setAttribute("data-project-drop-id", String(project.id));
-        wrapper.setAttribute("data-project-href", "/?project_id=" + encodeURIComponent(project.id));
+        wrapper.setAttribute("data-project-href", "/tree/project/" + encodeURIComponent(project.id));
         wrapper.setAttribute("data-project-direct", "1");
         var avatarHtml = project.direct_peer && project.direct_peer.avatar_url
           ? '<img src="' + escapeDirectText(project.direct_peer.avatar_url) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />'
           : escapeDirectText((label || "D").charAt(0).toUpperCase());
         wrapper.innerHTML =
           '<div class="project-item-top">' +
-            '<a href="/?project_id=' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
+            '<a href="/tree/project/' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
               '<strong data-project-title="' + String(project.id) + '">' + escapeDirectText(label) + '</strong>' +
             '</a>' +
             '<span class="avatar-stack is-direct" data-presence-project-id="' + String(project.id) + '"><span class="avatar-chip"' + (project.direct_peer && project.direct_peer.id ? ' data-user-id="' + String(project.direct_peer.id) + '"' : '') + ' title="' + escapeDirectText(label) + '">' + avatarHtml + '</span></span>' +
@@ -7119,7 +7119,7 @@
         title.setAttribute("data-project-title", String(projectData.id));
       }
       const link = clone.querySelector("a[href]");
-      if (link) link.setAttribute("href", "/?project_id=" + encodeURIComponent(projectData.id));
+      if (link) link.setAttribute("href", "/tree/project/" + encodeURIComponent(projectData.id));
       const avatarStack = clone.querySelector("[data-project-members]");
       if (avatarStack) {
         avatarStack.innerHTML = "";
@@ -7765,7 +7765,9 @@
 	    document.querySelectorAll(".due-input").forEach(bindDueInput);
       document.querySelectorAll("[data-task-row-id][data-task-locked], .todo-item[data-task-id][data-task-locked]").forEach(function (node) {
         var taskId = node.getAttribute("data-task-row-id") || node.getAttribute("data-task-id");
-        applyTaskLockState(taskId, String(node.getAttribute("data-task-locked") || "") === "1");
+        if (typeof window.__applyTaskLockState === "function") {
+          window.__applyTaskLockState(taskId, String(node.getAttribute("data-task-locked") || "") === "1");
+        }
       });
 	    document.querySelectorAll("input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='file']), textarea").forEach((input) => {
 	      if (typeof window.__hardDisableBrowserSuggestions === "function") {
@@ -9564,7 +9566,7 @@
           }
         } else {
           persistTaskMove({ projectId: targetProjectId, groupId: null, beforeTaskId: null }, () => {
-            window.location.href = `/?project_id=${targetProjectId}`;
+            window.location.href = `/tree/project/${targetProjectId}`;
           });
         }
         return;
@@ -10160,6 +10162,7 @@
         handle.disabled = isLocked;
       });
     }
+    window.__applyTaskLockState = applyTaskLockState;
     var emojiShortcodeMap = Object.fromEntries(emojiShortcodeEntries);
     var emojiShortcodeOptions = emojiShortcodeEntries.map(function (entry) { return entry[0]; });
 
@@ -11379,20 +11382,16 @@
     }
 
     function notificationHref(item) {
-      var params = new URLSearchParams();
-      if (item.project_id) {
-        params.set("project_id", String(item.project_id));
-      }
-      params.set("view", "tree");
-      params.set("show_completed", "1");
       if (item.task_id) {
-        params.set("open_discussion_task_id", String(item.task_id));
+        return {{ task_dashboard_path(0)|replace('/0', '')|tojson }} + "/" + encodeURIComponent(String(item.task_id));
+      }
+      if (item.group_id && item.project_id) {
+        return {{ tree_dashboard_path(0, 0)|replace('/0/group/0', '')|tojson }} + "/" + encodeURIComponent(String(item.project_id)) + "/group/" + encodeURIComponent(String(item.group_id));
       }
       if (item.project_id) {
-        params.set("tree_select_type", "project");
-        params.set("tree_select_id", String(item.project_id));
+        return {{ tree_dashboard_path(0)|replace('/0', '')|tojson }} + "/" + encodeURIComponent(String(item.project_id));
       }
-      return "/?" + params.toString();
+      return {{ tree_dashboard_path()|tojson }};
     }
 
     function notificationTargetForPayload(payload) {
@@ -12696,21 +12695,7 @@
 
     function taskPermalinkForCurrentDrawer() {
       if (currentEntityType !== "task" || !currentTaskId || !currentTaskData || !currentTaskData.project_id) return "";
-      var url = new URL(window.location.origin + "/");
-      var treeSelectionType = (currentTaskData && currentTaskData.group_id) ? "group" : "project";
-      var treeSelectionId = (currentTaskData && currentTaskData.group_id) ? currentTaskData.group_id : (currentTaskData ? currentTaskData.project_id : "");
-      url.searchParams.set("view", "tree");
-      url.searchParams.set("show_completed", "1");
-      url.searchParams.set("open_discussion_task_id", String(currentTaskId));
-      url.searchParams.set("project_id", String(currentTaskData.project_id));
-      if (treeSelectionId) {
-        url.searchParams.set("tree_select_type", treeSelectionType);
-        url.searchParams.set("tree_select_id", String(treeSelectionId));
-      } else {
-        url.searchParams.delete("tree_select_type");
-        url.searchParams.delete("tree_select_id");
-      }
-      return url.toString();
+      return window.location.origin + {{ task_dashboard_path(0)|replace('/0', '')|tojson }} + "/" + encodeURIComponent(String(currentTaskId));
     }
 
     function copyTextToClipboard(value) {
@@ -16250,6 +16235,97 @@
       }
     });
 
+    (function canonicalizeDashboardUrl() {
+      if (!window.history || !window.history.replaceState) return;
+      var url = new URL(window.location.href);
+      var changed = false;
+      var currentView = {{ (current_view or "tree")|tojson }};
+      var showCompleted = {{ 'true' if show_completed else 'false' }};
+      if (currentView === "todo") {
+        var cleanTodoPath = {{ url_for('ui.todo_dashboard')|tojson }};
+        if (url.searchParams.has("project_id")) {
+          url.searchParams.delete("project_id");
+          changed = true;
+        }
+        if (url.searchParams.has("tree_select_type")) {
+          url.searchParams.delete("tree_select_type");
+          changed = true;
+        }
+        if (url.searchParams.has("tree_select_id")) {
+          url.searchParams.delete("tree_select_id");
+          changed = true;
+        }
+        if (showCompleted) {
+          if (url.searchParams.get("show_completed") !== "1") {
+            url.searchParams.set("show_completed", "1");
+            changed = true;
+          }
+        } else if (url.searchParams.has("show_completed")) {
+          url.searchParams.delete("show_completed");
+          changed = true;
+        }
+        if (url.pathname !== cleanTodoPath) {
+          changed = true;
+        }
+        if (changed) {
+          window.history.replaceState({}, "", cleanTodoPath + (url.search ? url.search : "") + url.hash);
+          return;
+        }
+      } else if (currentView === "tree") {
+        var cleanTreePath = {{ tree_dashboard_path()|tojson }};
+        var requestedTaskId = {{ (request.args.get('open_discussion_task_id') or '')|tojson }};
+        var requestedTreeSelectionType = {{ (tree_selection_type or "")|tojson }};
+        var requestedTreeSelectionId = {{ (tree_selection_id or "")|tojson }};
+        var selectedProjectId = {{ selected_project.id if selected_project else 'null' }};
+        if (url.searchParams.has("show_completed")) {
+          url.searchParams.delete("show_completed");
+          changed = true;
+        }
+        if (requestedTaskId) {
+          cleanTreePath = {{ task_dashboard_path(0)|replace('/0', '')|tojson }} + "/" + encodeURIComponent(String(requestedTaskId));
+        } else if (requestedTreeSelectionType === "group" && selectedProjectId && requestedTreeSelectionId) {
+          cleanTreePath = {{ tree_dashboard_path(0, 0)|replace('/0/group/0', '')|tojson }} + "/" + encodeURIComponent(String(selectedProjectId)) + "/group/" + encodeURIComponent(String(requestedTreeSelectionId));
+        } else if ((requestedTreeSelectionType === "project" && requestedTreeSelectionId) || selectedProjectId) {
+          cleanTreePath = {{ tree_dashboard_path(0)|replace('/0', '')|tojson }} + "/" + encodeURIComponent(String(requestedTreeSelectionId || selectedProjectId));
+        }
+        if ((url.pathname + url.hash) !== (cleanTreePath + url.hash)) {
+          changed = true;
+        }
+        if (changed) {
+          window.history.replaceState({}, "", cleanTreePath + (url.hash || ""));
+          return;
+        }
+      } else {
+        var cleanInboxPath = {{ url_for('ui.inbox_dashboard')|tojson }};
+        if (url.searchParams.has("project_id")) {
+          url.searchParams.delete("project_id");
+          changed = true;
+        }
+        if (url.searchParams.has("tree_select_type")) {
+          url.searchParams.delete("tree_select_type");
+          changed = true;
+        }
+        if (url.searchParams.has("tree_select_id")) {
+          url.searchParams.delete("tree_select_id");
+          changed = true;
+        }
+        if (url.searchParams.has("show_completed")) {
+          url.searchParams.delete("show_completed");
+          changed = true;
+        }
+        if (url.pathname !== cleanInboxPath) {
+          changed = true;
+        }
+        if (changed) {
+          window.history.replaceState({}, "", cleanInboxPath + url.hash);
+          return;
+        }
+      }
+      if (changed) {
+        window.history.replaceState({}, "", url.pathname + (url.search ? url.search : "") + url.hash);
+      }
+    })();
+
     var initialDrawerParams = new URLSearchParams(window.location.search);
     var openTaskId = drawer.getAttribute("data-open-task-id") || initialDrawerParams.get("open_discussion_task_id") || "";
     var openProjectDiscussionId = initialDrawerParams.get("open_discussion_project_id") || "";
@@ -16991,6 +17067,85 @@
       if (!treeSidebar) return;
       var storageKey = "termin:tree-view:v1";
       var currentSelection = null;
+      var treeRootPath = {{ tree_dashboard_path()|tojson }};
+      var treeProjectBase = {{ tree_dashboard_path(0)|replace('/0', '')|tojson }};
+      var treeGroupBase = {{ tree_dashboard_path(0, 0)|replace('/0/group/0', '')|tojson }};
+
+      function buttonSelection(button) {
+        if (!button) return null;
+        var type = String(button.getAttribute("data-tree-select-type") || "");
+        var id = String(button.getAttribute("data-tree-select-id") || "");
+        if (!type || !id) return null;
+        return { type: type, id: id };
+      }
+
+      function projectIdForSelection(selection) {
+        if (!selection) return "";
+        if (selection.type === "project") return String(selection.id || "");
+        if (selection.type === "group") {
+          var groupButton = document.querySelector('[data-tree-select-type="group"][data-tree-select-id="' + String(selection.id || "") + '"]');
+          return groupButton ? String(groupButton.getAttribute("data-tree-project-id") || "") : "";
+        }
+        return "";
+      }
+
+      function treePathForSelection(selection) {
+        if (!selection || selection.type === "division") return treeRootPath;
+        if (selection.type === "group") {
+          var groupProjectId = projectIdForSelection(selection);
+          if (groupProjectId) {
+            return treeGroupBase + "/" + encodeURIComponent(groupProjectId) + "/group/" + encodeURIComponent(String(selection.id));
+          }
+          return treeRootPath;
+        }
+        if (selection.type === "project") {
+          return treeProjectBase + "/" + encodeURIComponent(String(selection.id));
+        }
+        return treeRootPath;
+      }
+
+      function syncTreeLocation(selection, replace) {
+        if (!window.history || !window.history.pushState || !window.history.replaceState) return;
+        var nextPath = treePathForSelection(selection);
+        var currentPath = window.location.pathname + window.location.search + window.location.hash;
+        if (nextPath === currentPath) return;
+        if (replace) {
+          window.history.replaceState({ treeSelection: selection || null }, "", nextPath);
+        } else {
+          window.history.pushState({ treeSelection: selection || null }, "", nextPath);
+        }
+      }
+
+      function pathSelectionFromLocation() {
+        var taskMatch = window.location.pathname.match(/^\/task\/(\d+)\/?$/);
+        if (taskMatch) {
+          var taskButton = document.querySelector('[data-open-discussion="' + taskMatch[1] + '"]');
+          if (taskButton) {
+            var taskRow = taskButton.closest("[data-task-row-id]");
+            var groupBoard = taskRow ? taskRow.closest("[data-tree-group-board]") : null;
+            var projectBoard = taskRow ? taskRow.closest("[data-tree-project-board]") : null;
+            if (groupBoard) {
+              return { type: "group", id: String(groupBoard.getAttribute("data-tree-group-board") || "") };
+            }
+            if (projectBoard) {
+              return { type: "project", id: String(projectBoard.getAttribute("data-tree-project-board") || "") };
+            }
+          }
+          return null;
+        }
+        var groupMatch = window.location.pathname.match(/^\/tree\/project\/(\d+)\/group\/(\d+)\/?$/);
+        if (groupMatch) {
+          return { type: "group", id: String(groupMatch[2]) };
+        }
+        var projectMatch = window.location.pathname.match(/^\/tree\/project\/(\d+)\/?$/);
+        if (projectMatch) {
+          return { type: "project", id: String(projectMatch[1]) };
+        }
+        if (/^\/tree\/?$/.test(window.location.pathname)) {
+          return null;
+        }
+        return null;
+      }
 
       function projectBoards() {
         return Array.from(document.querySelectorAll("[data-tree-project-board]"));
@@ -17120,10 +17275,13 @@
         }
       }
 
-      function applySelection(selection) {
+      function applySelection(selection, options) {
         markSelection(selection);
         applyBoardSelection(selection);
         saveState(snapshotState(selection));
+        if (!options || options.syncHistory !== false) {
+          syncTreeLocation(selection, !!(options && options.replaceHistory));
+        }
       }
 
       function treeBoardNeedsSnapshot(projectId, groupId) {
@@ -17524,10 +17682,7 @@
         }
         var selectButton = event.target.closest("[data-tree-select-type]");
         if (!selectButton) return;
-        currentSelection = {
-          type: String(selectButton.getAttribute("data-tree-select-type")),
-          id: String(selectButton.getAttribute("data-tree-select-id")),
-        };
+        currentSelection = buttonSelection(selectButton);
         applySelection(currentSelection);
         if (typeof window.__closeMobileSidebar === "function") {
           window.__closeMobileSidebar();
@@ -17548,7 +17703,10 @@
 
       var state = loadState() || {};
       applyCollapsedState(state);
-      if (state.selection && state.selection.type && state.selection.id) {
+      var pathSelection = pathSelectionFromLocation();
+      if (pathSelection && pathSelection.type && pathSelection.id) {
+        currentSelection = pathSelection;
+      } else if (state.selection && state.selection.type && state.selection.id) {
         currentSelection = state.selection;
       } else {
         var requestedTreeSelectionType = {{ (tree_selection_type or "")|tojson }};
@@ -17577,10 +17735,29 @@
           }
         }
       }
-      applySelection(currentSelection);
+      applySelection(currentSelection, { replaceHistory: true });
       if (treeBoard) {
         treeBoard.setAttribute("data-tree-ready", "1");
       }
+
+      window.addEventListener("popstate", function () {
+        var nextSelection = pathSelectionFromLocation();
+        if (!nextSelection || !nextSelection.type || !nextSelection.id) return;
+        currentSelection = nextSelection;
+        applySelection(currentSelection, { syncHistory: false });
+        if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+          if (currentSelection.type === "project") {
+            if (treeBoardNeedsSnapshot(currentSelection.id, null)) {
+              window.__refreshTreeProjectSnapshotLocal(currentSelection.id);
+            }
+          } else if (currentSelection.type === "group") {
+            var popstateProjectId = projectIdForSelection(currentSelection);
+            if (popstateProjectId && treeBoardNeedsSnapshot(popstateProjectId, currentSelection.id)) {
+              window.__refreshTreeProjectSnapshotLocal(popstateProjectId);
+            }
+          }
+        }
+      });
     })();
     {% endif %}
 

@@ -10042,9 +10042,9 @@
           </button>
           {% endif %}
           <div class="view-switcher">
-            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='tree', show_completed=1) }}{% else %}{{ url_for('ui.dashboard', view='tree', show_completed=1) }}{% endif %}">Tree</a>
-            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.dashboard', project_id=selected_project.id, view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% else %}{{ url_for('ui.dashboard', view='todo', show_completed=1 if (current_view == 'todo' and show_completed) else 0) }}{% endif %}">Todo</a>
-            <a class="view-switch{% if current_view == 'inbox' %} active{% endif %}" href="{{ url_for('ui.dashboard', view='inbox', show_completed=1) }}">Inbox</a>
+            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}">Tree</a>
+            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if current_view == 'todo' and show_completed %}{{ url_for('ui.todo_dashboard', show_completed=1) }}{% else %}{{ url_for('ui.todo_dashboard') }}{% endif %}">Todo</a>
+            <a class="view-switch{% if current_view == 'inbox' %} active{% endif %}" href="{{ url_for('ui.inbox_dashboard') }}">Inbox</a>
             <div class="view-search" data-task-search>
               <button class="view-switch view-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" data-task-search-trigger aria-label="Search" title="Search">
                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
@@ -10077,7 +10077,7 @@
                         class="notifications-open"
                         type="button"
                         data-notification-open='{{ {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id}|tojson|forceescape }}'
-                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='tree', show_completed=1) if item.project_id else url_for('ui.dashboard', view='tree', show_completed=1) }}"
+                        data-notification-href="{{ url_for('ui.tree_project_dashboard', project_id=item.project_id) if item.project_id else url_for('ui.tree_dashboard') }}"
                       >
                         <div class="notifications-title">{{ item.task_title }}</div>
                         <div class="notifications-copy">
@@ -10115,7 +10115,7 @@
                         class="notifications-open"
                         type="button"
                         data-notification-open='{{ {"notification_id": item.id, "task_id": item.task_id, "project_id": item.project_id, "kind": item.kind}|tojson|forceescape }}'
-                        data-notification-href="{{ url_for('ui.dashboard', project_id=item.project_id, view='tree', show_completed=1) if item.project_id else url_for('ui.dashboard', view='tree', show_completed=1) }}"
+                        data-notification-href="{{ url_for('ui.tree_project_dashboard', project_id=item.project_id) if item.project_id else url_for('ui.tree_dashboard') }}"
                       >
                         <div class="notifications-title">{{ item.sender_name }}</div>
                         <div class="notifications-copy">
@@ -10568,8 +10568,8 @@
         function headerNotificationHref(item) {
           const projectId = item && item.project_id ? String(item.project_id) : "";
           return projectId
-            ? "/?project_id=" + encodeURIComponent(projectId) + "&view=tree&show_completed=1"
-            : "/?view=tree&show_completed=1";
+            ? "/tree/project/" + encodeURIComponent(projectId)
+            : "/tree";
         }
 
         function headerNotificationKey(item) {

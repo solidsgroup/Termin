@@ -272,16 +272,7 @@ def _calendar_event_description(
 def _calendar_event_url(task: Task, public_base_url: str) -> str:
     if not public_base_url:
         return ""
-    selection_type = "group" if task.group_id else "project"
-    selection_id = task.group_id if task.group_id else task.project_id
-    return (
-        f"{public_base_url}/?project_id={task.project_id}"
-        f"&view=tree"
-        f"&show_completed=1"
-        f"&open_discussion_task_id={task.id}"
-        f"&tree_select_type={selection_type}"
-        f"&tree_select_id={selection_id}"
-    )
+    return f"{public_base_url}{task_dashboard_path(task.id)}"
 
 
 def _build_calendar_feed_ics(email: str, tasks: list[Task]) -> str:
@@ -1213,16 +1204,68 @@ def _ensure_assignment_invite(assignment: Assignment, calendar_opt_in: bool = Fa
     return invite
 
 
+def tree_dashboard_path(project_id: int | None = None, group_id: int | None = None) -> str:
+    if project_id is None:
+        return "/tree"
+    if group_id is not None:
+        return f"/tree/project/{int(project_id)}/group/{int(group_id)}"
+    return f"/tree/project/{int(project_id)}"
+
+
+def task_dashboard_path(task_id: int) -> str:
+    return f"/task/{int(task_id)}"
+
+
 @ui_bp.get("/")
 @login_required
 def dashboard():
+    return _render_dashboard()
+
+
+@ui_bp.get("/tree")
+@login_required
+def tree_dashboard():
+    return _render_dashboard(route_view="tree")
+
+
+@ui_bp.get("/tree/project/<int:project_id>")
+@login_required
+def tree_project_dashboard(project_id: int):
+    return _render_dashboard(route_view="tree", route_project_id=project_id)
+
+
+@ui_bp.get("/tree/project/<int:project_id>/group/<int:group_id>")
+@login_required
+def tree_group_dashboard(project_id: int, group_id: int):
+    return _render_dashboard(route_view="tree", route_project_id=project_id, route_group_id=group_id)
+
+
+@ui_bp.get("/task/<int:task_id>")
+@login_required
+def task_dashboard(task_id: int):
+    return _render_dashboard(route_view="tree", route_task_id=task_id)
+
+
+@ui_bp.get("/todo")
+@login_required
+def todo_dashboard():
+    return _render_dashboard(route_view="todo")
+
+
+@ui_bp.get("/inbox")
+@login_required
+def inbox_dashboard():
+    return _render_dashboard(route_view="inbox")
+
+
+def _render_dashboard(route_view: str | None = None, route_project_id: int | None = None, route_group_id: int | None = None, route_task_id: int | None = None):
     user = current_user()
     now_utc = datetime.utcnow()
     github_identity = github_identity_for_user(user.id)
     github_sync_state = github_sync_state_for_user(user.id)
     github_project_id = github_sync_state.project_id if github_sync_state else None
     github_auto_sync_needed = bool(github_identity and github_identity.access_token and should_sync_github_issues(user.id))
-    current_view = (request.args.get("view") or "tree").strip().lower()
+    current_view = (route_view or request.args.get("view") or "tree").strip().lower()
     if current_view == "project":
         current_view = "tree"
     if current_view not in {"todo", "tree", "inbox"}:
@@ -1298,10 +1341,17 @@ def dashboard():
 
     selected_project = None
     division_color_map = {division.id: division_effective_color(division, active_theme_name) for division in sidebar_divisions}
-    selected_id = request.args.get("project_id")
-    open_task_id = request.args.get("open_discussion_task_id")
-    tree_selection_type = (request.args.get("tree_select_type") or "").strip().lower()
-    tree_selection_id = (request.args.get("tree_select_id") or "").strip()
+    selected_id = str(route_project_id) if route_project_id is not None else request.args.get("project_id")
+    open_task_id = str(route_task_id) if route_task_id is not None else request.args.get("open_discussion_task_id")
+    if route_group_id is not None and route_project_id is not None:
+        tree_selection_type = "group"
+        tree_selection_id = str(route_group_id)
+    elif route_project_id is not None and current_view == "tree":
+        tree_selection_type = "project"
+        tree_selection_id = str(route_project_id)
+    else:
+        tree_selection_type = (request.args.get("tree_select_type") or "").strip().lower()
+        tree_selection_id = (request.args.get("tree_select_id") or "").strip()
     if tree_selection_type not in {"division", "project", "group"}:
         tree_selection_type = ""
         tree_selection_id = ""
@@ -1839,6 +1889,8 @@ def dashboard():
         tree_selection_id=tree_selection_id,
         project_hierarchy_meta=project_hierarchy_meta,
         is_admin_user=user_is_admin(user),
+        tree_dashboard_path=tree_dashboard_path,
+        task_dashboard_path=task_dashboard_path,
     )
 
 
@@ -1859,15 +1911,7 @@ def follow_task(task_id: int):
     ):
         return redirect(url_for("ui.dashboard"))
     return redirect(
-        url_for(
-            "ui.dashboard",
-            project_id=task.project_id,
-            view="tree",
-            show_completed=1,
-            open_discussion_task_id=task.id,
-            tree_select_type="group" if task.group_id else "project",
-            tree_select_id=task.group_id if task.group_id else task.project_id,
-        )
+        url_for("ui.task_dashboard", task_id=task.id)
     )
 
 
@@ -1888,15 +1932,7 @@ def follow_group(group_id: int):
     ):
         return redirect(url_for("ui.dashboard"))
     return redirect(
-        url_for(
-            "ui.dashboard",
-            project_id=group.project_id,
-            view="tree",
-            show_completed=1,
-            open_discussion_group_id=group.id,
-            tree_select_type="group",
-            tree_select_id=group.id,
-        )
+        url_for("ui.tree_group_dashboard", project_id=group.project_id, group_id=group.id, open_discussion_group_id=group.id)
     )
 
 
@@ -1917,15 +1953,7 @@ def follow_project(project_id: int):
     ):
         return redirect(url_for("ui.dashboard"))
     return redirect(
-        url_for(
-            "ui.dashboard",
-            project_id=project.id,
-            view="tree",
-            show_completed=1,
-            open_discussion_project_id=project.id,
-            tree_select_type="project",
-            tree_select_id=project.id,
-        )
+        url_for("ui.tree_project_dashboard", project_id=project.id, open_discussion_project_id=project.id)
     )
 
 
