@@ -3430,6 +3430,11 @@
         transition: color 120ms ease, background 120ms ease;
       }
 
+      .discussion-drawer[data-entity-type="project"] .discussion-lock-toggle,
+      .discussion-drawer[data-entity-type="group"] .discussion-lock-toggle {
+        display: none !important;
+      }
+
       .discussion-lock-toggle:hover {
         background: rgba(255, 255, 255, 0.05);
         color: var(--ink);

@@ -11558,6 +11558,9 @@
       taskOnlyEls.forEach(function (el) {
         el.style.display = currentEntityType === "task" ? "" : "none";
       });
+      if (discussionLockToggleEl) {
+        discussionLockToggleEl.hidden = currentEntityType !== "task";
+      }
       if (settingsTitleLabelEl) {
         settingsTitleLabelEl.textContent = currentEntityType === "task" ? "Title" : "Name";
       }

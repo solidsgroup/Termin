@@ -3433,6 +3433,7 @@ def search_tasks():
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return {"results": []}
+    active_theme_name = normalize_theme_name(getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
     accessible_projects = _accessible_projects_for_user(user)
     accessible_project_ids = [project.id for project in accessible_projects]
     if not accessible_project_ids:
