@@ -1533,6 +1533,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
         project_hierarchy_meta[project.id] = {
             "division_name": division.name if division else None,
+            "division_id": division.id if division else None,
             "division_color": division_effective_color(division, active_theme_name) if division else None,
             "project_name": project_display_names.get(project.id, project.name),
         }

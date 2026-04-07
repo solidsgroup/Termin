@@ -1965,11 +1965,19 @@
 
     window.__applyStatusState = applyStatusState;
 
+    window.__taskIdIsLocked = function taskIdIsLocked(taskId) {
+      var normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId) return false;
+      var node = document.querySelector('[data-task-row-id="' + normalizedTaskId + '"], .todo-item[data-task-id="' + normalizedTaskId + '"], [data-gantt-track][data-task-id="' + normalizedTaskId + '"]');
+      return !!(node && String(node.getAttribute("data-task-locked") || "") === "1");
+    };
+
+
     function saveEditable(cell) {
       if (!cell || cell.dataset.editableSaving === "1") return Promise.resolve();
       var target = getEditableTarget(cell);
       if (!target) return Promise.resolve();
-      if (target.url.indexOf("/api/tasks/") === 0 && target.field === "title" && taskIdIsLocked(cell.getAttribute("data-task-id"))) {
+      if (target.url.indexOf("/api/tasks/") === 0 && target.field === "title" && window.__taskIdIsLocked(cell.getAttribute("data-task-id"))) {
         return Promise.resolve();
       }
       var value = normalizeEditableText(cell);
@@ -2353,7 +2361,7 @@
           if (option) {
             event.preventDefault();
             event.stopPropagation();
-            if (activeStatusCell && taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
+            if (activeStatusCell && window.__taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
               closeStatusMenu();
               return;
             }
@@ -2366,7 +2374,7 @@
         statusMenuApply.addEventListener("click", function (event) {
           event.preventDefault();
           event.stopPropagation();
-          if (activeStatusCell && taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
+          if (activeStatusCell && window.__taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
             closeStatusMenu();
             return;
           }
@@ -2378,7 +2386,7 @@
         statusMenuInput.addEventListener("keydown", function (event) {
           if (event.key === "Enter") {
             event.preventDefault();
-            if (activeStatusCell && taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
+            if (activeStatusCell && window.__taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
               closeStatusMenu();
               return;
             }
@@ -2405,7 +2413,7 @@
         }
         if (!cell || cell.tagName === "INPUT") return;
         if (isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
-        if (cell.hasAttribute("data-task-id") && taskIdIsLocked(cell.getAttribute("data-task-id"))) {
+        if (cell.hasAttribute("data-task-id") && window.__taskIdIsLocked(cell.getAttribute("data-task-id"))) {
           if (cell.classList.contains("status-editable")) {
             event.preventDefault();
             event.stopPropagation();
@@ -6599,7 +6607,7 @@
     };
 
     const createAssignmentsForGroup = (targetId, container) => {
-      if (taskIdIsLocked(targetId)) return Promise.resolve(null);
+      if (window.__taskIdIsLocked(targetId)) return Promise.resolve(null);
       return fetch("/api/tasks/" + Number(targetId) + "/assign_all", {
         method: "POST",
         credentials: "same-origin",
@@ -7185,7 +7193,7 @@
 
     const submitAssignmentInput = (input, targetType, targetId) => {
       if (!input || !targetType) return;
-      if (targetType === "task" && taskIdIsLocked(targetId)) {
+      if (targetType === "task" && window.__taskIdIsLocked(targetId)) {
         collapseInlineAssignInput(input);
         return;
       }
@@ -7406,7 +7414,7 @@
       if (!cell) return false;
       const input = cell.querySelector(".due-input");
       if (!input) return false;
-      if (taskIdIsLocked(input.getAttribute("data-task-id"))) return false;
+      if (window.__taskIdIsLocked(input.getAttribute("data-task-id"))) return false;
       openDueModeMenu(input);
       return false;
     };
@@ -7423,7 +7431,7 @@
     const applyDueInput = (input) => {
       if (!input) return;
       const taskId = input.getAttribute("data-task-id");
-      if (taskId && taskIdIsLocked(taskId)) {
+      if (taskId && window.__taskIdIsLocked(taskId)) {
         hideDueInput(input);
         return;
       }
@@ -7842,7 +7850,7 @@
         if (!assignmentId) return;
         const taskScope = removeAssignment.closest("[data-task-row-id], .todo-item[data-task-id]");
         const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id")) : currentTaskId;
-        if (taskIdIsLocked(scopedTaskId)) return;
+        if (window.__taskIdIsLocked(scopedTaskId)) return;
         fetch(`/api/assignments/${assignmentId}`, { method: "DELETE" })
           .then((res) => res.json().catch(() => ({})))
           .then((data) => {
@@ -7857,7 +7865,7 @@
       if (toggleGroupAssignment) {
         const taskId = toggleGroupAssignment.getAttribute("data-group-assignment-toggle");
         if (!taskId) return;
-        if (taskIdIsLocked(taskId)) return;
+        if (window.__taskIdIsLocked(taskId)) return;
         fetch("/api/tasks/" + taskId, {
           method: "PATCH",
           credentials: "same-origin",
@@ -7890,7 +7898,7 @@
       if (deleteBtn) {
         const taskId = deleteBtn.getAttribute("data-delete-task");
         if (!taskId) return;
-        if (taskIdIsLocked(taskId)) return;
+        if (window.__taskIdIsLocked(taskId)) return;
         const closeDeletedTaskDrawer = () => {
           const openDrawer = document.getElementById("discussion-drawer");
           if (!openDrawer) return;
@@ -7939,7 +7947,7 @@
       if (assignAdd) {
         const taskScope = assignAdd.closest("[data-task-row-id], .todo-item[data-task-id]");
         const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id")) : "";
-        if (taskIdIsLocked(scopedTaskId)) return;
+        if (window.__taskIdIsLocked(scopedTaskId)) return;
         const action = assignAdd.closest(".assign-action");
         const input = action ? action.querySelector(".assign-input") : null;
         if (input) {
@@ -10120,7 +10128,7 @@
       return !!(task && task.locked);
     }
 
-    function taskIdIsLocked(taskId) {
+    window.__taskIdIsLocked = function taskIdIsLocked(taskId) {
       var normalizedTaskId = String(taskId || "").trim();
       if (!normalizedTaskId) return false;
       if (String(currentTaskId || "") === normalizedTaskId && currentTaskData) {
@@ -10132,7 +10140,7 @@
       }
       var node = document.querySelector('[data-task-row-id="' + normalizedTaskId + '"], .todo-item[data-task-id="' + normalizedTaskId + '"], [data-gantt-track][data-task-id="' + normalizedTaskId + '"]');
       return !!(node && String(node.getAttribute("data-task-locked") || "") === "1");
-    }
+    };
 
     function applyTaskLockState(taskId, locked) {
       var normalizedTaskId = String(taskId || "").trim();
@@ -10270,22 +10278,42 @@
         || null;
     }
 
+    function discussionSubtitleLink(label, href, treeType, treeId, extraAttributes) {
+      var attrs = extraAttributes ? " " + extraAttributes : "";
+      return '<a class="discussion-subtitle-link" href="' + drawerEscapeHtml(href || "#") + '"' +
+        (treeType ? ' data-tree-nav-type="' + drawerEscapeHtml(treeType) + '"' : "") +
+        (treeId != null && treeId !== "" ? ' data-tree-nav-id="' + drawerEscapeHtml(String(treeId)) + '"' : "") +
+        attrs +
+        '>' + drawerEscapeHtml(label) + '</a>';
+    }
+
     function setDiscussionSubtitle(projectId, groupName) {
       if (!subtitleEl) return;
       var meta = hierarchyMetaForProject(projectId);
       var parts = [];
-      if (meta && meta.division_name) {
+      var currentGroupId = "";
+      if (groupName) {
+        if (currentEntityType === "group" && currentEntityId) {
+          currentGroupId = String(currentEntityId);
+        } else if (currentTaskData && currentTaskData.group_id) {
+          currentGroupId = String(currentTaskData.group_id);
+        }
+      }
+      if (meta && meta.division_name && meta.division_id != null) {
         parts.push(
           '<span class="discussion-subtitle-division" style="color: ' + drawerEscapeHtml(meta.division_color || "#4cc9f0") + ';">' +
-          drawerEscapeHtml(meta.division_name) +
+          discussionSubtitleLink(meta.division_name, {{ tree_dashboard_path()|tojson }}, "division", meta.division_id) +
           "</span>"
         );
       }
       if (meta && meta.project_name) {
         if (parts.length) parts.push('<span class="discussion-subtitle-sep">·</span>');
-        parts.push('<span>' + drawerEscapeHtml(meta.project_name) + '</span>');
+        parts.push('<span>' + discussionSubtitleLink(meta.project_name, {{ tree_dashboard_path(0)|replace('/0', '')|tojson }} + "/" + encodeURIComponent(String(projectId)), "project", projectId) + '</span>');
       }
-      if (groupName) {
+      if (groupName && currentGroupId && projectId) {
+        if (parts.length) parts.push('<span class="discussion-subtitle-sep">·</span>');
+        parts.push('<span>' + discussionSubtitleLink(groupName, {{ tree_dashboard_path(0, 0)|replace('/0/group/0', '')|tojson }} + "/" + encodeURIComponent(String(projectId)) + "/group/" + encodeURIComponent(String(currentGroupId)), "group", currentGroupId, 'data-tree-project-id="' + drawerEscapeHtml(String(projectId)) + '"') + '</span>');
+      } else if (groupName) {
         if (parts.length) parts.push('<span class="discussion-subtitle-sep">·</span>');
         parts.push('<span>' + drawerEscapeHtml(groupName) + '</span>');
       }
@@ -12433,7 +12461,7 @@
 
     function createSettingsAssignmentsForGroup() {
       if (!currentTaskId) return Promise.resolve(null);
-      if (taskIdIsLocked(currentTaskId)) return Promise.resolve(null);
+      if (window.__taskIdIsLocked(currentTaskId)) return Promise.resolve(null);
       return fetch("/api/tasks/" + currentTaskId + "/assign_all", {
         method: "POST",
         credentials: "same-origin",
@@ -14356,7 +14384,7 @@
     }
 
     function patchTaskUserStatus(taskId, userId, statusValue) {
-      if (taskIdIsLocked(taskId)) {
+      if (window.__taskIdIsLocked(taskId)) {
         return Promise.reject(new Error("Task is locked"));
       }
       return fetch("/api/tasks/" + taskId, {
@@ -14409,7 +14437,7 @@
 
     function submitSettingsAssignment() {
       if (!taskSettingsAssigneeEl || !currentTaskId) return;
-      if (taskIdIsLocked(currentTaskId)) return;
+      if (window.__taskIdIsLocked(currentTaskId)) return;
       var raw = (taskSettingsAssigneeEl.value || "").trim();
       if (!raw || raw.indexOf("@") === -1) return;
       if (taskSettingsAssigneeEl.dataset.assignSubmitting === "1") return;
@@ -14854,6 +14882,21 @@
         );
       });
     });
+    if (subtitleEl) {
+      subtitleEl.addEventListener("click", function (event) {
+        var link = event.target.closest("[data-tree-nav-type][data-tree-nav-id]");
+        if (!link) return;
+        {% if current_view == 'tree' %}
+        var treeButtonSelector = '[data-tree-select-type="' + link.getAttribute("data-tree-nav-type") + '"][data-tree-select-id="' + link.getAttribute("data-tree-nav-id") + '"]';
+        var treeButton = document.querySelector(treeButtonSelector);
+        if (treeButton) {
+          event.preventDefault();
+          treeButton.click();
+          return;
+        }
+        {% endif %}
+      });
+    }
     document.addEventListener("click", function (event) {
       var shareProjectButton = event.target.closest("[data-open-share-project]");
       if (shareProjectButton) {
@@ -15034,7 +15077,7 @@
         event.stopPropagation();
         var taskId = trigger.getAttribute("data-task-id") || trigger.getAttribute("data-task-multi-status-trigger");
         if (!taskId) return;
-        if (taskIdIsLocked(taskId)) return;
+        if (window.__taskIdIsLocked(taskId)) return;
         var statusHost = trigger.closest("[data-task-status-host]") || document.querySelector('[data-task-status-host="' + taskId + '"]');
         var hostTask = statusHost && statusHost._taskPayload ? statusHost._taskPayload : null;
         if (!hostTask && statusHost) {
@@ -15890,7 +15933,7 @@
     if (taskSettingsDeleteEl) {
       taskSettingsDeleteEl.addEventListener("click", function () {
         if (!currentTaskId) return;
-        if (taskIdIsLocked(currentTaskId)) return;
+        if (window.__taskIdIsLocked(currentTaskId)) return;
         var inlineDelete = document.querySelector('[data-delete-task="' + currentTaskId + '"]');
         if (inlineDelete) {
           inlineDelete.click();
@@ -16033,7 +16076,7 @@
     if (discussionLockToggleEl) {
       discussionLockToggleEl.addEventListener("click", function () {
         if (!currentTaskId || currentEntityType !== "task") return;
-        var nextLocked = !taskIdIsLocked(currentTaskId);
+        var nextLocked = !window.__taskIdIsLocked(currentTaskId);
         fetch("/api/tasks/" + currentTaskId, {
           method: "PATCH",
           credentials: "same-origin",
