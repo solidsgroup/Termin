@@ -237,7 +237,7 @@
       {% set task_status_state = task_status_payload.get('aggregate_state') or task_status_payload.get('my_status_state') or status_state(task.status) %}
       {% set github_meta = github_task_meta.get(task.id) %}
       {% set can_move_task = not github_meta %}
-      <tr class="task-row{% if can_move_task %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-status-state="{{ task_status_state }}">
+      <tr class="task-row{% if can_move_task %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-task-locked="{{ 1 if task.locked else 0 }}" data-status-state="{{ task_status_state }}">
         <td>
           <div class="row-controls">
             {% if can_move_task %}
@@ -257,7 +257,7 @@
                 <span>{{ task.title }}</span>
               </a>
             {% else %}
-              <div class="editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
+              <div class="editable" contenteditable="{{ 'false' if task.locked else 'true' }}" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
             {% endif %}
             <span class="task-link-badges" data-task-link-badges="{{ task.id }}">
               {% for link in task_info.links or [] %}
@@ -287,7 +287,7 @@
             <div class="due-summary{% if not task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if task.due_at %}Due {{ task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
               <span class="due-summary-label">{{ render_due_summary(task, now_utc) }}</span>
             </div>
-            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-start-date="{{ task_info.get('meta', {}).get('start_date', '') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-start-date="{{ task_info.get('meta', {}).get('start_date', '') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" {% if task.locked %}disabled{% endif %} />
           </div>
         </td>
         <td>
@@ -738,7 +738,7 @@
                 {% set todo_status_state = todo_status_payload.get('aggregate_state') or todo_status_payload.get('my_status_state') or status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
                 {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
-                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else ('direct' if item.project.is_direct else 'none') }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-completed-window="{% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' and not item.task.due_at %}asap{% elif item.task.due_at and item.task.due_at.date() < now_utc.date() %}past{% elif item.task.due_at and item.task.due_at.date() == now_utc.date() %}today{% else %}future{% endif %}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
+                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else ('direct' if item.project.is_direct else 'none') }}" data-task-locked="{{ 1 if item.task.locked else 0 }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-completed-window="{% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' and not item.task.due_at %}asap{% elif item.task.due_at and item.task.due_at.date() < now_utc.date() %}past{% elif item.task.due_at and item.task.due_at.date() == now_utc.date() %}today{% else %}future{% endif %}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
                   <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
                   <div class="todo-project-meta">
                     <a class="todo-project-name" href="{{ url_for('ui.dashboard', project_id=item.project.id, view='tree', show_completed=1, tree_select_type='project', tree_select_id=item.project.id) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
@@ -761,7 +761,7 @@
                         <span>{{ item.task.title }}</span>
                       </a>
                     {% else %}
-                      <div class="editable todo-item-title" contenteditable="true" data-task-id="{{ item.task.id }}" data-field="title" data-col="1">{{ item.task.title }}</div>
+                      <div class="editable todo-item-title" contenteditable="{{ 'false' if item.task.locked else 'true' }}" data-task-id="{{ item.task.id }}" data-field="title" data-col="1">{{ item.task.title }}</div>
                     {% endif %}
                     <span class="task-link-badges" data-task-link-badges="{{ item.task.id }}">
                       {% for link in todo_task_info.get("links", []) %}
@@ -797,7 +797,7 @@
                             {% endif %}
                           </span>
                         </div>
-                        <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-due-mode="{{ todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" />
+                        <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-due-mode="{{ todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" {% if item.task.locked %}disabled{% endif %} />
                       </div>
                       {% if github_meta %}
                         <div class="todo-control todo-control-status">
@@ -1342,7 +1342,12 @@
 <aside class="discussion-drawer" id="discussion-drawer" data-open-task-id="">
   <div class="discussion-header">
     <div>
-      <div class="discussion-title" id="discussion-title">Discussion</div>
+      <div class="discussion-title-row">
+        <div class="discussion-title" id="discussion-title">Discussion</div>
+        <button class="discussion-lock-toggle" type="button" id="discussion-lock-toggle" aria-label="Lock task" title="Lock task" hidden>
+          <i class="fa-solid fa-lock-open" aria-hidden="true"></i>
+        </button>
+      </div>
       <div class="discussion-subtitle" id="discussion-subtitle"></div>
       <div class="discussion-tabs" id="drawer-header-tabs">
         <button class="discussion-tab" type="button" data-drawer-tab="settings">Settings</button>
@@ -1964,6 +1969,9 @@
       if (!cell || cell.dataset.editableSaving === "1") return Promise.resolve();
       var target = getEditableTarget(cell);
       if (!target) return Promise.resolve();
+      if (target.url.indexOf("/api/tasks/") === 0 && target.field === "title" && taskIdIsLocked(cell.getAttribute("data-task-id"))) {
+        return Promise.resolve();
+      }
       var value = normalizeEditableText(cell);
       var original = cell.dataset.originalValue;
       if (original === undefined) {
@@ -2345,6 +2353,10 @@
           if (option) {
             event.preventDefault();
             event.stopPropagation();
+            if (activeStatusCell && taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
+              closeStatusMenu();
+              return;
+            }
             commitStatusValue(option.getAttribute("data-status-option"));
           }
         });
@@ -2354,6 +2366,10 @@
         statusMenuApply.addEventListener("click", function (event) {
           event.preventDefault();
           event.stopPropagation();
+          if (activeStatusCell && taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
+            closeStatusMenu();
+            return;
+          }
           commitStatusValue(statusMenuInput ? statusMenuInput.value : "");
         });
       }
@@ -2362,6 +2378,10 @@
         statusMenuInput.addEventListener("keydown", function (event) {
           if (event.key === "Enter") {
             event.preventDefault();
+            if (activeStatusCell && taskIdIsLocked(activeStatusCell.getAttribute("data-task-id"))) {
+              closeStatusMenu();
+              return;
+            }
             commitStatusValue(statusMenuInput.value);
           } else if (event.key === "Escape") {
             event.preventDefault();
@@ -2385,6 +2405,13 @@
         }
         if (!cell || cell.tagName === "INPUT") return;
         if (isMobileTaskDrawerMode() && cell.hasAttribute("data-task-id")) return;
+        if (cell.hasAttribute("data-task-id") && taskIdIsLocked(cell.getAttribute("data-task-id"))) {
+          if (cell.classList.contains("status-editable")) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
         if (cell.classList.contains("status-editable")) {
           if (event.key === "Escape") {
             closeStatusMenu();
@@ -4038,6 +4065,7 @@
             effectiveDueDate = new Date(Math.max(endDate.getTime(), todayDate.getTime()));
           }
           var dueDate = effectiveDueDate;
+          var locked = !!item.locked;
           var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
           if (startTaskDate && Number.isNaN(startTaskDate.getTime())) {
             startTaskDate = null;
@@ -4069,15 +4097,15 @@
                   ? '<span class="project-gantt-span-progress" style="width:' + progressPercent.toFixed(2) + '%;"></span>'
                   : '') +
               '</span>' +
-              '<button class="project-gantt-handle is-start" type="button" data-gantt-handle="start" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust start date" style="left:' + startPercent.toFixed(2) + '%;"></button>' +
+              '<button class="project-gantt-handle is-start" type="button" data-gantt-handle="start" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust start date" style="left:' + startPercent.toFixed(2) + '%;"' + (locked ? ' disabled' : '') + '></button>' +
               '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
           } else {
             trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
             if (!startTaskDate && dueMode === "date" && item.due_at) {
-              trackHtml += '<button class="project-gantt-handle is-start is-provisional" type="button" data-gantt-handle="start" data-gantt-provisional-start="1" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Set start date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
+              trackHtml += '<button class="project-gantt-handle is-start is-provisional" type="button" data-gantt-handle="start" data-gantt-provisional-start="1" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Set start date" style="left:' + endPercent.toFixed(2) + '%;"' + (locked ? ' disabled' : '') + '></button>';
             }
           }
-          trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"></button>';
+          trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"' + (locked ? ' disabled' : '') + '></button>';
           return trackHtml;
         }
 	        var rows = sections.map(function (section) {
@@ -4098,7 +4126,7 @@
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
 		                '</div>' +
 		              '</div>' +
-		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
+		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-task-locked="' + (item.locked ? '1' : '0') + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
 		                trackHtml +
 		              '</div>' +
 		            '</div>'
@@ -6571,6 +6599,7 @@
     };
 
     const createAssignmentsForGroup = (targetId, container) => {
+      if (taskIdIsLocked(targetId)) return Promise.resolve(null);
       return fetch("/api/tasks/" + Number(targetId) + "/assign_all", {
         method: "POST",
         credentials: "same-origin",
@@ -7156,6 +7185,10 @@
 
     const submitAssignmentInput = (input, targetType, targetId) => {
       if (!input || !targetType) return;
+      if (targetType === "task" && taskIdIsLocked(targetId)) {
+        collapseInlineAssignInput(input);
+        return;
+      }
       if (input.dataset.assignSelecting === "1") return;
       const raw = input.value.trim();
       if (!raw) return;
@@ -7373,6 +7406,7 @@
       if (!cell) return false;
       const input = cell.querySelector(".due-input");
       if (!input) return false;
+      if (taskIdIsLocked(input.getAttribute("data-task-id"))) return false;
       openDueModeMenu(input);
       return false;
     };
@@ -7389,6 +7423,10 @@
     const applyDueInput = (input) => {
       if (!input) return;
       const taskId = input.getAttribute("data-task-id");
+      if (taskId && taskIdIsLocked(taskId)) {
+        hideDueInput(input);
+        return;
+      }
       const value = input.value.trim();
       const dueMode = String(input.getAttribute("data-due-mode") || (value ? "date" : "none")).toLowerCase();
       if (value && !isValidDate(value)) {
@@ -7725,6 +7763,10 @@
 
 	    tasksTables.forEach(bindNewTaskRow);
 	    document.querySelectorAll(".due-input").forEach(bindDueInput);
+      document.querySelectorAll("[data-task-row-id][data-task-locked], .todo-item[data-task-id][data-task-locked]").forEach(function (node) {
+        var taskId = node.getAttribute("data-task-row-id") || node.getAttribute("data-task-id");
+        applyTaskLockState(taskId, String(node.getAttribute("data-task-locked") || "") === "1");
+      });
 	    document.querySelectorAll("input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='file']), textarea").forEach((input) => {
 	      if (typeof window.__hardDisableBrowserSuggestions === "function") {
 	        window.__hardDisableBrowserSuggestions(input);
@@ -7796,6 +7838,9 @@
       if (removeAssignment) {
         const assignmentId = removeAssignment.getAttribute("data-remove-assignment");
         if (!assignmentId) return;
+        const taskScope = removeAssignment.closest("[data-task-row-id], .todo-item[data-task-id]");
+        const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id")) : currentTaskId;
+        if (taskIdIsLocked(scopedTaskId)) return;
         fetch(`/api/assignments/${assignmentId}`, { method: "DELETE" })
           .then((res) => res.json().catch(() => ({})))
           .then((data) => {
@@ -7810,6 +7855,7 @@
       if (toggleGroupAssignment) {
         const taskId = toggleGroupAssignment.getAttribute("data-group-assignment-toggle");
         if (!taskId) return;
+        if (taskIdIsLocked(taskId)) return;
         fetch("/api/tasks/" + taskId, {
           method: "PATCH",
           credentials: "same-origin",
@@ -7842,6 +7888,7 @@
       if (deleteBtn) {
         const taskId = deleteBtn.getAttribute("data-delete-task");
         if (!taskId) return;
+        if (taskIdIsLocked(taskId)) return;
         const closeDeletedTaskDrawer = () => {
           const openDrawer = document.getElementById("discussion-drawer");
           if (!openDrawer) return;
@@ -7888,6 +7935,9 @@
 
       const assignAdd = event.target.closest(".assign-add-btn");
       if (assignAdd) {
+        const taskScope = assignAdd.closest("[data-task-row-id], .todo-item[data-task-id]");
+        const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id")) : "";
+        if (taskIdIsLocked(scopedTaskId)) return;
         const action = assignAdd.closest(".assign-action");
         const input = action ? action.querySelector(".assign-input") : null;
         if (input) {
@@ -9950,6 +10000,7 @@
     var sendEl = document.getElementById("discussion-send");
     var closeEls = [document.getElementById("discussion-close"), document.getElementById("discussion-cancel")].filter(Boolean);
     var titleEl = document.getElementById("discussion-title");
+    var discussionLockToggleEl = document.getElementById("discussion-lock-toggle");
     var subtitleEl = document.getElementById("discussion-subtitle");
     var presenceEl = document.getElementById("discussion-presence");
     var linksActionsEl = document.getElementById("discussion-links-actions");
@@ -10062,6 +10113,53 @@
       [":clipboard:", "📋"], [":file_folder:", "📁"], [":open_file_folder:", "📂"], [":package:", "📦"], [":mailbox:", "📫"], [":mailbox_with_mail:", "📬"],
       [":shield:", "🛡️"], [":crossed_swords:", "⚔️"], [":toolbox:", "🧰"], [":mag_right:", "🔎"], [":unlock:", "🔓"], [":hourglass_flowing_sand:", "⏳"]
     ];
+
+    function taskIsLocked(task) {
+      return !!(task && task.locked);
+    }
+
+    function taskIdIsLocked(taskId) {
+      var normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId) return false;
+      if (String(currentTaskId || "") === normalizedTaskId && currentTaskData) {
+        return taskIsLocked(currentTaskData);
+      }
+      var host = document.querySelector('[data-task-status-host="' + normalizedTaskId + '"]');
+      if (host && host._taskPayload) {
+        return taskIsLocked(host._taskPayload);
+      }
+      var node = document.querySelector('[data-task-row-id="' + normalizedTaskId + '"], .todo-item[data-task-id="' + normalizedTaskId + '"], [data-gantt-track][data-task-id="' + normalizedTaskId + '"]');
+      return !!(node && String(node.getAttribute("data-task-locked") || "") === "1");
+    }
+
+    function applyTaskLockState(taskId, locked) {
+      var normalizedTaskId = String(taskId || "").trim();
+      var isLocked = !!locked;
+      if (!normalizedTaskId) return;
+      document.querySelectorAll('[data-task-row-id="' + normalizedTaskId + '"], .todo-item[data-task-id="' + normalizedTaskId + '"], [data-gantt-track][data-task-id="' + normalizedTaskId + '"]').forEach(function (node) {
+        node.setAttribute("data-task-locked", isLocked ? "1" : "0");
+      });
+      document.querySelectorAll('.editable[data-task-id="' + normalizedTaskId + '"][data-field="title"]').forEach(function (cell) {
+        cell.setAttribute("contenteditable", isLocked ? "false" : "true");
+      });
+      document.querySelectorAll('.editable[data-task-id="' + normalizedTaskId + '"][data-field="status"]').forEach(function (cell) {
+        cell.setAttribute("contenteditable", isLocked ? "false" : "true");
+      });
+      document.querySelectorAll('.due-input[data-task-id="' + normalizedTaskId + '"]').forEach(function (input) {
+        input.disabled = isLocked;
+      });
+      document.querySelectorAll('.assign-input[data-target-id="' + normalizedTaskId + '"], .assign-input[data-task-id="' + normalizedTaskId + '"]').forEach(function (input) {
+        input.disabled = isLocked;
+      });
+      document.querySelectorAll('[data-task-row-id="' + normalizedTaskId + '"], .todo-item[data-task-id="' + normalizedTaskId + '"]').forEach(function (row) {
+        row.querySelectorAll(".assign-add-btn, [data-remove-assignment], [data-task-multi-status-trigger]").forEach(function (button) {
+          button.disabled = isLocked;
+        });
+      });
+      document.querySelectorAll('[data-gantt-track][data-task-id="' + normalizedTaskId + '"] [data-gantt-handle]').forEach(function (handle) {
+        handle.disabled = isLocked;
+      });
+    }
     var emojiShortcodeMap = Object.fromEntries(emojiShortcodeEntries);
     var emojiShortcodeOptions = emojiShortcodeEntries.map(function (entry) { return entry[0]; });
 
@@ -12045,22 +12143,27 @@
 	      if (projectSettingsEndFieldEl) {
 	        projectSettingsEndFieldEl.hidden = true;
 	        projectSettingsEndFieldEl.style.display = "none";
-	      }
+      }
       if (taskSettingsTitleFieldEl) {
         taskSettingsTitleFieldEl.hidden = false;
       }
       var task = currentTaskData || {};
+      var locked = taskIsLocked(task);
       var meta = taskStatusMeta(task);
       var effectiveStatus = taskMyStatus(task);
       var creator = task.creator || null;
       var creatorLabel = creator ? (creator.display_name || creator.email || "Unknown") : "Unknown";
       taskSettingsTitleEl.value = task.title || "";
+      taskSettingsTitleEl.disabled = locked;
       if (taskSettingsDueModeEl) {
         taskSettingsDueModeEl.value = taskDueModeValue(task);
+        taskSettingsDueModeEl.disabled = locked;
       }
       taskSettingsDueEl.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      taskSettingsDueEl.disabled = locked;
       if (taskSettingsStartDateEl) {
         taskSettingsStartDateEl.value = task.start_date ? String(task.start_date).slice(0, 10) : "";
+        taskSettingsStartDateEl.disabled = locked;
       }
       syncTaskSettingsDueControl();
       var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
@@ -12097,7 +12200,7 @@
         taskSettingsStatusEl.dataset.statusValue = effectiveStatus;
         taskSettingsStatusEl.setAttribute("data-payload-field", meta.mode === "single" ? "status" : "user_status");
         taskSettingsStatusEl.hidden = false;
-        taskSettingsStatusEl.disabled = false;
+        taskSettingsStatusEl.disabled = locked;
         taskSettingsStatusEl.dataset.statusMode = meta.mode || "single";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
         if (label) {
@@ -12115,16 +12218,21 @@
       }
       if (taskSettingsStatusModeEl) {
         taskSettingsStatusModeEl.value = meta.mode || "single";
+        taskSettingsStatusModeEl.disabled = locked;
       }
       syncTaskStatusModeButtons();
       if (taskSettingsAssignmentsEl) {
         var assignments = Array.isArray(task.assignments) ? task.assignments : [];
         taskSettingsAssignmentsEl.style.display = assignments.length ? "" : "none";
         taskSettingsAssignmentsEl.innerHTML = renderSettingsAssignmentRows(assignments);
+        taskSettingsAssignmentsEl.querySelectorAll("[data-remove-assignment]").forEach(function (button) {
+          button.disabled = locked;
+        });
       }
       if (taskSettingsAssigneeEl) {
         taskSettingsAssigneeEl.setAttribute("data-assign-input", "task");
         taskSettingsAssigneeEl.setAttribute("data-target-id", currentTaskId || "");
+        taskSettingsAssigneeEl.disabled = locked;
       }
       if (taskSettingsFollowersEl) {
         var followers = Array.isArray(task.followers) ? task.followers : [];
@@ -12145,6 +12253,22 @@
       if (task.created_at) bits.push("Created " + String(task.created_at).slice(0, 10));
       setDescriptionRendered((task && task.rendered_description) || "");
       taskSettingsMetaEl.textContent = bits.join(" · ");
+      if (taskSettingsDeleteEl) {
+        taskSettingsDeleteEl.disabled = locked;
+      }
+      taskSettingsStatusModeButtons.forEach(function (button) {
+        button.disabled = locked;
+      });
+      if (discussionLockToggleEl) {
+        discussionLockToggleEl.hidden = false;
+        discussionLockToggleEl.classList.toggle("is-locked", locked);
+        discussionLockToggleEl.setAttribute("aria-label", locked ? "Unlock task" : "Lock task");
+        discussionLockToggleEl.setAttribute("title", locked ? "Unlock task" : "Lock task");
+        discussionLockToggleEl.innerHTML = locked
+          ? '<i class="fa-solid fa-lock" aria-hidden="true"></i>'
+          : '<i class="fa-solid fa-lock-open" aria-hidden="true"></i>';
+      }
+      applyTaskLockState(task.id, locked);
     }
 
     function renderEntitySettings() {
@@ -12154,6 +12278,10 @@
       }
       if (!taskSettingsTitleEl || !taskSettingsMetaEl) return;
       var entity = currentEntityData || {};
+      currentTaskData = null;
+      if (discussionLockToggleEl) {
+        discussionLockToggleEl.hidden = true;
+      }
       currentEntityIsDirect = currentEntityType === "project" && !!entity.is_direct;
       drawer.querySelectorAll("[data-task-only]").forEach(function (node) {
         node.hidden = true;
@@ -12174,9 +12302,13 @@
       }
       drawer.setAttribute("data-is-direct", currentEntityIsDirect ? "1" : "0");
       taskSettingsTitleEl.value = entity.name || currentTaskTitle || "";
+      taskSettingsTitleEl.disabled = false;
       if (taskSettingsDueModeEl) taskSettingsDueModeEl.value = "none";
+      if (taskSettingsDueModeEl) taskSettingsDueModeEl.disabled = false;
       if (taskSettingsDueEl) taskSettingsDueEl.value = "";
+      if (taskSettingsDueEl) taskSettingsDueEl.disabled = false;
       if (taskSettingsStartDateEl) taskSettingsStartDateEl.value = "";
+      if (taskSettingsStartDateEl) taskSettingsStartDateEl.disabled = false;
       syncTaskSettingsDueControl();
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = "";
@@ -12193,6 +12325,7 @@
       }
       if (taskSettingsStatusModeEl) {
         taskSettingsStatusModeEl.value = "single";
+        taskSettingsStatusModeEl.disabled = false;
       }
       syncTaskStatusModeButtons();
       if (taskSettingsAssignmentsEl) {
@@ -12212,6 +12345,7 @@
         taskSettingsAssigneeEl.value = "";
         taskSettingsAssigneeEl.setAttribute("data-assign-input", "");
         taskSettingsAssigneeEl.setAttribute("data-target-id", "");
+        taskSettingsAssigneeEl.disabled = false;
       }
       if (taskSettingsFollowerEl) {
         taskSettingsFollowerEl.value = "";
@@ -12224,6 +12358,12 @@
       if (taskSettingsDescriptionFormatEl) {
         taskSettingsDescriptionFormatEl.value = entity.description_format || entityDescriptionFallback;
       }
+      if (taskSettingsDeleteEl) {
+        taskSettingsDeleteEl.disabled = false;
+      }
+      taskSettingsStatusModeButtons.forEach(function (button) {
+        button.disabled = false;
+      });
 	      if (projectSettingsStartDateEl) {
 	        projectSettingsStartDateEl.value = currentEntityType === "project" && entity.start_date ? String(entity.start_date).slice(0, 10) : "";
 	      }
@@ -12291,6 +12431,7 @@
 
     function createSettingsAssignmentsForGroup() {
       if (!currentTaskId) return Promise.resolve(null);
+      if (taskIdIsLocked(currentTaskId)) return Promise.resolve(null);
       return fetch("/api/tasks/" + currentTaskId + "/assign_all", {
         method: "POST",
         credentials: "same-origin",
@@ -13219,6 +13360,7 @@
       if (typeof window.__updateProjectGanttItemLocal === "function") {
         window.__updateProjectGanttItemLocal(effectiveTask);
       }
+      applyTaskLockState(task.id, !!effectiveTask.locked);
       return matched;
     }
     window.__applyTaskRowUpdate = applyTaskRowUpdate;
@@ -13263,6 +13405,7 @@
         var taskId = String(task.id);
         var replacement = {
 	          id: task.id,
+	          locked: !!task.locked,
 	          title: task.title || "Task",
 	          start_date: task.start_date || "",
 	          due_at: task.due_at || "",
@@ -14190,7 +14333,7 @@
 
     function openMultiStatusMenu(task, anchor, source) {
       var menu = document.getElementById("multi-status-menu");
-      if (!menu || !task || !task.id || !anchor) return;
+      if (!menu || !task || !task.id || !anchor || taskIsLocked(task)) return;
       var singleStatusMenu = document.getElementById("status-menu");
       if (singleStatusMenu) {
         singleStatusMenu.style.display = "none";
@@ -14225,6 +14368,9 @@
     }
 
     function patchTaskUserStatus(taskId, userId, statusValue) {
+      if (taskIdIsLocked(taskId)) {
+        return Promise.reject(new Error("Task is locked"));
+      }
       return fetch("/api/tasks/" + taskId, {
         method: "PATCH",
         credentials: "same-origin",
@@ -14249,6 +14395,7 @@
 
     function openSettingsStatusMenu() {
       if (currentEntityType !== "task") return;
+      if (currentTaskData && taskIsLocked(currentTaskData)) return;
       if (taskSettingsStatusEl && String(taskSettingsStatusEl.dataset.statusMode || "single") === "percentage" && currentTaskData) {
         if (typeof window.__openPercentageStatusMenu === "function") {
           window.__openPercentageStatusMenu(currentTaskData, taskSettingsStatusEl, "settings");
@@ -14274,6 +14421,7 @@
 
     function submitSettingsAssignment() {
       if (!taskSettingsAssigneeEl || !currentTaskId) return;
+      if (taskIdIsLocked(currentTaskId)) return;
       var raw = (taskSettingsAssigneeEl.value || "").trim();
       if (!raw || raw.indexOf("@") === -1) return;
       if (taskSettingsAssigneeEl.dataset.assignSubmitting === "1") return;
@@ -14793,8 +14941,10 @@
     document.addEventListener("pointerdown", function (event) {
       var handle = event.target.closest("[data-gantt-handle]");
       if (!handle) return;
+      if (handle.disabled) return;
       var track = handle.closest("[data-gantt-track]");
       if (!track) return;
+      if (String(track.getAttribute("data-task-locked") || "") === "1") return;
       var panel = track.closest("[data-project-gantt]");
       var taskId = String(track.getAttribute("data-task-id") || "").trim();
       if (!taskId) return;
@@ -14896,6 +15046,7 @@
         event.stopPropagation();
         var taskId = trigger.getAttribute("data-task-id") || trigger.getAttribute("data-task-multi-status-trigger");
         if (!taskId) return;
+        if (taskIdIsLocked(taskId)) return;
         var statusHost = trigger.closest("[data-task-status-host]") || document.querySelector('[data-task-status-host="' + taskId + '"]');
         var hostTask = statusHost && statusHost._taskPayload ? statusHost._taskPayload : null;
         if (!hostTask && statusHost) {
@@ -15751,6 +15902,7 @@
     if (taskSettingsDeleteEl) {
       taskSettingsDeleteEl.addEventListener("click", function () {
         if (!currentTaskId) return;
+        if (taskIdIsLocked(currentTaskId)) return;
         var inlineDelete = document.querySelector('[data-delete-task="' + currentTaskId + '"]');
         if (inlineDelete) {
           inlineDelete.click();
@@ -15843,6 +15995,10 @@
     }
     if (taskSettingsStatusModeEl) {
       taskSettingsStatusModeEl.addEventListener("change", function () {
+        if (currentTaskData && taskIsLocked(currentTaskData)) {
+          renderTaskSettings();
+          return;
+        }
         if (currentTaskData) {
           var nextMode = taskSettingsStatusModeEl.value || "single";
           var currentMeta = taskStatusMeta(currentTaskData);
@@ -15872,6 +16028,7 @@
     taskSettingsStatusModeButtons.forEach(function (button) {
       button.addEventListener("click", function () {
         if (!taskSettingsStatusModeEl) return;
+        if (currentTaskData && taskIsLocked(currentTaskData)) return;
         var nextMode = String(button.getAttribute("data-status-mode-option") || "single");
         if (taskSettingsStatusModeEl.value === nextMode) return;
         taskSettingsStatusModeEl.value = nextMode;
@@ -15884,6 +16041,25 @@
     }
     if (taskSettingsFollowerEl) {
       bindTaskFollowerInput();
+    }
+    if (discussionLockToggleEl) {
+      discussionLockToggleEl.addEventListener("click", function () {
+        if (!currentTaskId || currentEntityType !== "task") return;
+        var nextLocked = !taskIdIsLocked(currentTaskId);
+        fetch("/api/tasks/" + currentTaskId, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ locked: nextLocked }),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok || !result.data || !result.data.id) return;
+            currentTaskData = Object.assign({}, currentTaskData || {}, result.data);
+            applyTaskRowUpdate(currentTaskData);
+            renderTaskSettings();
+          });
+      });
     }
     if (descriptionDisplayEl) {
       descriptionDisplayEl.addEventListener("click", function (event) {

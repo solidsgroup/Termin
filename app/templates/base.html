@@ -3410,6 +3410,79 @@
         font-weight: 700;
       }
 
+      .discussion-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .discussion-lock-toggle {
+        width: 24px;
+        height: 24px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: color-mix(in srgb, var(--muted) 88%, var(--ink) 12%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: color 120ms ease, background 120ms ease;
+      }
+
+      .discussion-lock-toggle:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--ink);
+      }
+
+      .discussion-lock-toggle.is-locked {
+        color: #ef4444;
+      }
+
+      .task-lock-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        background: color-mix(in srgb, #ef4444 14%, transparent);
+        color: #ef4444;
+        font-size: 10px;
+        flex: 0 0 auto;
+      }
+
+      body[data-theme="light"] .discussion-lock-toggle:hover {
+        background: rgba(15, 23, 42, 0.05);
+      }
+
+      .task-row[data-task-locked="1"] .editable[data-field="title"],
+      .todo-item[data-task-locked="1"] .editable[data-field="title"] {
+        cursor: default;
+      }
+
+      .task-row[data-task-locked="1"] [data-task-status-host],
+      .todo-item[data-task-locked="1"] [data-task-status-host],
+      .task-row[data-task-locked="1"] .status-editable,
+      .todo-item[data-task-locked="1"] .status-editable {
+        cursor: default;
+      }
+
+      .task-row[data-task-locked="1"] .due-cell,
+      .todo-item[data-task-locked="1"] .due-cell {
+        cursor: default;
+      }
+
+      .task-row[data-task-locked="1"] .assign-add-btn,
+      .task-row[data-task-locked="1"] [data-remove-assignment],
+      .task-row[data-task-locked="1"] [data-task-multi-status-trigger],
+      .todo-item[data-task-locked="1"] .assign-add-btn,
+      .todo-item[data-task-locked="1"] [data-remove-assignment],
+      .todo-item[data-task-locked="1"] [data-task-multi-status-trigger],
+      .project-gantt-track[data-task-locked="1"] [data-gantt-handle] {
+        opacity: 0.4;
+      }
+
       .discussion-subtitle {
         font-size: 11px;
         color: var(--muted);
@@ -10712,6 +10785,37 @@
       });
     </script>
     <script>
+      document.addEventListener("click", function (event) {
+        if (event.defaultPrevented) return;
+        if (event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (!document.body) return;
+        const anchor = event.target.closest("a[href]");
+        if (!anchor) return;
+        if (anchor.hasAttribute("download")) return;
+        if (anchor.getAttribute("target") && anchor.getAttribute("target") !== "_self") return;
+        if (anchor.hasAttribute("data-no-page-loading")) return;
+        const rawHref = anchor.getAttribute("href");
+        if (!rawHref || rawHref.charAt(0) === "#") return;
+        if (/^\s*javascript:/i.test(rawHref)) return;
+        let nextUrl;
+        try {
+          nextUrl = new URL(anchor.href, window.location.href);
+        } catch (_error) {
+          return;
+        }
+        if (nextUrl.origin !== window.location.origin) return;
+        if (
+          nextUrl.pathname === window.location.pathname &&
+          nextUrl.search === window.location.search &&
+          nextUrl.hash &&
+          nextUrl.hash !== window.location.hash
+        ) {
+          return;
+        }
+        document.body.classList.add("is-page-loading");
+      });
+
       window.addEventListener("load", function () {
         document.body.classList.remove("is-page-loading");
       }, { once: true });

@@ -172,6 +172,7 @@ class Task(db.Model):
     info = db.Column(db.Text)
     link = db.Column(db.String(1024))
     due_at = db.Column(db.DateTime)
+    locked = db.Column(db.Boolean, default=False, nullable=False)
     assignee_email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="open", nullable=False)
     per_user_status_enabled = db.Column(db.Boolean, default=False, nullable=False)

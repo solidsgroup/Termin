@@ -1421,6 +1421,7 @@ def dashboard():
             "gantt_items": [
                 {
                     "id": task.id,
+                    "locked": bool(task.locked),
                     "title": task.title,
                     "start_date": str((load_info_payload(task.info, task.link).get("meta") or {}).get("start_date") or ""),
                     "due_at": task.due_at.isoformat() if task.due_at else None,
@@ -1437,6 +1438,7 @@ def dashboard():
             ] + [
                 {
                     "id": task.id,
+                    "locked": bool(task.locked),
                     "title": task.title,
                     "start_date": str((load_info_payload(task.info, task.link).get("meta") or {}).get("start_date") or ""),
                     "due_at": task.due_at.isoformat() if task.due_at else None,

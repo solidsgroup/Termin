@@ -118,6 +118,33 @@ DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown"
 TASK_DUE_MODE_OPTIONS = {"none", "date", "asap"}
+TASK_LOCKED_PROTECTED_FIELDS = {
+    "title",
+    "due_at",
+    "due_mode",
+    "start_date",
+    "status",
+    "user_status",
+    "status_user_id",
+    "status_mode",
+    "status_percentage",
+    "per_user_status_enabled",
+    "assign_group_members",
+}
+
+
+def _task_is_locked(task: Task | None) -> bool:
+    return bool(task and getattr(task, "locked", False))
+
+
+def _task_payload_touches_locked_fields(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return any(field in payload for field in TASK_LOCKED_PROTECTED_FIELDS)
+
+
+def _locked_task_response():
+    return {"error": "task is locked"}, 423
 
 
 def _is_complete_status_value(status: str | None) -> bool:
@@ -1207,6 +1234,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "locked": bool(task.locked),
         "creator": {
             "id": creator.id,
             "display_name": creator.display_name,
@@ -1564,6 +1592,7 @@ def update_task(task_id: int):
     old_follow_project_members = _task_follow_project_members(task)
     old_description = task.description
     old_description_format = task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT
+    old_locked = bool(task.locked)
 
     title = payload.get("title")
     link = payload.get("link")
@@ -1582,9 +1611,15 @@ def update_task(task_id: int):
     follow_project_members = payload.get("follow_project_members")
     description = payload.get("description")
     description_format = payload.get("description_format")
+    locked = payload.get("locked")
+
+    if _task_is_locked(task) and _task_payload_touches_locked_fields(payload):
+        return _locked_task_response()
 
     if title is not None:
         task.title = title.strip()
+    if locked is not None:
+        task.locked = bool(locked)
     info_payload = dict(old_info_payload)
     if links is None and link is not None:
         stripped_link = link.strip()
@@ -1688,6 +1723,8 @@ def update_task(task_id: int):
         old_description_format=old_description_format,
         new_description_format=task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
     )
+    if old_locked != bool(task.locked):
+        changed_fields.append("lock")
     notification_kind = _task_update_notification_kind(
         old_title=old_title,
         new_title=task.title,
@@ -1746,6 +1783,7 @@ def update_task(task_id: int):
     return {
         "id": task.id,
         "title": task.title,
+        "locked": bool(task.locked),
         "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "status": task.status,
         "status_mode": _task_status_mode(task),
@@ -1789,6 +1827,7 @@ def get_task(task_id: int):
         "project_id": task.project_id,
         "group_id": task.group_id,
         "group_name": (Group.query.get(task.group_id).name if task.group_id else None),
+        "locked": bool(task.locked),
         "title": task.title,
         "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "link": task.link,
@@ -3958,6 +3997,8 @@ def delete_task(task_id: int):
 
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
 
     invite_query = Invite.query.filter(Invite.task_id == task.id)
     invite_count = invite_query.filter(Invite.status != "draft").count()
@@ -3999,6 +4040,8 @@ def create_assignment():
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
 
     account_user = find_user_by_email(email)
     project = Project.query.get(task.project_id) if task else None
@@ -4103,6 +4146,8 @@ def assign_all_task_members(task_id: int):
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
     task.assign_group_members = True
     changes = sync_group_task_assignments(task)
     db.session.commit()
@@ -4524,6 +4569,8 @@ def delete_assignment(assignment_id: int):
 
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
 
     Invite.query.filter_by(assignment_id=assignment.id).delete()
     removed_assignment = _serialize_assignment_row(assignment)
