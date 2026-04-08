@@ -10,8 +10,8 @@
     <meta name="apple-mobile-web-app-title" content="Termin" />
     <title>{{ title or "Termin" }}</title>
     <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" data-base-favicon="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin-icon-v3-180.png') }}" />
-    <link rel="manifest" href="{{ url_for('web_manifest') }}?v=5" />
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin-icon-v4-180.png') }}" />
+    <link rel="manifest" href="{{ url_for('web_manifest') }}?v=6" />
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script>
@@ -10995,14 +10995,34 @@
           }
         }
 
+        function showInstallFallbackDialog(message) {
+          showInstallMessage(message);
+          if (window.matchMedia && window.matchMedia("(max-width: 900px)").matches) {
+            window.setTimeout(function () {
+              window.alert(message);
+            }, 0);
+          }
+        }
+
         async function handleInstallApp(event) {
           if (event && typeof event.preventDefault === "function") event.preventDefault();
+          if (typeof window.__closeMobileSidebar === "function") {
+            window.__closeMobileSidebar();
+          }
+          const accountShell = document.querySelector("[data-account-menu]");
+          const accountTrigger = document.querySelector("[data-account-trigger]");
+          if (accountShell) {
+            accountShell.classList.remove("is-open");
+          }
+          if (accountTrigger) {
+            accountTrigger.setAttribute("aria-expanded", "false");
+          }
           if (isStandaloneMode()) {
             syncInstallUi();
             return;
           }
           if (!window.isSecureContext) {
-            showInstallMessage("Install requires HTTPS or localhost. This page is not on a secure origin.");
+            showInstallFallbackDialog("Install requires HTTPS or localhost. This page is not on a secure origin.");
             syncInstallUi();
             return;
           }
@@ -11015,18 +11035,18 @@
                 await promptEvent.userChoice.catch(function () {});
               }
             } catch (_error) {
-              showInstallMessage("The install prompt could not be opened. Try the browser menu instead.");
+              showInstallFallbackDialog("The install prompt could not be opened. Try the browser menu instead.");
             } finally {
               syncInstallUi();
             }
             return;
           }
           if (isIosDevice() && isSafariBrowser()) {
-            showInstallMessage("In Safari, tap Share and choose Add to Home Screen.");
+            showInstallFallbackDialog("In Safari, tap Share and choose Add to Home Screen.");
             syncInstallUi();
             return;
           }
-          showInstallMessage("Use your browser menu and look for Install App or Add to Home Screen.");
+          showInstallFallbackDialog("Use your browser menu and look for Install App or Add to Home Screen.");
           syncInstallUi();
         }
 

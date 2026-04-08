@@ -6,6 +6,10 @@ self.addEventListener("activate", function (event) {
   event.waitUntil(self.clients.claim());
 });
 
+self.addEventListener("fetch", function (event) {
+  event.respondWith(fetch(event.request));
+});
+
 self.addEventListener("push", function (event) {
   let payload = {};
   try {
@@ -17,8 +21,8 @@ self.addEventListener("push", function (event) {
   const title = payload.title || "Termin";
   const options = {
     body: payload.body || "You have a new update.",
-    icon: "/static/brand/termin-icon-v3-192.png",
-    badge: "/static/brand/termin-icon-v3-192.png",
+    icon: "/static/brand/termin-icon-v4-192.png",
+    badge: "/static/brand/termin-icon-v4-192.png",
     tag: payload.tag || "termin-notification",
     data: {
       url: payload.url || "/",
