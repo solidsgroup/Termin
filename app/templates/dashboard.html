@@ -335,10 +335,24 @@
 {% endmacro %}
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
-<div class="layout{% if current_view == 'inbox' %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout>
-  {% if current_view in ['todo', 'tree'] %}
-  <aside class="sidebar{% if current_view in ['todo', 'tree'] %} todo-tree{% endif %}" {% if current_view == 'todo' %}data-todo-tree{% elif current_view == 'tree' %}data-tree-sidebar{% endif %}>
-    {% if current_view == 'todo' %}
+<style>
+  .dashboard-sidebar-pane,
+  .dashboard-view-pane {
+    display: none;
+  }
+
+  .dashboard-sidebar-pane.is-active,
+  .dashboard-view-pane.is-active {
+    display: block;
+  }
+
+  .dashboard-layout.no-sidebar [data-dashboard-sidebar] {
+    display: none;
+  }
+</style>
+<div class="layout dashboard-layout{% if current_view == 'inbox' %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
+  <aside class="sidebar todo-tree dashboard-sidebar" data-dashboard-sidebar data-todo-tree data-tree-sidebar>
+    <div class="dashboard-sidebar-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-sidebar-pane="todo">
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
       <div class="sidebar-heading-row todo-sidebar-subhead is-top">
         <h3 style="margin: 0;">Structure</h3>
@@ -386,7 +400,7 @@
             </div>
           {% endif %}
         {% endfor %}
-        {% if unassigned_projects|rejectattr('is_direct')|list and current_view == 'todo' %}
+        {% if unassigned_projects|rejectattr('is_direct')|list %}
           <div class="todo-tree-node" data-division-id="none" style="--division-color: #2a3442;">
             <div class="todo-tree-row">
               <label class="todo-tree-label-row">
@@ -524,7 +538,8 @@
           </div>
         </div>
       </div>
-    {% elif current_view == 'tree' %}
+    </div>
+    <div class="dashboard-sidebar-pane{% if current_view == 'tree' %} is-active{% endif %}" data-dashboard-sidebar-pane="tree">
       <div class="sidebar-split-shell" data-sidebar-split-shell>
         <div class="sidebar-split-pane sidebar-split-pane-top" data-sidebar-split-pane="top">
           <div class="todo-sidebar-section is-top">
@@ -564,9 +579,9 @@
                       <div class="todo-tree-children todo-tree-groups">
                         {% for group in tree_groups_by_project.get(project.id, []) %}
                           <div class="todo-tree-row todo-tree-group-row" data-tree-group-node="{{ group.id }}" data-tree-project-id="{{ project.id }}" data-tree-group-row="{{ group.id }}" data-group-context="{{ group.id }}" data-group-manage="{{ 1 if tree_can_manage_project else 0 }}" draggable="true">
-                        <button class="tree-select-button" type="button" data-tree-select-type="group" data-tree-select-id="{{ group.id }}" data-tree-project-id="{{ project.id }}">
-                          <span class="todo-tree-label">{{ group.name }}</span>
-                        </button>
+                            <button class="tree-select-button" type="button" data-tree-select-type="group" data-tree-select-id="{{ group.id }}" data-tree-project-id="{{ project.id }}">
+                              <span class="todo-tree-label">{{ group.name }}</span>
+                            </button>
                           </div>
                         {% else %}
                           <div class="todo-tree-empty">No groups</div>
@@ -648,86 +663,21 @@
                     </button>
                   </div>
                 </div>
-              {% endfor %}
-            </div>
-          </div>
-        </div>
-      </div>
-    {% else %}
-      <div class="sidebar-split-shell" data-sidebar-split-shell>
-        <div class="sidebar-split-pane sidebar-split-pane-top" data-sidebar-split-pane="top">
-          <div class="sidebar-heading-row">
-            <h3 style="margin: 0;">Projects</h3>
-          </div>
-          <div class="sidebar-stack" data-sidebar-stack>
-            <div class="sidebar-insert-row">
-              <div class="sidebar-insert-line"></div>
-              <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="1" onclick="return window.__openSidebarInsert(this);">+</button>
-              <div class="sidebar-insert-line"></div>
-              <div class="sidebar-insert-chooser" data-sidebar-insert-position="1">
-                <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
-                <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
-                <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
-              </div>
-            </div>
-            {% for item in top_level_items %}
-              <div class="sidebar-stack-item" data-sidebar-item="{{ item.type }}:{{ item.id }}">
-                {% if item.type == "project" %}
-                  {{ render_project_item(item.project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, True, None) }}
-                {% else %}
-                  <div class="sidebar-division" style="--division-color: {{ division_color_map.get(item.division.id, '#4cc9f0') }}; color: {{ division_color_map.get(item.division.id, '#4cc9f0') }};" draggable="true" data-sidebar-division="{{ item.division.id }}" data-division-color="{{ division_color_map.get(item.division.id, '#4cc9f0') }}">
-                    <div class="sidebar-heading-row" data-division-context="{{ item.division.id }}">
-                      <h3 class="sidebar-division-title" style="color: {{ division_color_map.get(item.division.id, '#4cc9f0') }};">{{ item.division.name }}</h3>
-                    </div>
-                    <div class="project-list">
-                      {% for project in projects_by_division.get(item.division.id, []) %}
-                        {{ render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, False, division_color_map.get(item.division.id, '#4cc9f0')) }}
-                      {% endfor %}
-                    </div>
-                  </div>
-                {% endif %}
-              </div>
-              <div class="sidebar-insert-row">
-                <div class="sidebar-insert-line"></div>
-                <button class="sidebar-insert-btn" type="button" title="Add here" data-sidebar-insert-position="{{ loop.index + 1 }}" onclick="return window.__openSidebarInsert(this);">+</button>
-                <div class="sidebar-insert-line"></div>
-                <div class="sidebar-insert-chooser" data-sidebar-insert-position="{{ loop.index + 1 }}">
-                  <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="project">Project</button>
-                  <button class="sidebar-insert-choice" type="button" data-sidebar-insert-kind="division">Division</button>
-                  <button class="sidebar-insert-close" type="button" data-sidebar-insert-close="1" aria-label="Close">×</button>
-                </div>
-              </div>
-            {% else %}
-              <div><small>No projects yet.</small></div>
-            {% endfor %}
-          </div>
-        </div>
-        <div class="sidebar-split-divider" data-sidebar-splitter role="separator" aria-orientation="horizontal" aria-label="Resize project and direct panels"></div>
-        <div class="sidebar-split-pane sidebar-split-pane-bottom" data-sidebar-split-pane="bottom">
-          <div class="direct-projects-section">
-            <div class="sidebar-heading-row direct-projects-heading">
-              <h3 style="margin: 0;">Direct</h3>
-              <button class="sidebar-mini-add" type="button" data-open-direct-project-modal aria-label="Create direct task space">+</button>
-            </div>
-            <div class="direct-project-list" data-direct-project-list>
-              {% for project in direct_projects %}
-                {{ render_direct_project_item(project, selected_project, direct_project_peers.get(project.id), user) }}
               {% else %}
-                <div class="direct-project-empty" data-direct-project-empty>No direct spaces yet.</div>
+                <div class="todo-tree-empty">No direct spaces yet.</div>
               {% endfor %}
             </div>
           </div>
         </div>
       </div>
-    {% endif %}
+    </div>
   </aside>
-  {% endif %}
 
-  <section class="content{% if selected_project and current_view != 'tree' %} project-content{% endif %}"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %}>
+  <section class="content dashboard-content{% if selected_project and current_view != 'tree' %} project-content{% endif %}"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %} data-dashboard-content>
     {% if dashboard_notice %}
       <div class="dashboard-notice" role="alert">{{ dashboard_notice }}</div>
     {% endif %}
-    {% if current_view == 'todo' %}
+    <div class="dashboard-view-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-view="todo">
       <div class="todo-board" data-todo-resize>
         {% for date_group in todo_groups_by_date %}
           <div class="panel todo-date-group" data-todo-date-key="{{ date_group["key"] }}">
@@ -836,7 +786,8 @@
           </div>
         {% endfor %}
       </div>
-    {% elif current_view == 'tree' %}
+    </div>
+    <div class="dashboard-view-pane{% if current_view == 'tree' %} is-active{% endif %}" data-dashboard-view="tree">
       <div class="tree-board" data-tree-board data-tree-ready="0">
         {% for ctx in tree_project_contexts %}
           {% set project = ctx.project %}
@@ -1084,7 +1035,8 @@
           </div>
         {% endfor %}
       </div>
-    {% elif current_view == 'inbox' %}
+    </div>
+    <div class="dashboard-view-pane{% if current_view == 'inbox' %} is-active{% endif %}" data-dashboard-view="inbox">
       <div class="inbox-view">
         <div class="panel inbox-panel">
           <div class="inbox-header">
@@ -1135,7 +1087,8 @@
           </div>
         </div>
       </div>
-    {% elif selected_project %}
+    </div>
+    {% if false and selected_project %}
       <div class="project-view-shell" style="--project-color: {{ selected_project_color or '#4cc9f0' }};">
         {% set viewers = project_viewers.get(selected_project.id, []) %}
         {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
@@ -4369,7 +4322,13 @@
       }
 
       function isTreeRealtimeView() {
-        return !!document.querySelector("[data-tree-sidebar]") && !!document.querySelector("[data-tree-board]");
+        return (
+          (typeof window.__getDashboardCurrentView === "function"
+            ? window.__getDashboardCurrentView() === "tree"
+            : true)
+          && !!document.querySelector("[data-tree-sidebar]")
+          && !!document.querySelector("[data-tree-board]")
+        );
       }
 
       function refreshTreeProjectSnapshotLocal(projectId, projectData) {
@@ -5759,8 +5718,6 @@
 
 <script>
   (function () {
-    var isTodoView = {{ 'true' if current_view == 'todo' else 'false' }};
-
     function formatDueSummary(dueValue, createdValue, dueMode) {
       if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
       var today = new Date();
@@ -11317,7 +11274,9 @@
     }
 
     function isTodoMode() {
-      return !!document.querySelector("[data-todo-tree]");
+      return typeof window.__getDashboardCurrentView === "function"
+        ? window.__getDashboardCurrentView() === "todo"
+        : !!document.querySelector("[data-todo-tree]");
     }
 
     function todoBucketFor(dueValue, createdValue, dueMode) {
@@ -14886,15 +14845,19 @@
       subtitleEl.addEventListener("click", function (event) {
         var link = event.target.closest("[data-tree-nav-type][data-tree-nav-id]");
         if (!link) return;
-        {% if current_view == 'tree' %}
         var treeButtonSelector = '[data-tree-select-type="' + link.getAttribute("data-tree-nav-type") + '"][data-tree-select-id="' + link.getAttribute("data-tree-nav-id") + '"]';
         var treeButton = document.querySelector(treeButtonSelector);
         if (treeButton) {
           event.preventDefault();
+          if (typeof window.__setDashboardView === "function") {
+            window.__setDashboardView("tree", {
+              syncHistory: true,
+              url: link.getAttribute("href") || window.location.pathname,
+            });
+          }
           treeButton.click();
           return;
         }
-        {% endif %}
       });
     }
     document.addEventListener("click", function (event) {
@@ -15254,15 +15217,17 @@
         }
       });
     })();
-    document.querySelectorAll("[data-drawer-tab]").forEach(function (button) {
-      button.addEventListener("click", function () {
-        var nextTab = button.getAttribute("data-drawer-tab");
-        if (nextTab === "messages" && currentEntityType === "task" && currentTaskId) {
-          loadEntityComments("task", currentTaskId, currentTaskTitle, currentProjectName);
-          return;
-        }
-        setDrawerTab(nextTab);
-      });
+    document.addEventListener("click", function (event) {
+      var drawerTabButton = event.target.closest("[data-drawer-tab]");
+      if (!drawerTabButton) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var nextTab = drawerTabButton.getAttribute("data-drawer-tab");
+      if (nextTab === "messages" && currentEntityType === "task" && currentTaskId) {
+        loadEntityComments("task", currentTaskId, currentTaskTitle, currentProjectName);
+        return;
+      }
+      setDrawerTab(nextTab);
     });
 
     document.querySelectorAll('.notifications-menu').forEach(function (notificationsMenu) {
@@ -16369,6 +16334,117 @@
       }
     })();
 
+    (function initDashboardViewRouter() {
+      var layout = document.querySelector("[data-dashboard-current-view]");
+      if (!layout || !window.history || !window.history.pushState) return;
+      var sidebar = layout.querySelector("[data-dashboard-sidebar]");
+      var content = layout.querySelector("[data-dashboard-content]");
+      var sidebarPanes = Array.from(layout.querySelectorAll("[data-dashboard-sidebar-pane]"));
+      var viewPanes = Array.from(layout.querySelectorAll("[data-dashboard-view]"));
+      var switchLinks = Array.from(document.querySelectorAll("[data-dashboard-view-target]"));
+      var mobileTrigger = document.querySelector("[data-mobile-sidebar-trigger]");
+      var knownViews = { tree: true, todo: true, inbox: true };
+      var viewPaths = {};
+
+      switchLinks.forEach(function (link) {
+        var target = String(link.getAttribute("data-dashboard-view-target") || "");
+        if (!target) return;
+        viewPaths[target] = link.getAttribute("href") || window.location.pathname;
+      });
+
+      function currentPath() {
+        return window.location.pathname + window.location.search + window.location.hash;
+      }
+
+      function activeView() {
+        var view = String(layout.getAttribute("data-dashboard-current-view") || "tree");
+        return knownViews[view] ? view : "tree";
+      }
+
+      function parseViewFromLocation() {
+        var path = String(window.location.pathname || "");
+        if (path.indexOf("/todo") === 0) return "todo";
+        if (path.indexOf("/inbox") === 0) return "inbox";
+        return "tree";
+      }
+
+      function applyViewState(view) {
+        var nextView = knownViews[view] ? view : "tree";
+        layout.setAttribute("data-dashboard-current-view", nextView);
+        window.__dashboardCurrentView = nextView;
+        layout.classList.toggle("no-sidebar", nextView === "inbox");
+        if (content) {
+          content.classList.toggle("project-content", nextView !== "tree");
+        }
+        sidebarPanes.forEach(function (pane) {
+          var paneView = pane.getAttribute("data-dashboard-sidebar-pane");
+          pane.classList.toggle("is-active", paneView === (nextView === "todo" ? "todo" : "tree"));
+        });
+        viewPanes.forEach(function (pane) {
+          pane.classList.toggle("is-active", pane.getAttribute("data-dashboard-view") === nextView);
+        });
+        switchLinks.forEach(function (link) {
+          link.classList.toggle("active", link.getAttribute("data-dashboard-view-target") === nextView);
+        });
+        if (mobileTrigger) {
+          mobileTrigger.hidden = nextView === "inbox";
+        }
+        if (sidebar) {
+          sidebar.setAttribute("aria-hidden", nextView === "inbox" ? "true" : "false");
+        }
+      }
+
+      function setDashboardView(view, options) {
+        var opts = options || {};
+        var nextView = knownViews[view] ? view : parseViewFromLocation();
+        var previousView = activeView();
+        if (previousView !== nextView) {
+          viewPaths[previousView] = currentPath();
+        }
+        applyViewState(nextView);
+        if (typeof window.__closeMobileSidebar === "function") {
+          window.__closeMobileSidebar();
+        }
+        var nextUrl = opts.url || viewPaths[nextView] || currentPath();
+        if (opts.syncHistory) {
+          if (opts.replace) {
+            window.history.replaceState({ dashboardView: nextView }, "", nextUrl);
+          } else {
+            window.history.pushState({ dashboardView: nextView }, "", nextUrl);
+          }
+        }
+        viewPaths[nextView] = nextUrl;
+        document.dispatchEvent(new CustomEvent("termin:dashboard-view-change", {
+          detail: {
+            previousView: previousView,
+            currentView: nextView,
+            url: nextUrl,
+          },
+        }));
+      }
+
+      window.__getDashboardCurrentView = activeView;
+      window.__setDashboardView = setDashboardView;
+      applyViewState(activeView());
+
+      switchLinks.forEach(function (link) {
+        link.addEventListener("click", function (event) {
+          var targetView = String(link.getAttribute("data-dashboard-view-target") || "");
+          if (!knownViews[targetView]) return;
+          event.preventDefault();
+          if (targetView === activeView()) return;
+          setDashboardView(targetView, {
+            syncHistory: true,
+            url: viewPaths[targetView] || link.getAttribute("href") || currentPath(),
+          });
+        });
+      });
+
+      window.addEventListener("popstate", function () {
+        setDashboardView(parseViewFromLocation(), { syncHistory: false });
+      });
+    })();
+
     var initialDrawerParams = new URLSearchParams(window.location.search);
     var openTaskId = drawer.getAttribute("data-open-task-id") || initialDrawerParams.get("open_discussion_task_id") || "";
     var openProjectDiscussionId = initialDrawerParams.get("open_discussion_project_id") || "";
@@ -17016,17 +17092,18 @@
           fetchTaskSnapshot(task.id).then(function (freshTask) {
             if (!freshTask) return;
             removeTaskRowsLocal(freshTask.id);
-            if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
-              if (window.__upsertTodoItemFromSnapshot(freshTask)) {
-                refreshMovedTaskProject(freshTask);
-                pulseTask(freshTask.id);
-                return;
-              }
+            var todoInserted = false;
+            if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+              todoInserted = !!window.__upsertTodoItemFromSnapshot(freshTask);
             }
             if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
               refreshMovedTaskProject(freshTask);
               pulseTask(freshTask.id);
               return;
+            }
+            if (todoInserted) {
+              refreshMovedTaskProject(freshTask);
+              pulseTask(freshTask.id);
             }
             applyTaskRowUpdate(freshTask);
             renderTaskAssignments(freshTask.id, freshTask.assignments || []);
@@ -17039,11 +17116,9 @@
         }
         fetchTaskSnapshot(task.id).then(function (freshTask) {
           if (!freshTask) return;
-          if (isTodoMode() && typeof window.__upsertTodoItemFromSnapshot === "function") {
-            if (window.__upsertTodoItemFromSnapshot(freshTask)) {
-              pulseTask(freshTask.id);
-              return;
-            }
+          var todoUpdated = false;
+          if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+            todoUpdated = !!window.__upsertTodoItemFromSnapshot(freshTask);
           }
           if (typeof window.__upsertTaskRowFromSnapshot === "function" && (data.action === "created" || data.action === "moved")) {
             if (window.__upsertTaskRowFromSnapshot(freshTask)) {
@@ -17053,7 +17128,7 @@
           }
           var updated = applyTaskRowUpdate(freshTask);
           renderTaskAssignments(freshTask.id, freshTask.assignments || []);
-          if (updated) {
+          if (updated || todoUpdated) {
             pulseTask(freshTask.id);
           } else if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
             pulseTask(freshTask.id);
@@ -17103,7 +17178,6 @@
         .catch(function () {});
     }
 
-    {% if current_view == 'tree' %}
     (function () {
       var treeSidebar = document.querySelector("[data-tree-sidebar]");
       var treeBoard = document.querySelector("[data-tree-board]");
@@ -17113,6 +17187,12 @@
       var treeRootPath = {{ tree_dashboard_path()|tojson }};
       var treeProjectBase = {{ tree_dashboard_path(0)|replace('/0', '')|tojson }};
       var treeGroupBase = {{ tree_dashboard_path(0, 0)|replace('/0/group/0', '')|tojson }};
+
+      function isTreeDashboardView() {
+        return typeof window.__getDashboardCurrentView === "function"
+          ? window.__getDashboardCurrentView() === "tree"
+          : {{ 'true' if current_view == 'tree' else 'false' }};
+      }
 
       function buttonSelection(button) {
         if (!button) return null;
@@ -17322,7 +17402,7 @@
         markSelection(selection);
         applyBoardSelection(selection);
         saveState(snapshotState(selection));
-        if (!options || options.syncHistory !== false) {
+        if ((!options || options.syncHistory !== false) && isTreeDashboardView()) {
           syncTreeLocation(selection, !!(options && options.replaceHistory));
         }
       }
@@ -17778,7 +17858,10 @@
           }
         }
       }
-      applySelection(currentSelection, { replaceHistory: true });
+      applySelection(currentSelection, {
+        replaceHistory: true,
+        syncHistory: isTreeDashboardView(),
+      });
       if (treeBoard) {
         treeBoard.setAttribute("data-tree-ready", "1");
       }
@@ -17802,9 +17885,7 @@
         }
       });
     })();
-    {% endif %}
 
-    {% if current_view == 'todo' %}
     (function () {
       var todoTree = document.querySelector("[data-todo-tree]");
       if (!todoTree) return;
@@ -18297,9 +18378,7 @@
         applySidebarCollapse(false);
       }
     })();
-    {% endif %}
 
-    {% if current_view == 'todo' %}
     (function () {
       var board = document.querySelector(".todo-board");
       if (!board) return;
@@ -18515,11 +18594,26 @@
         applyClampedWidths();
       }
 
+      function refreshTodoBoardLayout() {
+        window.requestAnimationFrame(function () {
+          var row = getReferenceRow();
+          if (!row || row.offsetParent === null) return;
+          applyClampedWidths();
+          var widths = getColWidths();
+          var controlsEl = row.querySelector(".todo-item-controls");
+          var rowWidth = row.clientWidth || (widths.meta + widths.main + widths.controls);
+          var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
+          colRatios = computeRatios(widths, rowWidth, controlsWidth) || colRatios;
+          updateControlOffsets();
+        });
+      }
+      window.__refreshTodoBoardLayout = refreshTodoBoardLayout;
+
       var colRatios = null;
 
       var initial = loadCols();
       applyCols(initial);
-      applyClampedWidths();
+      refreshTodoBoardLayout();
       (function initRatios() {
         var row = getReferenceRow();
         if (!row) return;
@@ -18690,10 +18784,14 @@
           applyRatios(colRatios);
         });
       });
+      document.addEventListener("termin:dashboard-view-change", function (event) {
+        var detail = event && event.detail ? event.detail : null;
+        if (!detail || detail.currentView !== "todo") return;
+        refreshTodoBoardLayout();
+      });
     })();
-    {% endif %}
 
-    {% if selected_project and current_view != 'tree' %}
+    {% if selected_project %}
     (function () {
       var params = new URLSearchParams(window.location.search);
       if (
@@ -18705,13 +18803,25 @@
       }
       var content = document.querySelector("section.content");
       if (!content) return;
+      function isTreeDashboardView() {
+        return typeof window.__getDashboardCurrentView === "function"
+          ? window.__getDashboardCurrentView() === "tree"
+          : {{ 'true' if current_view == 'tree' else 'false' }};
+      }
       function resetProjectViewScroll() {
+        if (isTreeDashboardView()) return;
         content.scrollTop = 0;
       }
       resetProjectViewScroll();
       window.requestAnimationFrame(resetProjectViewScroll);
       window.setTimeout(resetProjectViewScroll, 0);
       window.setTimeout(resetProjectViewScroll, 120);
+      document.addEventListener("termin:dashboard-view-change", function () {
+        window.requestAnimationFrame(resetProjectViewScroll);
+      });
+      window.addEventListener("popstate", function () {
+        window.requestAnimationFrame(resetProjectViewScroll);
+      });
     })();
     {% endif %}
 

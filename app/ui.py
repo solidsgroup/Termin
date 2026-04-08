@@ -1562,106 +1562,103 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         for group in Group.query.filter(Group.project_id.in_(shared_out_project_ids if shared_out_project_ids else [-1])).all()
     }
     selected_project_display_name = project_display_names.get(selected_project.id, selected_project.name) if selected_project else ""
-    tree_groups_by_project: dict[int, list[Group]] = {}
-    if current_view == "tree":
-        tree_source_projects = standard_projects + direct_projects
-        tree_project_contexts = [build_project_context(project) for project in tree_source_projects]
-        tree_groups_by_project = {
-            context["project"].id: context["groups"]
-            for context in tree_project_contexts
-        }
+    tree_source_projects = standard_projects + direct_projects
+    tree_project_contexts = [build_project_context(project) for project in tree_source_projects]
+    tree_groups_by_project: dict[int, list[Group]] = {
+        context["project"].id: context["groups"]
+        for context in tree_project_contexts
+    }
     today = now_utc.date()
     todo_items = []
     todo_tasks = []
     todo_assignee_options = []
-    if current_view == "todo":
-        project_ids = [p.id for p in projects]
-        visible_task_ids = set()
-        if project_ids:
-            visible_task_ids.update(
-                row.id for row in Task.query.filter(Task.project_id.in_(project_ids)).all()
-            )
-        todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
-        todo_status_map = task_status_meta_map(todo_tasks, viewer_user_id=user.id)
-        if not show_completed:
-            todo_tasks = [
-                task for task in todo_tasks
-                if _should_show_todo_task(
-                    task,
-                    show_completed,
-                    today,
-                    viewer_status=effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=todo_status_map.get(task.id)),
-                )
-            ]
-        todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
-        week_start = today - timedelta(days=today.weekday())
-        next_week_start = week_start + timedelta(days=7)
-        two_weeks_start = week_start + timedelta(days=14)
-        three_weeks_start = week_start + timedelta(days=21)
-        four_weeks_start = week_start + timedelta(days=28)
-        next_month_year = today.year + (1 if today.month == 12 else 0)
-        next_month_month = 1 if today.month == 12 else today.month + 1
-        month_after_next_year = next_month_year + (1 if next_month_month == 12 else 0)
-        month_after_next_month = 1 if next_month_month == 12 else next_month_month + 1
-        next_month_start = date(next_month_year, next_month_month, 1)
-        month_after_next_start = date(month_after_next_year, month_after_next_month, 1)
-
-        def todo_bucket(due_date):
-            if due_date is None:
-                return ("none", "No Due Date", 10)
-            if due_date < today:
-                return ("overdue", "Overdue", 0)
-            if due_date == today:
-                return ("today", "Today", 1)
-            if due_date == today + timedelta(days=1):
-                return ("tomorrow", "Tomorrow", 2)
-            if due_date < next_week_start:
-                return ("this_week", "This Week", 3)
-            if due_date < two_weeks_start:
-                return ("next_week", "Next Week", 4)
-            if due_date < three_weeks_start:
-                return ("two_weeks", "Two Weeks", 5)
-            if due_date < four_weeks_start:
-                return ("three_weeks", "Three Weeks", 6)
-            if due_date < next_month_start:
-                return ("this_month", "This Month", 7)
-            if next_month_start <= due_date < month_after_next_start:
-                return ("next_month", "Next Month", 8)
-            return ("later", "Later", 9)
-
-        for task in todo_tasks:
-            project = project_map.get(task.project_id)
-            if not project:
-                continue
-            task_info = load_info_payload(task.info, task.link)
-            due_mode = str(task_info.get("meta", {}).get("due_mode") or "").strip().lower()
-            pref = sidebar_pref_map.get(project.id)
-            division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
-            if due_mode == "asap" and not task.due_at:
-                bucket_key, bucket_label, bucket_rank = ("asap", "ASAP", 1)
-            else:
-                bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
-            todo_items.append(
-                {
-                    "task": task,
-                    "project": project,
-                    "group": todo_groups.get(task.group_id),
-                    "division_color": division_effective_color(division, active_theme_name) if division else "#4cc9f0",
-                    "division_id": (division.id if division else None),
-                    "date_key": bucket_key,
-                    "date_label": bucket_label,
-                    "date_rank": bucket_rank,
-                }
-            )
-        todo_items.sort(
-            key=lambda item: (
-                item["date_rank"],
-                item["task"].due_at.date().isoformat() if item["task"].due_at else "9999-12-31",
-                item["project"].name.lower(),
-                item["task"].position or 0,
-                item["task"].id,
-            )
+    project_ids = [p.id for p in projects]
+    visible_task_ids = set()
+    if project_ids:
+        visible_task_ids.update(
+            row.id for row in Task.query.filter(Task.project_id.in_(project_ids)).all()
         )
+    todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
+    todo_status_map = task_status_meta_map(todo_tasks, viewer_user_id=user.id)
+    if not show_completed:
+        todo_tasks = [
+            task for task in todo_tasks
+            if _should_show_todo_task(
+                task,
+                show_completed,
+                today,
+                viewer_status=effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=todo_status_map.get(task.id)),
+            )
+        ]
+    todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
+    week_start = today - timedelta(days=today.weekday())
+    next_week_start = week_start + timedelta(days=7)
+    two_weeks_start = week_start + timedelta(days=14)
+    three_weeks_start = week_start + timedelta(days=21)
+    four_weeks_start = week_start + timedelta(days=28)
+    next_month_year = today.year + (1 if today.month == 12 else 0)
+    next_month_month = 1 if today.month == 12 else today.month + 1
+    month_after_next_year = next_month_year + (1 if next_month_month == 12 else 0)
+    month_after_next_month = 1 if next_month_month == 12 else next_month_month + 1
+    next_month_start = date(next_month_year, next_month_month, 1)
+    month_after_next_start = date(month_after_next_year, month_after_next_month, 1)
+
+    def todo_bucket(due_date):
+        if due_date is None:
+            return ("none", "No Due Date", 10)
+        if due_date < today:
+            return ("overdue", "Overdue", 0)
+        if due_date == today:
+            return ("today", "Today", 1)
+        if due_date == today + timedelta(days=1):
+            return ("tomorrow", "Tomorrow", 2)
+        if due_date < next_week_start:
+            return ("this_week", "This Week", 3)
+        if due_date < two_weeks_start:
+            return ("next_week", "Next Week", 4)
+        if due_date < three_weeks_start:
+            return ("two_weeks", "Two Weeks", 5)
+        if due_date < four_weeks_start:
+            return ("three_weeks", "Three Weeks", 6)
+        if due_date < next_month_start:
+            return ("this_month", "This Month", 7)
+        if next_month_start <= due_date < month_after_next_start:
+            return ("next_month", "Next Month", 8)
+        return ("later", "Later", 9)
+
+    for task in todo_tasks:
+        project = project_map.get(task.project_id)
+        if not project:
+            continue
+        task_info = load_info_payload(task.info, task.link)
+        due_mode = str(task_info.get("meta", {}).get("due_mode") or "").strip().lower()
+        pref = sidebar_pref_map.get(project.id)
+        division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
+        if due_mode == "asap" and not task.due_at:
+            bucket_key, bucket_label, bucket_rank = ("asap", "ASAP", 1)
+        else:
+            bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
+        todo_items.append(
+            {
+                "task": task,
+                "project": project,
+                "group": todo_groups.get(task.group_id),
+                "division_color": division_effective_color(division, active_theme_name) if division else "#4cc9f0",
+                "division_id": (division.id if division else None),
+                "date_key": bucket_key,
+                "date_label": bucket_label,
+                "date_rank": bucket_rank,
+            }
+        )
+    todo_items.sort(
+        key=lambda item: (
+            item["date_rank"],
+            item["task"].due_at.date().isoformat() if item["task"].due_at else "9999-12-31",
+            item["project"].name.lower(),
+            item["task"].position or 0,
+            item["task"].id,
+        )
+    )
     visible_tasks = list({
         task.id: task
         for task in (
@@ -1689,7 +1686,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     if missing_assignee_ids:
         for assignee in User.query.filter(User.id.in_(missing_assignee_ids)).all():
             user_map[assignee.id] = assignee
-    if current_view == "todo" and todo_tasks:
+    if todo_tasks:
         todo_assignee_map = {}
         for task in todo_tasks:
             for assignment in assignments_by_task.get(task.id, []):
@@ -1726,19 +1723,10 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         )
     github_task_meta, github_project_id = _build_github_task_meta(
         user.id,
-        [task.id for task in list(todo_tasks) + list(tasks)],
+        [task.id for task in visible_tasks],
         user_map,
     )
-    visible_dashboard_task_ids = {
-        task.id
-        for task in (
-            todo_tasks
-            if current_view == "todo"
-            else [task for context in tree_project_contexts for task in context["tasks"]]
-            if current_view == "tree"
-            else tasks
-        )
-    }
+    visible_dashboard_task_ids = {task.id for task in visible_tasks}
     comment_counts = {}
     if visible_dashboard_task_ids:
         comment_counts = {

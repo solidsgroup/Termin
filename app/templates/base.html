@@ -3597,6 +3597,8 @@
         gap: 0;
         margin-top: 10px;
         margin-bottom: 0;
+        position: relative;
+        z-index: 1;
       }
 
       .discussion-tab {
@@ -3612,6 +3614,9 @@
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
+        position: relative;
+        z-index: 1;
+        pointer-events: auto;
       }
 
       .discussion-tab:hover {
@@ -3695,6 +3700,9 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        position: relative;
+        z-index: 1;
+        pointer-events: auto;
       }
 
       .discussion-link-anchor:hover {
@@ -10051,15 +10059,15 @@
       </div>
       <div class="header-center">
         {% if current_view is defined %}
-          {% if current_view in ['tree', 'todo'] %}
+          {% if current_view in ['tree', 'todo', 'inbox'] %}
           <button class="mobile-sidebar-trigger" type="button" data-mobile-sidebar-trigger aria-label="Open navigation" aria-expanded="false">
             <i class="fa-solid fa-bars" aria-hidden="true"></i>
           </button>
           {% endif %}
           <div class="view-switcher">
-            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}">Tree</a>
-            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" href="{% if current_view == 'todo' and show_completed %}{{ url_for('ui.todo_dashboard', show_completed=1) }}{% else %}{{ url_for('ui.todo_dashboard') }}{% endif %}">Todo</a>
-            <a class="view-switch{% if current_view == 'inbox' %} active{% endif %}" href="{{ url_for('ui.inbox_dashboard') }}">Inbox</a>
+            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" data-dashboard-view-target="tree" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}">Tree</a>
+            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" data-dashboard-view-target="todo" href="{{ url_for('ui.todo_dashboard') }}">Todo</a>
+            <a class="view-switch{% if current_view == 'inbox' %} active{% endif %}" data-dashboard-view-target="inbox" href="{{ url_for('ui.inbox_dashboard') }}">Inbox</a>
             <div class="view-search" data-task-search>
               <button class="view-switch view-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" data-task-search-trigger aria-label="Search" title="Search">
                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
