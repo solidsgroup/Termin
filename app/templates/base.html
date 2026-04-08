@@ -2499,6 +2499,27 @@
         font-weight: 500;
       }
 
+      .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-division] ~ .todo-tree-label,
+      .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-project] ~ .todo-tree-label,
+      .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-group] ~ .todo-tree-label {
+        cursor: pointer;
+        text-decoration: none;
+        display: inline;
+      }
+
+      .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-division] ~ .todo-tree-label:hover,
+      .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-project] ~ .todo-tree-label:hover,
+      .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-group] ~ .todo-tree-label:hover {
+        text-decoration-line: underline;
+        text-decoration-thickness: 1.5px;
+        text-underline-offset: 2px;
+        text-decoration-color: var(--division-color, currentColor);
+      }
+
+      .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-node.is-project > .todo-tree-row .todo-tree-label {
+        font-weight: 400;
+      }
+
       .todo-tree-node.is-project {
         padding-left: 0;
       }
@@ -10877,6 +10898,7 @@
         const installState = {
           deferredPrompt: null,
         };
+        let installMenuMessageTimer = null;
 
         function installElements() {
           return {
@@ -10953,9 +10975,28 @@
           if (primaryHint) primaryHint.textContent = "If no prompt appears, use your browser menu and look for Install App or Add to Home Screen.";
         }
 
+        function showInstallMessage(message) {
+          const { primaryHint, menuButton, menuLabel } = installElements();
+          if (primaryHint) {
+            primaryHint.textContent = message;
+          }
+          if (menuButton) {
+            menuButton.title = message;
+          }
+          if (menuLabel && !primaryHint) {
+            if (installMenuMessageTimer) {
+              window.clearTimeout(installMenuMessageTimer);
+            }
+            menuLabel.textContent = message;
+            installMenuMessageTimer = window.setTimeout(function () {
+              installMenuMessageTimer = null;
+              syncInstallUi();
+            }, 2800);
+          }
+        }
+
         async function handleInstallApp(event) {
           if (event && typeof event.preventDefault === "function") event.preventDefault();
-          const { primaryHint } = installElements();
           if (isStandaloneMode()) {
             syncInstallUi();
             return;
@@ -10969,24 +11010,18 @@
                 await promptEvent.userChoice.catch(function () {});
               }
             } catch (_error) {
-              if (primaryHint) {
-                primaryHint.textContent = "The install prompt could not be opened. Try the browser menu instead.";
-              }
+              showInstallMessage("The install prompt could not be opened. Try the browser menu instead.");
             } finally {
               syncInstallUi();
             }
             return;
           }
           if (isIosDevice() && isSafariBrowser()) {
-            if (primaryHint) {
-              primaryHint.textContent = "In Safari, tap Share and choose Add to Home Screen. Then open the installed app from your Home Screen.";
-            }
+            showInstallMessage("In Safari, tap Share and choose Add to Home Screen.");
             syncInstallUi();
             return;
           }
-          if (primaryHint) {
-            primaryHint.textContent = "Use your browser menu and look for Install App or Add to Home Screen.";
-          }
+          showInstallMessage("Use your browser menu and look for Install App or Add to Home Screen.");
           syncInstallUi();
         }
 

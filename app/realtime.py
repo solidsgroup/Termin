@@ -4,6 +4,7 @@ from html import escape
 import json
 from markdown import markdown as render_markdown
 from sqlalchemy import func, or_
+from sqlalchemy.exc import OperationalError
 
 from flask import current_app, request
 from flask_socketio import emit, join_room, leave_room
@@ -115,6 +116,26 @@ def _absolute_url(path: str) -> str:
     if not path.startswith("/"):
         path = "/" + path
     return (base + path) if base else path
+
+
+def _mark_project_notifications_read(user_id: int, project_id: int) -> None:
+    now = datetime.utcnow()
+    task_ids = db.session.query(Task.id).filter(Task.project_id == project_id)
+    try:
+        (
+            TaskNotification.query.filter_by(user_id=user_id, pinned=False)
+            .filter(TaskNotification.kind != "comment")
+            .filter(TaskNotification.task_id.in_(task_ids))
+            .filter(TaskNotification.read_at.is_(None))
+            .update({"read_at": now}, synchronize_session=False)
+        )
+        db.session.commit()
+    except OperationalError:
+        db.session.rollback()
+        current_app.logger.warning(
+            "Skipping project notification read update due to SQLite lock",
+            extra={"user_id": user_id, "project_id": project_id},
+        )
 
 
 def _web_push_payload_for_notification(
@@ -1436,16 +1457,7 @@ def register_socket_handlers() -> None:
             _project_user_counts[project_id][user_id] += 1
             _recompute_user_active_projects(user_id)
             emit_global_presence()
-        now = datetime.utcnow()
-        task_ids = db.session.query(Task.id).filter(Task.project_id == project_id)
-        (
-            TaskNotification.query.filter_by(user_id=user_id, pinned=False)
-            .filter(TaskNotification.kind != "comment")
-            .filter(TaskNotification.task_id.in_(task_ids))
-            .filter(TaskNotification.read_at.is_(None))
-            .update({"read_at": now}, synchronize_session=False)
-        )
-        db.session.commit()
+        _mark_project_notifications_read(user_id, project_id)
         emit_notification_state(user_id)
         emit("project_room_joined", {"project_id": project_id})
         emit_project_presence(project_id)

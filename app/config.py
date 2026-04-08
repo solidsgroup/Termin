@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 
 
 def _env(key: str, default: str | None = None) -> str | None:
@@ -21,6 +22,12 @@ class Config:
     )
     SQLALCHEMY_DATABASE_URI = _env("DATABASE_URL", f"sqlite:///{_default_sqlite_path}")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    _db_scheme = urlparse(SQLALCHEMY_DATABASE_URI).scheme
+    SQLALCHEMY_ENGINE_OPTIONS = (
+        {"connect_args": {"timeout": 10}}
+        if _db_scheme == "sqlite"
+        else {}
+    )
 
     # OAuth
     GOOGLE_CLIENT_ID = _env("GOOGLE_CLIENT_ID")

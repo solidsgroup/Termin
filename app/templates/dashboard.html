@@ -592,8 +592,6 @@
                               <span class="todo-tree-label">{{ group.name }}</span>
                             </button>
                           </div>
-                        {% else %}
-                          <div class="todo-tree-empty">No groups</div>
                         {% endfor %}
                       </div>
                     </div>
@@ -635,8 +633,6 @@
                               <span class="todo-tree-label">{{ group.name }}</span>
                             </button>
                           </div>
-                        {% else %}
-                          <div class="todo-tree-empty">No groups</div>
                         {% endfor %}
                       </div>
                     </div>
@@ -1292,11 +1288,6 @@
           </table>
         </div>
       {% endif %}
-    {% else %}
-      <div class="panel">
-        <h3>No project selected</h3>
-        <p class="footer-note">Create a project to start adding tasks.</p>
-      </div>
     {% endif %}
   </section>
 </div>
@@ -2742,12 +2733,6 @@
           var projectNode = treeRow.closest("[data-tree-project-node]");
           treeRow.remove();
           removed = true;
-          if (groupsContainer && !groupsContainer.querySelector("[data-tree-group-row]")) {
-            var empty = document.createElement("div");
-            empty.className = "todo-tree-empty";
-            empty.textContent = "No groups";
-            groupsContainer.appendChild(empty);
-          }
           syncTreeProjectToggle(projectNode);
         }
         return removed;
@@ -2870,9 +2855,7 @@
               ? '<button class="todo-tree-toggle is-project-toggle" type="button" data-tree-toggle-project="' + String(project.id) + '" aria-label="Toggle project groups">▸</button>'
               : '<span class="todo-tree-toggle is-hidden" aria-hidden="true">▸</span>') +
           '</div>' +
-          '<div class="todo-tree-children todo-tree-groups">' +
-            '<div class="todo-tree-empty">No groups</div>' +
-          '</div>';
+          '<div class="todo-tree-children todo-tree-groups"></div>';
         return node;
       }
 
@@ -3250,11 +3233,6 @@
               var groupNode = buildTreeGroupNode(project, group, canManage);
               if (groupNode) groupsContainer.appendChild(groupNode);
             });
-          } else {
-            var empty = document.createElement("div");
-            empty.className = "todo-tree-empty";
-            empty.textContent = "No groups";
-            groupsContainer.appendChild(empty);
           }
           syncTreeProjectToggle(node);
         }
@@ -17368,6 +17346,53 @@
         });
       }
 
+      function focusedCollapseState(selection) {
+        var next = { expanded: { divisions: {}, projects: {} }, selection: selection || null };
+        document.querySelectorAll("[data-tree-division-node]").forEach(function (node) {
+          next.expanded.divisions[String(node.getAttribute("data-tree-division-node"))] = false;
+        });
+        document.querySelectorAll("[data-tree-project-node]").forEach(function (node) {
+          next.expanded.projects[String(node.getAttribute("data-tree-project-node"))] = false;
+        });
+        if (!selection) {
+          return next;
+        }
+        if (selection.type === "division") {
+          next.expanded.divisions[String(selection.id)] = true;
+          return next;
+        }
+        var selectionButton = document.querySelector(
+          '[data-tree-select-type="' + String(selection.type) + '"][data-tree-select-id="' + String(selection.id) + '"]'
+        );
+        if (!selectionButton) {
+          return next;
+        }
+        var projectNode = selectionButton.closest("[data-tree-project-node]");
+        var divisionNode = selectionButton.closest("[data-tree-division-node]");
+        if (divisionNode) {
+          next.expanded.divisions[String(divisionNode.getAttribute("data-tree-division-node"))] = true;
+        }
+        if (projectNode) {
+          next.expanded.projects[String(projectNode.getAttribute("data-tree-project-node"))] = true;
+        }
+        return next;
+      }
+
+      function focusTreeSidebarSelection(selection) {
+        applyCollapsedState(focusedCollapseState(selection));
+        markSelection(selection);
+        saveState(snapshotState(selection));
+        var activeButton = selection
+          ? document.querySelector(
+              '[data-tree-select-type="' + String(selection.type) + '"][data-tree-select-id="' + String(selection.id) + '"]'
+            )
+          : null;
+        var activeRow = activeButton ? activeButton.closest(".todo-tree-row") : null;
+        if (activeRow && typeof activeRow.scrollIntoView === "function") {
+          activeRow.scrollIntoView({ block: "nearest" });
+        }
+      }
+
       function markSelection(selection) {
         selectionButtons().forEach(function (button) {
           button.classList.remove("is-active", "is-included");
@@ -17447,6 +17472,26 @@
         }
       }
 
+      function syncTreeSelectionFromLocation(options) {
+        var nextSelection = pathSelectionFromLocation();
+        if (!nextSelection || !nextSelection.type || !nextSelection.id) return;
+        currentSelection = nextSelection;
+        applySelection(currentSelection, { syncHistory: false });
+        focusTreeSidebarSelection(currentSelection);
+        if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+          if (currentSelection.type === "project") {
+            if (treeBoardNeedsSnapshot(currentSelection.id, null)) {
+              window.__refreshTreeProjectSnapshotLocal(currentSelection.id);
+            }
+          } else if (currentSelection.type === "group") {
+            var nextProjectId = projectIdForSelection(currentSelection);
+            if (nextProjectId && treeBoardNeedsSnapshot(nextProjectId, currentSelection.id)) {
+              window.__refreshTreeProjectSnapshotLocal(nextProjectId);
+            }
+          }
+        }
+      }
+
       function treeBoardNeedsSnapshot(projectId, groupId) {
         if (!projectId) return false;
         var board = document.querySelector('[data-tree-project-board="' + String(projectId) + '"]');
@@ -17469,6 +17514,8 @@
         applyCollapsedState(loadState() || {});
         applySelection(currentSelection);
       };
+
+      window.__focusTreeSidebarSelection = focusTreeSidebarSelection;
 
       var draggingTreeDivisionId = null;
       var draggingTreeDivisionRow = null;
@@ -17902,27 +17949,21 @@
         replaceHistory: true,
         syncHistory: isTreeDashboardView(),
       });
+      window.__syncTreeSelectionFromLocation = syncTreeSelectionFromLocation;
       if (treeBoard) {
         treeBoard.setAttribute("data-tree-ready", "1");
       }
 
+      document.addEventListener("termin:dashboard-view-change", function (event) {
+        var detail = event && event.detail ? event.detail : null;
+        if (!detail || detail.currentView !== "tree" || detail.previousView === "tree") return;
+        window.requestAnimationFrame(function () {
+          focusTreeSidebarSelection(currentSelection);
+        });
+      });
+
       window.addEventListener("popstate", function () {
-        var nextSelection = pathSelectionFromLocation();
-        if (!nextSelection || !nextSelection.type || !nextSelection.id) return;
-        currentSelection = nextSelection;
-        applySelection(currentSelection, { syncHistory: false });
-        if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
-          if (currentSelection.type === "project") {
-            if (treeBoardNeedsSnapshot(currentSelection.id, null)) {
-              window.__refreshTreeProjectSnapshotLocal(currentSelection.id);
-            }
-          } else if (currentSelection.type === "group") {
-            var popstateProjectId = projectIdForSelection(currentSelection);
-            if (popstateProjectId && treeBoardNeedsSnapshot(popstateProjectId, currentSelection.id)) {
-              window.__refreshTreeProjectSnapshotLocal(popstateProjectId);
-            }
-          }
-        }
+        syncTreeSelectionFromLocation();
       });
     })();
 
@@ -18355,6 +18396,75 @@
         if (!assigneeDropdown || !assigneeMenu || assigneeMenu.hidden) return;
         if (event.target.closest("[data-todo-assignee-dropdown]")) return;
         setAssigneeMenuOpen(false);
+      });
+
+      function todoTreeNavigationTarget(label) {
+        if (!label) return null;
+        var row = label.closest(".todo-tree-label-row, .todo-tree-row");
+        if (!row) return null;
+        var divisionBox = row.querySelector("[data-todo-division]");
+        var projectBox = row.querySelector("[data-todo-project]");
+        var groupBox = row.querySelector("[data-todo-group]");
+        if (groupBox) {
+          return { type: "group", id: groupBox.getAttribute("data-todo-group") || "" };
+        }
+        if (projectBox) {
+          return { type: "project", id: projectBox.getAttribute("data-todo-project") || "" };
+        }
+        if (divisionBox) {
+          return { type: "division", id: divisionBox.getAttribute("data-todo-division") || "" };
+        }
+        return null;
+      }
+
+      todoTree.addEventListener("mousedown", function (event) {
+        var label = event.target.closest(".todo-tree-label");
+        if (!label) return;
+        if (event.target.closest(".todo-tree-only-btn, .todo-tree-toggle")) return;
+        var target = todoTreeNavigationTarget(label);
+        if (!target || !target.type || !target.id) return;
+        event.preventDefault();
+      });
+
+      todoTree.addEventListener("click", function (event) {
+        var label = event.target.closest(".todo-tree-label");
+        if (!label) return;
+        if (event.defaultPrevented) return;
+        if (event.target.closest(".todo-tree-only-btn, .todo-tree-toggle")) return;
+        var target = todoTreeNavigationTarget(label);
+        var targetType = target ? target.type : "";
+        var targetId = target ? target.id : "";
+        if (!targetType || !targetId) return;
+        var treeButton = document.querySelector(
+          '[data-tree-select-type="' + targetType + '"][data-tree-select-id="' + targetId + '"]'
+        );
+        if (!treeButton) {
+          if (targetType === "division" && targetId === "direct" && typeof window.__setDashboardView === "function") {
+            event.preventDefault();
+            window.__setDashboardView("tree", {
+              syncHistory: true,
+              url: {{ tree_dashboard_path()|tojson }},
+            });
+          }
+          return;
+        }
+        event.preventDefault();
+        if (typeof window.__setDashboardView === "function") {
+          var href = {{ tree_dashboard_path()|tojson }};
+          if (targetType === "project") {
+            href = "/tree/project/" + encodeURIComponent(targetId);
+          } else if (targetType === "group") {
+            var projectId = treeButton.getAttribute("data-tree-project-id") || "";
+            if (projectId) {
+              href = "/tree/project/" + encodeURIComponent(projectId) + "/group/" + encodeURIComponent(targetId);
+            }
+          }
+          window.__setDashboardView("tree", {
+            syncHistory: true,
+            url: href,
+          });
+        }
+        treeButton.click();
       });
 
       todoTree.addEventListener("change", function (event) {
@@ -18864,6 +18974,26 @@
       });
     })();
     {% endif %}
+
+    document.addEventListener("click", function (event) {
+      var treeLink = event.target.closest(".todo-project-name, .todo-group-name");
+      if (!treeLink) return;
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var href = treeLink.getAttribute("href");
+      if (!href || typeof window.__setDashboardView !== "function") return;
+      event.preventDefault();
+      window.__setDashboardView("tree", {
+        syncHistory: true,
+        url: href,
+      });
+      if (typeof window.__syncTreeSelectionFromLocation === "function") {
+        window.requestAnimationFrame(function () {
+          window.__syncTreeSelectionFromLocation();
+        });
+      }
+    });
 
     window.setInterval(pollNotificationState, 15000);
     window.setInterval(pollOpenDiscussion, 10000);

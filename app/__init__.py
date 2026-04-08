@@ -2,6 +2,7 @@ import os
 
 from engineio.payload import Payload
 from flask import Flask, send_from_directory
+from sqlalchemy import event
 from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import Config
 from app.extensions import db, migrate, socketio
@@ -29,6 +30,15 @@ def create_app() -> Flask:
     socketio.init_app(app)
     init_oauth(app)
     register_socket_handlers()
+
+    if str(app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite:"):
+        with app.app_context():
+            @event.listens_for(db.engine, "connect")
+            def _configure_sqlite_connection(dbapi_connection, _connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout = 10000")
+                cursor.close()
 
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(auth_bp)
