@@ -17998,13 +17998,15 @@
       }
 
       function applySidebarCollapse(collapsed) {
-        todoTree.classList.toggle("is-collapsed", !!collapsed);
+        var mobileMode = !!(window.matchMedia && window.matchMedia("(max-width: 900px)").matches);
+        var nextCollapsed = mobileMode ? false : !!collapsed;
+        todoTree.classList.toggle("is-collapsed", nextCollapsed);
         if (layout) {
-          layout.classList.toggle("sidebar-collapsed", !!collapsed);
+          layout.classList.toggle("sidebar-collapsed", nextCollapsed);
         }
         if (sidebarToggle) {
-          sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-          sidebarToggle.setAttribute("aria-label", collapsed ? "Expand filters" : "Collapse filters");
+          sidebarToggle.setAttribute("aria-expanded", nextCollapsed ? "false" : "true");
+          sidebarToggle.setAttribute("aria-label", nextCollapsed ? "Expand filters" : "Collapse filters");
         }
       }
 
@@ -18526,6 +18528,19 @@
         applySidebarCollapse(!!storedCollapsed);
       } catch (err) {
         applySidebarCollapse(false);
+      }
+      if (window.matchMedia) {
+        var sidebarCollapseMql = window.matchMedia("(max-width: 900px)");
+        var syncSidebarCollapseForViewport = function () {
+          if (sidebarCollapseMql.matches) {
+            applySidebarCollapse(false);
+          }
+        };
+        if (sidebarCollapseMql.addEventListener) {
+          sidebarCollapseMql.addEventListener("change", syncSidebarCollapseForViewport);
+        } else if (sidebarCollapseMql.addListener) {
+          sidebarCollapseMql.addListener(syncSidebarCollapseForViewport);
+        }
       }
     })();
 
