@@ -10265,7 +10265,7 @@
         });
 
         const mobileSidebar = document.querySelector(".layout > .sidebar");
-        const mobileSidebarTrigger = document.querySelector("[data-mobile-sidebar-trigger]");
+        const mobileSidebarTriggers = Array.from(document.querySelectorAll("[data-mobile-sidebar-trigger]"));
         const mobileSidebarBackdrop = document.querySelector("[data-mobile-sidebar-backdrop]");
         const mobileSidebarMql = window.matchMedia ? window.matchMedia("(max-width: 900px)") : null;
         const headerEl = document.querySelector("header");
@@ -10291,9 +10291,9 @@
             mobileSidebarBackdrop.classList.remove("is-open");
             mobileSidebarBackdrop.hidden = true;
           }
-          if (mobileSidebarTrigger) {
-            mobileSidebarTrigger.setAttribute("aria-expanded", "false");
-          }
+          mobileSidebarTriggers.forEach((trigger) => {
+            trigger.setAttribute("aria-expanded", "false");
+          });
           mobileSidebarCloseTimer = window.setTimeout(() => {
             mobileSidebar.classList.remove("is-mobile-closing");
             mobileSidebarCloseTimer = null;
@@ -10312,14 +10312,14 @@
             mobileSidebarBackdrop.hidden = false;
             mobileSidebarBackdrop.classList.add("is-open");
           }
-          if (mobileSidebarTrigger) {
-            mobileSidebarTrigger.setAttribute("aria-expanded", "true");
-          }
+          mobileSidebarTriggers.forEach((trigger) => {
+            trigger.setAttribute("aria-expanded", "true");
+          });
         };
         window.__closeMobileSidebar = closeMobileSidebar;
         syncMobileSidebarOffset();
         window.addEventListener("resize", syncMobileSidebarOffset);
-        if (mobileSidebarTrigger) {
+        mobileSidebarTriggers.forEach((mobileSidebarTrigger) => {
           mobileSidebarTrigger.addEventListener("click", (event) => {
             event.preventDefault();
             if (mobileSidebar && mobileSidebar.classList.contains("is-mobile-open")) {
@@ -10328,7 +10328,7 @@
               openMobileSidebar();
             }
           });
-        }
+        });
         if (mobileSidebarBackdrop) {
           mobileSidebarBackdrop.addEventListener("click", () => {
             closeMobileSidebar();
