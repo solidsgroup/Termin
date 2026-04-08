@@ -30,6 +30,12 @@ from app.group_assignments import group_assignment_candidate_users, serialize_gr
 from app.identity import find_user_by_email, normalize_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
 from app.notification_preferences import user_notification_channel_enabled
+from app.web_push import (
+    active_web_push_subscriptions_for_user,
+    delete_web_push_subscription,
+    public_web_push_config,
+    upsert_web_push_subscription,
+)
 from app.realtime import (
     _serialize_group_payload,
     _serialize_project_payload_for_user,
@@ -936,6 +942,68 @@ def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bo
 def me():
     user = current_user()
     return {"user": {"id": user.id, "email": user.email, "display_name": user.display_name}}
+
+
+@api_bp.get("/web-push")
+@login_required
+def web_push_status():
+    user = current_user()
+    config = public_web_push_config()
+    subscriptions = active_web_push_subscriptions_for_user(user.id)
+    return {
+        "configured": config["enabled"],
+        "public_key": config["public_key"],
+        "subscription_count": len(subscriptions),
+        "subscriptions": [
+            {
+                "id": row.id,
+                "endpoint": row.endpoint,
+                "device_label": row.device_label or "",
+                "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in subscriptions
+        ],
+    }
+
+
+@api_bp.post("/web-push")
+@login_required
+def register_web_push_subscription():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    subscription = payload.get("subscription") if isinstance(payload.get("subscription"), dict) else {}
+    keys = subscription.get("keys") if isinstance(subscription.get("keys"), dict) else {}
+    endpoint = str(subscription.get("endpoint") or "").strip()
+    p256dh = str(keys.get("p256dh") or "").strip()
+    auth = str(keys.get("auth") or "").strip()
+    if not endpoint or not p256dh or not auth:
+        return {"error": "invalid subscription payload"}, 400
+
+    upsert_web_push_subscription(
+        user_id=user.id,
+        endpoint=endpoint,
+        p256dh=p256dh,
+        auth=auth,
+        user_agent=request.headers.get("User-Agent"),
+        device_label=str(payload.get("device_label") or "").strip() or None,
+    )
+    db.session.commit()
+    return {"ok": True}
+
+
+@api_bp.delete("/web-push")
+@login_required
+def unregister_web_push_subscription():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    endpoint = str(payload.get("endpoint") or "").strip()
+    if not endpoint:
+        return {"error": "endpoint is required"}, 400
+    deleted = delete_web_push_subscription(user_id=user.id, endpoint=endpoint)
+    if deleted:
+        db.session.commit()
+    return {"ok": True, "deleted": bool(deleted)}
 
 
 @api_bp.get("/notifications")

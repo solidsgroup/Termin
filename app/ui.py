@@ -75,6 +75,7 @@ from app.sidebar_layout import (
 )
 from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
 from app.utils import ALL_TIMEZONE_OPTIONS, COMMON_TIMEZONE_OPTIONS, current_user, display_name_for_user, normalize_user_timezone
+from app.web_push import active_web_push_subscriptions_for_user, public_web_push_config
 from app.themes import DEFAULT_THEME_NAME, THEME_DEFINITIONS, color_slot_from_palette, division_effective_color, normalize_theme_name, palette_color, theme_palette
 from app.utils import is_admin as user_is_admin
 
@@ -752,6 +753,8 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
     notification_items = _build_notification_items(notification_rows, user_id=user.id)
     task_notifications = [item for item in notification_items if item["kind"] != "comment"]
     message_notifications = [item for item in notification_items if item["kind"] == "comment"]
+    web_push_config = public_web_push_config()
+    web_push_subscriptions = active_web_push_subscriptions_for_user(user.id)
     return render_template(
         "account.html",
         user=user,
@@ -776,6 +779,8 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         notification_email_frequency_seconds=normalize_notification_email_frequency(user.notification_email_frequency_seconds),
         task_notifications=task_notifications,
         message_notifications=message_notifications,
+        web_push_config=web_push_config,
+        web_push_subscriptions=web_push_subscriptions,
         error=error,
         merge_message=message,
     )

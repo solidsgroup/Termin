@@ -1,5 +1,70 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  @media (max-width: 900px) {
+    .admin-layout > .admin-content.content {
+      height: auto;
+      min-height: 0;
+    }
+
+    .settings-mobile-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .settings-mobile-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+      color: var(--ink);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .settings-mobile-trigger:hover {
+      background: color-mix(in srgb, var(--panel-alt) 78%, transparent);
+    }
+
+    .settings-mobile-section {
+      min-width: 0;
+      font-size: 14px;
+      color: var(--ink);
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .settings-mobile-section-label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    .settings-mobile-section-name {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  @media (min-width: 901px) {
+    .settings-mobile-toolbar {
+      display: none;
+    }
+  }
+</style>
 <div class="layout admin-layout">
   <aside class="sidebar admin-sidebar">
     <div class="sidebar-heading-row">
@@ -21,6 +86,31 @@
     </nav>
   </aside>
   <section class="content admin-content">
+    <div class="settings-mobile-toolbar">
+      <button
+        class="settings-mobile-trigger mobile-sidebar-trigger"
+        type="button"
+        data-mobile-sidebar-trigger
+        aria-label="Open settings navigation"
+        aria-expanded="false"
+      >
+        <i class="fa-solid fa-bars" aria-hidden="true"></i>
+      </button>
+      <span class="settings-mobile-section">
+        <span class="settings-mobile-section-label">Settings</span>
+        <span class="settings-mobile-section-name">
+        {% if account_section == 'emails' %}
+          Accounts
+        {% elif account_section == 'notifications' %}
+          Notifications
+        {% elif account_section == 'experience' %}
+          Experience
+        {% else %}
+          Settings
+        {% endif %}
+        </span>
+      </span>
+    </div>
     {% if account_section == "emails" %}
       <div class="panel">
         <h2>Accounts</h2>
@@ -448,13 +538,21 @@
           background: color-mix(in srgb, var(--panel-alt) 76%, transparent);
         }
 
-        .admin-layout {
-          overflow: hidden;
+        @media (max-width: 900px) {
+          .notification-settings-title-panel {
+            display: none;
+          }
         }
 
-        .admin-content {
-          overflow-x: visible;
-          overflow-y: auto;
+        @media (min-width: 901px) {
+          .admin-layout {
+            overflow: hidden;
+          }
+
+          .admin-content {
+            overflow-x: visible;
+            overflow-y: auto;
+          }
         }
 
         header,
@@ -467,7 +565,7 @@
         }
 
       </style>
-      <div class="panel">
+      <div class="panel notification-settings-title-panel">
         <h2>Notifications</h2>
         {% if merge_message %}
           <p class="footer-note" style="color: var(--success); margin-top: 10px;">{{ merge_message }}</p>
@@ -475,6 +573,59 @@
         {% if error %}
           <p class="footer-note" style="color: var(--danger); margin-top: 10px;">{{ error }}</p>
         {% endif %}
+      </div>
+      <div class="panel">
+        <div class="notification-settings-section" style="margin-bottom: 0;">
+          <h3 class="notification-settings-heading">Browser push</h3>
+          <div class="footer-note">
+            Install Termin to your phone or desktop to get app-like notifications without a native app.
+            On iPhone, this requires Safari and <strong>Add to Home Screen</strong> before notifications can be enabled.
+          </div>
+          <div class="notification-settings-row">
+            <span class="notification-settings-label">Status</span>
+            <span class="notification-settings-value" id="web-push-status">
+              {% if not web_push_config.enabled %}
+                Browser push is not configured on this server yet.
+              {% elif web_push_subscriptions %}
+                Browser push is enabled on {{ web_push_subscriptions|length }} browser{{ '' if web_push_subscriptions|length == 1 else 's' }}.
+              {% else %}
+                Browser push is available but not enabled in this browser yet.
+              {% endif %}
+            </span>
+          </div>
+          <div class="notification-settings-row">
+            <span class="notification-settings-label">This browser</span>
+            <span class="notification-settings-value" style="flex-wrap: wrap;">
+              <button
+                type="button"
+                class="btn"
+                id="web-push-toggle"
+                data-enabled="{{ 1 if web_push_config.enabled else 0 }}"
+                onclick="if (window.TerminPWA && typeof window.TerminPWA.toggleBrowserPush === 'function') { window.TerminPWA.toggleBrowserPush(event); }"
+              >
+                Enable browser notifications
+              </button>
+              <span class="footer-note" id="web-push-hint">
+                Works on desktop installs and Android PWAs. iPhone requires the Home Screen app.
+              </span>
+            </span>
+          </div>
+          {% if web_push_subscriptions %}
+            <div class="notification-settings-row" style="align-items: start;">
+              <span class="notification-settings-label">Known installs</span>
+              <span class="notification-settings-value" style="display: block;">
+                {% for row in web_push_subscriptions %}
+                  <div class="footer-note" style="margin-bottom: 6px;">
+                    {{ row.device_label or "Browser install" }}
+                    {% if row.last_seen_at %}
+                      · last seen {{ format_user_datetime(row.last_seen_at) }}
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </span>
+            </div>
+          {% endif %}
+        </div>
       </div>
       <div class="panel">
         <form method="post" action="{{ url_for('ui.update_account_notifications') }}">

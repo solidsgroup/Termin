@@ -1,7 +1,7 @@
 import os
 
 from engineio.payload import Payload
-from flask import Flask
+from flask import Flask, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import Config
 from app.extensions import db, migrate, socketio
@@ -13,6 +13,7 @@ from app.webhooks.google import google_webhooks_bp
 from app.oauth import init_oauth
 from app.themes import THEME_DEFINITIONS, normalize_theme_mode, normalize_theme_name, theme_interface
 from app.utils import current_user, format_datetime_for_user, is_admin, user_timezone_name
+from app.web_push import public_web_push_config
 
 
 def create_app() -> Flask:
@@ -38,6 +39,18 @@ def create_app() -> Flask:
     def health():
         return {"status": "ok"}
 
+    @app.get("/manifest.webmanifest")
+    def web_manifest():
+        response = send_from_directory(app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.get("/service-worker.js")
+    def service_worker():
+        response = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.context_processor
     def inject_template_globals():
         user = current_user()
@@ -55,6 +68,7 @@ def create_app() -> Flask:
             "global_active_theme_name": active_theme_name,
             "global_active_theme_mode": active_theme_mode,
             "global_theme_interface": theme_interface(active_theme_name, active_theme_mode),
+            "global_web_push_config": public_web_push_config(),
         }
 
     return app

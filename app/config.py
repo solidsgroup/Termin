@@ -59,3 +59,9 @@ class Config:
     DEV_MAILBOX_CAPTURE_ONLY = _env_bool("DEV_MAILBOX_CAPTURE_ONLY", True)
     ADMIN_EMAILS = _env("ADMIN_EMAILS", "")
     LOCAL_ADMIN_PASSWORD = _env("LOCAL_ADMIN_PASSWORD")
+
+    # Web Push / PWA
+    WEB_PUSH_ENABLED = _env_bool("WEB_PUSH_ENABLED", False)
+    WEB_PUSH_PUBLIC_KEY = _env("WEB_PUSH_PUBLIC_KEY")
+    WEB_PUSH_PRIVATE_KEY = _env("WEB_PUSH_PRIVATE_KEY")
+    WEB_PUSH_SUBJECT = _env("WEB_PUSH_SUBJECT", "mailto:admin@example.com")

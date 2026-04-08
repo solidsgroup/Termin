@@ -5,7 +5,7 @@ import json
 from markdown import markdown as render_markdown
 from sqlalchemy import func, or_
 
-from flask import request
+from flask import current_app, request
 from flask_socketio import emit, join_room, leave_room
 
 from app.extensions import db, socketio
@@ -36,6 +36,7 @@ from app.models import (
 from app.themes import DEFAULT_THEME_NAME, division_effective_color, normalize_theme_name
 from app.task_status import task_status_meta
 from app.utils import current_user, display_name_for_user
+from app.web_push import send_web_push_notification
 
 _handlers_registered = False
 _sid_user = {}
@@ -109,6 +110,76 @@ def _dump_notification_data(payload: dict | None) -> str | None:
     return json.dumps(payload, sort_keys=True)
 
 
+def _absolute_url(path: str) -> str:
+    base = (current_app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    if not path.startswith("/"):
+        path = "/" + path
+    return (base + path) if base else path
+
+
+def _web_push_payload_for_notification(
+    *,
+    kind: str,
+    task: Task | None = None,
+    project: Project | None = None,
+    group: Group | None = None,
+    detail_payload: dict | None = None,
+) -> dict:
+    detail = detail_payload or {}
+    actor_name = str(detail.get("actor_name") or detail.get("sender_name") or "Termin").strip() or "Termin"
+    task_title = (getattr(task, "title", None) or "a task").strip()
+    project_id = getattr(project, "id", None) or detail.get("project_id")
+    group_id = getattr(group, "id", None) or detail.get("group_id")
+    group_project_id = getattr(group, "project_id", None) or detail.get("project_id")
+    project_name = (getattr(project, "name", None) or detail.get("project_name") or "").strip()
+    group_name = (getattr(group, "name", None) or detail.get("group_name") or "").strip()
+    title = "Termin"
+    body = "You have a new update."
+    url = "/"
+    tag = f"termin:{kind}"
+
+    if task is not None:
+        url = f"/task/{task.id}"
+        tag = f"termin:{kind}:task:{task.id}"
+        if kind == "comment":
+            title = f"{actor_name} commented"
+            body = f'On "{task_title}"'
+        elif kind == "task_completed":
+            title = "Task completed"
+            body = f'{actor_name} completed "{task_title}"'
+        elif kind == "task_created":
+            title = "Task created"
+            body = f'{actor_name} created "{task_title}"'
+        else:
+            title = "Task updated"
+            body = f'{actor_name} updated "{task_title}"'
+    elif project is not None or project_id:
+        url = f"/tree/project/{project_id}"
+        tag = f"termin:{kind}:project:{project_id}"
+        if kind == "project_comment":
+            title = f"{actor_name} commented"
+            body = f'In project "{project_name or "Project"}"'
+        else:
+            title = "Project updated"
+            body = f'{actor_name} updated "{project_name or "Project"}"'
+    elif group is not None or group_id:
+        url = f"/tree/project/{group_project_id}/group/{group_id}"
+        tag = f"termin:{kind}:group:{group_id}"
+        if kind == "group_comment":
+            title = f"{actor_name} commented"
+            body = f'In group "{group_name or "Group"}"'
+        else:
+            title = "Group updated"
+            body = f'{actor_name} updated "{group_name or "Group"}"'
+
+    return {
+        "title": title,
+        "body": body,
+        "url": _absolute_url(url),
+        "tag": tag,
+    }
+
+
 _SPECIFIC_TASK_NOTIFICATION_KINDS = {
     "task_completed",
     "task_due_changed",
@@ -154,18 +225,27 @@ def queue_user_notification(
         existing.comment_id = comment_id
         existing.notification_data = detail_json
         existing.emailed_at = None
-        return
-    db.session.add(
-        TaskNotification(
-            user_id=user_id,
-            task_id=task_id,
-            comment_id=comment_id,
-            kind=kind,
-            notification_data=detail_json,
-            emailed_at=None,
-            created_at=now,
+    else:
+        db.session.add(
+            TaskNotification(
+                user_id=user_id,
+                task_id=task_id,
+                comment_id=comment_id,
+                kind=kind,
+                notification_data=detail_json,
+                emailed_at=None,
+                created_at=now,
+            )
         )
-    )
+    if push_enabled:
+        send_web_push_notification(
+            user_id=user_id,
+            payload=_web_push_payload_for_notification(
+                kind=kind,
+                task=task,
+                detail_payload=detail_payload,
+            ),
+        )
 
 
 def _user_sids(user_id: int) -> list[str]:
@@ -1132,6 +1212,15 @@ def queue_task_notifications(
                     emailed_at=None,
                     created_at=now,
                 )
+            )
+        if push_enabled:
+            send_web_push_notification(
+                user_id=recipient_id,
+                payload=_web_push_payload_for_notification(
+                    kind=kind,
+                    task=task,
+                    detail_payload=detail_payload,
+                ),
             )
 
 

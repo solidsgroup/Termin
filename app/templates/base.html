@@ -5,8 +5,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="{{ global_theme_interface.header_bg }}" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Termin" />
     <title>{{ title or "Termin" }}</title>
     <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" data-base-favicon="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin.svg') }}" />
+    <link rel="manifest" href="{{ url_for('web_manifest') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script>
@@ -10800,6 +10805,10 @@
       });
     </script>
     <script>
+      window.TerminPWAConfig = {{ global_web_push_config | tojson }};
+      window.TerminPWA = window.TerminPWA || {};
+    </script>
+    <script>
       document.addEventListener("click", function (event) {
         if (event.defaultPrevented) return;
         if (event.button !== 0) return;
@@ -10837,6 +10846,156 @@
       window.addEventListener("pageshow", function () {
         document.body.classList.remove("is-page-loading");
       });
+    </script>
+    <script>
+      (function () {
+        if (!("serviceWorker" in navigator)) return;
+        navigator.serviceWorker.register("/service-worker.js").catch(function () {});
+      })();
+    </script>
+    <script>
+      (function () {
+        async function initTerminBrowserPush() {
+          const button = document.getElementById("web-push-toggle");
+          const status = document.getElementById("web-push-status");
+          const hint = document.getElementById("web-push-hint");
+          const config = window.TerminPWAConfig || {};
+          if (!button || !status || !hint) return;
+
+          function setBusy(isBusy) {
+            button.disabled = !!isBusy;
+          }
+
+          function setLabel(hasSubscription) {
+            button.textContent = hasSubscription ? "Disable in this browser" : "Enable browser notifications";
+          }
+
+          function urlBase64ToUint8Array(base64String) {
+            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+            const normalized = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+            const rawData = window.atob(normalized);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) {
+              outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+          }
+
+          async function ensureRegistration() {
+            if (!("serviceWorker" in navigator)) return null;
+            let registration = await navigator.serviceWorker.getRegistration("/");
+            if (registration) return registration;
+            registration = await navigator.serviceWorker.register("/service-worker.js");
+            return registration;
+          }
+
+          async function getExistingSubscription() {
+            if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+            const registration = await ensureRegistration();
+            if (!registration) return null;
+            return registration.pushManager.getSubscription();
+          }
+
+          async function refreshState() {
+            const subscription = await getExistingSubscription();
+            setLabel(!!subscription);
+            if (!config.enabled) {
+              status.textContent = "Browser push is not configured on this server yet.";
+              button.disabled = true;
+              return;
+            }
+            if (!window.isSecureContext) {
+              status.textContent = "Browser push requires HTTPS or localhost.";
+              button.disabled = true;
+              return;
+            }
+            if (!("Notification" in window) || !("PushManager" in window)) {
+              status.textContent = "This browser does not support web push notifications.";
+              button.disabled = true;
+              return;
+            }
+            button.disabled = false;
+            status.textContent = subscription
+              ? "Browser push is enabled in this browser."
+              : "Browser push is available but not enabled in this browser yet.";
+          }
+
+          async function registerSubscription(subscription) {
+            await fetch("/api/web-push", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                subscription: subscription.toJSON(),
+                device_label: window.matchMedia("(display-mode: standalone)").matches ? "Installed app" : "Browser tab",
+              }),
+            });
+          }
+
+          async function deleteSubscription(subscription) {
+            await fetch("/api/web-push", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ endpoint: subscription.endpoint }),
+            });
+          }
+
+          async function handleToggle(event) {
+            if (event && typeof event.preventDefault === "function") event.preventDefault();
+            if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+            if (!config.enabled) return;
+            setBusy(true);
+            try {
+              const existing = await getExistingSubscription();
+              if (existing) {
+                await deleteSubscription(existing);
+                await existing.unsubscribe();
+                hint.textContent = "Browser notifications disabled for this browser.";
+                await refreshState();
+                return;
+              }
+              const permission = await Notification.requestPermission();
+              if (permission !== "granted") {
+                hint.textContent = "Notification permission was not granted.";
+                await refreshState();
+                return;
+              }
+              const registration = await ensureRegistration();
+              if (!registration) {
+                hint.textContent = "Unable to initialize service worker registration.";
+                await refreshState();
+                return;
+              }
+              const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(config.public_key || ""),
+              });
+              await registerSubscription(subscription);
+              hint.textContent = "Browser notifications enabled for this browser.";
+              await refreshState();
+            } catch (_error) {
+              hint.textContent = "Unable to update browser notifications.";
+            } finally {
+              setBusy(false);
+            }
+          }
+
+          window.TerminPWA = window.TerminPWA || {};
+          window.TerminPWA.toggleBrowserPush = handleToggle;
+          if (!button.dataset.webPushBound) {
+            button.dataset.webPushBound = "1";
+            button.addEventListener("click", handleToggle);
+          }
+          await refreshState();
+        }
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", function () {
+            initTerminBrowserPush().catch(function () {});
+          }, { once: true });
+        } else {
+          initTerminBrowserPush().catch(function () {});
+        }
+      })();
     </script>
   </body>
 </html>
