@@ -10,8 +10,8 @@
     <meta name="apple-mobile-web-app-title" content="Termin" />
     <title>{{ title or "Termin" }}</title>
     <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" data-base-favicon="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin-icon-v2-180.png') }}" />
-    <link rel="manifest" href="{{ url_for('web_manifest') }}?v=4" />
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin-icon-v3-180.png') }}" />
+    <link rel="manifest" href="{{ url_for('web_manifest') }}?v=5" />
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script>
@@ -10998,6 +10998,11 @@
         async function handleInstallApp(event) {
           if (event && typeof event.preventDefault === "function") event.preventDefault();
           if (isStandaloneMode()) {
+            syncInstallUi();
+            return;
+          }
+          if (!window.isSecureContext) {
+            showInstallMessage("Install requires HTTPS or localhost. This page is not on a secure origin.");
             syncInstallUi();
             return;
           }
