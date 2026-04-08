@@ -1851,6 +1851,12 @@
         grid-template-rows: minmax(120px, 1fr) 12px minmax(110px, 0.72fr);
         height: 100%;
         min-height: 0;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+
+      .sidebar-split-shell.is-ready {
+        opacity: 1;
       }
 
       .sidebar-split-pane {
@@ -1906,7 +1912,7 @@
       }
 
       .sidebar.todo-tree {
-        padding-bottom: 24px;
+        padding-bottom: 0;
       }
 
       .sidebar.todo-tree .sidebar-split-pane > .todo-sidebar-section {
@@ -8508,7 +8514,7 @@
       .direct-projects-section {
         margin-top: 0;
         padding-top: 4px;
-        min-height: 100%;
+        min-height: 0;
       }
 
       .direct-projects-heading {
@@ -9213,23 +9219,23 @@
           padding-right: 18px;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-list {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-list {
           gap: 6px;
         }
 
-        .sidebar[data-todo-tree] .todo-sidebar-section {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-sidebar-section {
           margin-top: 14px;
           padding-top: 10px;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-row,
-        .sidebar[data-todo-tree] .todo-tree-group-row,
-        .sidebar[data-todo-tree] .todo-filter-row,
-        .sidebar[data-todo-tree] .todo-assignee-row {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-row,
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-group-row,
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-filter-row,
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-row {
           min-height: 40px;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-row {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-row {
           width: 100% !important;
           left: 0 !important;
           margin-left: 0 !important;
@@ -9237,56 +9243,51 @@
           box-sizing: border-box;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-label-row,
-        .sidebar[data-todo-tree] .todo-assignee-row {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-label-row,
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-row {
           grid-template-columns: 18px minmax(0, 1fr) auto 28px;
           align-items: center;
           gap: 10px;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-group-row {
-          display: grid;
-          grid-template-columns: 18px minmax(0, 1fr);
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-group-row {
+          display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 0 18px 0 calc(18px + var(--tree-row-indent, 0px));
+          gap: 2px;
+          width: 100% !important;
+          left: 0 !important;
+          margin-left: 0 !important;
+          padding: 0 18px 0 calc(18px + var(--tree-row-indent, 0px)) !important;
+          box-sizing: border-box;
         }
 
-        .sidebar[data-todo-tree] [data-todo-completed-node] > .todo-tree-row {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-completed-node] > .todo-tree-row {
           --tree-row-indent: 0px;
         }
 
-        .sidebar[data-todo-tree] [data-todo-completed-node] {
-          width: calc(100% + 28px);
-          margin-left: -14px;
-          background: #000000;
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] [data-todo-completed-node] {
+          width: 100%;
+          margin-left: 0;
+          background: transparent;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-row {
-          --tree-row-indent: 12px;
-          width: calc(100% + 28px) !important;
-          margin-left: -14px !important;
-          padding: 0 18px 0 18px !important;
-          background: #000000;
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-completed-options .todo-tree-row {
+          background: transparent;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-completed-options {
-          width: calc(100% + 28px);
-          margin-left: -14px;
-          padding-left: 0 !important;
-          padding-right: 0 !important;
-          background: #000000;
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-completed-options {
+          width: 100%;
+          margin-left: 0;
+          padding-left: 0;
+          padding-right: 0;
+          background: transparent;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-group-row {
-          padding-left: 42px !important;
-        }
-
-        .sidebar[data-todo-tree] .todo-tree-completed-options .todo-tree-group-row .todo-tree-label {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-completed-options .todo-tree-group-row .todo-tree-label {
           margin-left: 0;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-checkbox {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-checkbox {
           width: 18px;
           height: 18px;
           min-width: 18px;
@@ -9295,7 +9296,7 @@
           background-size: 14px 14px;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-toggle {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-toggle {
           width: 28px;
           height: 28px;
           font-size: 13px;
@@ -9307,33 +9308,33 @@
           transform: none;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-label {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-label {
           font-size: 14px;
           line-height: 1.25;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-only-btn {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-only-btn {
           display: none;
         }
 
-        .sidebar[data-todo-tree] .todo-tree-completed-options {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-tree-completed-options {
           gap: 2px;
           padding-top: 2px;
         }
 
-        .sidebar[data-todo-tree] .todo-assignee-dropdown {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-dropdown {
           margin-top: 8px;
           padding: 0 18px;
         }
 
-        .sidebar[data-todo-tree] .todo-assignee-trigger {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-trigger {
           min-height: 42px;
           padding: 10px 12px;
           font-size: 14px;
           border-radius: 12px;
         }
 
-        .sidebar[data-todo-tree] .todo-assignee-menu {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-menu {
           position: static;
           margin-top: 8px;
           padding: 10px 12px;
@@ -9343,22 +9344,22 @@
           overflow-y: auto;
         }
 
-        .sidebar[data-todo-tree] .todo-assignee-actions {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-actions {
           gap: 6px;
           flex-wrap: wrap;
           margin-bottom: 8px;
         }
 
-        .sidebar[data-todo-tree] .todo-assignee-actions .btn {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-actions .btn {
           min-height: 32px;
           padding: 6px 10px;
         }
 
-        .sidebar[data-todo-tree] .todo-assignee-row {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-row {
           grid-template-columns: 18px 24px minmax(0, 1fr);
         }
 
-        .sidebar[data-todo-tree] .todo-assignee-avatar {
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-avatar {
           width: 24px;
           height: 24px;
           font-size: 11px;

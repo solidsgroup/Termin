@@ -336,14 +336,23 @@
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
 <style>
+  .dashboard-sidebar {
+    min-height: 0;
+  }
+
   .dashboard-sidebar-pane,
   .dashboard-view-pane {
     display: none;
+    min-height: 0;
   }
 
   .dashboard-sidebar-pane.is-active,
   .dashboard-view-pane.is-active {
     display: block;
+  }
+
+  .dashboard-sidebar-pane.is-active {
+    height: 100%;
   }
 
   .dashboard-layout.no-sidebar [data-dashboard-sidebar] {
@@ -639,8 +648,8 @@
         </div>
         <div class="sidebar-split-divider" data-sidebar-splitter role="separator" aria-orientation="horizontal" aria-label="Resize structure and direct panels"></div>
         <div class="sidebar-split-pane sidebar-split-pane-bottom" data-sidebar-split-pane="bottom">
-          <div class="todo-sidebar-section">
-            <div class="sidebar-heading-row todo-sidebar-subhead">
+          <div class="todo-sidebar-section direct-projects-section">
+            <div class="sidebar-heading-row todo-sidebar-subhead direct-projects-heading">
               <h3 style="margin: 0;">Direct</h3>
               <button class="sidebar-mini-add" type="button" data-open-direct-project-modal aria-label="Create direct task space">+</button>
             </div>
@@ -664,7 +673,7 @@
                   </div>
                 </div>
               {% else %}
-                <div class="todo-tree-empty">No direct spaces yet.</div>
+                <div class="todo-tree-empty direct-project-empty">No direct spaces yet.</div>
               {% endfor %}
             </div>
           </div>
@@ -4373,15 +4382,16 @@
         if (!treeSidebar) return null;
         var existing = treeSidebar.querySelector('[data-tree-direct-list]');
         if (existing) return existing;
+        var splitPaneBottom = treeSidebar.querySelector('[data-sidebar-split-pane="bottom"]');
         var shell = document.createElement("div");
-        shell.className = "todo-sidebar-section";
+        shell.className = "todo-sidebar-section direct-projects-section";
         shell.innerHTML =
-          '<div class="sidebar-heading-row todo-sidebar-subhead">' +
+          '<div class="sidebar-heading-row todo-sidebar-subhead direct-projects-heading">' +
             '<h3 style="margin: 0;">Direct</h3>' +
             '<button class="sidebar-mini-add" type="button" data-open-direct-project-modal aria-label="Create direct task space">+</button>' +
           '</div>' +
           '<div class="todo-tree-list tree-select-list" data-tree-direct-list></div>';
-        treeSidebar.appendChild(shell);
+        (splitPaneBottom || treeSidebar).appendChild(shell);
         shell.querySelectorAll("[data-open-direct-project-modal]").forEach(function (button) {
           button.addEventListener("click", function (event) {
             event.preventDefault();
@@ -4461,6 +4471,21 @@
       }
 
       function updateDirectProjectEmptyState() {
+        var treeList = document.querySelector("[data-tree-direct-list]");
+        if (treeList) {
+          var hasTreeItems = !!treeList.querySelector("[data-tree-direct-project]");
+          var treeEmpty = treeList.querySelector("[data-direct-project-empty], .direct-project-empty, .todo-tree-empty");
+          if (hasTreeItems && treeEmpty) {
+            treeEmpty.remove();
+          } else if (!hasTreeItems && !treeEmpty) {
+            var treeNode = document.createElement("div");
+            treeNode.className = "todo-tree-empty direct-project-empty";
+            treeNode.setAttribute("data-direct-project-empty", "");
+            treeNode.textContent = "No direct spaces yet.";
+            treeList.appendChild(treeNode);
+          }
+          return;
+        }
         var list = document.querySelector("[data-direct-project-list]");
         if (!list) return;
         var hasItems = !!list.querySelector(".direct-project-item");
@@ -4477,6 +4502,8 @@
       }
 
       function ensureDirectProjectList() {
+        var treeList = document.querySelector("[data-tree-direct-list]");
+        if (treeList) return treeList;
         var list = document.querySelector("[data-direct-project-list]");
         if (list) return list;
         var sidebar = document.querySelector(".layout > .sidebar:not(.todo-tree)");
@@ -4504,6 +4531,9 @@
       }
 
       function buildDirectProjectItemNode(project, canManage) {
+        if (document.querySelector("[data-tree-sidebar]") && typeof buildTreeDirectProjectNode === "function") {
+          return buildTreeDirectProjectNode(project, canManage);
+        }
         if (!project || !project.id) return null;
         function escapeDirectText(value) {
           return String(value == null ? "" : value)
@@ -4583,7 +4613,10 @@
       function insertProjectSidebarLocal(project, canManage) {
         if (!project || !project.id) return false;
         var projectId = String(project.id);
-        if (document.querySelector('[data-project-context="' + projectId + '"]')) return false;
+        if (
+          document.querySelector('[data-project-context="' + projectId + '"]') ||
+          document.querySelector('[data-tree-project-node="' + projectId + '"]')
+        ) return false;
         if (project.is_direct) {
           var directList = ensureDirectProjectList();
           if (!directList) return false;
@@ -9133,7 +9166,10 @@
 
       const applyRatio = (ratio) => {
         const nextRatio = Math.max(0.2, Math.min(0.8, Number(ratio) || 0.62));
-        shell.style.gridTemplateRows = `minmax(120px, ${nextRatio}fr) 12px minmax(110px, ${1 - nextRatio}fr)`;
+        const topPercent = (nextRatio * 100).toFixed(3);
+        const bottomPercent = ((1 - nextRatio) * 100).toFixed(3);
+        shell.style.gridTemplateRows =
+          `minmax(120px, calc(${topPercent}% - 6px)) 12px minmax(110px, calc(${bottomPercent}% - 6px))`;
       };
 
       try {
@@ -9142,6 +9178,10 @@
       } catch (error) {
         console.warn("sidebar split restore failed", error);
       }
+
+      window.requestAnimationFrame(() => {
+        shell.classList.add("is-ready");
+      });
 
       const persistCurrentRatio = () => {
         const total = topPane.getBoundingClientRect().height + bottomPane.getBoundingClientRect().height;
