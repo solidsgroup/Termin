@@ -17,8 +17,8 @@ self.addEventListener("push", function (event) {
   const title = payload.title || "Termin";
   const options = {
     body: payload.body || "You have a new update.",
-    icon: "/static/brand/termin.svg",
-    badge: "/static/brand/termin.svg",
+    icon: "/static/brand/termin-icon-192.png",
+    badge: "/static/brand/termin-icon-192.png",
     tag: payload.tag || "termin-notification",
     data: {
       url: payload.url || "/",

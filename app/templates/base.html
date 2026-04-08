@@ -10,8 +10,8 @@
     <meta name="apple-mobile-web-app-title" content="Termin" />
     <title>{{ title or "Termin" }}</title>
     <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" data-base-favicon="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin.svg') }}" />
-    <link rel="manifest" href="{{ url_for('web_manifest') }}" />
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin-icon-v2-180.png') }}" />
+    <link rel="manifest" href="{{ url_for('web_manifest') }}?v=4" />
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script>
@@ -10179,6 +10179,16 @@
                 <i class="fa-solid fa-gear account-menu-icon" aria-hidden="true"></i>
                 <span class="account-menu-label">Settings</span>
               </a>
+              <button
+                class="account-menu-link"
+                type="button"
+                role="menuitem"
+                id="pwa-install-menu-button"
+                title="Install Termin"
+              >
+                <i class="fa-solid fa-mobile-screen-button account-menu-icon" aria-hidden="true"></i>
+                <span class="account-menu-label" id="pwa-install-menu-label">Install Termin</span>
+              </button>
               {% if calendar_subscription_url %}
                 <button
                   class="account-menu-link"
@@ -10851,6 +10861,167 @@
       (function () {
         if (!("serviceWorker" in navigator)) return;
         navigator.serviceWorker.register("/service-worker.js").catch(function () {});
+      })();
+    </script>
+    <script>
+      (function () {
+        const installState = {
+          deferredPrompt: null,
+        };
+
+        function installElements() {
+          return {
+            primaryButton: document.getElementById("pwa-install-button"),
+            primaryStatus: document.getElementById("pwa-install-status"),
+            primaryHint: document.getElementById("pwa-install-hint"),
+            menuButton: document.getElementById("pwa-install-menu-button"),
+            menuLabel: document.getElementById("pwa-install-menu-label"),
+          };
+        }
+
+        function isStandaloneMode() {
+          return !!(
+            (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+            window.navigator.standalone === true
+          );
+        }
+
+        function isIosDevice() {
+          const ua = window.navigator.userAgent || "";
+          return /iphone|ipad|ipod/i.test(ua);
+        }
+
+        function isSafariBrowser() {
+          const ua = window.navigator.userAgent || "";
+          return /safari/i.test(ua) && !/crios|fxios|edgios|chrome|android/i.test(ua);
+        }
+
+        function syncInstallUi() {
+          const { primaryButton, primaryStatus, primaryHint, menuButton, menuLabel } = installElements();
+          if (!primaryButton && !menuButton) return;
+
+          const installed = isStandaloneMode();
+          const iosManualInstall = !installed && isIosDevice() && isSafariBrowser();
+
+          if (installed) {
+            if (primaryStatus) primaryStatus.textContent = "Termin is installed on this device.";
+            if (primaryHint) primaryHint.textContent = "Open Termin from your Home Screen, dock, or app launcher.";
+            if (primaryButton) {
+              primaryButton.textContent = "Installed";
+              primaryButton.disabled = true;
+            }
+            if (menuButton) {
+              menuButton.disabled = true;
+              menuButton.title = "Termin is already installed";
+            }
+            if (menuLabel) menuLabel.textContent = "Installed";
+            return;
+          }
+
+          if (primaryButton) {
+            primaryButton.disabled = false;
+            primaryButton.textContent = iosManualInstall ? "Show install steps" : "Install Termin";
+          }
+          if (menuButton) {
+            menuButton.disabled = false;
+            menuButton.title = iosManualInstall ? "Show iPhone install steps" : "Install Termin";
+          }
+          if (menuLabel) menuLabel.textContent = iosManualInstall ? "Add to Home Screen" : "Install Termin";
+
+          if (installState.deferredPrompt) {
+            if (primaryStatus) primaryStatus.textContent = "Termin can be installed from this browser.";
+            if (primaryHint) primaryHint.textContent = "Use the install prompt for a standalone app window and better notification support.";
+            return;
+          }
+
+          if (iosManualInstall) {
+            if (primaryStatus) primaryStatus.textContent = "Termin can be installed from Safari.";
+            if (primaryHint) primaryHint.textContent = "Tap Share, then Add to Home Screen. Open the installed app before enabling notifications.";
+            return;
+          }
+
+          if (primaryStatus) primaryStatus.textContent = "Install availability depends on this browser.";
+          if (primaryHint) primaryHint.textContent = "If no prompt appears, use your browser menu and look for Install App or Add to Home Screen.";
+        }
+
+        async function handleInstallApp(event) {
+          if (event && typeof event.preventDefault === "function") event.preventDefault();
+          const { primaryHint } = installElements();
+          if (isStandaloneMode()) {
+            syncInstallUi();
+            return;
+          }
+          if (installState.deferredPrompt) {
+            try {
+              const promptEvent = installState.deferredPrompt;
+              installState.deferredPrompt = null;
+              await promptEvent.prompt();
+              if (promptEvent.userChoice) {
+                await promptEvent.userChoice.catch(function () {});
+              }
+            } catch (_error) {
+              if (primaryHint) {
+                primaryHint.textContent = "The install prompt could not be opened. Try the browser menu instead.";
+              }
+            } finally {
+              syncInstallUi();
+            }
+            return;
+          }
+          if (isIosDevice() && isSafariBrowser()) {
+            if (primaryHint) {
+              primaryHint.textContent = "In Safari, tap Share and choose Add to Home Screen. Then open the installed app from your Home Screen.";
+            }
+            syncInstallUi();
+            return;
+          }
+          if (primaryHint) {
+            primaryHint.textContent = "Use your browser menu and look for Install App or Add to Home Screen.";
+          }
+          syncInstallUi();
+        }
+
+        window.TerminPWA = window.TerminPWA || {};
+        window.TerminPWA.installApp = handleInstallApp;
+        window.TerminPWA.syncInstallUi = syncInstallUi;
+
+        window.addEventListener("beforeinstallprompt", function (event) {
+          event.preventDefault();
+          installState.deferredPrompt = event;
+          syncInstallUi();
+        });
+
+        window.addEventListener("appinstalled", function () {
+          installState.deferredPrompt = null;
+          syncInstallUi();
+        });
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", function () {
+            const { primaryButton, menuButton } = installElements();
+            [primaryButton, menuButton].forEach(function (button) {
+              if (button && !button.dataset.installBound) {
+                button.dataset.installBound = "1";
+                button.addEventListener("click", handleInstallApp);
+              }
+            });
+            syncInstallUi();
+          }, { once: true });
+        } else {
+          const { primaryButton, menuButton } = installElements();
+          [primaryButton, menuButton].forEach(function (button) {
+            if (button && !button.dataset.installBound) {
+              button.dataset.installBound = "1";
+              button.addEventListener("click", handleInstallApp);
+            }
+          });
+          syncInstallUi();
+        }
+
+        window.addEventListener("pageshow", syncInstallUi);
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden) syncInstallUi();
+        });
       })();
     </script>
     <script>
