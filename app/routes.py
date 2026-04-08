@@ -29,6 +29,7 @@ from app.github_sync import GitHubSyncError, github_identity_for_user, should_sy
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, normalize_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
+from app.favicon_cache import cache_favicons_for_links
 from app.notification_preferences import user_notification_channel_enabled
 from app.web_push import (
     active_web_push_subscriptions_for_user,
@@ -1281,6 +1282,10 @@ def _merge_comment_links(item, body: str) -> bool:
     info_payload["links"] = links
     item.link = links[0] if links else None
     item.info = normalize_info_payload(info_payload, item.link)
+    try:
+        cache_favicons_for_links(current_app._get_current_object(), links)
+    except Exception:
+        pass
     return True
 
 
@@ -1761,6 +1766,11 @@ def update_task(task_id: int):
             for follower_user_id in desired_user_ids:
                 if follower_user_id not in existing_by_user_id:
                     db.session.add(TaskFollower(task_id=task.id, user_id=follower_user_id))
+    if links is not None:
+        try:
+            cache_favicons_for_links(current_app._get_current_object(), info_payload.get("links", []))
+        except Exception:
+            pass
     db.session.commit()
     new_due_mode = _task_due_mode(task)
     new_start_date = _task_start_date(task)
@@ -2714,6 +2724,11 @@ def update_group(group_id: int):
         new_description_format=group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
     )
     log_group_history(group, actor=user, action="updated", changed_fields=changed_fields)
+    if links is not None:
+        try:
+            cache_favicons_for_links(current_app._get_current_object(), _info_payload_for(group).get("links", []))
+        except Exception:
+            pass
     db.session.commit()
     emit_group_updated(group, actor_user_id=user.id)
     return {
@@ -2843,6 +2858,11 @@ def update_project(project_id: int):
                 return {"error": "invalid end_date"}, 400
     if project.start_date and project.end_date and project.end_date < project.start_date:
         return {"error": "end_date must be on or after start_date"}, 400
+    if links is not None:
+        try:
+            cache_favicons_for_links(current_app._get_current_object(), _info_payload_for(project).get("links", []))
+        except Exception:
+            pass
     current_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=project.id).first()
     changed_fields = _project_changed_field_labels(
         old_name=old_name,

@@ -6,6 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="{{ global_theme_interface.header_bg }}" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Termin" />
     <title>{{ title or "Termin" }}</title>
@@ -11055,7 +11056,6 @@
         window.TerminPWA.syncInstallUi = syncInstallUi;
 
         window.addEventListener("beforeinstallprompt", function (event) {
-          event.preventDefault();
           installState.deferredPrompt = event;
           syncInstallUi();
         });

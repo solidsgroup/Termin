@@ -1,11 +1,12 @@
 import os
 
 from engineio.payload import Payload
-from flask import Flask, send_from_directory
+from flask import Flask, request, send_from_directory
 from sqlalchemy import event
 from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import Config
 from app.extensions import db, migrate, socketio
+from app.favicon_cache import favicon_response_for_link
 from app.realtime import register_socket_handlers
 from app.routes import api_bp
 from app.auth import auth_bp
@@ -15,7 +16,6 @@ from app.oauth import init_oauth
 from app.themes import THEME_DEFINITIONS, normalize_theme_mode, normalize_theme_name, theme_interface
 from app.utils import current_user, format_datetime_for_user, is_admin, user_timezone_name
 from app.web_push import public_web_push_config
-
 
 def create_app() -> Flask:
     instance_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "instance")
@@ -60,6 +60,11 @@ def create_app() -> Flask:
         response = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
         response.headers["Cache-Control"] = "no-cache"
         return response
+
+    @app.get("/link-favicon")
+    def link_favicon():
+        target = (request.args.get("url") or "").strip()
+        return favicon_response_for_link(app, target)
 
     @app.context_processor
     def inject_template_globals():

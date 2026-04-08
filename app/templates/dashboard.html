@@ -167,7 +167,7 @@
       {{ render_status_summary(status_payload.get('summary', []), task.id) }}
     </button>
   {% else %}
-    <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="true" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) }}">{{ status_payload.get('task_status', task.status) if status_payload else task.status }}</div>
+    <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) }}">{{ status_payload.get('task_status', task.status) if status_payload else task.status }}</div>
   {% endif %}
 {% endmacro %}
 {% macro render_group_assignment_badge(task_id, members) %}
@@ -264,7 +264,7 @@
                 {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
                 {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                 <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                  <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                  <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
                 </a>
               {% endfor %}
             </span>
@@ -690,7 +690,7 @@
             <div class="todo-list">
               {% for item in date_group["items"] %}
                 {% set todo_status_payload = task_status_payloads.get(item.task.id, {}) %}
-                {% set todo_status_state = todo_status_payload.get('aggregate_state') or todo_status_payload.get('my_status_state') or status_state(item.task.status) %}
+                {% set todo_status_state = todo_status_payload.get('my_status_state') or todo_status_payload.get('aggregate_state') or status_state(item.task.status) %}
                 {% set github_meta = github_task_meta.get(item.task.id) %}
                 {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
                 <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else ('direct' if item.project.is_direct else 'none') }}" data-task-locked="{{ 1 if item.task.locked else 0 }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-completed-window="{% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' and not item.task.due_at %}asap{% elif item.task.due_at and item.task.due_at.date() < now_utc.date() %}past{% elif item.task.due_at and item.task.due_at.date() == now_utc.date() %}today{% else %}future{% endif %}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
@@ -723,7 +723,7 @@
                         {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
                         {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                         <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                          <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                          <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
                         </a>
                       {% endfor %}
                     </span>
@@ -819,7 +819,7 @@
                       {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
                       {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                       <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                        <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                        <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" />
                       </a>
                     {% endfor %}
                   </span>
@@ -879,7 +879,7 @@
                           {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
                           {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                           <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                            <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                            <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" />
                           </a>
                         {% endfor %}
                       </span>
@@ -1106,7 +1106,7 @@
                   {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
                   {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                   <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                    <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                    <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" />
                   </a>
                 {% endfor %}
               </span>
@@ -1165,7 +1165,7 @@
                     {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
                     {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                     <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                      <img src="https://www.google.com/s2/favicons?sz=32&domain_url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="{% if origin %}{{ origin }}/favicon.ico|{{ origin }}/favicon.png|{% endif %}{% if host %}https://icons.duckduckgo.com/ip3/{{ host }}.ico|https://icon.horse/icon/{{ host }}|https://faviconkit.com/{{ host }}/32{% endif %}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />
+                      <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" />
                     </a>
                   {% endfor %}
                 </span>
@@ -1914,6 +1914,9 @@
       if (row) {
         row.setAttribute("data-status-state", state);
       }
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
     }
 
     window.__applyStatusState = applyStatusState;
@@ -2030,7 +2033,7 @@
       };
       var initialStatusHtml = typeof renderTaskStatusCellHtml === "function"
         ? renderTaskStatusCellHtml(initialStatusTask, { todo: false })
-        : '<div class="editable status-editable" contenteditable="true" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div>';
+        : '<div class="editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div>';
       var hasInfo = Boolean(info.html || (info.attachments && info.attachments.length));
       var tr = document.createElement("tr");
       tr.className = "task-row" + (showDragHandle ? " task-row-draggable" : "");
@@ -2248,6 +2251,31 @@
       var statusMenuApply = document.getElementById("status-menu-apply");
       var activeStatusCell = null;
 
+      function patchInlineTaskStatus(taskId, statusValue) {
+        if (window.__taskIdIsLocked(taskId)) {
+          return Promise.reject(new Error("Task is locked"));
+        }
+        return fetch("/api/tasks/" + taskId, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: statusValue,
+          }),
+        })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (data) {
+              return { ok: res.ok, data: data };
+            });
+          })
+          .then(function (result) {
+            if (!result.ok) {
+              throw new Error((result.data && result.data.error) || "Could not update status");
+            }
+            return result.data || {};
+          });
+      }
+
       function closeStatusMenu() {
         if (!statusMenu) return;
         statusMenu.style.display = "none";
@@ -2256,6 +2284,9 @@
 
       function openStatusMenu(cell) {
         if (!statusMenu || !cell) return;
+        if (cell.dataset.originalValue === undefined) {
+          cell.dataset.originalValue = normalizeEditableText(cell);
+        }
         var taskId = cell.getAttribute("data-task-id");
         if (taskId) {
           var host = document.querySelector('[data-task-status-host="' + taskId + '"]');
@@ -2284,11 +2315,50 @@
 
       function commitStatusValue(value) {
         if (!activeStatusCell) return;
+        var statusCell = activeStatusCell;
         var nextValue = String(value || "").trim();
         if (!nextValue) return;
-        activeStatusCell.textContent = nextValue;
-        applyStatusState(activeStatusCell, nextValue);
-        saveEditable(activeStatusCell);
+        var priorValue = statusCell.dataset.originalValue !== undefined
+          ? String(statusCell.dataset.originalValue || "")
+          : normalizeEditableText(statusCell);
+        var taskId = statusCell.getAttribute("data-task-id");
+        if (taskId) {
+          statusCell.dataset.originalValue = priorValue;
+          statusCell.textContent = nextValue;
+          statusCell.setAttribute("data-status-state", getStatusState(nextValue));
+          applyStatusState(statusCell, nextValue);
+          closeStatusMenu();
+          patchInlineTaskStatus(taskId, nextValue)
+            .then(function (data) {
+              if (data && data.id) {
+                applyTaskRowUpdate(data);
+                if (String(currentTaskId || "") === String(data.id)) {
+                  currentTaskData = Object.assign({}, currentTaskData || {}, data);
+                  renderTaskSettings();
+                }
+              } else {
+                fetchTaskSnapshot(taskId).then(function (task) {
+                  if (!task) return;
+                  applyTaskRowUpdate(task);
+                  if (String(currentTaskId || "") === String(task.id)) {
+                    currentTaskData = task;
+                    renderTaskSettings();
+                  }
+                });
+              }
+            })
+            .catch(function () {
+              if (!statusCell || !statusCell.isConnected) return;
+              statusCell.textContent = priorValue;
+              statusCell.dataset.originalValue = priorValue;
+              applyStatusState(statusCell, priorValue);
+            });
+          return;
+        }
+        statusCell.dataset.originalValue = priorValue;
+        statusCell.textContent = nextValue;
+        applyStatusState(statusCell, nextValue);
+        saveEditable(statusCell);
         closeStatusMenu();
       }
 
@@ -6405,16 +6475,7 @@
         .map((link) => {
           try {
             const url = new URL(link);
-            const host = url.hostname;
-            const primary = `https://www.google.com/s2/favicons?sz=32&domain_url=${encodeURIComponent(url.origin)}`;
-            const fallback = [
-              `${url.origin}/favicon.ico`,
-              `${url.origin}/favicon.png`,
-              `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
-              `https://icon.horse/icon/${encodeURIComponent(host)}`,
-              `https://faviconkit.com/${encodeURIComponent(host)}/32`,
-            ].join("|");
-            return `<a class="task-link-badge" href="${escapeHtml(link)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(link)}"><img src="${escapeHtml(primary)}" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="${escapeHtml(fallback)}" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" /></a>`;
+            return `<a class="task-link-badge" href="${escapeHtml(link)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(link)}"><img src="{{ url_for('link_favicon') }}?url=${encodeURIComponent(link)}" alt="" referrerpolicy="no-referrer" /></a>`;
           } catch (_error) {
             return "";
           }
@@ -6793,7 +6854,7 @@
       };
       const initialStatusHtml = typeof renderTaskStatusCellHtml === "function"
         ? renderTaskStatusCellHtml(initialStatusTask, { todo: false })
-        : `<div class="editable status-editable" contenteditable="true" data-task-id="${id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div>`;
+        : `<div class="editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="${id}" data-field="status" data-col="3" data-status-cell="1" data-status-state="open">open</div>`;
       const safeTitle = escapeHtml(title || "");
       const newRow = table.querySelector(".new-row");
       const tr = document.createElement("tr");
@@ -11603,36 +11664,10 @@
       }
     }
 
-    function faviconCandidates(link) {
-      try {
-        var url = new URL(link);
-        var host = url.hostname;
-        var origin = url.origin;
-        return [
-          "https://www.google.com/s2/favicons?sz=32&domain_url=" + encodeURIComponent(origin),
-          origin + "/favicon.ico",
-          origin + "/favicon.png",
-          "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico",
-          "https://icon.horse/icon/" + encodeURIComponent(host),
-          "https://faviconkit.com/" + encodeURIComponent(host) + "/32",
-        ];
-      } catch (err) {
-        return [];
-      }
+    function faviconUrlFor(link) {
+      if (!link) return "";
+      return "{{ url_for('link_favicon') }}?url=" + encodeURIComponent(link);
     }
-
-    window.__fallbackFavicon = function (img) {
-      if (!img) return false;
-      var fallback = img.getAttribute("data-favicon-fallback") || "";
-      if (!fallback) return false;
-      var candidates = fallback.split("|").filter(Boolean);
-      if (!candidates.length) return false;
-      var index = Number(img.getAttribute("data-favicon-index") || "0");
-      if (index >= candidates.length) return false;
-      img.setAttribute("data-favicon-index", String(index + 1));
-      img.src = candidates[index];
-      return true;
-    };
 
     function formatLinkLabel(link) {
       try {
@@ -11674,13 +11709,11 @@
     function renderTaskLinkBadges(links) {
       return (Array.isArray(links) ? links : [])
         .map(function (link) {
-          var favicons = faviconCandidates(link);
-          var favicon = favicons[0] || "";
+          var favicon = faviconUrlFor(link);
           if (!favicon) return "";
-          var fallback = favicons.slice(1).join("|");
           return (
             '<a class="task-link-badge" href="' + escapeHtml(link) + '" target="_blank" rel="noreferrer noopener" title="' + escapeHtml(link) + '">' +
-              '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="' + escapeHtml(fallback) + '" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />' +
+              '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" />' +
             '</a>'
           );
         })
@@ -11869,7 +11902,7 @@
       var taskId = task && task.id != null ? String(task.id) : "";
       var localOverride = taskId ? (localTaskStatusOverrides[taskId] || null) : null;
       var mode = String((localOverride && localOverride.mode) || meta.mode || task && task.status_mode || (task && task.per_user_status_enabled ? "per_user" : "single"));
-      var baseStatus = (meta.task_status || (task && task.status) || "open");
+      var baseStatus = ((task && task.status) || meta.task_status || "open");
       var derivedCanSet = meta.viewer_can_set;
       if (derivedCanSet === undefined || derivedCanSet === null) {
         derivedCanSet = mode === "single" ? true : false;
@@ -11899,7 +11932,7 @@
         mode: mode,
         enabled: mode !== "single",
         task_status: baseStatus,
-        task_status_state: meta.task_status_state || getStatusState(baseStatus),
+        task_status_state: getStatusState(baseStatus),
         aggregate_state: meta.aggregate_state || null,
         my_status: meta.my_status || null,
         my_status_state: meta.my_status_state || null,
@@ -12042,7 +12075,7 @@
       if (meta.mode === "single") {
         var status = escapeHtml(meta.task_status || (task && task.status) || "open");
         var state = escapeHtml(meta.task_status_state || getStatusState(status));
-        return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="true" data-task-id="' + escapeHtml(task.id) + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="' + state + '">' + status + '</div>';
+        return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="' + escapeHtml(task.id) + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="' + state + '">' + status + '</div>';
       }
       if (meta.mode === "percentage") {
         var percent = Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
@@ -12060,6 +12093,7 @@
     function syncTaskStatusUi(task) {
       if (!task || !task.id) return;
       var aggregateState = taskAggregateStatusState(task);
+      var myState = taskMyStatusState(task);
       document.querySelectorAll('[data-task-status-host="' + task.id + '"]').forEach(function (host) {
         var todo = !!host.closest('.todo-control-status');
         host._taskPayload = task;
@@ -12073,7 +12107,8 @@
         }
       });
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
-        row.setAttribute("data-status-state", aggregateState);
+        var isTodoRow = row.classList && row.classList.contains("todo-item");
+        row.setAttribute("data-status-state", isTodoRow ? myState : aggregateState);
       });
     }
 
@@ -12671,14 +12706,13 @@
       if (!linksListEl) return;
       var links = Array.isArray(currentEntityLinks) ? currentEntityLinks : [];
       var items = links.map(function (link, index) {
-        var favicons = faviconCandidates(link);
-        var favicon = favicons[0] || "";
+        var favicon = faviconUrlFor(link);
         var host = linkHostname(link);
         return (
           '<div class="discussion-link-row" data-link-row="' + index + '">' +
             '<div class="discussion-link-favicon">' +
               (favicon
-                ? '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" data-favicon-index="0" data-favicon-fallback="' + escapeHtml(favicons.slice(1).join("|")) + '" onerror="return window.__fallbackFavicon && window.__fallbackFavicon(this);" />'
+                ? '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" />'
                 : '<i class="fa-solid fa-link" aria-hidden="true"></i>') +
             '</div>' +
             '<div class="discussion-link-meta">' +
@@ -13290,11 +13324,13 @@
       var normalizedDue = effectiveTask.due_at ? String(effectiveTask.due_at).slice(0, 10) : "";
       var normalizedDueMode = effectiveTask.due_mode || (normalizedDue ? "date" : "none");
       var myStatus = taskMyStatus(effectiveTask);
+      var myStatusState = taskMyStatusState(effectiveTask);
       var aggregateState = taskAggregateStatusState(effectiveTask);
 
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
         matched = true;
-        row.setAttribute("data-status-state", aggregateState);
+        var isTodoRow = row.classList && row.classList.contains("todo-item");
+        row.setAttribute("data-status-state", isTodoRow ? myStatusState : aggregateState);
         row.setAttribute("data-completed-window", todoCompletedWindowFor(normalizedDue, normalizedDueMode));
         if (effectiveTask.position !== undefined && effectiveTask.position !== null) {
           row.setAttribute("data-task-position", String(effectiveTask.position));
@@ -13354,6 +13390,9 @@
         window.__updateProjectGanttItemLocal(effectiveTask);
       }
       applyTaskLockState(task.id, !!effectiveTask.locked);
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
       return matched;
     }
     window.__applyTaskRowUpdate = applyTaskRowUpdate;
@@ -14083,7 +14122,7 @@
       var linksHtml = typeof renderInlineTaskLinkBadges === "function" ? renderInlineTaskLinkBadges(task.links || []) : "";
       var title = escapeHtml(task.title || "");
       var status = escapeHtml(taskMyStatus(task));
-      var statusState = taskAggregateStatusState(task);
+      var statusState = taskMyStatusState(task);
       var item = document.createElement("div");
       item.className = "todo-item";
       item.style.setProperty("--todo-color", meta.divisionColor);
@@ -15156,6 +15195,7 @@
                 currentTaskData = Object.assign({}, currentTaskData, task);
                 renderTaskSettings();
               }
+              applyTaskRowUpdate(task);
               syncTaskStatusUi(task);
               var nextAnchor = resolveMultiStatusAnchor(taskId, multiStatusMenu.dataset.source || "", multiStatusMenu._anchor || control);
               if (nextAnchor) {
@@ -17979,8 +18019,14 @@
       var assigneeMenu = document.querySelector("[data-todo-assignee-menu]");
       var assigneeSummary = document.querySelector("[data-todo-assignee-summary]");
       var showCompletedMaster = document.querySelector("[data-todo-show-completed-master]");
-      var todoItems = Array.from(document.querySelectorAll(".todo-item[data-task-id]"));
-      var todoGroups = Array.from(document.querySelectorAll(".todo-date-group"));
+
+      function currentTodoItems() {
+        return Array.from(document.querySelectorAll(".todo-item[data-task-id]"));
+      }
+
+      function currentTodoGroups() {
+        return Array.from(document.querySelectorAll(".todo-date-group"));
+      }
 
       function loadState() {
         try {
@@ -18153,13 +18199,13 @@
         assigneeMenu.hidden = !open;
       }
 
-    function applyFilters() {
+      function applyFilters() {
         var assigneeSelections = selectedAssigneeKeys();
         var completedSelections = selectedCompletedWindows();
         var showCompleted = showCompletedMaster ? showCompletedMaster.checked : true;
         var assigneeInputs = document.querySelectorAll("[data-todo-assignee]");
         var assigneeFilterActive = assigneeInputs.length > 0;
-        todoItems.forEach(function (item) {
+        currentTodoItems().forEach(function (item) {
           var divisionId = String(item.getAttribute("data-division-id") || "none");
           var projectId = String(item.getAttribute("data-project-id") || "");
           var groupId = String(item.getAttribute("data-group-id") || "");
@@ -18177,14 +18223,20 @@
                 })
               : assigneeSelections.indexOf("__unassigned__") >= 0;
           }
-          var isComplete = String(item.getAttribute("data-status-state") || "") === "complete";
+          var nestedStatusNode = item.querySelector('[data-task-status-host] [data-status-state]');
+          var effectiveStatusState = String(
+            (nestedStatusNode && nestedStatusNode.getAttribute("data-status-state"))
+              || item.getAttribute("data-status-state")
+              || ""
+          ).trim().toLowerCase();
+          var isComplete = effectiveStatusState === "complete";
           var completedWindow = String(item.getAttribute("data-completed-window") || "future");
           var completedOk = !isComplete || (showCompleted && completedSelections.indexOf(completedWindow) >= 0);
           var visible = divisionOk && projectOk && groupOk && assigneeOk && completedOk;
           item.classList.toggle("is-filtered", !visible);
           item.style.display = visible ? "" : "none";
         });
-        todoGroups.forEach(function (group) {
+        currentTodoGroups().forEach(function (group) {
           var hasVisible = !!group.querySelector(".todo-item:not(.is-filtered)");
           group.style.display = hasVisible ? "" : "none";
         });
