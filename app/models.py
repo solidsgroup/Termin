@@ -116,6 +116,7 @@ class Project(db.Model):
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 class ProjectSidebarPreference(db.Model):
@@ -149,6 +150,7 @@ class Division(db.Model):
     color_slot = db.Column(db.Integer)
     position = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 class Group(db.Model):
@@ -163,6 +165,7 @@ class Group(db.Model):
     description = db.Column(db.Text)
     description_format = db.Column(db.String(32), default="markdown")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 class GroupMember(db.Model):
@@ -193,6 +196,7 @@ class Task(db.Model):
     assign_group_members = db.Column(db.Boolean, default=False, nullable=False)
     owner_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 class TaskUserStatus(db.Model):

@@ -1,7 +1,7 @@
 import os
 
 from engineio.payload import Payload
-from flask import Flask, request, send_from_directory
+from flask import Flask, request, send_from_directory, url_for
 from sqlalchemy import event
 from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import Config
@@ -66,8 +66,28 @@ def create_app() -> Flask:
         target = (request.args.get("url") or "").strip()
         return favicon_response_for_link(app, target)
 
+    @app.after_request
+    def apply_asset_cache_headers(response):
+        path = (request.path or "").strip()
+        if path.startswith("/static/") and response.status_code == 200:
+            response.cache_control.public = True
+            response.cache_control.max_age = 31536000
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
     @app.context_processor
     def inject_template_globals():
+        def asset_url(filename: str) -> str:
+            version = None
+            try:
+                asset_path = os.path.join(app.static_folder or "", filename)
+                version = str(int(os.path.getmtime(asset_path)))
+            except OSError:
+                version = None
+            if version is None:
+                return url_for("static", filename=filename)
+            return url_for("static", filename=filename, v=version)
+
         user = current_user()
         calendar_urls = calendar_subscription_urls_for_user(user) if user else {"https": "", "webcal": ""}
         active_theme_name = normalize_theme_name(getattr(user, "theme_name", None) if user else None)
@@ -84,6 +104,7 @@ def create_app() -> Flask:
             "global_active_theme_mode": active_theme_mode,
             "global_theme_interface": theme_interface(active_theme_name, active_theme_mode),
             "global_web_push_config": public_web_push_config(),
+            "asset_url": asset_url,
         }
 
     return app

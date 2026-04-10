@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, request, send_from_directory
 from markdown import markdown as render_markdown
 from app.auth import login_required
 from app.collaborators import get_or_create_collaborator_profile
+from app.dashboard_state import build_dashboard_bootstrap, build_dashboard_changes
 from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
 from app.extensions import db
 from app.discussion_activity import (
@@ -943,6 +944,33 @@ def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bo
 def me():
     user = current_user()
     return {"user": {"id": user.id, "email": user.email, "display_name": user.display_name}}
+
+
+@api_bp.get("/dashboard-bootstrap")
+@login_required
+def dashboard_bootstrap():
+    user = current_user()
+    raw_show_completed = str(request.args.get("show_completed", "1") or "1").strip().lower()
+    show_completed = raw_show_completed not in {"0", "false", "no", "off"}
+    return {"dashboard": build_dashboard_bootstrap(user, show_completed=show_completed)}
+
+
+@api_bp.get("/dashboard-changes")
+@login_required
+def dashboard_changes():
+    user = current_user()
+    raw_show_completed = str(request.args.get("show_completed", "1") or "1").strip().lower()
+    show_completed = raw_show_completed not in {"0", "false", "no", "off"}
+    raw_cursor = str(request.args.get("cursor", "") or "").strip()
+    if not raw_cursor:
+        return {"error": "cursor query parameter is required"}, 400
+    try:
+        cursor = datetime.fromisoformat(raw_cursor.replace("Z", "+00:00"))
+        if cursor.tzinfo is not None:
+            cursor = cursor.astimezone().replace(tzinfo=None)
+    except ValueError:
+        return {"error": "cursor must be an ISO-8601 datetime"}, 400
+    return {"dashboard": build_dashboard_changes(user, since=cursor, show_completed=show_completed)}
 
 
 @api_bp.get("/web-push")

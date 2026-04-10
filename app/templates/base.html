@@ -10,10 +10,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Termin" />
     <title>{{ title or "Termin" }}</title>
-    <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" data-base-favicon="{{ url_for('static', filename='brand/termin-light-logo.svg') }}" />
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='brand/termin-icon-v4-180.png') }}" />
+    <link id="app-favicon" rel="icon" type="image/svg+xml" href="{{ asset_url('brand/termin-light-logo.svg') }}" data-base-favicon="{{ asset_url('brand/termin-light-logo.svg') }}" />
+    <link rel="apple-touch-icon" href="{{ asset_url('brand/termin-icon-v4-180.png') }}" />
     <link rel="manifest" href="{{ url_for('web_manifest') }}?v=6" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" />
+    <link rel="stylesheet" href="{{ asset_url('vendor/fontawesome/css/all.min.css') }}" />
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script>
       window.MathJax = {
@@ -10069,12 +10069,12 @@
         <a href="{{ url_for('ui.dashboard') }}" aria-label="Termin dashboard">
           <img
             class="header-brand-logo is-dark"
-            src="{{ url_for('static', filename='brand/termin-dark-full.svg') }}"
+            src="{{ asset_url('brand/termin-dark-full.svg') }}"
             alt="Termin"
           />
           <img
             class="header-brand-logo is-light"
-            src="{{ url_for('static', filename='brand/termin-light-full.svg') }}"
+            src="{{ asset_url('brand/termin-light-full.svg') }}"
             alt="Termin"
           />
           <div class="header-loading-indicator" aria-hidden="true"></div>
@@ -10088,6 +10088,7 @@
           </button>
           {% endif %}
           <div class="view-switcher">
+            <a class="view-switch view-switch-icon{% if current_view == 'dashboard' %} active{% endif %}" data-dashboard-view-target="dashboard" href="{{ url_for('ui.dashboard_home') }}" aria-label="Dashboard" title="Dashboard"><i class="fa-solid fa-house" aria-hidden="true"></i></a>
             <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" data-dashboard-view-target="tree" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}">Tree</a>
             <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" data-dashboard-view-target="todo" href="{{ url_for('ui.todo_dashboard') }}">Todo</a>
             <a class="view-switch{% if current_view == 'inbox' %} active{% endif %}" data-dashboard-view-target="inbox" href="{{ url_for('ui.inbox_dashboard') }}">Inbox</a>

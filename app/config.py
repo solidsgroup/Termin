@@ -15,6 +15,7 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 class Config:
     SECRET_KEY = _env("SECRET_KEY", "dev-secret")
+    SEND_FILE_MAX_AGE_DEFAULT = 31536000
     _default_sqlite_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "instance",

@@ -74,7 +74,7 @@ from app.sidebar_layout import (
     top_level_sidebar_items,
 )
 from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
-from app.utils import ALL_TIMEZONE_OPTIONS, COMMON_TIMEZONE_OPTIONS, current_user, display_name_for_user, normalize_user_timezone
+from app.utils import ALL_TIMEZONE_OPTIONS, COMMON_TIMEZONE_OPTIONS, current_user, display_name_for_user, normalize_user_timezone, to_user_timezone
 from app.web_push import active_web_push_subscriptions_for_user, public_web_push_config
 from app.themes import DEFAULT_THEME_NAME, THEME_DEFINITIONS, color_slot_from_palette, division_effective_color, normalize_theme_name, palette_color, theme_palette
 from app.utils import is_admin as user_is_admin
@@ -1224,7 +1224,13 @@ def task_dashboard_path(task_id: int) -> str:
 @ui_bp.get("/")
 @login_required
 def dashboard():
-    return _render_dashboard()
+    return _render_dashboard(route_view="dashboard")
+
+
+@ui_bp.get("/dashboard")
+@login_required
+def dashboard_home():
+    return _render_dashboard(route_view="dashboard")
 
 
 @ui_bp.get("/tree")
@@ -1270,12 +1276,12 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     github_sync_state = github_sync_state_for_user(user.id)
     github_project_id = github_sync_state.project_id if github_sync_state else None
     github_auto_sync_needed = bool(github_identity and github_identity.access_token and should_sync_github_issues(user.id))
-    current_view = (route_view or request.args.get("view") or "tree").strip().lower()
+    current_view = (route_view or request.args.get("view") or "dashboard").strip().lower()
     if current_view == "project":
         current_view = "tree"
-    if current_view not in {"todo", "tree", "inbox"}:
-        current_view = "tree"
-    default_show_completed = "0" if current_view == "todo" else "1"
+    if current_view not in {"dashboard", "todo", "tree", "inbox"}:
+        current_view = "dashboard"
+    default_show_completed = "0" if current_view in {"dashboard", "todo"} else "1"
     if current_view in {"tree", "todo"}:
         show_completed = True
     else:
@@ -1822,6 +1828,23 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         if not todo_groups_by_date or todo_groups_by_date[-1]["key"] != item["date_key"]:
             todo_groups_by_date.append({"key": item["date_key"], "label": item["date_label"], "items": []})
         todo_groups_by_date[-1]["items"].append(item)
+    local_now = to_user_timezone(now_utc, user) or now_utc
+    greeting_hour = local_now.hour
+    if greeting_hour < 12:
+        dashboard_greeting = "Good morning"
+    elif greeting_hour < 18:
+        dashboard_greeting = "Good afternoon"
+    else:
+        dashboard_greeting = "Good evening"
+    dashboard_first_name = (user.display_name or user.email.split("@", 1)[0]).strip().split(" ", 1)[0] or "there"
+    dashboard_action_items = todo_items[:8]
+    dashboard_stats = {
+        "overdue": sum(1 for item in todo_items if item["date_key"] == "overdue"),
+        "today": sum(1 for item in todo_items if item["date_key"] in {"today", "asap"}),
+        "unread_messages": len(message_notifications),
+        "unread_notifications": len(task_notifications),
+        "projects": len(projects),
+    }
     return render_template(
         "dashboard.html",
         user=user,
@@ -1878,6 +1901,10 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         message_notifications=message_notifications,
         inbox_items=inbox_items,
         inbox_items_json=inbox_items_json,
+        dashboard_greeting=dashboard_greeting,
+        dashboard_first_name=dashboard_first_name,
+        dashboard_action_items=dashboard_action_items,
+        dashboard_stats=dashboard_stats,
         dashboard_notice=dashboard_notice,
         tree_selection_type=tree_selection_type,
         tree_selection_id=tree_selection_id,

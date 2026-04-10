@@ -170,6 +170,27 @@
     <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) }}">{{ status_payload.get('task_status', task.status) if status_payload else task.status }}</div>
   {% endif %}
 {% endmacro %}
+{% macro render_dashboard_action_item(item, now_utc) %}
+  {% set task = item.task %}
+  <div class="dashboard-action-item" style="--dashboard-accent: {{ item.division_color }};">
+    <div class="dashboard-action-icon">
+      <i class="fa-solid fa-bolt" aria-hidden="true"></i>
+    </div>
+    <div class="dashboard-action-meta">
+      <div class="dashboard-action-projects">
+        <a href="{{ url_for('ui.tree_project_dashboard', project_id=item.project.id) }}" class="dashboard-action-project">{{ item.project.name }}</a>
+        {% if item.group %}
+          <a href="{{ url_for('ui.tree_group_dashboard', project_id=item.project.id, group_id=item.group.id) }}" class="dashboard-action-group">{{ item.group.name }}</a>
+        {% endif %}
+      </div>
+      <a href="{{ url_for('ui.todo_dashboard') }}#task-{{ task.id }}" class="dashboard-action-title">{{ task.title }}</a>
+      <div class="dashboard-action-due">{{ render_due_summary(task, now_utc) }}</div>
+    </div>
+    <div class="dashboard-action-status">
+      <span class="dashboard-action-pill is-{{ item.date_key|replace('_', '-') }}">{{ item.date_label }}</span>
+    </div>
+  </div>
+{% endmacro %}
 {% macro render_group_assignment_badge(task_id, members) %}
   <span class="badge user badge-group-assignment" data-group-assignment-badge="{{ task_id }}" title="Assigned to group">
     {% set count = members|length %}
@@ -336,6 +357,227 @@
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
 <style>
+  .dashboard-home {
+    display: grid;
+    gap: 20px;
+    padding: 6px 0 18px;
+  }
+
+  .dashboard-home-hero {
+    padding: 28px 30px;
+    border-radius: 28px;
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 28%, transparent), transparent 34%),
+      linear-gradient(135deg, color-mix(in srgb, var(--panel) 90%, #fff 10%), color-mix(in srgb, var(--panel-alt) 92%, #000 8%));
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
+  }
+
+  .dashboard-home-kicker {
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .dashboard-home-title {
+    margin: 0;
+    font-size: clamp(2rem, 4vw, 3.35rem);
+    line-height: 0.98;
+  }
+
+  .dashboard-home-subtitle {
+    margin: 12px 0 0;
+    max-width: 780px;
+    font-size: 1rem;
+    color: var(--muted);
+  }
+
+  .dashboard-home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.8fr);
+    gap: 20px;
+  }
+
+  .dashboard-home-panel {
+    padding: 22px;
+    border-radius: 24px;
+    background: color-mix(in srgb, var(--panel) 94%, #fff 6%);
+    border: 1px solid var(--line);
+    min-width: 0;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.05);
+  }
+
+  .dashboard-home-panel h3 {
+    margin: 0 0 16px;
+    font-size: 1.02rem;
+  }
+
+  .dashboard-home-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .dashboard-stat-card {
+    padding: 16px;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--panel-alt) 88%, #fff 12%);
+    border: 1px solid var(--line);
+  }
+
+  .dashboard-stat-label {
+    font-size: 0.78rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .dashboard-stat-value {
+    margin-top: 8px;
+    font-size: 1.8rem;
+    font-weight: 700;
+  }
+
+  .dashboard-action-list,
+  .dashboard-activity-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .dashboard-action-item,
+  .dashboard-activity-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 15px 16px;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--panel-alt) 82%, #fff 18%);
+    border: 1px solid color-mix(in srgb, var(--dashboard-accent, var(--line)) 20%, var(--line));
+  }
+
+  .dashboard-action-icon,
+  .dashboard-activity-icon {
+    flex: 0 0 auto;
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--dashboard-accent, var(--accent)) 16%, transparent);
+    color: color-mix(in srgb, var(--dashboard-accent, var(--accent)) 85%, var(--ink));
+  }
+
+  .dashboard-action-meta,
+  .dashboard-activity-meta {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .dashboard-action-projects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 0.82rem;
+  }
+
+  .dashboard-action-project,
+  .dashboard-action-group,
+  .dashboard-action-title {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .dashboard-action-project,
+  .dashboard-action-group {
+    color: var(--muted);
+  }
+
+  .dashboard-action-title {
+    display: inline-block;
+    font-weight: 700;
+    margin-bottom: 4px;
+    font-size: 1rem;
+  }
+
+  .dashboard-action-title:hover,
+  .dashboard-action-project:hover,
+  .dashboard-action-group:hover {
+    text-decoration: underline;
+  }
+
+  .dashboard-action-due,
+  .dashboard-activity-copy {
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+
+  .dashboard-activity-copy,
+  .dashboard-action-due {
+    line-height: 1.35;
+  }
+
+  .dashboard-action-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: color-mix(in srgb, var(--dashboard-accent, var(--accent)) 14%, transparent);
+    color: color-mix(in srgb, var(--dashboard-accent, var(--accent)) 85%, var(--ink));
+    white-space: nowrap;
+  }
+
+  .dashboard-home-empty {
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  .dashboard-activity-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .dashboard-view-pane[data-dashboard-view="dashboard"] {
+    padding-top: 6px;
+  }
+
+  .dashboard-quick-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .dashboard-quick-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    color: inherit;
+    text-decoration: none;
+    background: color-mix(in srgb, var(--panel) 80%, transparent);
+  }
+
+  .dashboard-quick-link:hover {
+    background: color-mix(in srgb, var(--panel-alt) 88%, #fff 12%);
+  }
+
+  @media (max-width: 980px) {
+    .dashboard-home-grid,
+    .dashboard-home-stats {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .dashboard-sidebar {
     min-height: 0;
   }
@@ -682,363 +924,103 @@
     {% if dashboard_notice %}
       <div class="dashboard-notice" role="alert">{{ dashboard_notice }}</div>
     {% endif %}
-    <div class="dashboard-view-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-view="todo">
-      <div class="todo-board" data-todo-resize>
-        {% for date_group in todo_groups_by_date %}
-          <div class="panel todo-date-group" data-todo-date-key="{{ date_group["key"] }}">
-            <div class="todo-date-heading">{{ date_group["label"] }}</div>
-            <div class="todo-list">
-              {% for item in date_group["items"] %}
-                {% set todo_status_payload = task_status_payloads.get(item.task.id, {}) %}
-                {% set todo_status_state = todo_status_payload.get('my_status_state') or todo_status_payload.get('aggregate_state') or status_state(item.task.status) %}
-                {% set github_meta = github_task_meta.get(item.task.id) %}
-                {% set todo_task_info = info_by_task.get(item.task.id, {"html": "", "attachments": [], "links": []}) %}
-                <div class="todo-item{% if github_meta %} github-task-row{% endif %}" style="--todo-color: {{ item.division_color }};" data-task-id="{{ item.task.id }}" data-project-id="{{ item.project.id }}" data-group-id="{{ item.group.id if item.group else '' }}" data-division-id="{{ item.division_id if item.division_id else ('direct' if item.project.is_direct else 'none') }}" data-task-locked="{{ 1 if item.task.locked else 0 }}" data-due-at="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-status-state="{{ todo_status_state }}" data-completed-window="{% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' and not item.task.due_at %}asap{% elif item.task.due_at and item.task.due_at.date() < now_utc.date() %}past{% elif item.task.due_at and item.task.due_at.date() == now_utc.date() %}today{% else %}future{% endif %}" data-assignee-keys="{% for assignment in assignments_by_task.get(item.task.id, []) %}{% if assignment.user_id %}user:{{ assignment.user_id }}{% elif assignment.email %}email:{{ assignment.email|trim|lower }}{% endif %}{% if not loop.last %},{% endif %}{% endfor %}">
-                  <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
-                  <div class="todo-project-meta">
-                    <a class="todo-project-name" href="{{ url_for('ui.tree_project_dashboard', project_id=item.project.id) }}" title="Open {{ project_display_names.get(item.project.id, item.project.name) }}">
-                      {{ project_display_names.get(item.project.id, item.project.name) }}
-                    </a>
-                    {% if item.group %}
-                      <a class="todo-group-name" href="{{ url_for('ui.tree_group_dashboard', project_id=item.project.id, group_id=item.group.id) }}" title="Open {{ item.group.name }}">
-                        {{ item.group.name }}
-                      </a>
-                    {% endif %}
-                  </div>
-                  <div class="todo-item-main">
-                    {% if github_meta %}
-                      <a class="github-task-link todo-item-title" href="{{ github_meta.issue_url }}" target="_blank" rel="noopener">
-                        {% if github_meta.item_type == 'pull_request' %}
-                          <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
-                        {% else %}
-                          <i class="fa-brands fa-github" aria-hidden="true"></i>
-                        {% endif %}
-                        <span>{{ item.task.title }}</span>
-                      </a>
-                    {% else %}
-                      <div class="editable todo-item-title" contenteditable="{{ 'false' if item.task.locked else 'true' }}" data-task-id="{{ item.task.id }}" data-field="title" data-col="1">{{ item.task.title }}</div>
-                    {% endif %}
-                    <span class="task-link-badges" data-task-link-badges="{{ item.task.id }}">
-                      {% for link in todo_task_info.get("links", []) %}
-                        {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
-                        {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
-                        <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                          <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
-                        </a>
-                      {% endfor %}
-                    </span>
-                    <span class="task-pill">
-                      <button class="task-pill-segment" type="button" data-open-settings="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ project_display_names.get(item.project.id, item.project.name)|e if item.project else '' }}" onclick='return window.__openSettings({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (project_display_names.get(item.project.id, item.project.name) if item.project else "")|tojson }});'>
-                        <i class="fa-solid fa-sliders" aria-hidden="true"></i>
-                      </button>
-                      <button class="task-pill-segment" type="button" data-open-links="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ project_display_names.get(item.project.id, item.project.name)|e if item.project else '' }}" onclick='return window.__openLinks({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (project_display_names.get(item.project.id, item.project.name) if item.project else "")|tojson }});'>
-                        <i class="fa-solid fa-link" aria-hidden="true"></i>
-                      </button>
-                      <button class="task-pill-segment comment-button{% if item.task.id in unread_task_ids %} has-unread{% endif %}" type="button" data-open-discussion="{{ item.task.id }}" data-task-title="{{ item.task.title|e }}" data-project-name="{{ project_display_names.get(item.project.id, item.project.name)|e if item.project else '' }}" onclick='return window.__openDiscussion({{ item.task.id|tojson }}, {{ item.task.title|tojson }}, {{ (project_display_names.get(item.project.id, item.project.name) if item.project else "")|tojson }});'>
-                        <i class="fa-regular fa-comments" aria-hidden="true"></i>
-                        <span data-comment-count="{{ item.task.id }}">{{ comment_counts.get(item.task.id, 0) }}</span>
-                      </button>
-                    </span>
-                  </div>
-                  <div class="todo-item-controls">
-                    <div class="todo-control-cluster">
-                      <div class="todo-control todo-control-due due-cell todo-due-cell" data-due-cell data-todo-due="1" onclick="return window.__openDueInput(this);">
-                        <div class="due-summary{% if not item.task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if item.task.due_at %}Due {{ item.task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ item.task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
-                          <span class="due-summary-label">
-                            {% if todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') == 'asap' %}
-                              <span>S</span>
-                            {% else %}
-                              <i class="fa-regular fa-calendar" aria-hidden="true"></i>
-                            {% endif %}
-                          </span>
-                        </div>
-                        <input class="due-input hidden" type="date" data-task-id="{{ item.task.id }}" data-field="due_at" data-col="2" data-created-at="{{ item.task.created_at.strftime('%Y-%m-%d') }}" data-due-mode="{{ todo_task_info.get('meta', {}).get('due_mode', 'date' if item.task.due_at else 'none') }}" value="{% if item.task.due_at %}{{ item.task.due_at.strftime('%Y-%m-%d') }}{% endif %}" {% if item.task.locked %}disabled{% endif %} />
-                      </div>
-                      {% if github_meta %}
-                        <div class="todo-control todo-control-status">
-                          {{ render_github_status(github_meta, todo_status_state, item.task.id, True) }}
-                        </div>
-                      {% else %}
-                        <div class="todo-control todo-control-status" title="{{ todo_status_payload.get('my_status', item.task.status) }}" aria-label="Status: {{ todo_status_payload.get('my_status', item.task.status) }}">
-                          <div data-task-status-host="{{ item.task.id }}">
-                            {{ render_task_status_cell(item.task, todo_status_payload, True) }}
-                          </div>
-                        </div>
-                      {% endif %}
+    <div class="dashboard-view-pane{% if current_view == 'dashboard' %} is-active{% endif %}" data-dashboard-view="dashboard">
+      <div class="dashboard-home">
+        <section class="dashboard-home-hero">
+          <div class="dashboard-home-kicker">Termin Dashboard</div>
+          <h1 class="dashboard-home-title">{{ dashboard_greeting }}, {{ dashboard_first_name }}</h1>
+          <p class="dashboard-home-subtitle">Here’s the shortest path through what matters right now: urgent tasks, fresh conversations, and the workspaces that need your attention.</p>
+          <div class="dashboard-quick-links">
+            <a class="dashboard-quick-link" href="{{ url_for('ui.todo_dashboard') }}" data-dashboard-view-target="todo"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>Open Todo</span></a>
+            <a class="dashboard-quick-link" href="{% if selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}" data-dashboard-view-target="tree"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Open Tree</span></a>
+            <a class="dashboard-quick-link" href="{{ url_for('ui.inbox_dashboard') }}" data-dashboard-view-target="inbox"><i class="fa-regular fa-envelope" aria-hidden="true"></i><span>Open Inbox</span></a>
+          </div>
+        </section>
+        <section class="dashboard-home-stats">
+          <div class="dashboard-stat-card">
+            <div class="dashboard-stat-label">Overdue</div>
+            <div class="dashboard-stat-value">{{ dashboard_stats.overdue }}</div>
+          </div>
+          <div class="dashboard-stat-card">
+            <div class="dashboard-stat-label">Today / ASAP</div>
+            <div class="dashboard-stat-value">{{ dashboard_stats.today }}</div>
+          </div>
+          <div class="dashboard-stat-card">
+            <div class="dashboard-stat-label">Unread Messages</div>
+            <div class="dashboard-stat-value">{{ dashboard_stats.unread_messages }}</div>
+          </div>
+          <div class="dashboard-stat-card">
+            <div class="dashboard-stat-label">Projects</div>
+            <div class="dashboard-stat-value">{{ dashboard_stats.projects }}</div>
+          </div>
+        </section>
+        <div class="dashboard-home-grid">
+          <section class="dashboard-home-panel">
+            <h3>Action Items</h3>
+            {% if dashboard_action_items %}
+              <div class="dashboard-action-list">
+                {% for item in dashboard_action_items %}
+                  {{ render_dashboard_action_item(item, now_utc) }}
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="dashboard-home-empty">Nothing urgent right now.</div>
+            {% endif %}
+          </section>
+          <section class="dashboard-home-panel">
+            <h3>Recent Activity</h3>
+            {% if inbox_items[:6] %}
+              <div class="dashboard-activity-list">
+                {% for item in inbox_items[:6] %}
+                  <div class="dashboard-activity-item">
+                    <div class="dashboard-activity-icon">
+                      {{ render_inbox_activity_icon(item.kind) }}
                     </div>
-                    {% if github_meta %}
-                      <div class="todo-control todo-control-assignees">
-                        {{ render_github_assignees(github_meta) }}
-                      </div>
-                    {% else %}
-                      <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
-                        {{ render_todo_assignment_compact(item.task.id, assignments_by_task.get(item.task.id, []), user_map, item.task.assign_group_members, group_assignment_members_by_task.get(item.task.id, [])) }}
-                        <span class="assign-action">
-                          <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="{{ item.task.id }}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
-                        </span>
-                      </div>
-                    {% endif %}
-                    <div class="todo-resize-overlay" aria-hidden="true"></div>
+                    <div class="dashboard-activity-meta">
+                      <div class="dashboard-activity-title">{{ item.task_title or item.project_name or item.sender_name or 'Activity' }}</div>
+                      <div class="dashboard-activity-copy">{{ item.comment_preview or item.preview or 'New activity in Termin.' }}</div>
+                    </div>
+                    <div class="dashboard-action-status">
+                      <span class="dashboard-action-pill">{{ item.kind.replace('_', ' ')|title if item.kind else 'Update' }}</span>
+                    </div>
                   </div>
-                </div>
-              {% endfor %}
-            </div>
-          </div>
-        {% else %}
-          <div class="panel">
-            <h3>No tasks</h3>
-            <p class="footer-note">No visible tasks yet.</p>
-          </div>
-        {% endfor %}
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="dashboard-home-empty">No recent activity yet.</div>
+            {% endif %}
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="dashboard-view-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-view="todo">
+      <div class="todo-board" data-todo-resize data-todo-client-board="1" data-todo-board-ready="0">
+        <div class="panel" data-todo-empty-panel>
+          <h3>Loading tasks</h3>
+          <p class="footer-note">Preparing your Todo board.</p>
+        </div>
       </div>
     </div>
     <div class="dashboard-view-pane{% if current_view == 'tree' %} is-active{% endif %}" data-dashboard-view="tree">
-      <div class="tree-board" data-tree-board data-tree-ready="0">
-        {% for ctx in tree_project_contexts %}
-          {% set project = ctx.project %}
-          {% set project_groups = ctx.groups %}
-          {% set project_tasks_by_group = ctx.tasks_by_group %}
-          {% set project_ungrouped_tasks = ctx.ungrouped_tasks %}
-          {% set project_can_manage = ctx.can_manage_project %}
-          {% set project_manageable_group_ids = ctx.manageable_group_ids %}
-          {% set project_color = ctx.color %}
-          {% set project_info_ctx = ctx.project_info %}
-          {% set project_group_info = ctx.group_info_by_id %}
-          {% set project_display_name = ctx.display_name %}
-          {% set project_is_github = ctx.is_github_project %}
-          {% set viewers = project_viewers.get(project.id, []) %}
-          {% set shared_viewers = viewers | rejectattr('id', 'equalto', user.id) | list %}
-          {% set gantt_enabled = project.start_date and project.end_date %}
-          <div class="tree-project-board" data-tree-project-board="{{ project.id }}" data-tree-division-id="{% if project.is_direct %}direct{% else %}{{ ctx.division_id if ctx.division_id is not none else 'none' }}{% endif %}" style="--project-color: {{ project_color or '#4cc9f0' }};">
-            <div class="project-board-header">
-              <div class="project-board-header-inner">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <h3 data-selected-project-title="{{ project.id }}"><span data-selected-project-name>{{ project_display_name }}</span>{% if shared_project_ids and project.id in shared_project_ids %}<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>{% elif shared_out_project_ids and project.id in shared_out_project_ids %}<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>{% endif %}</h3>
-                  <span class="task-link-badges" data-entity-link-badges="project:{{ project.id }}">
-                    {% for link in project_info_ctx.links or [] %}
-                      {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
-                      {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
-                      <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                        <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" />
-                      </a>
-                    {% endfor %}
-                  </span>
-                  <span class="task-pill" aria-label="Project settings links and messages">
-                    <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="project" data-entity-id="{{ project.id }}" data-entity-title="{{ project_display_name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
-                    <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="project" data-entity-id="{{ project.id }}" data-entity-title="{{ project_display_name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
-                    <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="project" data-entity-id="{{ project.id }}" data-entity-title="{{ project_display_name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="project:{{ project.id }}">0</span></button>
-                  </span>
-                </div>
-                {% if not project.is_direct %}
-                  <div class="project-header-share-tools">
-                    <button class="project-share-trigger" type="button" data-open-share-project="{{ project.id }}" aria-label="Share project" title="Share project">
-                      <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
-                    </button>
-                    {% if shared_viewers %}
-                      <div class="share-avatars project-header-avatars" data-presence-project-id="{{ project.id }}" data-project-members="{{ project.id }}" data-tooltip="{% for u in shared_viewers %}{{ (u.display_name or u.email) }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-                        {% for u in shared_viewers[:6] %}
-                          <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
-                            {% if u.avatar_url %}
-                              <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
-                            {% else %}
-                              {{ (u.display_name or u.email)[0]|upper }}
-                            {% endif %}
-                          </span>
-                        {% endfor %}
-                        {% if shared_viewers|length > 6 %}
-                          <span class="avatar-chip">+{{ shared_viewers|length - 6 }}</span>
-                        {% endif %}
-                      </div>
-                    {% endif %}
-                  </div>
-                {% endif %}
-              </div>
-              <div class="project-board-mode-tabs" data-project-mode-tabs="{{ project.id }}">
-                <button class="project-board-mode-tab is-active" type="button" data-project-mode-button="tasks" data-project-id="{{ project.id }}" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Tasks</button>
-                {% if gantt_enabled %}
-                  <button class="project-board-mode-tab" type="button" data-project-mode-button="gantt" data-project-id="{{ project.id }}" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Gantt</button>
-                {% endif %}
-              </div>
+      <div class="tree-board" data-tree-board data-tree-ready="0" data-tree-client-board="1">
+        {% if selected_project %}
+          <div class="tree-project-board" data-tree-project-board="{{ selected_project.id }}" data-tree-division-id="{{ selected_project.division_id if selected_project.division_id is not none else 'none' }}" style="--project-color: {{ selected_project_color or '#4cc9f0' }};">
+            <div class="panel" data-tree-project-loading-panel>
+              <h3>Loading project</h3>
+              <p class="footer-note">Preparing {{ selected_project_display_name or selected_project.name }}.</p>
             </div>
-
-            <div class="project-board-mode-panel is-active" data-project-mode-panel="tasks">
-            {% for group in project_groups %}
-              <div class="group-block" data-group-id="{{ group.id }}" data-tree-group-board="{{ group.id }}">
-                <div class="group-insert-wrap{% if not project_can_manage or project_is_github %} disabled{% endif %}">
-                  <div class="group-insert" data-project-id="{{ project.id }}">
-                    <div class="group-insert-line"></div>
-                    <button class="group-insert-btn" type="button" title="Add group">+</button>
-                  </div>
-                </div>
-                <div class="panel group" style="--group-color: {{ project_color or '#4cc9f0' }};">
-                  <div class="group-header" {% if project_can_manage and not project_is_github %}draggable="true" data-drag-group="{{ group.id }}"{% endif %} data-group-context="{{ group.id }}" data-group-manage="{{ 1 if (project_can_manage and not project_is_github) else 0 }}">
-                    <h3 class="group-title">
-                      <span class="group-title-text{% if project_can_manage and not project_is_github %} editable{% endif %}" {% if project_can_manage and not project_is_github %}contenteditable="true"{% endif %} data-group-id="{{ group.id }}" data-field="name">{{ group.name }}</span>
-                      <span class="task-link-badges" data-entity-link-badges="group:{{ group.id }}">
-                        {% for link in project_group_info.get(group.id, {}).links or [] %}
-                          {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
-                          {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
-                          <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                            <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" referrerpolicy="no-referrer" />
-                          </a>
-                        {% endfor %}
-                      </span>
-                      <span class="task-pill" aria-label="Group settings links and messages" contenteditable="false">
-                        <button class="task-pill-segment" type="button" data-open-entity="settings" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ project_display_name|e }}"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
-                        <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ project_display_name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
-                        <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ project_display_name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:{{ group.id }}">0</span></button>
-                      </span>
-                    </h3>
-                  </div>
-                  <table class="table tasks-table" data-project-id="{{ project.id }}" data-group-id="{{ group.id }}">
-                    <colgroup>
-                      <col style="width: 3%;">
-                      <col style="width: 47%;">
-                      <col style="width: 16%;">
-                      <col style="width: 14%;">
-                      <col style="width: 20%;">
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th></th>
-                        <th>Task<span class="col-resizer" data-col="1"></span></th>
-                        <th>Due<span class="col-resizer" data-col="2"></span></th>
-                        <th>Status<span class="col-resizer" data-col="3"></span></th>
-                        <th>Assign<span class="col-resizer" data-col="4"></span></th>
-                      </tr>
-                    </thead>
-                    <tbody data-task-dropzone="1">
-                      {% set group_tasks = project_tasks_by_group.get(group.id, []) %}
-                      {{ render_tasks(group_tasks, assignments_by_task, user_map, project_can_manage, project_manageable_group_ids, info_by_task, github_task_meta, project_display_name) }}
-                      {% if (project_can_manage or group.id in project_manageable_group_ids) and not project_is_github %}
-                        <tr class="new-row">
-                          <td></td>
-                          <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
-                          <td>
-                            <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
-                              <div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div>
-                              <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
-                            </div>
-                          </td>
-                          <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
-                          <td>
-                            <div class="assignments">
-                              <span class="assign-action">
-                                <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
-                                <button class="assign-add-btn" type="button" title="Assign">+</button>
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      {% endif %}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            {% endfor %}
-
-            <div class="group-insert-wrap{% if not project_can_manage or project_is_github %} disabled{% endif %}" data-tree-ungrouped-wrap="{{ project.id }}">
-              <div class="group-insert" data-project-id="{{ project.id }}">
-                <div class="group-insert-line"></div>
-                <button class="group-insert-btn" type="button" title="Add group">+</button>
-              </div>
-            </div>
-
-            {% if project_ungrouped_tasks or project_can_manage %}
-              <div class="panel group ungrouped-table-shell" style="--group-color: {{ project_color or '#4cc9f0' }};" data-tree-ungrouped-board="{{ project.id }}">
-                <table class="table tasks-table" data-project-id="{{ project.id }}" data-group-id="">
-                  <colgroup>
-                    <col style="width: 3%;">
-                    <col style="width: 47%;">
-                    <col style="width: 16%;">
-                    <col style="width: 14%;">
-                    <col style="width: 20%;">
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th></th>
-                      <th>Task<span class="col-resizer" data-col="1"></span></th>
-                      <th>Due<span class="col-resizer" data-col="2"></span></th>
-                      <th>Status<span class="col-resizer" data-col="3"></span></th>
-                      <th>Assign<span class="col-resizer" data-col="4"></span></th>
-                    </tr>
-                  </thead>
-                  <tbody data-task-dropzone="1">
-                    {{ render_tasks(project_ungrouped_tasks, assignments_by_task, user_map, project_can_manage, project_manageable_group_ids, info_by_task, github_task_meta, project_display_name) }}
-                    {% if project_can_manage and not project_is_github %}
-                      <tr class="new-row">
-                        <td></td>
-                        <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
-                        <td>
-                          <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
-                            <div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div>
-                            <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
-                          </div>
-                        </td>
-                        <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
-                        <td>
-                          <div class="assignments">
-                            <span class="assign-action">
-                              <input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" />
-                              <button class="assign-add-btn" type="button" title="Assign">+</button>
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    {% endif %}
-                  </tbody>
-                </table>
-              </div>
-            {% endif %}
-            </div>
-            {% if gantt_enabled %}
-              <div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden>
-                <div class="project-gantt-toolbar" data-project-gantt-controls="{{ project.id }}">
-                  <label class="project-gantt-mark-control">
-                    <span class="project-gantt-mark-label">Major</span>
-                    <select data-project-gantt-major="{{ project.id }}">
-                      <option value="day">Day</option>
-                      <option value="week">Week</option>
-                      <option value="month">Month</option>
-                      <option value="quarter">Quarter</option>
-                      <option value="year">Year</option>
-                      <option value="project_month">Project Month</option>
-                      <option value="project_quarter">Project Quarter</option>
-                      <option value="project_year">Project Year</option>
-                    </select>
-                  </label>
-                  <label class="project-gantt-mark-control">
-                    <span class="project-gantt-mark-label">Minor</span>
-                    <select data-project-gantt-minor="{{ project.id }}">
-                      <option value="day">Day</option>
-                      <option value="week">Week</option>
-                      <option value="month">Month</option>
-                      <option value="quarter">Quarter</option>
-                      <option value="year">Year</option>
-                      <option value="project_month">Project Month</option>
-                      <option value="project_quarter">Project Quarter</option>
-                      <option value="project_year">Project Year</option>
-                    </select>
-                  </label>
-                  <button class="project-gantt-export-button" type="button" data-project-gantt-export="{{ project.id }}">Export LaTeX</button>
-                </div>
-                <div
-                  class="project-gantt"
-                  data-project-gantt
-                  data-project-id="{{ project.id }}"
-                  data-project-start-date="{{ project.start_date.isoformat() }}"
-                  data-project-end-date="{{ project.end_date.isoformat() }}"
-                  data-project-gantt-items='{{ ctx.gantt_items|tojson|forceescape }}'
-                ></div>
-              </div>
-            {% endif %}
+          </div>
+        {% elif tree_project_contexts %}
+          <div class="panel" data-tree-loading-panel>
+            <h3>Loading project</h3>
+            <p class="footer-note">Preparing the selected project board.</p>
           </div>
         {% else %}
           <div class="panel">
             <h3>No projects</h3>
             <p class="footer-note">No visible projects yet.</p>
           </div>
-        {% endfor %}
+        {% endif %}
       </div>
     </div>
     <div class="dashboard-view-pane{% if current_view == 'inbox' %} is-active{% endif %}" data-dashboard-view="inbox">
@@ -3261,11 +3243,11 @@
         return items;
       }
 
-	      function applyTreeProjectSnapshotLocal(snapshot) {
-	        if (!snapshot || !snapshot.project || !snapshot.project.id) return false;
-	        var project = snapshot.project;
-	        var canManage = !!project.can_manage;
-	        var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
+      function applyTreeProjectSnapshotLocal(snapshot) {
+        if (!snapshot || !snapshot.project || !snapshot.project.id) return false;
+        var project = snapshot.project;
+        var canManage = !!project.can_manage;
+        var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
         var treeSidebar = document.querySelector("[data-tree-sidebar]");
         var treeBoard = document.querySelector("[data-tree-board]");
         if (!treeSidebar || !treeBoard) return false;
@@ -3277,7 +3259,6 @@
         if (!targetDivision) return false;
 
         var existingNode = treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]');
-        if (existingNode) existingNode.remove();
 	        var existingBoard = treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]');
 	        var previousMode = "tasks";
 	        if (existingBoard) {
@@ -3286,8 +3267,8 @@
 	            previousMode = String(activeModeButton.getAttribute("data-project-mode-button") || "tasks");
 	          }
 	        }
-	        if (existingBoard) existingBoard.remove();
-
+        var divisionChildren = targetDivision.querySelector(".todo-tree-children");
+        if (!divisionChildren) return false;
         var node = buildTreeProjectNode(project, canManage);
         if (!node) return false;
         node.classList.remove("is-collapsed");
@@ -3306,16 +3287,20 @@
           }
           syncTreeProjectToggle(node);
         }
-        var divisionChildren = targetDivision.querySelector(".todo-tree-children");
-        if (!divisionChildren) return false;
-        divisionChildren.appendChild(node);
+        if (existingNode && existingNode.parentNode) {
+          existingNode.parentNode.replaceChild(node, existingNode);
+        } else {
+          divisionChildren.appendChild(node);
+        }
 
         try {
-          var nextState = loadState() || {};
-          nextState.expanded = nextState.expanded || {};
-          nextState.expanded.projects = nextState.expanded.projects || {};
-          nextState.expanded.projects[String(project.id)] = true;
-          saveState(nextState);
+          if (typeof window.__loadTreeViewState === "function" && typeof window.__saveTreeViewState === "function") {
+            var nextState = window.__loadTreeViewState() || {};
+            nextState.expanded = nextState.expanded || {};
+            nextState.expanded.projects = nextState.expanded.projects || {};
+            nextState.expanded.projects[String(project.id)] = true;
+            window.__saveTreeViewState(nextState);
+          }
         } catch (err) {}
 
         var board = buildTreeProjectBoard(project, canManage);
@@ -3355,7 +3340,11 @@
         if (ganttPanel) {
           ganttPanel.setAttribute("data-project-gantt-items", JSON.stringify(projectGanttItemsFromSnapshot(snapshot)));
         }
+        if (existingBoard && existingBoard.parentNode) {
+          existingBoard.parentNode.replaceChild(board, existingBoard);
+        } else {
 	        treeBoard.appendChild(board);
+        }
           if (typeof window.__initializeProjectBoardModes === "function") {
             window.__initializeProjectBoardModes(board);
           }
@@ -3365,7 +3354,12 @@
         if (typeof window.__refreshTreeSelectionState === "function") {
           window.__refreshTreeSelectionState();
         }
-        reapplyLocalTaskStatusOverrides(board);
+        if (typeof window.__reapplyLocalTaskStatusOverrides === "function") {
+          window.__reapplyLocalTaskStatusOverrides(board);
+        }
+        treeBoard.querySelectorAll("[data-tree-loading-panel]").forEach(function (panel) {
+          panel.remove();
+        });
         return true;
       }
 
@@ -4347,7 +4341,34 @@
       function insertTreeProjectSnapshotLocal(projectId, projectData) {
         var normalizedProjectId = String(projectId || (projectData && projectData.id) || "");
         if (!normalizedProjectId) return Promise.resolve(false);
+        var snapshotUserId = {{ user.id|tojson }};
+        var snapshotShowCompleted = ((new URL(window.location.href)).searchParams.get("show_completed") || "1") === "1" ? "1" : "0";
+        var snapshotCacheKey = "termin.treeSnapshot.v2.user." + String(snapshotUserId || "") + ".project." + normalizedProjectId + ".showCompleted." + snapshotShowCompleted;
+        function loadCachedSnapshot() {
+          try {
+            var raw = localStorage.getItem(snapshotCacheKey);
+            return raw ? JSON.parse(raw) : null;
+          } catch (_error) {
+            return null;
+          }
+        }
+        function saveCachedSnapshot(snapshot) {
+          try {
+            localStorage.setItem(snapshotCacheKey, JSON.stringify(snapshot));
+          } catch (_error) {}
+        }
         var url = "/api/projects/" + encodeURIComponent(normalizedProjectId) + "/tree_snapshot?show_completed=" + encodeURIComponent((new URL(window.location.href)).searchParams.get("show_completed") || "1");
+        var cached = loadCachedSnapshot();
+        if (cached && cached.project && String(cached.project.id || "") === normalizedProjectId) {
+          if (typeof cached.can_manage_project === "boolean") {
+            cached.project.can_manage = !!cached.can_manage_project;
+          }
+          try {
+            applyTreeProjectSnapshotLocal(cached);
+          } catch (error) {
+            console.warn("tree snapshot cached apply failed", normalizedProjectId, error);
+          }
+        }
         return fetch(url, { credentials: "same-origin" })
           .then(function (res) {
             return res.json().catch(function () { return {}; }).then(function (data) {
@@ -4364,13 +4385,21 @@
             if (typeof result.data.can_manage_project === "boolean") {
               result.data.project.can_manage = !!result.data.can_manage_project;
             }
-            var applied = applyTreeProjectSnapshotLocal(result.data);
+            saveCachedSnapshot(result.data);
+            var applied = false;
+            try {
+              applied = applyTreeProjectSnapshotLocal(result.data);
+            } catch (error) {
+              console.warn("tree snapshot apply failed", normalizedProjectId, error);
+              applied = false;
+            }
             if (!applied && projectData) {
               return insertTreeProjectLocal(projectData, !!(projectData && projectData.can_manage));
             }
             return applied;
           })
-          .catch(function () {
+          .catch(function (error) {
+            console.warn("tree snapshot fetch failed", normalizedProjectId, error);
             if (projectData) {
               return insertTreeProjectLocal(projectData, !!(projectData && projectData.can_manage));
             }
@@ -4392,6 +4421,7 @@
         if (!isTreeRealtimeView()) return Promise.resolve(false);
         return insertTreeProjectSnapshotLocal(projectId, projectData);
       }
+      window.__ensureTreeProjectBoard = refreshTreeProjectSnapshotLocal;
 
       function ensureTreeTaskVisible(task) {
         if (!task || !task.id || !task.project_id) return;
@@ -4451,6 +4481,14 @@
         return shell.querySelector('[data-tree-direct-list]');
       }
 
+      function clearTreeLoadingPanel() {
+        var treeBoard = document.querySelector("[data-tree-board]");
+        if (!treeBoard) return;
+        treeBoard.querySelectorAll("[data-tree-loading-panel]").forEach(function (panel) {
+          panel.remove();
+        });
+      }
+
       function insertTreeDirectProjectLocal(project, canManage) {
         if (!project || !project.id || !project.is_direct) return false;
         var treeSidebar = document.querySelector("[data-tree-sidebar]");
@@ -4471,6 +4509,7 @@
           var board = buildTreeProjectBoard(project, canManage);
           if (board) {
             treeBoard.appendChild(board);
+            clearTreeLoadingPanel();
             inserted = true;
           }
         }
@@ -4509,6 +4548,7 @@
           var board = buildTreeProjectBoard(project, canManage);
           if (board) {
             treeBoard.appendChild(board);
+            clearTreeLoadingPanel();
             inserted = true;
           }
         }
@@ -6569,7 +6609,12 @@
         return currentTask;
       }
       const host = document.querySelector('[data-task-status-host="' + taskId + '"]');
-      return host && host._taskPayload ? host._taskPayload : null;
+      if (host && host._taskPayload) {
+        return host._taskPayload;
+      }
+      return typeof window.__dashboardTaskEntity === "function"
+        ? window.__dashboardTaskEntity(taskId)
+        : null;
     };
     window.__taskAssignmentKeysFromData = taskAssignmentKeysFromData;
     window.__taskMetaForAssignments = taskMetaForAssignments;
@@ -10106,8 +10151,265 @@
     var currentUserIsAdmin = {{ (1 if is_admin_user else 0)|tojson }};
     var currentUserEmail = {{ user.email|tojson }};
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
+    var dashboardBootstrapUrl = {{ url_for('api.dashboard_bootstrap')|tojson }};
+    var dashboardChangesUrl = {{ url_for('api.dashboard_changes')|tojson }};
+    var dashboardShowCompleted = {{ 'true' if show_completed else 'false' }};
     var discussionShowHistory = true;
     var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
+    var dashboardBootstrapStore = null;
+    var dashboardStorePersistTimer = null;
+    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v1.user." + String(currentUserId) + ".showCompleted." + (dashboardShowCompleted ? "1" : "0");
+
+    function dashboardStoreEntities() {
+      return dashboardBootstrapStore && dashboardBootstrapStore.entities ? dashboardBootstrapStore.entities : {};
+    }
+
+    function dashboardEntityMap(name) {
+      var entities = dashboardStoreEntities();
+      return entities && entities[name] ? entities[name] : {};
+    }
+
+    function dashboardProjectEntity(id) {
+      if (id === null || id === undefined || id === "") return null;
+      return dashboardEntityMap("projects")[String(id)] || null;
+    }
+
+    function dashboardGroupEntity(id) {
+      if (id === null || id === undefined || id === "") return null;
+      return dashboardEntityMap("groups")[String(id)] || null;
+    }
+
+    function dashboardTaskEntity(id) {
+      if (id === null || id === undefined || id === "") return null;
+      return dashboardEntityMap("tasks")[String(id)] || null;
+    }
+    window.__dashboardTaskEntity = dashboardTaskEntity;
+
+    function dashboardStoreRequestUrl(baseUrl) {
+      try {
+        var url = new URL(baseUrl, window.location.origin);
+        url.searchParams.set("show_completed", dashboardShowCompleted ? "1" : "0");
+        return url.toString();
+      } catch (_error) {
+        return baseUrl + (baseUrl.indexOf("?") >= 0 ? "&" : "?") + "show_completed=" + (dashboardShowCompleted ? "1" : "0");
+      }
+    }
+
+    function scheduleDashboardBootstrapStorePersist() {
+      if (!dashboardBootstrapStore || !window.localStorage) return;
+      if (dashboardStorePersistTimer) window.clearTimeout(dashboardStorePersistTimer);
+      dashboardStorePersistTimer = window.setTimeout(function () {
+        dashboardStorePersistTimer = null;
+        try {
+          window.localStorage.setItem(dashboardBootstrapCacheKey, JSON.stringify(dashboardBootstrapStore));
+        } catch (error) {
+          console.warn("dashboard bootstrap cache persist failed", error);
+        }
+      }, 50);
+    }
+
+    function hydrateDashboardBootstrapStoreFromCache() {
+      if (!window.localStorage) return null;
+      try {
+        var raw = window.localStorage.getItem(dashboardBootstrapCacheKey);
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        return setDashboardBootstrapStore(parsed);
+      } catch (error) {
+        console.warn("dashboard bootstrap cache hydrate failed", error);
+        return null;
+      }
+    }
+
+    function setDashboardBootstrapStore(payload) {
+      dashboardBootstrapStore = payload && typeof payload === "object" ? payload : null;
+      window.__dashboardBootstrapStore = dashboardBootstrapStore;
+      scheduleDashboardBootstrapStorePersist();
+      if (typeof window.__renderTodoBoardFromStore === "function") {
+        window.__renderTodoBoardFromStore();
+      }
+      return dashboardBootstrapStore;
+    }
+
+    function mergeDashboardEntity(entityType, payload) {
+      if (!payload || payload.id == null) return;
+      if (!dashboardBootstrapStore) return;
+      if (!dashboardBootstrapStore.entities) dashboardBootstrapStore.entities = {};
+      if (!dashboardBootstrapStore.entities[entityType]) dashboardBootstrapStore.entities[entityType] = {};
+      var key = String(payload.id);
+      dashboardBootstrapStore.entities[entityType][key] = Object.assign(
+        {},
+        dashboardBootstrapStore.entities[entityType][key] || {},
+        payload
+      );
+      scheduleDashboardBootstrapStorePersist();
+    }
+
+    function removeDashboardEntity(entityType, entityId) {
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.entities || !dashboardBootstrapStore.entities[entityType]) return;
+      delete dashboardBootstrapStore.entities[entityType][String(entityId)];
+      scheduleDashboardBootstrapStorePersist();
+    }
+
+    function mergeDashboardTask(task) {
+      if (!task || task.id == null) return;
+      if (typeof reconcileLocalTaskStatusOverride === "function") {
+        reconcileLocalTaskStatusOverride(task);
+      }
+      mergeDashboardEntity("tasks", task);
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return;
+      var taskId = String(task.id);
+      var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+        ? dashboardBootstrapStore.views.todo.task_ids.map(function (value) { return String(value); })
+        : [];
+      if (taskIds.indexOf(taskId) === -1) {
+        taskIds.push(taskId);
+        dashboardBootstrapStore.views.todo.task_ids = taskIds;
+      }
+      scheduleDashboardBootstrapStorePersist();
+    }
+
+    function removeDashboardTask(taskId) {
+      removeDashboardEntity("tasks", taskId);
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return;
+      dashboardBootstrapStore.views.todo.task_ids = (dashboardBootstrapStore.views.todo.task_ids || []).filter(function (value) {
+        return String(value) !== String(taskId);
+      });
+      scheduleDashboardBootstrapStorePersist();
+    }
+
+    function applyDashboardChangesPayload(payload) {
+      if (!payload || typeof payload !== "object") return dashboardBootstrapStore;
+      if (!dashboardBootstrapStore) {
+        return setDashboardBootstrapStore(payload);
+      }
+      dashboardBootstrapStore.meta = Object.assign({}, dashboardBootstrapStore.meta || {}, payload.meta || {});
+      dashboardBootstrapStore.views = Object.assign({}, dashboardBootstrapStore.views || {}, payload.views || {});
+      dashboardBootstrapStore.access = Object.assign({}, dashboardBootstrapStore.access || {}, payload.access || {});
+      var changes = payload.changes || {};
+      var upserts = changes.upserts || {};
+      var deletes = changes.deletes || {};
+
+      (upserts.divisions || []).forEach(function (division) {
+        mergeDashboardEntity("divisions", division);
+      });
+      (upserts.projects || []).forEach(function (project) {
+        mergeDashboardEntity("projects", project);
+      });
+      (upserts.groups || []).forEach(function (group) {
+        mergeDashboardEntity("groups", group);
+      });
+      (upserts.tasks || []).forEach(function (task) {
+        mergeDashboardTask(task);
+      });
+      (upserts.notifications || []).forEach(function (notification) {
+        mergeDashboardEntity("notifications", notification);
+      });
+
+      (deletes.divisions || []).forEach(function (divisionId) {
+        removeDashboardEntity("divisions", divisionId);
+      });
+      (deletes.projects || []).forEach(function (projectId) {
+        removeDashboardEntity("projects", projectId);
+      });
+      (deletes.groups || []).forEach(function (groupId) {
+        removeDashboardEntity("groups", groupId);
+      });
+      (deletes.tasks || []).forEach(function (taskId) {
+        removeDashboardTask(taskId);
+      });
+      (deletes.notifications || []).forEach(function (notificationId) {
+        removeDashboardEntity("notifications", notificationId);
+      });
+
+      scheduleDashboardBootstrapStorePersist();
+      if (typeof window.__renderTodoBoardFromStore === "function") {
+        window.__renderTodoBoardFromStore();
+      }
+      return dashboardBootstrapStore;
+    }
+
+    function fetchDashboardChangesStore(cursor) {
+      if (!cursor) return Promise.resolve(null);
+      var requestUrl = dashboardStoreRequestUrl(dashboardChangesUrl);
+      try {
+        var url = new URL(requestUrl, window.location.origin);
+        url.searchParams.set("cursor", cursor);
+        requestUrl = url.toString();
+      } catch (_error) {
+        requestUrl += (requestUrl.indexOf("?") >= 0 ? "&" : "?") + "cursor=" + encodeURIComponent(cursor);
+      }
+      return fetch(requestUrl, {
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, status: res.status, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok || !result.data || !result.data.dashboard) {
+            throw new Error("Could not load dashboard changes");
+          }
+          return applyDashboardChangesPayload(result.data.dashboard);
+        });
+    }
+
+    function fetchDashboardBootstrapStore() {
+      return fetch(dashboardStoreRequestUrl(dashboardBootstrapUrl), {
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok || !result.data || !result.data.dashboard) {
+            throw new Error("Could not load dashboard bootstrap");
+          }
+          return setDashboardBootstrapStore(result.data.dashboard);
+        })
+        .catch(function (error) {
+          console.warn("dashboard bootstrap load failed", error);
+          return null;
+        });
+    }
+
+    function refreshDashboardBootstrapStore() {
+      var cached = hydrateDashboardBootstrapStoreFromCache();
+      var cursor = cached && cached.meta ? String(cached.meta.cursor || "").trim() : "";
+      if (cursor) {
+        return fetchDashboardChangesStore(cursor).catch(function (error) {
+          console.warn("dashboard changes load failed; falling back to bootstrap", error);
+          return fetchDashboardBootstrapStore();
+        });
+      }
+      return fetchDashboardBootstrapStore();
+    }
+
+    window.__fetchDashboardBootstrapStore = fetchDashboardBootstrapStore;
+    window.__refreshDashboardBootstrapStore = refreshDashboardBootstrapStore;
+
+    var dashboardBootstrapRefreshStarted = false;
+    function scheduleDashboardBootstrapRefresh() {
+      if (dashboardBootstrapRefreshStarted) return;
+      dashboardBootstrapRefreshStarted = true;
+      var runner = function () {
+        refreshDashboardBootstrapStore().catch(function (error) {
+          console.warn("dashboard bootstrap refresh failed", error);
+        });
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(runner, { timeout: 1500 });
+        return;
+      }
+      window.setTimeout(runner, 150);
+    }
+
+    window.__scheduleDashboardBootstrapRefresh = scheduleDashboardBootstrapRefresh;
     var emojiShortcodeEntries = [
       [":grinning:", "😀"], [":smiley:", "😃"], [":smile:", "😄"], [":grin:", "😁"], [":laughing:", "😆"], [":sweat_smile:", "😅"],
       [":joy:", "😂"], [":rofl:", "🤣"], [":wink:", "😉"], [":blush:", "😊"], [":innocent:", "😇"], [":slight_smile:", "🙂"],
@@ -10973,7 +11275,7 @@
       try {
         notice = new Notification(title, {
           body: body,
-          icon: {{ url_for('static', filename='brand/termin-light-logo.svg')|tojson }},
+          icon: {{ asset_url('brand/termin-light-logo.svg')|tojson }},
           tag: "termin-notification-" + groupKey,
           renotify: false,
         });
@@ -11380,17 +11682,18 @@
         return { key: "asap", label: "ASAP", rank: 1 };
       }
       if (!dueDay) {
-        return { key: "none", label: "No Due Date", rank: 9 };
+        return { key: "none", label: "No Due Date", rank: 10 };
       }
       if (dueDay < nowDay) return { key: "overdue", label: "Overdue", rank: 0 };
-      if (dueDay.getTime() === nowDay.getTime()) return { key: "today", label: "Today", rank: 2 };
+      if (dueDay.getTime() === nowDay.getTime()) return { key: "today", label: "Today", rank: 1 };
       var tomorrow = new Date(nowDay);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      if (dueDay.getTime() === tomorrow.getTime()) return { key: "tomorrow", label: "Tomorrow", rank: 3 };
-      if (dueDay < nextWeekStart) return { key: "this_week", label: "This Week", rank: 4 };
-      if (dueDay < twoWeeksStart) return { key: "next_week", label: "Next Week", rank: 5 };
-      if (dueDay < threeWeeksStart) return { key: "two_weeks", label: "Two Weeks", rank: 6 };
-      if (dueDay < fourWeeksStart) return { key: "three_weeks", label: "Three Weeks", rank: 7 };
+      if (dueDay.getTime() === tomorrow.getTime()) return { key: "tomorrow", label: "Tomorrow", rank: 2 };
+      if (dueDay < nextWeekStart) return { key: "this_week", label: "This Week", rank: 3 };
+      if (dueDay < twoWeeksStart) return { key: "next_week", label: "Next Week", rank: 4 };
+      if (dueDay < threeWeeksStart) return { key: "two_weeks", label: "Two Weeks", rank: 5 };
+      if (dueDay < fourWeeksStart) return { key: "three_weeks", label: "Three Weeks", rank: 6 };
+      if (dueDay < nextMonthStart) return { key: "this_month", label: "This Month", rank: 7 };
       if (dueDay >= nextMonthStart && dueDay < monthAfterNextStart) return { key: "next_month", label: "Next Month", rank: 8 };
       return { key: "later", label: "Later", rank: 9 };
     }
@@ -11398,12 +11701,13 @@
     function todoBucketRank(key) {
       if (key === "overdue") return 0;
       if (key === "asap") return 1;
-      if (key === "today") return 2;
-      if (key === "tomorrow") return 3;
-      if (key === "this_week") return 4;
-      if (key === "next_week") return 5;
-      if (key === "two_weeks") return 6;
-      if (key === "three_weeks") return 7;
+      if (key === "today") return 1;
+      if (key === "tomorrow") return 2;
+      if (key === "this_week") return 3;
+      if (key === "next_week") return 4;
+      if (key === "two_weeks") return 5;
+      if (key === "three_weeks") return 6;
+      if (key === "this_month") return 7;
       if (key === "next_month") return 8;
       if (key === "later") return 9;
       return 10;
@@ -11872,6 +12176,13 @@
       localTaskStatusOverrides[key] = override;
     }
 
+    function clearLocalTaskStatusOverride(taskOrId) {
+      var taskId = taskOrId && typeof taskOrId === "object" ? taskOrId.id : taskOrId;
+      if (taskId == null || taskId === "") return;
+      delete localTaskStatusOverrides[String(taskId)];
+    }
+    window.__clearLocalTaskStatusOverride = clearLocalTaskStatusOverride;
+
     function reapplyLocalTaskStatusOverrides(root) {
       var scope = root && root.querySelectorAll ? root : document;
       scope.querySelectorAll("[data-task-status-host]").forEach(function (host) {
@@ -11895,6 +12206,40 @@
         });
         syncTaskStatusUi(task);
       });
+    }
+    window.__reapplyLocalTaskStatusOverrides = reapplyLocalTaskStatusOverrides;
+
+    function reconcileLocalTaskStatusOverride(task) {
+      if (!task || !task.id) return;
+      var key = String(task.id);
+      var override = localTaskStatusOverrides[key];
+      if (!override) return;
+      var mode = String((task && task.status_mode) || ((task && task.status_meta && task.status_meta.mode) || (task && task.per_user_status_enabled ? "per_user" : "single")) || "single");
+      if (mode === "single") {
+        delete localTaskStatusOverrides[key];
+        return;
+      }
+      if (mode === "percentage") {
+        var serverPercent = Math.max(0, Math.min(100, Number(
+          task.status_percentage != null
+            ? task.status_percentage
+            : ((task.status_meta && task.status_meta.percentage_complete) || 0)
+        )));
+        var overridePercent = Math.max(0, Math.min(100, Number(override.percentage != null ? override.percentage : serverPercent)));
+        if (override.mode !== "percentage" || overridePercent === serverPercent) {
+          delete localTaskStatusOverrides[key];
+        }
+        return;
+      }
+      if (mode === "per_user" && task.status_meta && Array.isArray(task.status_meta.user_statuses)) {
+        var mine = task.status_meta.user_statuses.find(function (row) {
+          return row && String(row.user_id || "") === String(currentUserId || "");
+        });
+        var serverStatus = String((mine && mine.status) || (task.status_meta.my_status || "") || "").trim().toLowerCase();
+        if (!serverStatus || override.mode !== "per_user" || String((override.status || "")).trim().toLowerCase() === serverStatus) {
+          delete localTaskStatusOverrides[key];
+        }
+      }
     }
 
     function taskStatusMeta(task) {
@@ -13299,6 +13644,7 @@
 
     function applyTaskRowUpdate(task) {
       if (!task || !task.id) return false;
+      reconcileLocalTaskStatusOverride(task);
       var taskId = String(task.id);
       var existingHost = document.querySelector('[data-task-status-host="' + taskId + '"]');
       var existingTask = existingHost && existingHost._taskPayload ? existingHost._taskPayload : null;
@@ -14061,14 +14407,30 @@
     }
 
     function todoMetaFor(projectId, groupId) {
+      var projectData = dashboardProjectEntity(projectId);
+      var groupData = dashboardGroupEntity(groupId);
       var projectNode = document.querySelector('.todo-tree-node.is-project[data-project-id="' + projectId + '"]');
       var projectLabel = projectNode ? projectNode.querySelector(".todo-tree-label") : null;
-      var projectName = projectLabel ? projectLabel.textContent.trim() : "Project";
+      var projectName = projectLabel
+        ? projectLabel.textContent.trim()
+        : (projectData ? String(projectData.display_name || projectData.name || "Project") : "Project");
       var divisionId = projectNode ? projectNode.getAttribute("data-division-id") : "none";
       var divisionColor = projectNode ? projectNode.style.getPropertyValue("--division-color") : "";
+      if ((!projectNode || !divisionColor) && projectData) {
+        if (projectData.is_direct) {
+          divisionId = "direct";
+        } else if (projectData.division_id !== null && projectData.division_id !== undefined && projectData.division_id !== "") {
+          divisionId = String(projectData.division_id);
+        }
+      }
       if (!divisionColor && divisionId) {
         var divisionNode = document.querySelector('.todo-tree-node[data-division-id="' + divisionId + '"]');
         divisionColor = divisionNode ? divisionNode.style.getPropertyValue("--division-color") : "";
+      }
+      if (!divisionColor && divisionId === "direct") {
+        divisionColor = "#9aa6b2";
+      } else if (!divisionColor && divisionId === "none") {
+        divisionColor = "#2a3442";
       }
       var groupName = "";
       if (groupId) {
@@ -14077,6 +14439,9 @@
           var groupRow = groupInput.closest(".todo-tree-row");
           var groupLabel = groupRow ? groupRow.querySelector(".todo-tree-label") : null;
           groupName = groupLabel ? groupLabel.textContent.trim() : "";
+        }
+        if (!groupName && groupData) {
+          groupName = String(groupData.name || "");
         }
       }
       return {
@@ -14117,19 +14482,39 @@
       var dueMode = task.due_mode || (dueValue ? "date" : "none");
       var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
       var meta = todoMetaFor(task.project_id, task.group_id);
-      var projectUrl = projectViewHref(task.project_id);
-      var groupUrl = task.group_id ? projectUrl + "#group-" + task.group_id : "";
+      var projectUrl = task.project_id ? ("/tree/project/" + encodeURIComponent(task.project_id)) : "#";
+      var groupUrl = task.group_id ? ("/tree/project/" + encodeURIComponent(task.project_id) + "/group/" + encodeURIComponent(task.group_id)) : "";
       var linksHtml = typeof renderInlineTaskLinkBadges === "function" ? renderInlineTaskLinkBadges(task.links || []) : "";
       var title = escapeHtml(task.title || "");
       var status = escapeHtml(taskMyStatus(task));
       var statusState = taskMyStatusState(task);
+      var githubMeta = task.github_meta || null;
+      var isGithub = !!(githubMeta && githubMeta.issue_url);
+      var commentCount = Number(task.comment_count || 0);
+      var hasUnreadComments = !!task.has_unread_comments;
+      var assigneeClass = isGithub ? "todo-control todo-control-assignees" : "todo-control todo-control-assignees assignments todo-assignments no-assign-actions";
+      var statusControlHtml = isGithub
+        ? renderGithubTodoStatusHtml(githubMeta, statusState)
+        : '<div class="todo-control todo-control-status" title="' + status + '" aria-label="Status: ' + status + '"><div data-task-status-host="' + task.id + '">' + renderTaskStatusCellHtml(task, { todo: true }) + '</div></div>';
+      var assigneeControlHtml = isGithub
+        ? '<div class="' + assigneeClass + '">' + renderGithubTodoAssigneesHtml(githubMeta) + '</div>'
+        : '<div class="' + assigneeClass + '"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + task.id + '" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" /></span></div>';
+      var titleHtml = isGithub
+        ? '<a class="github-task-link todo-item-title" href="' + escapeHtml(githubMeta.issue_url || "#") + '" target="_blank" rel="noopener">' +
+            (githubMeta.item_type === "pull_request"
+              ? '<i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>'
+              : '<i class="fa-brands fa-github" aria-hidden="true"></i>') +
+            '<span>' + title + '</span>' +
+          '</a>'
+        : '<div class="editable todo-item-title" contenteditable="' + (task.locked ? "false" : "true") + '" data-task-id="' + task.id + '" data-field="title" data-col="1">' + title + '</div>';
       var item = document.createElement("div");
-      item.className = "todo-item";
+      item.className = "todo-item" + (isGithub ? " github-task-row" : "");
       item.style.setProperty("--todo-color", meta.divisionColor);
       item.setAttribute("data-task-id", String(task.id));
       item.setAttribute("data-project-id", String(task.project_id));
       item.setAttribute("data-group-id", task.group_id ? String(task.group_id) : "");
       item.setAttribute("data-division-id", meta.divisionId);
+      item.setAttribute("data-task-locked", task.locked ? "1" : "0");
       item.setAttribute("data-due-at", dueValue);
       item.setAttribute("data-due-mode", dueMode);
       item.setAttribute("data-created-at", createdValue);
@@ -14143,13 +14528,13 @@
           ${task.group_id && meta.groupName ? `<a class="todo-group-name" href="${escapeHtml(groupUrl)}" title="Open ${escapeHtml(meta.groupName)}">${escapeHtml(meta.groupName)}</a>` : ""}
         </div>
         <div class="todo-item-main">
-          <div class="editable todo-item-title" contenteditable="true" data-task-id="${task.id}" data-field="title" data-col="1">${title}</div>
+          ${titleHtml}
           <span class="task-link-badges" data-task-link-badges="${task.id}">${linksHtml}</span>
           <span class="todo-main-spacer" aria-hidden="true"></span>
           <span class="task-pill">
             <button class="task-pill-segment" type="button" data-open-settings="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openSettings(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
             <button class="task-pill-segment" type="button" data-open-links="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openLinks(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-link" aria-hidden="true"></i></button>
-            <button class="task-pill-segment comment-button" type="button" data-open-discussion="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openDiscussion(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="${task.id}">0</span></button>
+            <button class="task-pill-segment comment-button${hasUnreadComments ? " has-unread" : ""}" type="button" data-open-discussion="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openDiscussion(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="${task.id}">${commentCount}</span></button>
           </span>
         </div>
         <div class="todo-item-controls">
@@ -14158,20 +14543,76 @@
               <div class="due-summary${dueValue ? "" : " is-fallback"}" data-due-summary title="${dueValue ? "Due " + dueValue : "Created " + createdValue}">
                 <span class="due-summary-label">${dueMode === "asap" ? "<span>S</span>" : '<i class="fa-regular fa-calendar" aria-hidden="true"></i>'}</span>
               </div>
-              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" value="${dueValue}" />
+              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" value="${dueValue}" ${task.locked ? "disabled" : ""} />
             </div>
-            <div class="todo-control todo-control-status" title="${status}" aria-label="Status: ${status}"><div data-task-status-host="${task.id}">${renderTaskStatusCellHtml(task, { todo: true })}</div></div>
+            ${statusControlHtml}
           </div>
-          <div class="todo-control todo-control-assignees assignments todo-assignments no-assign-actions">
-            <span class="assign-action">
-              <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="${task.id}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
-            </span>
-          </div>
+          ${assigneeControlHtml}
           <div class="todo-resize-overlay" aria-hidden="true"></div>
         </div>
       `;
+      var statusHost = item.querySelector('[data-task-status-host]');
+      if (statusHost) {
+        statusHost._taskPayload = task;
+      }
       return item;
     }
+
+    function renderGithubTodoStatusHtml(meta, taskStatusState) {
+      var itemType = meta && meta.item_type === "pull_request" ? "pull_request" : "issue";
+      var issueState = String(meta && meta.issue_state || "").toLowerCase();
+      var iconClass = itemType === "pull_request" ? "fa-code-pull-request" : "fa-brands fa-github";
+      if (issueState === "closed" || taskStatusState === "complete") {
+        return '<div class="todo-control todo-control-status"><span class="status-badge is-complete">' +
+          '<i class="fa-solid ' + iconClass + '" aria-hidden="true"></i><span>' + (itemType === "pull_request" ? "PR closed" : "Closed") + '</span></span></div>';
+      }
+      return '<div class="todo-control todo-control-status"><span class="status-badge">' +
+        '<i class="fa-solid ' + iconClass + '" aria-hidden="true"></i><span>' + (itemType === "pull_request" ? "PR open" : "Open") + '</span></span></div>';
+    }
+
+    function renderGithubTodoAssigneesHtml(meta) {
+      var assignees = Array.isArray(meta && meta.assignees) ? meta.assignees : [];
+      if (!assignees.length) return "";
+      return assignees.slice(0, 4).map(function (assignee) {
+        var label = escapeHtml(String((assignee && assignee.label) || (assignee && assignee.login) || "GitHub"));
+        var avatarUrl = assignee && assignee.avatar_url ? String(assignee.avatar_url) : "";
+        return '<span class="badge user github-assignee-badge" title="' + label + '">' +
+          '<span class="badge-icon">' +
+            (avatarUrl
+              ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />'
+              : label.slice(0, 1).toUpperCase()) +
+          '</span>' +
+          '<span class="badge-label">' + label + '</span>' +
+        '</span>';
+      }).join("");
+    }
+
+    function renderTodoBoardFromStore() {
+      var board = document.querySelector(".todo-board[data-todo-client-board='1']");
+      if (!board) return false;
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return false;
+      var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+        ? dashboardBootstrapStore.views.todo.task_ids
+        : [];
+      var taskMap = dashboardEntityMap("tasks");
+      board.innerHTML = "";
+      if (!taskIds.length) {
+        board.innerHTML = '<div class="panel" data-todo-empty-panel><h3>No tasks</h3><p class="footer-note">No visible tasks yet.</p></div>';
+        board.setAttribute("data-todo-board-ready", "1");
+        return true;
+      }
+      taskIds.forEach(function (taskId) {
+        var task = taskMap[String(taskId)];
+        if (!task) return;
+        upsertTodoItemFromSnapshot(task);
+      });
+      board.setAttribute("data-todo-board-ready", "1");
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
+      return true;
+    }
+    window.__renderTodoBoardFromStore = renderTodoBoardFromStore;
 
     function upsertTodoItemFromSnapshot(task) {
       if (!task || !task.id) return false;
@@ -16401,7 +16842,7 @@
       var viewPanes = Array.from(layout.querySelectorAll("[data-dashboard-view]"));
       var switchLinks = Array.from(document.querySelectorAll("[data-dashboard-view-target]"));
       var mobileTrigger = document.querySelector("[data-mobile-sidebar-trigger]");
-      var knownViews = { tree: true, todo: true, inbox: true };
+      var knownViews = { dashboard: true, tree: true, todo: true, inbox: true };
       var viewPaths = {};
 
       switchLinks.forEach(function (link) {
@@ -16415,22 +16856,23 @@
       }
 
       function activeView() {
-        var view = String(layout.getAttribute("data-dashboard-current-view") || "tree");
-        return knownViews[view] ? view : "tree";
+        var view = String(layout.getAttribute("data-dashboard-current-view") || "dashboard");
+        return knownViews[view] ? view : "dashboard";
       }
 
       function parseViewFromLocation() {
         var path = String(window.location.pathname || "");
+        if (path === "/" || path.indexOf("/dashboard") === 0) return "dashboard";
         if (path.indexOf("/todo") === 0) return "todo";
         if (path.indexOf("/inbox") === 0) return "inbox";
         return "tree";
       }
 
       function applyViewState(view) {
-        var nextView = knownViews[view] ? view : "tree";
+        var nextView = knownViews[view] ? view : "dashboard";
         layout.setAttribute("data-dashboard-current-view", nextView);
         window.__dashboardCurrentView = nextView;
-        layout.classList.toggle("no-sidebar", nextView === "inbox");
+        layout.classList.toggle("no-sidebar", nextView === "inbox" || nextView === "dashboard");
         if (content) {
           content.classList.toggle("project-content", nextView !== "tree");
         }
@@ -16445,10 +16887,10 @@
           link.classList.toggle("active", link.getAttribute("data-dashboard-view-target") === nextView);
         });
         if (mobileTrigger) {
-          mobileTrigger.hidden = nextView === "inbox";
+          mobileTrigger.hidden = nextView === "inbox" || nextView === "dashboard";
         }
         if (sidebar) {
-          sidebar.setAttribute("aria-hidden", nextView === "inbox" ? "true" : "false");
+          sidebar.setAttribute("aria-hidden", (nextView === "inbox" || nextView === "dashboard") ? "true" : "false");
         }
       }
 
@@ -16841,6 +17283,7 @@
       socket.on("project_updated", function (data) {
         if (!data || !data.project) return;
         var project = data.project;
+        mergeDashboardEntity("projects", project);
         if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(project.id || "")) {
           refreshOpenDiscussionTimeline();
         }
@@ -16887,6 +17330,7 @@
       socket.on("project_created", function (data) {
         if (!data || !data.project) return;
         var project = data.project;
+        mergeDashboardEntity("projects", project);
         var canManage = !!project.can_manage;
         var isTreeView = !!document.querySelector("[data-tree-sidebar]") && !!document.querySelector("[data-tree-board]");
         if (project.is_direct && isTreeView && typeof window.__insertTreeProjectLocal === "function") {
@@ -16927,6 +17371,7 @@
       socket.on("project_deleted", function (data) {
         if (!data || !data.project_id) return;
         var projectId = String(data.project_id);
+        removeDashboardEntity("projects", projectId);
         if (typeof window.__removeProjectLocal === "function") {
           window.__removeProjectLocal(projectId);
         }
@@ -16937,6 +17382,7 @@
           window.__removeTodoProjectNode(projectId);
         }
         (data.task_ids || []).forEach(function (taskId) {
+          removeDashboardTask(taskId);
           removeTaskRowsLocal(taskId);
         });
         if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
@@ -16947,6 +17393,7 @@
       socket.on("group_updated", function (data) {
         if (!data || !data.group) return;
         var group = data.group;
+        mergeDashboardEntity("groups", group);
         if (activeDrawerTab === "messages" && currentEntityType === "group" && String(currentEntityId || "") === String(group.id || "")) {
           refreshOpenDiscussionTimeline();
         } else if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(group.project_id || "")) {
@@ -16972,6 +17419,7 @@
       socket.on("group_created", function (data) {
         if (!data || !data.group) return;
         var group = data.group;
+        mergeDashboardEntity("groups", group);
         if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(group.project_id || "")) {
           refreshOpenDiscussionTimeline();
         }
@@ -17022,6 +17470,7 @@
 
       socket.on("group_deleted", function (data) {
         if (!data || !data.group_id) return;
+        removeDashboardEntity("groups", data.group_id);
         if (activeDrawerTab === "messages" && currentEntityType === "project" && String(currentEntityId || "") === String(data.project_id || "")) {
           refreshOpenDiscussionTimeline();
         }
@@ -17033,6 +17482,7 @@
           window.__removeTodoGroupNode(groupId);
         }
         (data.task_ids || []).forEach(function (taskId) {
+          removeDashboardTask(taskId);
           removeTaskRowsLocal(taskId);
         });
         if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
@@ -17043,6 +17493,7 @@
       socket.on("division_updated", function (data) {
         if (!data || !data.division) return;
         var division = data.division;
+        mergeDashboardEntity("divisions", division);
         if (typeof window.__setDivisionNameLocal === "function") {
           window.__setDivisionNameLocal(String(division.id), division.name || "Division");
         }
@@ -17063,6 +17514,7 @@
       socket.on("division_created", function (data) {
         if (!data || !data.division) return;
         var division = data.division;
+        mergeDashboardEntity("divisions", division);
         if (typeof window.__insertDivisionSidebarLocal === "function") {
           window.__insertDivisionSidebarLocal(division);
         }
@@ -17083,6 +17535,7 @@
       socket.on("division_deleted", function (data) {
         if (!data || !data.division_id) return;
         var divisionId = String(data.division_id);
+        removeDashboardEntity("divisions", divisionId);
         if (typeof window.__removeDivisionLocal === "function") {
           window.__removeDivisionLocal(divisionId);
         }
@@ -17115,6 +17568,7 @@
       socket.on("task_updated", function (data) {
         if (!data || !data.task) return;
         var task = data.task;
+        mergeDashboardTask(task);
         if (activeDrawerTab === "messages" && currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
           refreshOpenDiscussionTimeline();
         } else if (
@@ -17143,6 +17597,7 @@
           window.__refreshTreeProjectSnapshotLocal(taskData.project_id);
         }
         if (data.action === "deleted") {
+          removeDashboardTask(task.id);
           removeTaskRowsLocal(task.id);
           return;
         }
@@ -17172,21 +17627,40 @@
           });
           return;
         }
+        var todoUpdated = false;
+        if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+          todoUpdated = !!window.__upsertTodoItemFromSnapshot(task);
+        }
+        if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
+          if (window.__upsertTaskRowFromSnapshot(task)) {
+            pulseTask(task.id);
+            return;
+          }
+        }
+        var updated = applyTaskRowUpdate(task);
+        renderTaskAssignments(task.id, task.assignments || []);
+        if (updated || todoUpdated) {
+          pulseTask(task.id);
+          if (typeof window.__ensureTreeTaskVisible === "function") {
+            window.__ensureTreeTaskVisible(task);
+          }
+          return;
+        }
         fetchTaskSnapshot(task.id).then(function (freshTask) {
           if (!freshTask) return;
-          var todoUpdated = false;
+          var fetchedTodoUpdated = false;
           if (typeof window.__upsertTodoItemFromSnapshot === "function") {
-            todoUpdated = !!window.__upsertTodoItemFromSnapshot(freshTask);
+            fetchedTodoUpdated = !!window.__upsertTodoItemFromSnapshot(freshTask);
           }
-          if (typeof window.__upsertTaskRowFromSnapshot === "function" && (data.action === "created" || data.action === "moved")) {
+          if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
             if (window.__upsertTaskRowFromSnapshot(freshTask)) {
               pulseTask(freshTask.id);
               return;
             }
           }
-          var updated = applyTaskRowUpdate(freshTask);
+          var fetchedUpdated = applyTaskRowUpdate(freshTask);
           renderTaskAssignments(freshTask.id, freshTask.assignments || []);
-          if (updated || todoUpdated) {
+          if (fetchedUpdated || fetchedTodoUpdated) {
             pulseTask(freshTask.id);
           } else if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
             pulseTask(freshTask.id);
@@ -17245,11 +17719,32 @@
       var treeRootPath = {{ tree_dashboard_path()|tojson }};
       var treeProjectBase = {{ tree_dashboard_path(0)|replace('/0', '')|tojson }};
       var treeGroupBase = {{ tree_dashboard_path(0, 0)|replace('/0/group/0', '')|tojson }};
+      var initialTreeProjectSeed = {% if selected_project %}{
+        id: {{ selected_project.id|tojson }},
+        name: {{ selected_project.name|tojson }},
+        display_name: {{ selected_project_display_name|tojson }},
+        division_id: {{ selected_project.division_id|tojson }},
+        division_color: {{ selected_project_color|tojson }},
+        color: {{ selected_project_color|tojson }},
+        is_direct: {{ (selected_project.is_direct if selected_project is not none else false)|tojson }},
+        is_shared_with_me: {{ (selected_project.id in shared_project_ids if selected_project else false)|tojson }},
+        is_shared_out: {{ (selected_project.id in shared_out_project_ids if selected_project else false)|tojson }},
+        start_date: {{ selected_project.start_date.isoformat() if selected_project and selected_project.start_date else None|tojson }},
+        end_date: {{ selected_project.end_date.isoformat() if selected_project and selected_project.end_date else None|tojson }},
+        links: []
+      }{% else %}null{% endif %};
 
       function isTreeDashboardView() {
         return typeof window.__getDashboardCurrentView === "function"
           ? window.__getDashboardCurrentView() === "tree"
           : {{ 'true' if current_view == 'tree' else 'false' }};
+      }
+
+      function removeTreeLoadingPanels() {
+        if (!treeBoard) return;
+        treeBoard.querySelectorAll("[data-tree-loading-panel]").forEach(function (panel) {
+          panel.remove();
+        });
       }
 
       function buttonSelection(button) {
@@ -17350,6 +17845,8 @@
           localStorage.setItem(storageKey, JSON.stringify(state));
         } catch (err) {}
       }
+      window.__loadTreeViewState = loadState;
+      window.__saveTreeViewState = saveState;
 
       function snapshotState(selection) {
         var state = { expanded: { divisions: {}, projects: {} }, selection: selection || null };
@@ -17518,18 +18015,7 @@
         currentSelection = nextSelection;
         applySelection(currentSelection, { syncHistory: false });
         focusTreeSidebarSelection(currentSelection);
-        if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
-          if (currentSelection.type === "project") {
-            if (treeBoardNeedsSnapshot(currentSelection.id, null)) {
-              window.__refreshTreeProjectSnapshotLocal(currentSelection.id);
-            }
-          } else if (currentSelection.type === "group") {
-            var nextProjectId = projectIdForSelection(currentSelection);
-            if (nextProjectId && treeBoardNeedsSnapshot(nextProjectId, currentSelection.id)) {
-              window.__refreshTreeProjectSnapshotLocal(nextProjectId);
-            }
-          }
-        }
+        ensureAndSyncTreeSelection(currentSelection);
       }
 
       function treeBoardNeedsSnapshot(projectId, groupId) {
@@ -17550,9 +18036,93 @@
         return true;
       }
 
+      function projectIdsForDivisionSelection(selection) {
+        if (!selection || selection.type !== "division") return [];
+        var divisionNode = document.querySelector('[data-tree-division-node="' + String(selection.id) + '"]');
+        if (!divisionNode) return [];
+        return Array.from(divisionNode.querySelectorAll("[data-tree-project-node]")).map(function (node) {
+          return String(node.getAttribute("data-tree-project-node") || "");
+        }).filter(Boolean);
+      }
+
+      function ensureTreeSelectionBoards(selection) {
+        if (!selection || typeof window.__ensureTreeProjectBoard !== "function") {
+          return Promise.resolve(false);
+        }
+        if (selection.type === "project") {
+          return treeBoardNeedsSnapshot(selection.id, null)
+            ? window.__ensureTreeProjectBoard(selection.id)
+            : Promise.resolve(false);
+        }
+        if (selection.type === "group") {
+          var groupProjectId = projectIdForSelection(selection);
+          if (!groupProjectId) return Promise.resolve(false);
+          return treeBoardNeedsSnapshot(groupProjectId, selection.id)
+            ? window.__ensureTreeProjectBoard(groupProjectId)
+            : Promise.resolve(false);
+        }
+        if (selection.type === "division") {
+          var projectIds = projectIdsForDivisionSelection(selection).filter(function (projectId) {
+            return treeBoardNeedsSnapshot(projectId, null);
+          });
+          if (!projectIds.length) return Promise.resolve(false);
+          return Promise.all(projectIds.map(function (projectId) {
+            return window.__ensureTreeProjectBoard(projectId);
+          })).then(function (results) {
+            return results.some(Boolean);
+          });
+        }
+        return Promise.resolve(false);
+      }
+
+      function treeSelectionStillLoading(selection) {
+        if (!selection) return false;
+        if (selection.type === "division") {
+          return !projectIdsForDivisionSelection(selection).some(function (projectId) {
+            var board = document.querySelector('[data-tree-project-board="' + String(projectId) + '"]');
+            return !!(board && !board.querySelector("[data-tree-project-loading-panel]"));
+          });
+        }
+        var projectId = projectIdForSelection(selection) || (selection.type === "project" ? String(selection.id || "") : "");
+        if (!projectId) return false;
+        var board = document.querySelector('[data-tree-project-board="' + projectId + '"]');
+        if (!board) return true;
+        return !!board.querySelector("[data-tree-project-loading-panel]");
+      }
+
+      function syncTreeSelectionAfterEnsure() {
+        applySelection(currentSelection, { syncHistory: false });
+        focusTreeSidebarSelection(currentSelection);
+        if (treeBoard && treeBoard.querySelector("[data-tree-project-board]")) {
+          removeTreeLoadingPanels();
+        }
+      }
+
+      function ensureAndSyncTreeSelection(selection) {
+        removeTreeLoadingPanels();
+        return ensureTreeSelectionBoards(selection)
+          .then(function (changed) {
+            syncTreeSelectionAfterEnsure();
+            return changed;
+          })
+          .catch(function (error) {
+            console.warn("tree selection ensure failed", error);
+            syncTreeSelectionAfterEnsure();
+            return false;
+          });
+      }
+
+      function scheduleInitialTreeSelectionEnsure() {
+        if (!isTreeDashboardView()) return;
+        ensureAndSyncTreeSelection(currentSelection);
+      }
+
       window.__refreshTreeSelectionState = function () {
         applyCollapsedState(loadState() || {});
-        applySelection(currentSelection);
+        applySelection(currentSelection, { syncHistory: false });
+        if (treeBoard && treeBoard.querySelector("[data-tree-project-board]")) {
+          removeTreeLoadingPanels();
+        }
       };
 
       window.__focusTreeSidebarSelection = focusTreeSidebarSelection;
@@ -17937,18 +18507,7 @@
         if (typeof window.__closeMobileSidebar === "function") {
           window.__closeMobileSidebar();
         }
-        if (typeof window.__refreshTreeProjectSnapshotLocal === "function") {
-          if (currentSelection.type === "project") {
-            if (treeBoardNeedsSnapshot(currentSelection.id, null)) {
-              window.__refreshTreeProjectSnapshotLocal(currentSelection.id);
-            }
-          } else if (currentSelection.type === "group") {
-            var currentProjectId = String(selectButton.getAttribute("data-tree-project-id") || "");
-            if (currentProjectId && treeBoardNeedsSnapshot(currentProjectId, currentSelection.id)) {
-              window.__refreshTreeProjectSnapshotLocal(currentProjectId);
-            }
-          }
-        }
+        ensureAndSyncTreeSelection(currentSelection);
       });
 
       var state = loadState() || {};
@@ -17976,7 +18535,7 @@
         } else if (selectedProjectId) {
           currentSelection = { type: "project", id: String(selectedProjectId) };
         } else {
-          var firstButton = document.querySelector("[data-tree-select-type]");
+          var firstButton = document.querySelector('[data-tree-select-type="project"]') || document.querySelector("[data-tree-select-type]");
           if (firstButton) {
             currentSelection = {
               type: String(firstButton.getAttribute("data-tree-select-type")),
@@ -17989,17 +18548,40 @@
         replaceHistory: true,
         syncHistory: isTreeDashboardView(),
       });
+      if (
+        initialTreeProjectSeed &&
+        currentSelection &&
+        (currentSelection.type === "project" || currentSelection.type === "group") &&
+        String(initialTreeProjectSeed.id) === String(
+          currentSelection.type === "project" ? currentSelection.id : (projectIdForSelection(currentSelection) || initialTreeProjectSeed.id)
+        ) &&
+        !document.querySelector('[data-tree-project-board="' + String(initialTreeProjectSeed.id) + '"]')
+      ) {
+        if (typeof window.__insertTreeProjectLocal === "function") {
+          window.__insertTreeProjectLocal(initialTreeProjectSeed, {{ 'true' if can_manage_project else 'false' }});
+        }
+        syncTreeSelectionAfterEnsure();
+      }
       window.__syncTreeSelectionFromLocation = syncTreeSelectionFromLocation;
       if (treeBoard) {
         treeBoard.setAttribute("data-tree-ready", "1");
       }
-
+      if (isTreeDashboardView()) {
+        scheduleInitialTreeSelectionEnsure();
+      }
       document.addEventListener("termin:dashboard-view-change", function (event) {
         var detail = event && event.detail ? event.detail : null;
         if (!detail || detail.currentView !== "tree" || detail.previousView === "tree") return;
         window.requestAnimationFrame(function () {
           focusTreeSidebarSelection(currentSelection);
+          ensureAndSyncTreeSelection(currentSelection);
         });
+      });
+
+      window.addEventListener("load", function () {
+        if (!isTreeDashboardView()) return;
+        if (!treeSelectionStillLoading(currentSelection)) return;
+        scheduleInitialTreeSelectionEnsure();
       });
 
       window.addEventListener("popstate", function () {
@@ -19062,6 +19644,8 @@
       }
     });
 
+    hydrateDashboardBootstrapStoreFromCache();
+    scheduleDashboardBootstrapRefresh();
     window.setInterval(pollNotificationState, 15000);
     window.setInterval(pollOpenDiscussion, 10000);
   })();
