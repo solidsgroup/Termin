@@ -10367,7 +10367,8 @@
     var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
     var dashboardBootstrapStore = null;
     var dashboardStorePersistTimer = null;
-    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v1.user." + String(currentUserId);
+    var dashboardBootstrapCacheSchemaVersion = 2;
+    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v2.user." + String(currentUserId);
 
     function dashboardStoreEntities() {
       return dashboardBootstrapStore && dashboardBootstrapStore.entities ? dashboardBootstrapStore.entities : {};
@@ -10393,6 +10394,20 @@
       return dashboardEntityMap("tasks")[String(id)] || null;
     }
     window.__dashboardTaskEntity = dashboardTaskEntity;
+
+    function normalizeDashboardTaskPayload(task) {
+      if (!task || typeof task !== "object") return task;
+      var normalized = Object.assign({}, task);
+      if (!Array.isArray(normalized.links)) {
+        normalized.links = taskLinksFromPayload(normalized);
+      } else {
+        normalized.links = normalized.links.slice();
+      }
+      if ((!normalized.link || !String(normalized.link).trim()) && normalized.links.length) {
+        normalized.link = normalized.links[0];
+      }
+      return normalized;
+    }
 
     function dashboardStoreRequestUrl(baseUrl) {
       try {
@@ -10422,6 +10437,11 @@
         var raw = window.localStorage.getItem(dashboardBootstrapCacheKey);
         if (!raw) return null;
         var parsed = JSON.parse(raw);
+        var schemaVersion = Number(parsed && parsed.meta && parsed.meta.schema_version);
+        if (schemaVersion !== dashboardBootstrapCacheSchemaVersion) {
+          window.localStorage.removeItem(dashboardBootstrapCacheKey);
+          return null;
+        }
         return setDashboardBootstrapStore(parsed);
       } catch (error) {
         console.warn("dashboard bootstrap cache hydrate failed", error);
@@ -10431,6 +10451,13 @@
 
     function setDashboardBootstrapStore(payload) {
       dashboardBootstrapStore = payload && typeof payload === "object" ? payload : null;
+      if (dashboardBootstrapStore && dashboardBootstrapStore.entities && dashboardBootstrapStore.entities.tasks) {
+        Object.keys(dashboardBootstrapStore.entities.tasks).forEach(function (taskId) {
+          dashboardBootstrapStore.entities.tasks[taskId] = normalizeDashboardTaskPayload(
+            dashboardBootstrapStore.entities.tasks[taskId]
+          );
+        });
+      }
       window.__dashboardBootstrapStore = dashboardBootstrapStore;
       scheduleDashboardBootstrapStorePersist();
       if (typeof window.__renderTodoBoardFromStore === "function") {
@@ -10445,10 +10472,13 @@
       if (!dashboardBootstrapStore.entities) dashboardBootstrapStore.entities = {};
       if (!dashboardBootstrapStore.entities[entityType]) dashboardBootstrapStore.entities[entityType] = {};
       var key = String(payload.id);
+      var nextPayload = entityType === "tasks"
+        ? normalizeDashboardTaskPayload(payload)
+        : payload;
       dashboardBootstrapStore.entities[entityType][key] = Object.assign(
         {},
         dashboardBootstrapStore.entities[entityType][key] || {},
-        payload
+        nextPayload
       );
       scheduleDashboardBootstrapStorePersist();
     }
@@ -14970,7 +15000,8 @@
       var meta = todoMetaFor(task.project_id, task.group_id);
       var projectUrl = task.project_id ? ("/tree/project/" + encodeURIComponent(task.project_id)) : "#";
       var groupUrl = task.group_id ? ("/tree/project/" + encodeURIComponent(task.project_id) + "/group/" + encodeURIComponent(task.group_id)) : "";
-      var linksHtml = typeof renderInlineTaskLinkBadges === "function" ? renderInlineTaskLinkBadges(task.links || []) : "";
+      var todoTaskLinks = taskLinksFromPayload(task);
+      var linksHtml = typeof renderTaskLinkBadges === "function" ? renderTaskLinkBadges(todoTaskLinks) : "";
       var title = escapeHtml(task.title || "");
       var status = escapeHtml(taskMyStatus(task));
       var statusState = taskMyStatusState(task);

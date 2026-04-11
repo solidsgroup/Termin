@@ -403,7 +403,7 @@ def build_dashboard_bootstrap(user) -> dict:
             "user_id": user.id,
             "generated_at": now_utc.isoformat(),
             "cursor": now_utc.isoformat(),
-            "schema_version": 1,
+            "schema_version": 2,
         },
         "entities": {
             "divisions": {

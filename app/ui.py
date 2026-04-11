@@ -73,7 +73,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
-from app.task_status import effective_task_status_for_user, set_task_collaborator_status, task_status_meta_map
+from app.task_status import effective_task_status_for_user, is_complete_task_status, set_task_collaborator_status, task_status_meta_map
 from app.utils import ALL_TIMEZONE_OPTIONS, COMMON_TIMEZONE_OPTIONS, current_user, display_name_for_user, normalize_user_timezone, to_user_timezone
 from app.web_push import active_web_push_subscriptions_for_user, public_web_push_config
 from app.themes import DEFAULT_THEME_NAME, THEME_DEFINITIONS, color_slot_from_palette, division_effective_color, normalize_theme_name, palette_color, theme_palette
@@ -1826,7 +1826,23 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
                     return True
         return False
 
-    dashboard_assigned_items = [item for item in todo_items if dashboard_item_assigned_to_user(item)]
+    def dashboard_item_visible_for_stats(item):
+        task = item.get("task")
+        if not task:
+            return False
+        status_meta = todo_status_map.get(task.id)
+        effective_status = effective_task_status_for_user(
+            task,
+            viewer_user_id=user.id,
+            status_meta=status_meta,
+        )
+        return not is_complete_task_status(effective_status)
+
+    dashboard_assigned_items = [
+        item
+        for item in todo_items
+        if dashboard_item_assigned_to_user(item) and dashboard_item_visible_for_stats(item)
+    ]
     dashboard_action_items = dashboard_assigned_items[:8]
     dashboard_stats = {
         "overdue": sum(1 for item in dashboard_assigned_items if item["date_key"] == "overdue"),

@@ -139,6 +139,77 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertRegex(html, r"Overdue</div>\s*<div class=\"dashboard-stat-value\">1</div>")
         self.assertRegex(html, r"Today / ASAP</div>\s*<div class=\"dashboard-stat-value\">0</div>")
 
+    def test_dashboard_overdue_count_excludes_completed_assigned_tasks(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Planning")
+            overdue_open = self.create_task(
+                project,
+                "Overdue open",
+                creator=owner,
+                due_at=datetime.utcnow() - timedelta(days=2),
+                status="open",
+            )
+            overdue_complete = self.create_task(
+                project,
+                "Overdue complete",
+                creator=owner,
+                due_at=datetime.utcnow() - timedelta(days=3),
+                status="complete",
+            )
+            self.add_assignment(overdue_open, user=owner)
+            self.add_assignment(overdue_complete, user=owner)
+
+        self.login(self.client, owner_id)
+        response = self.client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Overdue open", html)
+        self.assertNotIn("Overdue complete", html)
+        self.assertRegex(html, r"Overdue</div>\s*<div class=\"dashboard-stat-value\">1</div>")
+
+    def test_dashboard_action_items_only_include_tasks_assigned_to_current_user(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            other = self.create_user("other@example.com", "Other")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Action Items")
+            mine = self.create_task(
+                project,
+                "Assigned to me",
+                creator=owner,
+                due_at=datetime.utcnow() - timedelta(days=2),
+                status="open",
+            )
+            someone_else = self.create_task(
+                project,
+                "Assigned to someone else",
+                creator=owner,
+                due_at=datetime.utcnow() - timedelta(days=3),
+                status="open",
+            )
+            completed_mine = self.create_task(
+                project,
+                "Completed mine",
+                creator=owner,
+                due_at=datetime.utcnow() - timedelta(days=4),
+                status="complete",
+            )
+            self.add_assignment(mine, user=owner)
+            self.add_assignment(someone_else, user=other)
+            self.add_assignment(completed_mine, user=owner)
+
+        self.login(self.client, owner_id)
+        response = self.client.get("/")
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Assigned to me", html)
+        self.assertNotIn("Assigned to someone else", html)
+        self.assertNotIn("Completed mine", html)
+
     def test_direct_project_tree_snapshot_matches_assignments_for_both_users(self):
         with self.app.app_context():
             user_a = self.create_user("brunnels@iastate.edu", "Brunnels")
