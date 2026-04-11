@@ -14,6 +14,7 @@ from app.extensions import db, socketio
 from app.group_assignments import serialize_group_assignment_members
 from app.info_utils import load_info_payload, sanitize_info_html
 from app.discussion_activity import build_discussion_activity_items
+from app.debug_tools import debug_print
 from app.notification_emailer import deliver_due_notification_emails_for_user
 from app.notification_preferences import notification_event_key_for_kind, user_notification_channel_enabled
 from app.models import (
@@ -50,6 +51,46 @@ _task_user_counts = defaultdict(lambda: defaultdict(int))
 _discussion_user_counts = defaultdict(lambda: defaultdict(int))
 _user_socket_counts = defaultdict(int)
 _user_active_projects = defaultdict(set)
+
+
+def _debug_socket_summary(payload) -> dict | str:
+    if not isinstance(payload, dict):
+        return str(payload)
+    summary: dict[str, object] = {}
+    for key in ("action", "actor_user_id", "project_id", "group_id", "task_id", "notification_id", "kind"):
+        if payload.get(key) is not None:
+            summary[key] = payload.get(key)
+    task = payload.get("task")
+    if isinstance(task, dict):
+        summary["task"] = {
+            "id": task.get("id"),
+            "project_id": task.get("project_id"),
+            "group_id": task.get("group_id"),
+            "status": task.get("status"),
+            "status_mode": task.get("status_mode"),
+            "assignment_count": len(task.get("assignments") or []),
+        }
+    assignment = payload.get("assignment")
+    if isinstance(assignment, dict):
+        summary["assignment"] = {
+            "id": assignment.get("id"),
+            "task_id": assignment.get("task_id"),
+            "user_id": assignment.get("user_id"),
+            "email": assignment.get("email"),
+            "status": assignment.get("status"),
+        }
+    notifications = payload.get("notifications")
+    if isinstance(notifications, list):
+        summary["notification_count"] = len(notifications)
+    return summary
+
+
+def _debug_socket_emit(event: str, payload, *, room: str | None = None, sid: str | None = None) -> None:
+    debug_print("socket-send", event, sid or room or "", _debug_socket_summary(payload))
+
+
+def _debug_socket_recv(event: str, payload) -> None:
+    debug_print("socket-recv", event, request.sid, _debug_socket_summary(payload or {}))
 
 
 def user_room(user_id: int) -> str:
@@ -275,6 +316,15 @@ def _user_sids(user_id: int) -> list[str]:
 
 def _collaborator_sids(collaborator_id: int) -> list[str]:
     return [sid for sid, sid_collaborator_id in _sid_collaborator.items() if int(sid_collaborator_id) == int(collaborator_id)]
+
+
+def _project_sids(project_id: int) -> list[str]:
+    normalized_project_id = int(project_id)
+    return [
+        sid
+        for sid, project_ids in _sid_projects.items()
+        if normalized_project_id in {int(value) for value in project_ids}
+    ]
 
 
 def is_user_viewing_project(user_id: int, project_id: int) -> bool:
@@ -813,9 +863,8 @@ def notification_payload_for_user(user_id: int) -> dict:
 
 def emit_notification_state(user_id: int) -> None:
     payload = notification_payload_for_user(user_id)
+    _debug_socket_emit("notification_state", payload, room=user_room(user_id))
     socketio.emit("notification_state", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("notification_state", payload, room=sid)
     try:
         deliver_due_notification_emails_for_user(user_id)
     except Exception:
@@ -823,16 +872,14 @@ def emit_notification_state(user_id: int) -> None:
 
 
 def emit_user_notification_preview(user_id: int, payload: dict) -> None:
+    _debug_socket_emit("notification_preview", payload, room=user_room(user_id))
     socketio.emit("notification_preview", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("notification_preview", payload, room=sid)
 
 
 def emit_notification_preview_dismissed(user_id: int, notification_id: str) -> None:
     payload = {"notification_id": str(notification_id or "")}
+    _debug_socket_emit("notification_preview_dismissed", payload, room=user_room(user_id))
     socketio.emit("notification_preview_dismissed", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("notification_preview_dismissed", payload, room=sid)
 
 
 def emit_discussion_activity_updated(user_id: int, activity_row_id: int) -> None:
@@ -846,9 +893,8 @@ def emit_discussion_activity_updated(user_id: int, activity_row_id: int) -> None
     created_at = payload.get("created_at")
     if getattr(created_at, "isoformat", None):
         payload["created_at"] = created_at.isoformat()
+    _debug_socket_emit("discussion_activity_updated", payload, room=user_room(user_id))
     socketio.emit("discussion_activity_updated", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("discussion_activity_updated", payload, room=sid)
 
 
 def _recompute_user_active_projects(user_id: int) -> None:
@@ -941,20 +987,23 @@ def emit_assignment_updated(task: Task, assignment: Assignment, *, action: str =
         "assignment": _serialize_assignment_payload(assignment),
         "actor_user_id": actor_user_id,
     }
-    socketio.emit("assignment_updated", payload, room=project_room(task.project_id))
+    recipient_sids: set[str] = set(_project_sids(task.project_id))
     for recipient_id in _task_notification_user_ids(task):
-        socketio.emit("assignment_updated", payload, room=user_room(recipient_id))
+        recipient_sids.update(_user_sids(recipient_id))
     for collaborator_id in _task_collaborator_ids(task):
-        socketio.emit("assignment_updated", payload, room=collaborator_room(collaborator_id))
+        recipient_sids.update(_collaborator_sids(collaborator_id))
     assignment_email = (assignment.email or "").strip().lower()
     if assignment_email:
-      collaborator = (
-          CollaboratorProfile.query
-          .filter(func.lower(CollaboratorProfile.email) == assignment_email)
-          .first()
-      )
-      if collaborator and collaborator.access_token:
-          socketio.emit("assignment_updated", payload, room=collaborator_room(collaborator.id))
+        collaborator = (
+            CollaboratorProfile.query
+            .filter(func.lower(CollaboratorProfile.email) == assignment_email)
+            .first()
+        )
+        if collaborator and collaborator.access_token:
+            recipient_sids.update(_collaborator_sids(collaborator.id))
+    for sid in recipient_sids:
+        _debug_socket_emit("assignment_updated", payload, sid=sid)
+        socketio.emit("assignment_updated", payload, room=sid)
 
 
 def _serialize_members(users) -> list[dict]:
@@ -1241,6 +1290,7 @@ def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: in
                 viewer_email=viewer_email,
             )
             payload_cache[cache_key] = payload
+        _debug_socket_emit("task_updated", payload, sid=sid)
         socketio.emit("task_updated", payload, room=sid)
 
 def queue_task_notifications(
@@ -1395,6 +1445,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("connect")
     def handle_connect():
+        _debug_socket_recv("connect", {"args": dict(request.args or {})})
         user = current_user()
         if user:
             _sid_user[request.sid] = user.id
@@ -1414,6 +1465,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("join_task")
     def handle_join_task(data):
+        _debug_socket_recv("join_task", data)
         user = current_user()
         if not user:
             return
@@ -1445,6 +1497,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("join_discussion_presence")
     def handle_join_discussion_presence(data):
+        _debug_socket_recv("join_discussion_presence", data)
         user = current_user()
         if not user:
             return
@@ -1481,6 +1534,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("join_project")
     def handle_join_project(data):
+        _debug_socket_recv("join_project", data)
         user = current_user()
         if not user:
             return
@@ -1517,6 +1571,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("leave_discussion_presence")
     def handle_leave_discussion_presence(data):
+        _debug_socket_recv("leave_discussion_presence", data)
         user = current_user()
         if not user:
             return
@@ -1547,6 +1602,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("leave_task")
     def handle_leave_task(data):
+        _debug_socket_recv("leave_task", data)
         user = current_user()
         if not user:
             return
@@ -1573,6 +1629,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("disconnect")
     def handle_disconnect():
+        _debug_socket_recv("disconnect", {})
         sid = request.sid
         user_id = _sid_user.pop(sid, None)
         _sid_collaborator.pop(sid, None)

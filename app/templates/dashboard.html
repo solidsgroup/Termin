@@ -2289,11 +2289,6 @@
             if (!result.ok) {
               throw new Error((result.data && result.data.error) || "Could not update status");
             }
-            if (result.data && result.data.id) {
-              logTaskSocketDebug("patchInlineTaskStatus:response", result.data, {
-                requested_status: statusValue,
-              });
-            }
             return result.data || {};
           });
       }
@@ -12739,11 +12734,7 @@
           if (!result.ok) {
             throw new Error((result.data && result.data.error) || "Could not update percentage");
           }
-          if (result.data && result.data.id) {
-            logTaskSocketDebug("patchTaskPercentageStatus:response", result.data, {
-              requested_percentage: percentValue,
-            });
-          }
+          rememberRecentTaskSnapshot(result.data || {});
           return result.data || {};
         });
     }
@@ -12791,9 +12782,6 @@
 
     function syncTaskStatusUi(task) {
       if (!task || !task.id) return;
-      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
-        logTaskSocketDebug("syncTaskStatusUi:incoming", task);
-      }
       document.querySelectorAll('[data-task-status-host="' + task.id + '"]').forEach(function (host) {
         var todo = !!host.closest('.todo-control-status');
         var mergedHostTask = Object.assign({}, host._taskPayload || {}, task || {});
@@ -12829,14 +12817,6 @@
         var isTodoRow = row.classList && row.classList.contains("todo-item");
         row.setAttribute("data-status-state", isTodoRow ? myState : aggregateState);
       });
-      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
-        logTaskSocketDebug("syncTaskStatusUi:effective", effectiveTask, {
-          aggregate_state: aggregateState,
-          my_state: myState,
-          visible_status_text: (document.querySelector('[data-task-status-host="' + task.id + '"] [data-field="status"]') || {}).textContent || "",
-          visible_status_state: (document.querySelector('[data-task-status-host="' + task.id + '"] [data-status-cell="1"]') || {}).getAttribute ? (document.querySelector('[data-task-status-host="' + task.id + '"] [data-status-cell="1"]') || {}).getAttribute("data-status-state") || "" : "",
-        });
-      }
     }
 
     function taskStatusSummaryFromHost(taskId) {
@@ -12855,38 +12835,6 @@
             : (node.classList.contains('status-critical') ? 'critical' : 'open')),
         };
       }).filter(Boolean);
-    }
-
-    function taskSocketDebugSummary(task) {
-      if (!task || typeof task !== "object") return null;
-      var meta = task.status_meta || {};
-      return {
-        id: task.id != null ? String(task.id) : "",
-        project_id: task.project_id != null ? String(task.project_id) : "",
-        group_id: task.group_id != null ? String(task.group_id) : "",
-        status: task.status || "",
-        status_mode: task.status_mode || meta.mode || "",
-        status_percentage: task.status_percentage != null ? task.status_percentage : (meta.percentage_complete != null ? meta.percentage_complete : null),
-        task_status: meta.task_status || "",
-        task_status_state: meta.task_status_state || "",
-        my_status: meta.my_status || "",
-        my_status_state: meta.my_status_state || "",
-        aggregate_state: meta.aggregate_state || "",
-        assignments: Array.isArray(task.assignments) ? task.assignments.map(function (assignment) {
-          return {
-            user_id: assignment && assignment.user_id != null ? String(assignment.user_id) : "",
-            email: assignment && (assignment.display_email || assignment.email) ? (assignment.display_email || assignment.email) : "",
-            status: assignment && assignment.status ? assignment.status : "",
-          };
-        }) : [],
-      };
-    }
-
-    function logTaskSocketDebug(label, task, extra) {
-      if (!task || !task.id) return;
-      try {
-        console.log("[task-socket]", label, Object.assign({}, taskSocketDebugSummary(task) || {}, extra || {}));
-      } catch (_err) {}
     }
 
     function applyCurrentViewerStatusAccessLocal(taskId, canSet) {
@@ -13145,14 +13093,6 @@
           : '<i class="fa-solid fa-lock-open" aria-hidden="true"></i>';
       }
       applyTaskLockState(task.id, locked);
-      if (task && task.id && (task.status != null || task.status_mode != null || task.status_meta || task.assignments)) {
-        logTaskSocketDebug("renderTaskSettings:rendered", task, {
-          drawer_status_value: taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "") : "",
-          drawer_status_label: taskSettingsStatusEl ? String((taskSettingsStatusEl.querySelector(".discussion-setting-status-label") || {}).textContent || "") : "",
-          drawer_status_mode: taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusMode || "") : "",
-          drawer_status_state: taskSettingsStatusEl ? String(taskSettingsStatusEl.getAttribute("data-status-state") || "") : "",
-        });
-      }
     }
 
     function renderEntitySettings() {
@@ -13403,15 +13343,47 @@
         });
     }
 
+    var recentTaskSnapshotCache = {};
+
+    function rememberRecentTaskSnapshot(task) {
+      if (!task || !task.id) return;
+      recentTaskSnapshotCache[String(task.id)] = {
+        expiresAt: Date.now() + 1500,
+        task: task,
+      };
+    }
+
+    function getRecentTaskSnapshot(taskId) {
+      var key = String(taskId || "").trim();
+      if (!key) return null;
+      var entry = recentTaskSnapshotCache[key];
+      if (!entry) return null;
+      if (entry.expiresAt <= Date.now()) {
+        delete recentTaskSnapshotCache[key];
+        return null;
+      }
+      return entry.task || null;
+    }
+
     function refreshCurrentTaskMeta() {
       if (!currentTaskId) return Promise.resolve(null);
+      if (window.__terminDebugFetchTrace) {
+        console.log("[task-fetch]", "refreshCurrentTaskMeta", String(currentTaskId || ""));
+      }
+      var cachedTask = getRecentTaskSnapshot(currentTaskId);
+      if (cachedTask) {
+        currentTaskData = cachedTask;
+        currentEntityLinks = cachedTask && Array.isArray(cachedTask.links) ? cachedTask.links : (cachedTask && cachedTask.link ? [cachedTask.link] : []);
+        renderTaskSettings();
+        renderEntityLinkState();
+        syncTaskLinkBadges(cachedTask.id, currentEntityLinks);
+        return Promise.resolve(cachedTask);
+      }
       return fetch("/api/tasks/" + currentTaskId, { credentials: "same-origin", cache: "no-store" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data || !data.id) return null;
-          logTaskSocketDebug("refreshCurrentTaskMeta:fresh", data, {
-            current_task_id: currentTaskId || "",
-          });
+          rememberRecentTaskSnapshot(data);
           currentTaskData = data;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           renderTaskSettings();
@@ -13423,10 +13395,18 @@
 
     function fetchTaskSnapshot(taskId) {
       if (!taskId) return Promise.resolve(null);
+      if (window.__terminDebugFetchTrace) {
+        console.log("[task-fetch]", "fetchTaskSnapshot", String(taskId || ""));
+      }
+      var cachedTask = getRecentTaskSnapshot(taskId);
+      if (cachedTask) {
+        return Promise.resolve(cachedTask);
+      }
       return fetch("/api/tasks/" + taskId, { credentials: "same-origin", cache: "no-store" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data || !data.id) return null;
+          rememberRecentTaskSnapshot(data);
           return data;
         })
         .catch(function (error) {
@@ -13485,6 +13465,7 @@
           .then(function (res) { return res.json().catch(function () { return {}; }); })
           .then(function (data) {
             if (!data || !data.id) return;
+            rememberRecentTaskSnapshot(data);
             if (String(currentTaskId || "") !== persistTaskId) return;
             currentTaskData = Object.assign({}, currentTaskData || {}, data);
             applyTaskRowUpdate(currentTaskData);
@@ -13798,6 +13779,9 @@
     }
 
     function loadTaskMeta(taskId, taskTitle, projectName) {
+      if (window.__terminDebugFetchTrace) {
+        console.log("[task-fetch]", "loadTaskMeta", String(taskId || ""));
+      }
       var requestToken = ++currentDrawerEntityRequestToken;
       setDrawerEntityType("task");
       currentEntityId = taskId;
@@ -14142,9 +14126,6 @@
 
     function applyTaskRowUpdate(task) {
       if (!task || !task.id) return false;
-      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
-        logTaskSocketDebug("applyTaskRowUpdate:incoming", task);
-      }
       reconcileLocalTaskStatusOverride(task);
       var taskId = String(task.id);
       var existingHost = document.querySelector('[data-task-status-host="' + taskId + '"]');
@@ -14233,12 +14214,6 @@
       applyTaskLockState(task.id, !!effectiveTask.locked);
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
-      }
-      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
-        logTaskSocketDebug("applyTaskRowUpdate:effective", effectiveTask, {
-          matched: matched,
-          rendered_row_status: (document.querySelector('[data-task-row-id="' + task.id + '"]') || document.querySelector('.todo-item[data-task-id="' + task.id + '"]')) ? ((document.querySelector('[data-task-row-id="' + task.id + '"]') || document.querySelector('.todo-item[data-task-id="' + task.id + '"]')).getAttribute("data-status-state") || "") : "",
-        });
       }
       return matched;
     }
@@ -15266,10 +15241,19 @@
 
     function renderMultiStatusMenuRows(task) {
       var meta = taskStatusMeta(task);
-      var assignees = Array.isArray(meta.assignees) ? meta.assignees : [];
+      var assignees = Array.isArray(meta.assignees) ? meta.assignees.slice() : [];
       if (!assignees.length) {
         return '<div class="multi-status-empty">Assign people to track per-user statuses.</div>';
       }
+      assignees.sort(function (a, b) {
+        var aIsMe = String((a && a.user_id) || "") === String(currentUserId || "");
+        var bIsMe = String((b && b.user_id) || "") === String(currentUserId || "");
+        if (aIsMe && !bIsMe) return -1;
+        if (!aIsMe && bIsMe) return 1;
+        var aLabel = String((a && (a.display_name || a.email)) || "").toLowerCase();
+        var bLabel = String((b && (b.display_name || b.email)) || "").toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      });
       function statusLabel(value) {
         var text = String(value || "open").trim();
         if (!text) return "Open";
@@ -15307,7 +15291,9 @@
 
     function positionFloatingMenu(menu, anchor) {
       if (!menu || !anchor) return;
+      if (!anchor.isConnected || typeof anchor.getBoundingClientRect !== "function") return;
       var rect = anchor.getBoundingClientRect();
+      if (!rect || (!rect.width && !rect.height && !rect.left && !rect.top && !rect.right && !rect.bottom)) return;
       menu.style.display = "block";
       var left = Math.round(Math.min(rect.left, window.innerWidth - menu.offsetWidth - 12));
       var top = Math.round(Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 12));
@@ -15318,6 +15304,7 @@
     function openMultiStatusMenu(task, anchor, source) {
       var menu = document.getElementById("multi-status-menu");
       if (!menu || !task || !task.id || !anchor || taskIsLocked(task)) return;
+      if (!anchor.isConnected) return;
       var singleStatusMenu = document.getElementById("status-menu");
       if (singleStatusMenu) {
         singleStatusMenu.style.display = "none";
@@ -15331,14 +15318,14 @@
     }
 
     function resolveMultiStatusAnchor(taskId, source, fallback) {
-      if (source === "settings" && taskSettingsStatusEl) {
+      if (source === "settings" && taskSettingsStatusEl && taskSettingsStatusEl.isConnected) {
         return taskSettingsStatusEl;
       }
       var rowTrigger = document.querySelector('[data-task-multi-status-trigger="' + taskId + '"]');
       if (rowTrigger) return rowTrigger;
       rowTrigger = document.querySelector('[data-task-multi-status-trigger][data-task-id="' + taskId + '"]');
       if (rowTrigger) return rowTrigger;
-      return fallback || null;
+      return fallback && fallback.isConnected ? fallback : null;
     }
 
     function closeMultiStatusMenu() {
@@ -15373,12 +15360,7 @@
           if (!result.ok) {
             throw new Error((result.data && result.data.error) || "Could not update status");
           }
-          if (result.data && result.data.id) {
-            logTaskSocketDebug("patchTaskUserStatus:response", result.data, {
-              requested_status: statusValue,
-              requested_user_id: userId,
-            });
-          }
+          rememberRecentTaskSnapshot(result.data || {});
           return result.data || {};
         });
     }
@@ -17689,32 +17671,12 @@
         var taskId = data && data.assignment ? data.assignment.task_id : null;
         var affectsCurrentViewer = data && data.assignment && data.assignment.user_id && String(data.assignment.user_id) === String(currentUserId);
         var hasStatusHost = taskId ? !!document.querySelector('[data-task-status-host="' + taskId + '"]') : false;
-        if (taskId) {
-          logTaskSocketDebug("socket.assignment_updated:received", {
-            id: taskId,
-            project_id: data && data.assignment && data.assignment.project_id != null ? data.assignment.project_id : "",
-            group_id: data && data.assignment && data.assignment.group_id != null ? data.assignment.group_id : "",
-            status: data && data.assignment && data.assignment.status ? data.assignment.status : "",
-            status_mode: data && data.assignment && data.assignment.status_mode ? data.assignment.status_mode : "",
-            assignments: data && data.assignment ? [data.assignment] : [],
-          }, {
-            action: data && data.action || "updated",
-            actor_user_id: data && data.actor_user_id || "",
-            affects_current_viewer: affectsCurrentViewer,
-            has_status_host: hasStatusHost,
-            is_own_event: isOwnEvent,
-          });
-        }
         if (taskId && affectsCurrentViewer) {
           applyCurrentViewerStatusAccessLocal(taskId, data.action !== "deleted");
         }
         if (taskId && (affectsCurrentViewer || hasStatusHost || String(currentTaskId || "") === String(taskId))) {
           fetchTaskSnapshot(taskId).then(function (task) {
             if (!task) return;
-            logTaskSocketDebug("socket.assignment_updated:fresh", task, {
-              action: data && data.action || "updated",
-              actor_user_id: data && data.actor_user_id || "",
-            });
             mergeDashboardTask(task);
             if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
               window.__updateCachedTreeSnapshotsForTask(task, { action: "updated" });
@@ -17742,10 +17704,6 @@
         if (!updated && !isOwnEvent && taskId) {
           fetchTaskSnapshot(taskId).then(function (task) {
             if (!task) return;
-            logTaskSocketDebug("socket.assignment_updated:fresh-fallback", task, {
-              action: data && data.action || "updated",
-              actor_user_id: data && data.actor_user_id || "",
-            });
             mergeDashboardTask(task);
             if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
               window.__updateCachedTreeSnapshotsForTask(task, { action: "updated" });
@@ -18178,14 +18136,7 @@
       socket.on("task_updated", function (data) {
         if (!data || !data.task) return;
         var task = data.task;
-        var isLocalActor = String(data.actor_user_id || "") !== "" && String(data.actor_user_id) === String(currentUserId || "");
-        logTaskSocketDebug("socket.task_updated:received", task, {
-          action: data.action || "updated",
-          old_project_id: data.old_project_id || "",
-          old_group_id: data.old_group_id || "",
-          actor_user_id: data.actor_user_id || "",
-          is_local_actor: isLocalActor,
-        });
+        var isLocalActor = !!(data && data.actor_user_id && String(data.actor_user_id) === String(currentUserId));
         updateInboxItemsForTask(task);
         if (activeDrawerTab === "messages" && currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
           refreshOpenDiscussionTimeline();
@@ -18220,11 +18171,6 @@
         if (data.action === "moved") {
           fetchTaskSnapshot(task.id).then(function (freshTask) {
             if (!freshTask) return;
-            logTaskSocketDebug("socket.task_updated:moved:fresh", freshTask, {
-              action: data.action || "updated",
-              old_project_id: data.old_project_id || "",
-              old_group_id: data.old_group_id || "",
-            });
             mergeDashboardTask(freshTask);
             if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
               window.__updateCachedTreeSnapshotsForTask(freshTask, {
@@ -18256,13 +18202,11 @@
           });
           return;
         }
-        fetchTaskSnapshot(task.id).then(function (freshTask) {
+        var taskSnapshotPromise = isLocalActor
+          ? Promise.resolve(task)
+          : fetchTaskSnapshot(task.id);
+        taskSnapshotPromise.then(function (freshTask) {
           var resolvedTask = freshTask && freshTask.id ? freshTask : task;
-          logTaskSocketDebug(freshTask && freshTask.id ? "socket.task_updated:fresh" : "socket.task_updated:fallback", resolvedTask, {
-            action: data.action || "updated",
-            old_project_id: data.old_project_id || "",
-            old_group_id: data.old_group_id || "",
-          });
           mergeDashboardTask(resolvedTask);
           if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
             window.__updateCachedTreeSnapshotsForTask(resolvedTask, {
@@ -18282,12 +18226,6 @@
           }
           var updated = applyTaskRowUpdate(resolvedTask);
           renderTaskAssignments(resolvedTask.id, resolvedTask.assignments || []);
-          if (resolvedTask.project_id && !isLocalActor) {
-            queueTreeProjectSnapshotRefresh(resolvedTask.project_id, { id: resolvedTask.project_id });
-          }
-          if (!isLocalActor && data.old_project_id && String(data.old_project_id) !== String(resolvedTask.project_id || "")) {
-            queueTreeProjectSnapshotRefresh(data.old_project_id, { id: data.old_project_id });
-          }
           if (updated || todoUpdated) {
             pulseTask(resolvedTask.id);
             if (typeof window.__ensureTreeTaskVisible === "function") {
@@ -18322,12 +18260,6 @@
           }
           var updated = applyTaskRowUpdate(task);
           renderTaskAssignments(task.id, task.assignments || []);
-          if (task.project_id && !isLocalActor) {
-            queueTreeProjectSnapshotRefresh(task.project_id, { id: task.project_id });
-          }
-          if (!isLocalActor && data.old_project_id && String(data.old_project_id) !== String(task.project_id || "")) {
-            queueTreeProjectSnapshotRefresh(data.old_project_id, { id: data.old_project_id });
-          }
           if (updated || todoUpdated) {
             pulseTask(task.id);
             if (typeof window.__ensureTreeTaskVisible === "function") {
