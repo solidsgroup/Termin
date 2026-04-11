@@ -17,3 +17,4 @@ coverage.xml
 .DS_Store
 client_secret_*.json
 termin-gmail-service-account-key.json
+node_modules
