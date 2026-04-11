@@ -89,7 +89,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
-from app.task_status import effective_task_status_for_user, normalize_task_status, set_task_user_status, task_status_meta, task_status_meta_map
+from app.task_status import effective_task_status_for_user, normalize_task_status, normalize_task_status_mode, set_task_user_status, task_status_meta, task_status_meta_map
 from app.themes import DEFAULT_THEME_NAME, color_slot_from_palette, division_effective_color, normalize_theme_name
 import secrets
 
@@ -335,11 +335,11 @@ def _task_start_history_value(start_date: str | None) -> str:
 
 
 def _task_status_mode_label(value: str | None) -> str:
-    normalized = str(value or "single").strip().lower() or "single"
-    if normalized == "per_user":
-        return "per-user"
-    if normalized == "percentage":
-        return "percentage"
+    normalized = normalize_task_status_mode(value, default="single")
+    if normalized == "multi":
+        return "multi"
+    if normalized == "percent":
+        return "percent"
     return "single"
 
 
@@ -384,7 +384,7 @@ def _task_update_history_bodies(
             clauses_task.append("updated the status to " + status_label)
             clauses_scoped.append("updated the status of task " + title_label + " to " + status_label)
     if "status mode" in changed:
-        if str(new_status_mode or "").strip().lower() == "percentage" and new_status_percentage is not None:
+        if normalize_task_status_mode(new_status_mode, default="single") == "percent" and new_status_percentage is not None:
             progress_label = '"' + str(max(0, min(100, int(new_status_percentage)))) + '%"'
             clauses_task.append("updated the progress to " + progress_label)
             clauses_scoped.append("updated the progress of task " + title_label + " to " + progress_label)
@@ -849,24 +849,26 @@ def _task_start_date(task: Task) -> str:
 
 def _task_status_mode(task: Task) -> str:
     info = load_info_payload(task.info, task.link)
-    raw = str((info.get("meta") or {}).get("status_mode") or "").strip().lower()
-    if raw in {"single", "per_user", "percentage"}:
-        return raw
-    return "per_user" if bool(task.per_user_status_enabled) else "single"
+    legacy_meta_mode = (info.get("meta") or {}).get("status_mode")
+    return normalize_task_status_mode(
+        getattr(task, "status_mode", None) or legacy_meta_mode or ("multi" if bool(task.per_user_status_enabled) else "single"),
+        default="single",
+    )
 
 
 def _set_task_status_mode(task: Task, status_mode_raw) -> tuple[bool, str | None]:
-    value = str(status_mode_raw or "").strip().lower() or "single"
-    if value not in {"single", "per_user", "percentage"}:
+    value = normalize_task_status_mode(status_mode_raw, default="single")
+    if value not in {"single", "multi", "percent"}:
         return False, "Invalid status_mode"
     info_payload = load_info_payload(task.info, task.link)
     meta = dict(info_payload.get("meta") or {})
-    if value == "single":
-        meta.pop("status_mode", None)
-        task.per_user_status_enabled = False
-    else:
-        meta["status_mode"] = value
-        task.per_user_status_enabled = True
+    task.status_mode = value
+    task.per_user_status_enabled = value == "multi"
+    meta["status_mode"] = value
+    if value == "percent":
+        meta["status_percentage"] = str(_task_status_percentage(task))
+    elif "status_percentage" in meta:
+        meta.pop("status_percentage", None)
     info_payload["meta"] = meta
     task.info = normalize_info_payload(info_payload, task.link)
     return True, None
@@ -890,9 +892,12 @@ def _set_task_status_percentage(task: Task, percentage_raw) -> tuple[bool, str |
     value = max(0, min(100, value))
     info_payload = load_info_payload(task.info, task.link)
     meta = dict(info_payload.get("meta") or {})
+    meta["status_mode"] = "percent"
     meta["status_percentage"] = str(value)
     info_payload["meta"] = meta
     task.info = normalize_info_payload(info_payload, task.link)
+    task.status_mode = "percent"
+    task.per_user_status_enabled = False
     task.status = "complete" if value >= 100 else "open"
     return True, None
 
@@ -950,17 +955,13 @@ def me():
 @login_required
 def dashboard_bootstrap():
     user = current_user()
-    raw_show_completed = str(request.args.get("show_completed", "1") or "1").strip().lower()
-    show_completed = raw_show_completed not in {"0", "false", "no", "off"}
-    return {"dashboard": build_dashboard_bootstrap(user, show_completed=show_completed)}
+    return {"dashboard": build_dashboard_bootstrap(user)}
 
 
 @api_bp.get("/dashboard-changes")
 @login_required
 def dashboard_changes():
     user = current_user()
-    raw_show_completed = str(request.args.get("show_completed", "1") or "1").strip().lower()
-    show_completed = raw_show_completed not in {"0", "false", "no", "off"}
     raw_cursor = str(request.args.get("cursor", "") or "").strip()
     if not raw_cursor:
         return {"error": "cursor query parameter is required"}, 400
@@ -970,7 +971,7 @@ def dashboard_changes():
             cursor = cursor.astimezone().replace(tzinfo=None)
     except ValueError:
         return {"error": "cursor must be an ISO-8601 datetime"}, 400
-    return {"dashboard": build_dashboard_changes(user, since=cursor, show_completed=show_completed)}
+    return {"dashboard": build_dashboard_changes(user, since=cursor)}
 
 
 @api_bp.get("/web-push")
@@ -1350,7 +1351,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "status": task.status,
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
-        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "per_user_status_enabled": _task_status_mode(task) == "multi",
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "follow_project_members": _task_follow_project_members(task),
@@ -1735,6 +1736,7 @@ def update_task(task_id: int):
         if not ok:
             return {"error": error}, 400
     elif per_user_status_enabled is not None:
+        task.status_mode = "multi" if bool(per_user_status_enabled) else "single"
         task.per_user_status_enabled = bool(per_user_status_enabled)
     if assign_group_members is not None:
         next_group_mode = bool(assign_group_members)
@@ -1752,7 +1754,7 @@ def update_task(task_id: int):
             if not is_assigned_target:
                 return {"error": "status user must be an assigned account"}, 400
         personal_row = set_task_user_status(task.id, target_user_id, user_status)
-        if per_user_status_enabled is False and personal_row.status:
+        if _task_status_mode(task) == "single" and personal_row.status:
             task.status = personal_row.status
     if status_percentage is not None:
         ok, error = _set_task_status_percentage(task, status_percentage)
@@ -1894,7 +1896,7 @@ def update_task(task_id: int):
         "status": task.status,
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
-        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "per_user_status_enabled": _task_status_mode(task) == "multi",
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "follow_project_members": _task_follow_project_members(task),
@@ -1941,7 +1943,7 @@ def get_task(task_id: int):
         "status": task.status,
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
-        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "per_user_status_enabled": _task_status_mode(task) == "multi",
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "follow_project_members": _task_follow_project_members(task),
@@ -1994,7 +1996,6 @@ def get_project_tree_snapshot(project_id: int):
     if not _can_access_project(user, project.id):
         return {"error": "unauthorized"}, 403
 
-    show_completed = (request.args.get("show_completed") or "1") == "1"
     groups = Group.query.filter_by(project_id=project.id).order_by(Group.position.asc(), Group.id.asc()).all()
     tasks = (
         Task.query.filter_by(project_id=project.id)
@@ -2002,13 +2003,6 @@ def get_project_tree_snapshot(project_id: int):
         .all()
     )
     status_map = task_status_meta_map(tasks, viewer_user_id=user.id) if tasks else {}
-    if not show_completed:
-        tasks = [
-            task
-            for task in tasks
-            if (effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=status_map.get(task.id)) or "").strip().lower()
-            not in {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
-        ]
     tasks_by_group: dict[int, list[dict]] = {group.id: [] for group in groups}
     ungrouped_tasks: list[dict] = []
     for task in tasks:

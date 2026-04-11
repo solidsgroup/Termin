@@ -73,11 +73,18 @@ def seed_data():
             created_at=db.func.now(),
             updated_at=db.func.now(),
         )
-        db.session.add_all([project, direct_project])
+        jannaf_project = Project(
+            name="JANNAF Project",
+            owner_id=owner.id,
+            created_at=db.func.now(),
+            updated_at=db.func.now(),
+        )
+        db.session.add_all([project, direct_project, jannaf_project])
         db.session.flush()
 
         db.session.add(ProjectMember(project_id=project.id, user_id=member.id))
         db.session.add(ProjectMember(project_id=direct_project.id, user_id=member.id))
+        db.session.add(ProjectMember(project_id=jannaf_project.id, user_id=member.id))
 
         task = Task(
             project_id=project.id,
@@ -91,19 +98,39 @@ def seed_data():
             title="Direct Task",
             status="open",
         )
-        db.session.add_all([task, direct_task])
+        jannaf_status_task = Task(
+            project_id=jannaf_project.id,
+            creator_user_id=owner.id,
+            title="Register for JANNAF",
+            status="open",
+        )
+        jannaf_assignee_task = Task(
+            project_id=jannaf_project.id,
+            creator_user_id=owner.id,
+            title="Get JANNAF accounts",
+            status="critical",
+        )
+        db.session.add_all([task, direct_task, jannaf_status_task, jannaf_assignee_task])
         db.session.flush()
 
         task_owner_assignment = Assignment(task_id=task.id, user_id=owner.id, status="assigned")
         task_member_assignment = Assignment(task_id=task.id, user_id=member.id, status="assigned")
         direct_owner_assignment = Assignment(task_id=direct_task.id, user_id=owner.id, status="assigned")
         direct_member_assignment = Assignment(task_id=direct_task.id, user_id=member.id, status="assigned")
+        jannaf_status_owner_assignment = Assignment(task_id=jannaf_status_task.id, user_id=owner.id, status="assigned")
+        jannaf_status_member_assignment = Assignment(task_id=jannaf_status_task.id, user_id=member.id, status="assigned")
+        jannaf_assignee_owner_assignment = Assignment(task_id=jannaf_assignee_task.id, user_id=owner.id, status="assigned")
+        jannaf_assignee_member_assignment = Assignment(task_id=jannaf_assignee_task.id, user_id=member.id, status="assigned")
         db.session.add_all(
             [
                 task_owner_assignment,
                 task_member_assignment,
                 direct_owner_assignment,
                 direct_member_assignment,
+                jannaf_status_owner_assignment,
+                jannaf_status_member_assignment,
+                jannaf_assignee_owner_assignment,
+                jannaf_assignee_member_assignment,
             ]
         )
         db.session.flush()
@@ -121,13 +148,20 @@ def seed_data():
             "member": {"id": member.id, "email": member.email, "password": "password123"},
             "project": {"id": project.id},
             "direct_project": {"id": direct_project.id},
+            "jannaf_project": {"id": jannaf_project.id},
             "task": {"id": task.id},
             "direct_task": {"id": direct_task.id},
+            "jannaf_status_task": {"id": jannaf_status_task.id},
+            "jannaf_assignee_task": {"id": jannaf_assignee_task.id},
             "assignments": {
                 "task_owner": {"id": task_owner_assignment.id},
                 "task_member": {"id": task_member_assignment.id},
                 "direct_owner": {"id": direct_owner_assignment.id},
                 "direct_member": {"id": direct_member_assignment.id},
+                "jannaf_status_owner": {"id": jannaf_status_owner_assignment.id},
+                "jannaf_status_member": {"id": jannaf_status_member_assignment.id},
+                "jannaf_assignee_owner": {"id": jannaf_assignee_owner_assignment.id},
+                "jannaf_assignee_member": {"id": jannaf_assignee_member_assignment.id},
             },
         }
 

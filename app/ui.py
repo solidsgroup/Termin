@@ -630,15 +630,6 @@ def _task_ordering(query):
     return query.order_by(Task.position.asc(), Task.id.asc())
 
 
-def _should_show_todo_task(task: Task, show_completed: bool, today: date, *, viewer_status: str | None = None) -> bool:
-    task_status = viewer_status if viewer_status is not None else task.status
-    if show_completed or not _is_complete_status(task_status):
-        return True
-    if task.due_at and task.due_at.date() >= today:
-        return True
-    return False
-
-
 def _division_palette(theme_name: str | None = None) -> list[str]:
     return list(theme_palette(theme_name))
 
@@ -1281,11 +1272,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         current_view = "tree"
     if current_view not in {"dashboard", "todo", "tree", "inbox"}:
         current_view = "dashboard"
-    default_show_completed = "0" if current_view in {"dashboard", "todo"} else "1"
-    if current_view in {"tree", "todo"}:
-        show_completed = True
-    else:
-        show_completed = (request.args.get("show_completed") or default_show_completed).strip().lower() not in {"0", "false", "no", "off"}
+    show_completed = current_view in {"tree", "inbox"}
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
     direct_member_project_ids = [
         m.project_id for m in ProjectMember.query.filter_by(user_id=user.id).all()
@@ -1440,13 +1427,6 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         project_ungrouped_tasks: list[Task] = []
         project_tasks = _task_ordering(Task.query.filter_by(project_id=project.id)).all()
         project_status_map = task_status_meta_map(project_tasks, viewer_user_id=user.id)
-        if not show_completed:
-            project_tasks = [
-                task for task in project_tasks
-                if not _is_complete_status(
-                    effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=project_status_map.get(task.id))
-                )
-            ]
         project_groups = Group.query.filter_by(project_id=project.id).order_by(Group.position.asc(), Group.id.asc()).all()
         project_tasks_by_group = {group.id: [] for group in project_groups}
         group_name_by_id = {group.id: group.name for group in project_groups}
@@ -1586,16 +1566,6 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         )
     todo_tasks = Task.query.filter(Task.id.in_(visible_task_ids)).all() if visible_task_ids else []
     todo_status_map = task_status_meta_map(todo_tasks, viewer_user_id=user.id)
-    if not show_completed:
-        todo_tasks = [
-            task for task in todo_tasks
-            if _should_show_todo_task(
-                task,
-                show_completed,
-                today,
-                viewer_status=effective_task_status_for_user(task, viewer_user_id=user.id, status_meta=todo_status_map.get(task.id)),
-            )
-        ]
     todo_groups = {group.id: group for group in Group.query.filter(Group.id.in_([task.group_id for task in todo_tasks if task.group_id])).all()} if todo_tasks else {}
     week_start = today - timedelta(days=today.weekday())
     next_week_start = week_start + timedelta(days=7)
@@ -1837,10 +1807,30 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     else:
         dashboard_greeting = "Good evening"
     dashboard_first_name = (user.display_name or user.email.split("@", 1)[0]).strip().split(" ", 1)[0] or "there"
-    dashboard_action_items = todo_items[:8]
+    normalized_user_email = (user.email or "").strip().lower()
+
+    def dashboard_item_assigned_to_user(item):
+        task = item.get("task")
+        if not task:
+            return False
+        for assignment in assignments_by_task.get(task.id, []):
+            if assignment.user_id and int(assignment.user_id) == int(user.id):
+                return True
+            assignment_email = (assignment.email or "").strip().lower()
+            if normalized_user_email and assignment_email and assignment_email == normalized_user_email:
+                return True
+        if task.assign_group_members:
+            for member in group_assignment_members_by_task.get(task.id, []):
+                member_user_id = member.get("user_id") if isinstance(member, dict) else None
+                if member_user_id and int(member_user_id) == int(user.id):
+                    return True
+        return False
+
+    dashboard_assigned_items = [item for item in todo_items if dashboard_item_assigned_to_user(item)]
+    dashboard_action_items = dashboard_assigned_items[:8]
     dashboard_stats = {
-        "overdue": sum(1 for item in todo_items if item["date_key"] == "overdue"),
-        "today": sum(1 for item in todo_items if item["date_key"] in {"today", "asap"}),
+        "overdue": sum(1 for item in dashboard_assigned_items if item["date_key"] == "overdue"),
+        "today": sum(1 for item in dashboard_assigned_items if item["date_key"] in {"today", "asap"}),
         "unread_messages": len(message_notifications),
         "unread_notifications": len(task_notifications),
         "projects": len(projects),

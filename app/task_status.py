@@ -6,7 +6,18 @@ from app.models import Assignment, Task, TaskCollaboratorStatus, TaskUserStatus,
 
 
 COMPLETE_STATUS_VALUES = {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
-TASK_STATUS_MODES = {"single", "per_user", "percentage"}
+TASK_STATUS_MODES = {"single", "multi", "percent"}
+
+
+def normalize_task_status_mode(value: str | None, *, default: str = "single") -> str:
+    text = str(value or "").strip().lower()
+    if text in {"per_user", "multi"}:
+        return "multi"
+    if text in {"percentage", "percent"}:
+        return "percent"
+    if text == "single":
+        return "single"
+    return default
 
 
 def normalize_task_status(value: str | None, *, default: str = "open") -> str:
@@ -92,13 +103,16 @@ def aggregate_status_state(values: list[str]) -> str:
 def task_status_mode(task: Task | None) -> str:
     if not task:
         return "single"
+    raw_model_mode = normalize_task_status_mode(getattr(task, "status_mode", None), default="")
+    if raw_model_mode in TASK_STATUS_MODES:
+        return raw_model_mode
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     meta = info_payload.get("meta") or {}
-    raw_mode = str(meta.get("status_mode") or "").strip().lower()
+    raw_mode = normalize_task_status_mode(meta.get("status_mode"), default="")
     if raw_mode in TASK_STATUS_MODES:
         return raw_mode
     if bool(getattr(task, "per_user_status_enabled", False)):
-        return "per_user"
+        return "multi"
     return "single"
 
 
@@ -198,7 +212,7 @@ def task_status_meta(
     summary = summarize_status_values(assignment_backed_statuses) if enabled else []
     complete_count = sum(1 for value in assignment_backed_statuses if task_status_state(value) == "complete")
     percentage_complete = int(round((complete_count / len(assignment_backed_statuses)) * 100)) if assignment_backed_statuses else 0
-    if mode == "percentage":
+    if mode == "percent":
         percentage_complete = task_status_percentage(task)
     has_viewer_identity = (viewer_user_id is not None) or bool((viewer_email or "").strip())
     return {
@@ -206,7 +220,7 @@ def task_status_meta(
         "enabled": enabled,
         "task_status": base_status,
         "task_status_state": task_status_state(base_status),
-        "aggregate_state": ("complete" if percentage_complete >= 100 else "open") if mode == "percentage" else (aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status)),
+        "aggregate_state": ("complete" if percentage_complete >= 100 else "open") if mode == "percent" else (aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status)),
         "my_status": normalize_task_status(my_status) if (has_viewer_identity and my_status is not None) else None,
         "my_status_state": task_status_state(my_status) if (has_viewer_identity and my_status is not None) else None,
         "viewer_can_set": (not enabled) or viewer_is_assignee,

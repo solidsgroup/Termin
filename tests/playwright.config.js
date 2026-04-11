@@ -5,6 +5,7 @@ const reportFolder = path.resolve(__dirname, 'playwright-report-gallery');
 
 module.exports = defineConfig({
   testDir: path.resolve(__dirname, 'playwright'),
+  workers: 1,
   timeout: 30_000,
   outputDir: path.resolve(__dirname, 'test-results'),
   expect: {

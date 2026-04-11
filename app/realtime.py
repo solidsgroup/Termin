@@ -14,6 +14,7 @@ from app.extensions import db, socketio
 from app.group_assignments import serialize_group_assignment_members
 from app.info_utils import load_info_payload, sanitize_info_html
 from app.discussion_activity import build_discussion_activity_items
+from app.debug_tools import debug_print
 from app.notification_emailer import deliver_due_notification_emails_for_user
 from app.notification_preferences import notification_event_key_for_kind, user_notification_channel_enabled
 from app.models import (
@@ -35,7 +36,7 @@ from app.models import (
     User,
 )
 from app.themes import DEFAULT_THEME_NAME, division_effective_color, normalize_theme_name
-from app.task_status import task_status_meta
+from app.task_status import normalize_task_status_mode, task_status_meta, task_status_percentage
 from app.utils import current_user, display_name_for_user
 from app.web_push import send_web_push_notification
 
@@ -50,6 +51,46 @@ _task_user_counts = defaultdict(lambda: defaultdict(int))
 _discussion_user_counts = defaultdict(lambda: defaultdict(int))
 _user_socket_counts = defaultdict(int)
 _user_active_projects = defaultdict(set)
+
+
+def _debug_socket_summary(payload) -> dict | str:
+    if not isinstance(payload, dict):
+        return str(payload)
+    summary: dict[str, object] = {}
+    for key in ("action", "actor_user_id", "project_id", "group_id", "task_id", "notification_id", "kind"):
+        if payload.get(key) is not None:
+            summary[key] = payload.get(key)
+    task = payload.get("task")
+    if isinstance(task, dict):
+        summary["task"] = {
+            "id": task.get("id"),
+            "project_id": task.get("project_id"),
+            "group_id": task.get("group_id"),
+            "status": task.get("status"),
+            "status_mode": task.get("status_mode"),
+            "assignment_count": len(task.get("assignments") or []),
+        }
+    assignment = payload.get("assignment")
+    if isinstance(assignment, dict):
+        summary["assignment"] = {
+            "id": assignment.get("id"),
+            "task_id": assignment.get("task_id"),
+            "user_id": assignment.get("user_id"),
+            "email": assignment.get("email"),
+            "status": assignment.get("status"),
+        }
+    notifications = payload.get("notifications")
+    if isinstance(notifications, list):
+        summary["notification_count"] = len(notifications)
+    return summary
+
+
+def _debug_socket_emit(event: str, payload, *, room: str | None = None, sid: str | None = None) -> None:
+    debug_print("socket-send", event, sid or room or "", _debug_socket_summary(payload))
+
+
+def _debug_socket_recv(event: str, payload) -> None:
+    debug_print("socket-recv", event, request.sid, _debug_socket_summary(payload or {}))
 
 
 def user_room(user_id: int) -> str:
@@ -273,6 +314,19 @@ def _user_sids(user_id: int) -> list[str]:
     return [sid for sid, sid_user_id in _sid_user.items() if int(sid_user_id) == int(user_id)]
 
 
+def _collaborator_sids(collaborator_id: int) -> list[str]:
+    return [sid for sid, sid_collaborator_id in _sid_collaborator.items() if int(sid_collaborator_id) == int(collaborator_id)]
+
+
+def _project_sids(project_id: int) -> list[str]:
+    normalized_project_id = int(project_id)
+    return [
+        sid
+        for sid, project_ids in _sid_projects.items()
+        if normalized_project_id in {int(value) for value in project_ids}
+    ]
+
+
 def is_user_viewing_project(user_id: int, project_id: int) -> bool:
     return _project_user_counts.get(project_id, {}).get(user_id, 0) > 0
 
@@ -478,8 +532,8 @@ def _task_summary(task: Task | None) -> dict | None:
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     meta = info_payload.get("meta") or {}
     follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
-    raw_status_mode = str((meta.get("status_mode") or "")).strip().lower()
-    status_mode = raw_status_mode if raw_status_mode in {"single", "per_user", "percentage"} else ("per_user" if bool(getattr(task, "per_user_status_enabled", False)) else "single")
+    raw_status_mode = normalize_task_status_mode(getattr(task, "status_mode", None) or meta.get("status_mode"), default="")
+    status_mode = raw_status_mode if raw_status_mode in {"single", "multi", "percent"} else ("multi" if bool(getattr(task, "per_user_status_enabled", False)) else "single")
     raw_percentage = str((meta.get("status_percentage") or "")).strip()
     try:
         status_percentage = max(0, min(100, int(float(raw_percentage))))
@@ -496,7 +550,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "status": task.status,
         "status_mode": status_mode,
         "status_percentage": status_percentage,
-        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "per_user_status_enabled": status_mode == "multi",
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "follow_project_members": follow_project_members,
@@ -809,9 +863,8 @@ def notification_payload_for_user(user_id: int) -> dict:
 
 def emit_notification_state(user_id: int) -> None:
     payload = notification_payload_for_user(user_id)
+    _debug_socket_emit("notification_state", payload, room=user_room(user_id))
     socketio.emit("notification_state", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("notification_state", payload, room=sid)
     try:
         deliver_due_notification_emails_for_user(user_id)
     except Exception:
@@ -819,16 +872,14 @@ def emit_notification_state(user_id: int) -> None:
 
 
 def emit_user_notification_preview(user_id: int, payload: dict) -> None:
+    _debug_socket_emit("notification_preview", payload, room=user_room(user_id))
     socketio.emit("notification_preview", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("notification_preview", payload, room=sid)
 
 
 def emit_notification_preview_dismissed(user_id: int, notification_id: str) -> None:
     payload = {"notification_id": str(notification_id or "")}
+    _debug_socket_emit("notification_preview_dismissed", payload, room=user_room(user_id))
     socketio.emit("notification_preview_dismissed", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("notification_preview_dismissed", payload, room=sid)
 
 
 def emit_discussion_activity_updated(user_id: int, activity_row_id: int) -> None:
@@ -838,10 +889,12 @@ def emit_discussion_activity_updated(user_id: int, activity_row_id: int) -> None
     items = build_discussion_activity_items([row], user_id=user_id)
     if not items:
         return
-    payload = items[0]
+    payload = dict(items[0])
+    created_at = payload.get("created_at")
+    if getattr(created_at, "isoformat", None):
+        payload["created_at"] = created_at.isoformat()
+    _debug_socket_emit("discussion_activity_updated", payload, room=user_room(user_id))
     socketio.emit("discussion_activity_updated", payload, room=user_room(user_id))
-    for sid in _user_sids(user_id):
-        socketio.emit("discussion_activity_updated", payload, room=sid)
 
 
 def _recompute_user_active_projects(user_id: int) -> None:
@@ -934,20 +987,23 @@ def emit_assignment_updated(task: Task, assignment: Assignment, *, action: str =
         "assignment": _serialize_assignment_payload(assignment),
         "actor_user_id": actor_user_id,
     }
-    socketio.emit("assignment_updated", payload, room=project_room(task.project_id))
+    recipient_sids: set[str] = set(_project_sids(task.project_id))
     for recipient_id in _task_notification_user_ids(task):
-        socketio.emit("assignment_updated", payload, room=user_room(recipient_id))
+        recipient_sids.update(_user_sids(recipient_id))
     for collaborator_id in _task_collaborator_ids(task):
-        socketio.emit("assignment_updated", payload, room=collaborator_room(collaborator_id))
+        recipient_sids.update(_collaborator_sids(collaborator_id))
     assignment_email = (assignment.email or "").strip().lower()
     if assignment_email:
-      collaborator = (
-          CollaboratorProfile.query
-          .filter(func.lower(CollaboratorProfile.email) == assignment_email)
-          .first()
-      )
-      if collaborator and collaborator.access_token:
-          socketio.emit("assignment_updated", payload, room=collaborator_room(collaborator.id))
+        collaborator = (
+            CollaboratorProfile.query
+            .filter(func.lower(CollaboratorProfile.email) == assignment_email)
+            .first()
+        )
+        if collaborator and collaborator.access_token:
+            recipient_sids.update(_collaborator_sids(collaborator.id))
+    for sid in recipient_sids:
+        _debug_socket_emit("assignment_updated", payload, sid=sid)
+        socketio.emit("assignment_updated", payload, room=sid)
 
 
 def _serialize_members(users) -> list[dict]:
@@ -1108,7 +1164,16 @@ def emit_group_comment_deleted(group_id: int, comment_id: int) -> None:
         socketio.emit("group_comment_deleted", payload, room=user_room(recipient_id))
 
 
-def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_id: int | None = None, old_group_id: int | None = None, actor_user_id: int | None = None) -> dict:
+def _serialize_task_payload(
+    task: Task,
+    *,
+    action: str = "updated",
+    old_project_id: int | None = None,
+    old_group_id: int | None = None,
+    actor_user_id: int | None = None,
+    viewer_user_id: int | None = None,
+    viewer_email: str | None = None,
+) -> dict:
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
     assignments = (
@@ -1143,7 +1208,9 @@ def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "due_mode": _task_due_mode(task),
             "status": task.status,
-            "per_user_status_enabled": bool(task.per_user_status_enabled),
+            "status_mode": normalize_task_status_mode(getattr(task, "status_mode", None), default="single"),
+            "status_percentage": task_status_percentage(task),
+            "per_user_status_enabled": normalize_task_status_mode(getattr(task, "status_mode", None), default="single") == "multi",
             "assign_group_members": bool(task.assign_group_members),
             "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
             "follow_project_members": follow_project_members,
@@ -1172,7 +1239,7 @@ def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_
                 }
                 for row in followers
             ],
-            "status_meta": task_status_meta(task),
+            "status_meta": task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email),
             "created_at": task.created_at.isoformat() if task.created_at else None,
         },
         "old_project_id": old_project_id,
@@ -1181,14 +1248,50 @@ def _serialize_task_payload(task: Task, *, action: str = "updated", old_project_
 
 
 def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: int | None = None, old_group_id: int | None = None, actor_user_id: int | None = None) -> None:
-    payload = _serialize_task_payload(task, action=action, old_project_id=old_project_id, old_group_id=old_group_id, actor_user_id=actor_user_id)
-    socketio.emit("task_updated", payload, room=project_room(task.project_id))
-    if old_project_id and old_project_id != task.project_id:
-        socketio.emit("task_updated", payload, room=project_room(old_project_id))
+    relevant_project_ids = {int(task.project_id)}
+    if old_project_id and int(old_project_id) != int(task.project_id):
+        relevant_project_ids.add(int(old_project_id))
+
+    recipient_sids: set[str] = set()
+    for sid, project_ids in _sid_projects.items():
+        if any(int(project_id) in relevant_project_ids for project_id in project_ids):
+            recipient_sids.add(sid)
+
     for recipient_id in _task_notification_user_ids(task):
-        socketio.emit("task_updated", payload, room=user_room(recipient_id))
-    for collaborator_id in _task_collaborator_ids(task):
-        socketio.emit("task_updated", payload, room=collaborator_room(collaborator_id))
+        recipient_sids.update(_user_sids(recipient_id))
+
+    collaborator_ids = _task_collaborator_ids(task)
+    for collaborator_id in collaborator_ids:
+        recipient_sids.update(_collaborator_sids(collaborator_id))
+
+    collaborator_emails = {
+        row.id: (row.email or "").strip()
+        for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(list(collaborator_ids))).all()
+    } if collaborator_ids else {}
+
+    payload_cache: dict[tuple[str, str], dict] = {}
+    for sid in recipient_sids:
+        viewer_user_id = _sid_user.get(sid)
+        viewer_collaborator_id = _sid_collaborator.get(sid)
+        viewer_email = collaborator_emails.get(viewer_collaborator_id, "") if viewer_collaborator_id is not None else ""
+        cache_key = (
+            f"user:{int(viewer_user_id)}" if viewer_user_id is not None else "",
+            f"email:{viewer_email.strip().lower()}" if viewer_email else "",
+        )
+        payload = payload_cache.get(cache_key)
+        if payload is None:
+            payload = _serialize_task_payload(
+                task,
+                action=action,
+                old_project_id=old_project_id,
+                old_group_id=old_group_id,
+                actor_user_id=actor_user_id,
+                viewer_user_id=viewer_user_id,
+                viewer_email=viewer_email,
+            )
+            payload_cache[cache_key] = payload
+        _debug_socket_emit("task_updated", payload, sid=sid)
+        socketio.emit("task_updated", payload, room=sid)
 
 def queue_task_notifications(
     task: Task,
@@ -1342,6 +1445,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("connect")
     def handle_connect():
+        _debug_socket_recv("connect", {"args": dict(request.args or {})})
         user = current_user()
         if user:
             _sid_user[request.sid] = user.id
@@ -1361,6 +1465,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("join_task")
     def handle_join_task(data):
+        _debug_socket_recv("join_task", data)
         user = current_user()
         if not user:
             return
@@ -1392,6 +1497,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("join_discussion_presence")
     def handle_join_discussion_presence(data):
+        _debug_socket_recv("join_discussion_presence", data)
         user = current_user()
         if not user:
             return
@@ -1428,6 +1534,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("join_project")
     def handle_join_project(data):
+        _debug_socket_recv("join_project", data)
         user = current_user()
         if not user:
             return
@@ -1464,6 +1571,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("leave_discussion_presence")
     def handle_leave_discussion_presence(data):
+        _debug_socket_recv("leave_discussion_presence", data)
         user = current_user()
         if not user:
             return
@@ -1494,6 +1602,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("leave_task")
     def handle_leave_task(data):
+        _debug_socket_recv("leave_task", data)
         user = current_user()
         if not user:
             return
@@ -1520,6 +1629,7 @@ def register_socket_handlers() -> None:
 
     @socketio.on("disconnect")
     def handle_disconnect():
+        _debug_socket_recv("disconnect", {})
         sid = request.sid
         user_id = _sid_user.pop(sid, None)
         _sid_collaborator.pop(sid, None)

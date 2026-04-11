@@ -192,6 +192,7 @@ class Task(db.Model):
     locked = db.Column(db.Boolean, default=False, nullable=False)
     assignee_email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="open", nullable=False)
+    status_mode = db.Column(db.String(32), default="single", nullable=False)
     per_user_status_enabled = db.Column(db.Boolean, default=False, nullable=False)
     assign_group_members = db.Column(db.Boolean, default=False, nullable=False)
     owner_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
