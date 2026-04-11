@@ -157,8 +157,8 @@
   {% endif %}
 {% endmacro %}
 {% macro render_task_status_cell(task, status_payload, todo=False) %}
-  {% set status_mode = status_payload.get('mode', 'per_user' if status_payload and status_payload.get('enabled') else 'single') if status_payload else 'single' %}
-  {% if status_mode == 'percentage' %}
+  {% set status_mode = status_payload.get('mode', 'multi' if status_payload and status_payload.get('enabled') else 'single') if status_payload else 'single' %}
+  {% if status_mode == 'percent' %}
     <button class="task-status-multi-button task-status-percentage-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
       <div class="task-status-percentage" data-task-status-percentage="{{ task.id }}">{{ status_payload.get('percentage_complete', 0) if status_payload else 0 }}%</div>
     </button>
@@ -1121,9 +1121,6 @@
                   {% endif %}
                 </div>
               {% endif %}
-              {% if current_view != 'tree' %}
-                <a class="btn secondary" href="{% if current_view == 'tree' %}{% if selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}{% elif current_view == 'todo' %}{{ url_for('ui.todo_dashboard', show_completed=0 if show_completed else 1) }}{% else %}{{ url_for('ui.inbox_dashboard', show_completed=0 if show_completed else 1) }}{% endif %}">{% if show_completed %}Hide Completed{% else %}Show Completed{% endif %}</a>
-              {% endif %}
             </div>
           </div>
         </div>
@@ -1374,17 +1371,17 @@
                 <button class="discussion-setting-mode-button" type="button" data-status-mode-option="single" aria-label="Single status" title="Single status">
                   <i class="fa-solid fa-user" aria-hidden="true"></i>
                 </button>
-                <button class="discussion-setting-mode-button" type="button" data-status-mode-option="per_user" aria-label="Per-user status" title="Per-user status">
+                <button class="discussion-setting-mode-button" type="button" data-status-mode-option="multi" aria-label="Multi status" title="Multi status">
                   <i class="fa-solid fa-users" aria-hidden="true"></i>
                 </button>
-                <button class="discussion-setting-mode-button" type="button" data-status-mode-option="percentage" aria-label="Percentage status" title="Percentage status">
+                <button class="discussion-setting-mode-button" type="button" data-status-mode-option="percent" aria-label="Percent status" title="Percent status">
                   <i class="fa-solid fa-percent" aria-hidden="true"></i>
                 </button>
               </div>
               <select id="task-settings-status-mode" hidden tabindex="-1" aria-hidden="true">
                 <option value="single">Single status</option>
-                <option value="per_user">Per-user status</option>
-                <option value="percentage">Percentage status</option>
+                <option value="multi">Multi status</option>
+                <option value="percent">Percent status</option>
               </select>
             </div>
           </div>
@@ -1887,6 +1884,15 @@
       return "open";
     }
 
+    function normalizeStatusModeValue(value, fallback) {
+      var normalized = String(value || "").trim().toLowerCase();
+      if (normalized === "per_user" || normalized === "multi") return "multi";
+      if (normalized === "percentage" || normalized === "percent") return "percent";
+      if (normalized === "single") return "single";
+      return fallback || "single";
+    }
+    window.__normalizeStatusModeValue = normalizeStatusModeValue;
+
     function applyStatusState(cell, value) {
       if (!cell || cell.getAttribute("data-field") !== "status") return;
       var state = getStatusState(value != null ? value : cell.textContent);
@@ -1990,7 +1996,14 @@
       var infoMeta = (info && info.meta) || {};
       var statusOverrideStore = window.__localTaskStatusOverrides || {};
       var localOverride = statusOverrideStore[String(taskId)] || null;
-      var initialMode = String((localOverride && localOverride.mode) || infoMeta.status_mode || "single");
+      var normalizeMode = function (value, fallback) {
+        var normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "per_user" || normalized === "multi") return "multi";
+        if (normalized === "percentage" || normalized === "percent") return "percent";
+        if (normalized === "single") return "single";
+        return fallback || "single";
+      };
+      var initialMode = normalizeMode((localOverride && localOverride.mode) || infoMeta.status_mode, "single");
       var initialPercentage = Math.max(
         0,
         Math.min(
@@ -2004,10 +2017,10 @@
       );
       var initialStatusTask = {
         id: String(taskId),
-        status: initialMode === "percentage" ? (initialPercentage >= 100 ? "complete" : "open") : "open",
+        status: initialMode === "percent" ? (initialPercentage >= 100 ? "complete" : "open") : "open",
         status_mode: initialMode,
         status_percentage: initialPercentage,
-        per_user_status_enabled: initialMode !== "single",
+        per_user_status_enabled: initialMode === "multi",
         status_meta: {
           mode: initialMode,
           percentage_complete: initialPercentage,
@@ -2245,7 +2258,7 @@
           : null;
         var hostTask = host && host._taskPayload ? host._taskPayload : null;
         var currentStatus = hostTask
-          ? String((taskStatusMeta(hostTask).task_status || hostTask.status || "")).trim().toLowerCase()
+          ? String((((hostTask.status_meta || {}).task_status) || hostTask.status || "")).trim().toLowerCase()
           : "";
         if (!currentStatus) {
           var visibleCell = normalizedTaskId
@@ -2276,6 +2289,11 @@
             if (!result.ok) {
               throw new Error((result.data && result.data.error) || "Could not update status");
             }
+            if (result.data && result.data.id) {
+              logTaskSocketDebug("patchInlineTaskStatus:response", result.data, {
+                requested_status: statusValue,
+              });
+            }
             return result.data || {};
           });
       }
@@ -2298,8 +2316,13 @@
           var task = host && host._taskPayload ? host._taskPayload : null;
           var isPercentage = !!(host && host.querySelector("[data-task-status-percentage]"));
           if (!isPercentage && task) {
-            isPercentage = String(task.status_mode || "").toLowerCase() === "percentage"
-              || !!(task.status_meta && String(task.status_meta.mode || "").toLowerCase() === "percentage");
+            isPercentage = (function (value, fallback) {
+              var normalized = String(value || "").trim().toLowerCase();
+              if (normalized === "per_user" || normalized === "multi") return "multi";
+              if (normalized === "percentage" || normalized === "percent") return "percent";
+              if (normalized === "single") return "single";
+              return fallback || "single";
+            })(task.status_mode || (task.status_meta && task.status_meta.mode), "single") === "percent";
           }
           if (isPercentage) {
             if (typeof window.__openPercentageStatusMenu === "function") {
@@ -3217,7 +3240,6 @@
           row.remove();
         });
         (tasks || []).forEach(function (task) {
-          var assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
           if (typeof window.__insertTaskRow !== "function") return;
           var row = window.__insertTaskRow(
             table,
@@ -3225,7 +3247,7 @@
             task.title || "",
             task.info || (typeof window.__emptyTaskInfo === "function" ? window.__emptyTaskInfo() : {}),
             task.due_at || "",
-            assignment
+            task.assignments || []
           );
           if (!row) return;
           if (!row.parentNode) {
@@ -3241,7 +3263,14 @@
           row.setAttribute("data-status-state", window.__treeSnapshotTaskStatusState(task));
           var rowStatusHost = row.querySelector('[data-task-status-host="' + task.id + '"]');
           if (rowStatusHost) {
-            rowStatusHost._taskPayload = task;
+            if (typeof window.__renderTaskStatusHost === "function") {
+              window.__renderTaskStatusHost(rowStatusHost, task, { todo: false });
+            } else {
+              rowStatusHost._taskPayload = task;
+              if (typeof renderTaskStatusCellHtml === "function") {
+                rowStatusHost.innerHTML = renderTaskStatusCellHtml(task, { todo: false });
+              }
+            }
           }
           if (typeof window.__applyTaskRowUpdate === "function") {
             window.__applyTaskRowUpdate(task);
@@ -3908,9 +3937,9 @@
               var baseStatus = String(meta.task_status || item.status || "open");
               var aggregateState = String(meta.aggregate_state || "");
               if (!aggregateState) {
-                if (mode === "percentage") {
+                if (mode === "percent") {
                   aggregateState = percentage >= 100 ? "complete" : "open";
-                } else if (mode === "per_user") {
+                } else if (mode === "multi") {
                   var total = summary.reduce(function (sum, row) { return sum + Number((row && row.count) || 0); }, 0);
                   var completeCount = summary.reduce(function (sum, row) {
                     return sum + ((row && row.state === "complete") ? Number(row.count || 0) : 0);
@@ -3931,7 +3960,7 @@
               };
             })();
             var styleName = "termin bar " + sectionIndex;
-            var progressValue = exportStatusMeta.mode === "percentage"
+            var progressValue = exportStatusMeta.mode === "percent"
               ? exportStatusMeta.percentage
               : (exportStatusMeta.state === "complete" ? 100 : 0);
             var taskLabel = collapsed ? "" : ganttLatexEscape(item.title || "Task");
@@ -4099,9 +4128,9 @@
           var baseStatus = String(meta.task_status || item.status || "open");
           var aggregateState = String(meta.aggregate_state || "");
           if (!aggregateState) {
-            if (mode === "percentage") {
+            if (mode === "percent") {
               aggregateState = percentage >= 100 ? "complete" : "open";
-            } else if (mode === "per_user") {
+            } else if (mode === "multi") {
               var total = summary.reduce(function (sum, row) { return sum + Number((row && row.count) || 0); }, 0);
               var completeCount = summary.reduce(function (sum, row) {
                 return sum + ((row && row.state === "complete") ? Number(row.count || 0) : 0);
@@ -4116,9 +4145,9 @@
             }
           }
           var label = baseStatus;
-          if (mode === "percentage") {
+          if (mode === "percent") {
             label = String(percentage) + "%";
-          } else if (mode === "per_user") {
+          } else if (mode === "multi") {
             label = summary.length
               ? summary.map(function (row) {
                   return String((row && row.count) || 0) + " " + String((row && row.status) || "open");
@@ -4160,8 +4189,8 @@
           var hasSpan = startTaskDate && startTaskDate <= dueDate;
           var markerIcon = statusState === "complete"
             ? "check"
-            : (statusState === "critical" ? "bang" : (statusMeta.mode === "percentage" ? "dot" : "ring"));
-          var progressPercent = statusMeta.mode === "percentage"
+            : (statusState === "critical" ? "bang" : (statusMeta.mode === "percent" ? "dot" : "ring"));
+          var progressPercent = statusMeta.mode === "percent"
             ? Math.max(0, Math.min(100, Number(item.status_percentage != null ? item.status_percentage : 0)))
             : (statusState === "complete" ? 100 : 0);
           var trackHtml = "";
@@ -4172,7 +4201,7 @@
             var spanOutside = startDeltaDays < 0 || endDeltaDays > rangeDays;
             trackHtml =
               '<span class="project-gantt-span status-' + statusState + ' mode-' + statusMeta.mode + (spanOutside ? ' is-outside' : '') + '" style="left:' + startPercent.toFixed(2) + '%; width:' + widthPercent.toFixed(2) + '%;">' +
-                (statusMeta.mode === "percentage"
+                (statusMeta.mode === "percent"
                   ? '<span class="project-gantt-span-progress" style="width:' + progressPercent.toFixed(2) + '%;"></span>'
                   : '') +
               '</span>' +
@@ -4528,10 +4557,17 @@
       function insertTreeProjectSnapshotLocal(projectId, projectData) {
         var normalizedProjectId = String(projectId || (projectData && projectData.id) || "");
         if (!normalizedProjectId) return Promise.resolve(false);
-        var snapshotShowCompleted = ((new URL(window.location.href)).searchParams.get("show_completed") || "1") === "1" ? "1" : "0";
-        var url = "/api/projects/" + encodeURIComponent(normalizedProjectId) + "/tree_snapshot?show_completed=" + encodeURIComponent((new URL(window.location.href)).searchParams.get("show_completed") || "1");
+        var url = "/api/projects/" + encodeURIComponent(normalizedProjectId) + "/tree_snapshot";
         var cached = loadCachedTreeSnapshot(normalizedProjectId, snapshotShowCompleted);
-        if (cached && cached.project && String(cached.project.id || "") === normalizedProjectId) {
+        var existingBoard = document.querySelector('[data-tree-project-board="' + normalizedProjectId + '"]');
+        var canWarmHydrateFromCache = !!(
+          existingBoard &&
+          (
+            existingBoard.querySelector("[data-tree-project-loading-panel]")
+            || (!existingBoard.querySelector("[data-task-row-id]") && !existingBoard.querySelector(".group-block"))
+          )
+        );
+        if (cached && cached.project && String(cached.project.id || "") === normalizedProjectId && canWarmHydrateFromCache) {
           if (typeof cached.can_manage_project === "boolean") {
             cached.project.can_manage = !!cached.can_manage_project;
           }
@@ -6772,6 +6808,14 @@
     window.__extraAssignmentsForGroup = extraAssignmentsForGroup;
 
     const taskMetaForAssignments = (taskId) => {
+      const host = document.querySelector('[data-task-status-host="' + taskId + '"]');
+      if (host && host._taskPayload) {
+        return host._taskPayload;
+      }
+      const canonicalTask = typeof window.__dashboardTaskEntity === "function"
+        ? window.__dashboardTaskEntity(taskId)
+        : null;
+      if (canonicalTask) return canonicalTask;
       const discussionDrawer = document.getElementById("discussion-drawer");
       const openTaskId = discussionDrawer ? (discussionDrawer.getAttribute("data-open-task-id") || "") : "";
       const currentTask = typeof window.__getCurrentTaskData === "function"
@@ -6780,13 +6824,7 @@
       if (String(openTaskId || "") === String(taskId) && currentTask) {
         return currentTask;
       }
-      const host = document.querySelector('[data-task-status-host="' + taskId + '"]');
-      if (host && host._taskPayload) {
-        return host._taskPayload;
-      }
-      return typeof window.__dashboardTaskEntity === "function"
-        ? window.__dashboardTaskEntity(taskId)
-        : null;
+      return null;
     };
     window.__taskAssignmentKeysFromData = taskAssignmentKeysFromData;
     window.__taskMetaForAssignments = taskMetaForAssignments;
@@ -7040,13 +7078,31 @@
       return manageableGroupIds.has(Number(groupId));
     };
 
-    const insertTaskRow = (table, id, title, info, due, assignment) => {
+    const renderAssignmentBadgesHtml = (assignments) => {
+      const items = Array.isArray(assignments)
+        ? assignments
+        : (assignments ? [assignments] : []);
+      return items
+        .map((assignment) => (typeof window.__renderAssignmentBadge === "function"
+          ? window.__renderAssignmentBadge(assignment)
+          : ""))
+        .join("");
+    };
+
+    const insertTaskRow = (table, id, title, info, due, assignments) => {
       if (!table) return null;
       infoByTask[String(id)] = info || { html: "", attachments: [], links: [] };
       const infoMeta = (info && info.meta) || {};
       const statusOverrideStore = window.__localTaskStatusOverrides || {};
       const localOverride = statusOverrideStore[String(id)] || null;
-      const initialMode = String((localOverride && localOverride.mode) || infoMeta.status_mode || "single");
+      const normalizeMode = function (value, fallback) {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "per_user" || normalized === "multi") return "multi";
+        if (normalized === "percentage" || normalized === "percent") return "percent";
+        if (normalized === "single") return "single";
+        return fallback || "single";
+      };
+      const initialMode = normalizeMode((localOverride && localOverride.mode) || infoMeta.status_mode, "single");
       const initialPercentage = Math.max(
         0,
         Math.min(
@@ -7060,10 +7116,10 @@
       );
       const initialStatusTask = {
         id: String(id),
-        status: initialMode === "percentage" ? (initialPercentage >= 100 ? "complete" : "open") : "open",
+        status: initialMode === "percent" ? (initialPercentage >= 100 ? "complete" : "open") : "open",
         status_mode: initialMode,
         status_percentage: initialPercentage,
-        per_user_status_enabled: initialMode !== "single",
+        per_user_status_enabled: initialMode === "multi",
         status_meta: {
           mode: initialMode,
           percentage_complete: initialPercentage,
@@ -7101,7 +7157,7 @@
         <td><div data-task-status-host="${id}">${initialStatusHtml}</div></td>
         <td>
           <div class="assignments">
-            ${assignment ? renderAssignmentBadge(assignment) : ""}
+            ${renderAssignmentBadgesHtml(assignments)}
             <span class="assign-action">
               <input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="${id}" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
               <button class="assign-add-btn" type="button" title="Assign">+</button>
@@ -7195,8 +7251,7 @@
 	            ? window.__upsertTaskRowFromSnapshot(task)
             : false;
           let row = null;
-          if (!inserted && typeof window.__insertTaskRow === "function") {
-            const assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
+      if (!inserted && typeof window.__insertTaskRow === "function") {
             const info = Object.assign({}, task.info || emptyInfo(), { position: task.position });
             row = window.__insertTaskRow(
               table,
@@ -7204,7 +7259,7 @@
               task.title || "",
               info,
               task.due_at || "",
-              assignment
+              task.assignments || []
             );
             if (row) {
               if (task.position !== undefined && task.position !== null) {
@@ -7317,8 +7372,7 @@
       const table = block.querySelector(".tasks-table");
       const tbody = table ? table.querySelector("tbody[data-task-dropzone='1']") : null;
       (groupData.tasks || []).forEach((task) => {
-        const assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
-        const row = insertTaskRow(table, task.id, task.title || "", task.info || emptyInfo(), task.due_at || "", assignment);
+        const row = insertTaskRow(table, task.id, task.title || "", task.info || emptyInfo(), task.due_at || "", task.assignments || []);
         if (row) {
           syncTaskStatusUi(task);
           const dueInput = row.querySelector(`.due-input[data-task-id="${task.id}"]`);
@@ -7327,19 +7381,6 @@
             if (typeof window.__updateDueDisplay === "function") {
               window.__updateDueDisplay(dueInput);
             }
-          }
-          const assignments = Array.isArray(task.assignments) ? task.assignments : [];
-          if (assignments.length > 1) {
-            const container = row.querySelector(".assignments");
-            const action = container ? container.querySelector(".assign-action") : null;
-            assignments.slice(1).forEach((extraAssignment) => {
-              if (!container || !action) return;
-              const wrapper = document.createElement("span");
-              wrapper.innerHTML = renderAssignmentBadge(extraAssignment);
-              if (wrapper.firstElementChild) {
-                container.insertBefore(wrapper.firstElementChild, action);
-              }
-            });
           }
         }
       });
@@ -10326,12 +10367,11 @@
     var currentUserDisplayName = {{ (user.display_name or "")|tojson }};
     var dashboardBootstrapUrl = {{ url_for('api.dashboard_bootstrap')|tojson }};
     var dashboardChangesUrl = {{ url_for('api.dashboard_changes')|tojson }};
-    var dashboardShowCompleted = {{ 'true' if show_completed else 'false' }};
     var discussionShowHistory = true;
     var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
     var dashboardBootstrapStore = null;
     var dashboardStorePersistTimer = null;
-    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v1.user." + String(currentUserId) + ".showCompleted." + (dashboardShowCompleted ? "1" : "0");
+    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v1.user." + String(currentUserId);
 
     function dashboardStoreEntities() {
       return dashboardBootstrapStore && dashboardBootstrapStore.entities ? dashboardBootstrapStore.entities : {};
@@ -10361,10 +10401,9 @@
     function dashboardStoreRequestUrl(baseUrl) {
       try {
         var url = new URL(baseUrl, window.location.origin);
-        url.searchParams.set("show_completed", dashboardShowCompleted ? "1" : "0");
         return url.toString();
       } catch (_error) {
-        return baseUrl + (baseUrl.indexOf("?") >= 0 ? "&" : "?") + "show_completed=" + (dashboardShowCompleted ? "1" : "0");
+        return baseUrl;
       }
     }
 
@@ -12472,39 +12511,68 @@
       var key = String(task.id);
       var override = localTaskStatusOverrides[key];
       if (!override) return;
-      var mode = String((task && task.status_mode) || ((task && task.status_meta && task.status_meta.mode) || (task && task.per_user_status_enabled ? "per_user" : "single")) || "single");
+      var mode = (function (value, fallback) {
+        var normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "per_user" || normalized === "multi") return "multi";
+        if (normalized === "percentage" || normalized === "percent") return "percent";
+        if (normalized === "single") return "single";
+        return fallback || "single";
+      })((task && task.status_mode) || ((task && task.status_meta && task.status_meta.mode) || (task && task.per_user_status_enabled ? "multi" : "single")), "single");
       if (mode === "single") {
         delete localTaskStatusOverrides[key];
         return;
       }
-      if (mode === "percentage") {
+      if (mode === "percent") {
         var serverPercent = Math.max(0, Math.min(100, Number(
           task.status_percentage != null
             ? task.status_percentage
             : ((task.status_meta && task.status_meta.percentage_complete) || 0)
         )));
         var overridePercent = Math.max(0, Math.min(100, Number(override.percentage != null ? override.percentage : serverPercent)));
-        if (override.mode !== "percentage" || overridePercent === serverPercent) {
+        if ((function (value, fallback) {
+          var normalized = String(value || "").trim().toLowerCase();
+          if (normalized === "per_user" || normalized === "multi") return "multi";
+          if (normalized === "percentage" || normalized === "percent") return "percent";
+          if (normalized === "single") return "single";
+          return fallback || "single";
+        })(override.mode, "single") !== "percent" || overridePercent === serverPercent) {
           delete localTaskStatusOverrides[key];
         }
         return;
       }
-      if (mode === "per_user" && task.status_meta && Array.isArray(task.status_meta.user_statuses)) {
+      if (mode === "multi" && task.status_meta && Array.isArray(task.status_meta.user_statuses)) {
         var mine = task.status_meta.user_statuses.find(function (row) {
           return row && String(row.user_id || "") === String(currentUserId || "");
         });
         var serverStatus = String((mine && mine.status) || (task.status_meta.my_status || "") || "").trim().toLowerCase();
-        if (!serverStatus || override.mode !== "per_user" || String((override.status || "")).trim().toLowerCase() === serverStatus) {
+        if (!serverStatus || (function (value, fallback) {
+          var normalized = String(value || "").trim().toLowerCase();
+          if (normalized === "per_user" || normalized === "multi") return "multi";
+          if (normalized === "percentage" || normalized === "percent") return "percent";
+          if (normalized === "single") return "single";
+          return fallback || "single";
+        })(override.mode, "single") !== "multi" || String((override.status || "")).trim().toLowerCase() === serverStatus) {
           delete localTaskStatusOverrides[key];
         }
       }
     }
 
     function taskStatusMeta(task) {
+      var normalizeMode = (typeof normalizeStatusModeValue === "function")
+        ? normalizeStatusModeValue
+        : (typeof window.__normalizeStatusModeValue === "function"
+          ? window.__normalizeStatusModeValue
+          : function (value, fallback) {
+              var normalized = String(value || "").trim().toLowerCase();
+              if (normalized === "per_user" || normalized === "multi") return "multi";
+              if (normalized === "percentage" || normalized === "percent") return "percent";
+              if (normalized === "single") return "single";
+              return fallback || "single";
+            });
       var meta = task && task.status_meta ? task.status_meta : {};
       var taskId = task && task.id != null ? String(task.id) : "";
       var localOverride = taskId ? (localTaskStatusOverrides[taskId] || null) : null;
-      var mode = String((localOverride && localOverride.mode) || meta.mode || task && task.status_mode || (task && task.per_user_status_enabled ? "per_user" : "single"));
+      var mode = normalizeMode((localOverride && localOverride.mode) || meta.mode || (task && task.status_mode) || ((task && task.per_user_status_enabled) ? "multi" : "single"), "single");
       var baseStatus = mode === "single"
         ? ((task && task.status) || meta.task_status || "open")
         : (meta.task_status || (task && task.status) || "open");
@@ -12557,7 +12625,7 @@
 
     function taskMyStatus(task) {
       var meta = taskStatusMeta(task);
-      if (meta.mode === "percentage") return String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%";
+      if (meta.mode === "percent") return String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%";
       if (!meta.enabled) return meta.task_status || "open";
       if (meta.my_status) return meta.my_status;
       var mine = meta.user_statuses.find(function (row) {
@@ -12657,7 +12725,7 @@
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status_mode: "percentage",
+          status_mode: "percent",
           status_percentage: percentValue,
         }),
       })
@@ -12669,6 +12737,11 @@
         .then(function (result) {
           if (!result.ok) {
             throw new Error((result.data && result.data.error) || "Could not update percentage");
+          }
+          if (result.data && result.data.id) {
+            logTaskSocketDebug("patchTaskPercentageStatus:response", result.data, {
+              requested_percentage: percentValue,
+            });
           }
           return result.data || {};
         });
@@ -12682,7 +12755,7 @@
         var state = escapeHtml(meta.task_status_state || getStatusState(status));
         return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="' + escapeHtml(task.id) + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="' + state + '">' + status + '</div>';
       }
-      if (meta.mode === "percentage") {
+      if (meta.mode === "percent") {
         var percent = Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
         return '' +
           '<button class="task-status-multi-button task-status-percentage-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(percent + "% complete") + '" style="--status-progress:' + escapeHtml(percent.toFixed(2) + "%") + ';">' +
@@ -12695,16 +12768,43 @@
         '</button>';
     }
 
+    function renderTaskStatusHost(host, task, opts) {
+      if (!host || !task || !task.id) return null;
+      var options = opts || {};
+      host._taskPayload = task;
+      host.innerHTML = renderTaskStatusCellHtml(task, options);
+      var meta = taskStatusMeta(task);
+      var renderedCell = host.querySelector("[data-status-cell='1']");
+      if (!renderedCell) return meta;
+      if (meta.mode === "single") {
+        renderedCell.setAttribute("data-status-state", meta.task_status_state || getStatusState(meta.task_status || task.status || "open"));
+        renderedCell.textContent = meta.task_status || task.status || "open";
+      } else if (meta.mode === "percent") {
+        renderedCell.setAttribute("aria-label", String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "% complete");
+      } else {
+        renderedCell.setAttribute("aria-label", renderTaskStatusSummaryLabel(meta.summary));
+      }
+      return meta;
+    }
+    window.__renderTaskStatusHost = renderTaskStatusHost;
+
     function syncTaskStatusUi(task) {
       if (!task || !task.id) return;
+      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
+        logTaskSocketDebug("syncTaskStatusUi:incoming", task);
+      }
       document.querySelectorAll('[data-task-status-host="' + task.id + '"]').forEach(function (host) {
         var todo = !!host.closest('.todo-control-status');
         var mergedHostTask = Object.assign({}, host._taskPayload || {}, task || {});
         if (Object.prototype.hasOwnProperty.call(task || {}, "status_meta")) {
           mergedHostTask.status_meta = Object.assign({}, (task && task.status_meta) || {});
         }
-        host._taskPayload = mergedHostTask;
-        host.innerHTML = renderTaskStatusCellHtml(mergedHostTask, { todo: todo });
+        if (Object.prototype.hasOwnProperty.call(task || {}, "status")) mergedHostTask.status = task.status;
+        if (Object.prototype.hasOwnProperty.call(task || {}, "status_mode")) mergedHostTask.status_mode = task.status_mode;
+        if (Object.prototype.hasOwnProperty.call(task || {}, "status_percentage")) mergedHostTask.status_percentage = task.status_percentage;
+        if (Object.prototype.hasOwnProperty.call(task || {}, "per_user_status_enabled")) mergedHostTask.per_user_status_enabled = task.per_user_status_enabled;
+        if (Object.prototype.hasOwnProperty.call(task || {}, "assignments")) mergedHostTask.assignments = Array.isArray(task.assignments) ? task.assignments.slice() : [];
+        renderTaskStatusHost(host, mergedHostTask, { todo: todo });
         var percentageButton = host.querySelector(".task-status-percentage-button");
         if (percentageButton) {
           var meta = taskStatusMeta(mergedHostTask);
@@ -12716,12 +12816,26 @@
       var effectiveTask = document.querySelector('[data-task-status-host="' + task.id + '"]')
         ? (document.querySelector('[data-task-status-host="' + task.id + '"]')._taskPayload || task)
         : task;
+      if (Object.prototype.hasOwnProperty.call(task || {}, "status")) effectiveTask.status = task.status;
+      if (Object.prototype.hasOwnProperty.call(task || {}, "status_mode")) effectiveTask.status_mode = task.status_mode;
+      if (Object.prototype.hasOwnProperty.call(task || {}, "status_percentage")) effectiveTask.status_percentage = task.status_percentage;
+      if (Object.prototype.hasOwnProperty.call(task || {}, "per_user_status_enabled")) effectiveTask.per_user_status_enabled = task.per_user_status_enabled;
+      if (Object.prototype.hasOwnProperty.call(task || {}, "status_meta")) effectiveTask.status_meta = Object.assign({}, task.status_meta || {});
+      if (Object.prototype.hasOwnProperty.call(task || {}, "assignments")) effectiveTask.assignments = Array.isArray(task.assignments) ? task.assignments.slice() : [];
       var aggregateState = taskAggregateStatusState(effectiveTask);
       var myState = taskMyStatusState(effectiveTask);
       document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
         var isTodoRow = row.classList && row.classList.contains("todo-item");
         row.setAttribute("data-status-state", isTodoRow ? myState : aggregateState);
       });
+      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
+        logTaskSocketDebug("syncTaskStatusUi:effective", effectiveTask, {
+          aggregate_state: aggregateState,
+          my_state: myState,
+          visible_status_text: (document.querySelector('[data-task-status-host="' + task.id + '"] [data-field="status"]') || {}).textContent || "",
+          visible_status_state: (document.querySelector('[data-task-status-host="' + task.id + '"] [data-status-cell="1"]') || {}).getAttribute ? (document.querySelector('[data-task-status-host="' + task.id + '"] [data-status-cell="1"]') || {}).getAttribute("data-status-state") || "" : "",
+        });
+      }
     }
 
     function taskStatusSummaryFromHost(taskId) {
@@ -12740,6 +12854,38 @@
             : (node.classList.contains('status-critical') ? 'critical' : 'open')),
         };
       }).filter(Boolean);
+    }
+
+    function taskSocketDebugSummary(task) {
+      if (!task || typeof task !== "object") return null;
+      var meta = task.status_meta || {};
+      return {
+        id: task.id != null ? String(task.id) : "",
+        project_id: task.project_id != null ? String(task.project_id) : "",
+        group_id: task.group_id != null ? String(task.group_id) : "",
+        status: task.status || "",
+        status_mode: task.status_mode || meta.mode || "",
+        status_percentage: task.status_percentage != null ? task.status_percentage : (meta.percentage_complete != null ? meta.percentage_complete : null),
+        task_status: meta.task_status || "",
+        task_status_state: meta.task_status_state || "",
+        my_status: meta.my_status || "",
+        my_status_state: meta.my_status_state || "",
+        aggregate_state: meta.aggregate_state || "",
+        assignments: Array.isArray(task.assignments) ? task.assignments.map(function (assignment) {
+          return {
+            user_id: assignment && assignment.user_id != null ? String(assignment.user_id) : "",
+            email: assignment && (assignment.display_email || assignment.email) ? (assignment.display_email || assignment.email) : "",
+            status: assignment && assignment.status ? assignment.status : "",
+          };
+        }) : [],
+      };
+    }
+
+    function logTaskSocketDebug(label, task, extra) {
+      if (!task || !task.id) return;
+      try {
+        console.log("[task-socket]", label, Object.assign({}, taskSocketDebugSummary(task) || {}, extra || {}));
+      } catch (_err) {}
     }
 
     function applyCurrentViewerStatusAccessLocal(taskId, canSet) {
@@ -12791,6 +12937,20 @@
 
     function mergeTaskStatusPayload(existingTask, drawerTask, incomingTask) {
       var mergedTask = Object.assign({}, existingTask || {}, drawerTask || {}, incomingTask || {});
+      var canonicalStatusFields = ["status", "status_mode", "status_percentage", "per_user_status_enabled", "status_meta", "assignments", "followers", "assign_group_members", "group_assignment_members", "follow_project_members", "project_follower_members"];
+      var applyCanonicalFields = function (target, source) {
+        if (!source || typeof source !== "object") return;
+        canonicalStatusFields.forEach(function (field) {
+          if (!Object.prototype.hasOwnProperty.call(source, field)) return;
+          if (field === "status_meta") {
+            target[field] = Object.assign({}, source[field] || {});
+          } else if (field === "assignments" || field === "followers" || field === "group_assignment_members" || field === "project_follower_members") {
+            target[field] = Array.isArray(source[field]) ? source[field].slice() : [];
+          } else {
+            target[field] = source[field];
+          }
+        });
+      };
       if (!taskHasAuthoritativeStatusPayload(incomingTask)) {
         var mergedStatusMeta = Object.assign(
           {},
@@ -12827,8 +12987,15 @@
         mergedTask.status_percentage = mergedTask.status_meta.percentage_complete;
       }
       if (mergedTask.per_user_status_enabled == null && mergedTask.status_mode != null) {
-        mergedTask.per_user_status_enabled = String(mergedTask.status_mode) !== "single";
+        mergedTask.per_user_status_enabled = (function (value, fallback) {
+          var normalized = String(value || "").trim().toLowerCase();
+          if (normalized === "per_user" || normalized === "multi") return "multi";
+          if (normalized === "percentage" || normalized === "percent") return "percent";
+          if (normalized === "single") return "single";
+          return fallback || "single";
+        })(mergedTask.status_mode, "single") === "multi";
       }
+      applyCanonicalFields(mergedTask, incomingTask);
       return mergedTask;
     }
 
@@ -12904,22 +13071,24 @@
       }
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = effectiveStatus;
+        taskSettingsStatusEl.dataset.statusBaseline = effectiveStatus;
         taskSettingsStatusEl.setAttribute("data-payload-field", meta.mode === "single" ? "status" : "user_status");
         taskSettingsStatusEl.hidden = false;
         taskSettingsStatusEl.disabled = locked;
         taskSettingsStatusEl.dataset.statusMode = meta.mode || "single";
+        taskSettingsStatusEl.dataset.statusModeBaseline = meta.mode || "single";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
         if (label) {
-          label.textContent = meta.mode === "percentage"
+          label.textContent = meta.mode === "percent"
             ? (String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%")
-            : (meta.mode === "per_user" ? renderTaskStatusSummaryLabel(meta.summary) : effectiveStatus);
+            : (meta.mode === "multi" ? renderTaskStatusSummaryLabel(meta.summary) : effectiveStatus);
         }
         if (meta.mode === "single" && typeof window.__applyStatusState === "function") {
           window.__applyStatusState(taskSettingsStatusEl, effectiveStatus);
         }
       }
       if (taskSettingsStatusLabelEl) {
-        taskSettingsStatusLabelEl.textContent = meta.mode === "percentage" ? "Progress" : (meta.mode === "per_user" ? "Statuses" : "Status");
+        taskSettingsStatusLabelEl.textContent = meta.mode === "percent" ? "Progress" : (meta.mode === "multi" ? "Statuses" : "Status");
         taskSettingsStatusLabelEl.hidden = false;
       }
       if (taskSettingsStatusModeEl) {
@@ -12975,6 +13144,14 @@
           : '<i class="fa-solid fa-lock-open" aria-hidden="true"></i>';
       }
       applyTaskLockState(task.id, locked);
+      if (task && task.id && (task.status != null || task.status_mode != null || task.status_meta || task.assignments)) {
+        logTaskSocketDebug("renderTaskSettings:rendered", task, {
+          drawer_status_value: taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "") : "",
+          drawer_status_label: taskSettingsStatusEl ? String((taskSettingsStatusEl.querySelector(".discussion-setting-status-label") || {}).textContent || "") : "",
+          drawer_status_mode: taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusMode || "") : "",
+          drawer_status_state: taskSettingsStatusEl ? String(taskSettingsStatusEl.getAttribute("data-status-state") || "") : "",
+        });
+      }
     }
 
     function renderEntitySettings() {
@@ -13018,8 +13195,10 @@
       syncTaskSettingsDueControl();
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = "";
+        taskSettingsStatusEl.dataset.statusBaseline = "";
         taskSettingsStatusEl.setAttribute("data-payload-field", "status");
         taskSettingsStatusEl.dataset.statusMode = "single";
+        taskSettingsStatusEl.dataset.statusModeBaseline = "single";
         taskSettingsStatusEl.hidden = false;
         taskSettingsStatusEl.disabled = false;
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
@@ -13229,6 +13408,9 @@
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
           if (!data || !data.id) return null;
+          logTaskSocketDebug("refreshCurrentTaskMeta:fresh", data, {
+            current_task_id: currentTaskId || "",
+          });
           currentTaskData = data;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           renderTaskSettings();
@@ -13272,7 +13454,6 @@
       var descriptionPayload = descriptionPayloadForEntity();
       if (currentEntityType === "task") {
         var statusMode = taskSettingsStatusModeEl ? String(taskSettingsStatusModeEl.value || "single") : "single";
-        var statusPayloadField = statusMode === "single" ? "status" : "user_status";
         var persistTaskId = String(currentEntityId || "");
         var payload = {
           title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
@@ -13287,8 +13468,12 @@
           description: descriptionPayload.description,
           description_format: descriptionPayload.description_format,
         };
-        if (statusMode === "single") {
-          payload[statusPayloadField] = taskSettingsStatusEl ? String(taskSettingsStatusEl.dataset.statusValue || "").trim() : "";
+        if (statusMode === "single" && taskSettingsStatusEl) {
+          var nextDrawerStatus = String(taskSettingsStatusEl.dataset.statusValue || "").trim();
+          var baselineDrawerStatus = String(taskSettingsStatusEl.dataset.statusBaseline || "").trim();
+          if (nextDrawerStatus !== baselineDrawerStatus) {
+            payload.status = nextDrawerStatus;
+          }
         }
         return fetch('/api/tasks/' + currentEntityId, {
           method: 'PATCH',
@@ -13956,6 +14141,9 @@
 
     function applyTaskRowUpdate(task) {
       if (!task || !task.id) return false;
+      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
+        logTaskSocketDebug("applyTaskRowUpdate:incoming", task);
+      }
       reconcileLocalTaskStatusOverride(task);
       var taskId = String(task.id);
       var existingHost = document.querySelector('[data-task-status-host="' + taskId + '"]');
@@ -14044,6 +14232,12 @@
       applyTaskLockState(task.id, !!effectiveTask.locked);
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
+      }
+      if (task.status != null || task.status_mode != null || task.status_meta || task.assignments) {
+        logTaskSocketDebug("applyTaskRowUpdate:effective", effectiveTask, {
+          matched: matched,
+          rendered_row_status: (document.querySelector('[data-task-row-id="' + task.id + '"]') || document.querySelector('.todo-item[data-task-id="' + task.id + '"]')) ? ((document.querySelector('[data-task-row-id="' + task.id + '"]') || document.querySelector('.todo-item[data-task-id="' + task.id + '"]')).getAttribute("data-status-state") || "") : "",
+        });
       }
       return matched;
     }
@@ -14439,30 +14633,9 @@
         var taskId = String(button.getAttribute("data-open-discussion"));
         button.classList.toggle("has-unread", unreadTaskIds.has(taskId));
       });
-      if (socketConnected) {
-        var visibleProjects = visibleProjectIds();
-        (data.notifications || []).forEach(function (item) {
-          if (!item || !item.task_id) return;
-          if (
-            item.kind !== "task_update" &&
-            item.kind !== "task_created" &&
-            item.kind !== "task_moved" &&
-            item.kind !== "task_completed" &&
-            item.kind !== "task_due_changed" &&
-            item.kind !== "task_due_cleared" &&
-            item.kind !== "task_due_asap" &&
-            item.kind !== "task_status_changed" &&
-            item.kind !== "task_renamed" &&
-            item.kind !== "assignment_added"
-          ) return;
-          if (item.project_id && visibleProjects.size && !visibleProjects.has(String(item.project_id))) return;
-          if (item.task_data && applyTaskRowUpdate(item.task_data)) {
-            pulseTask(item.task_data.id);
-            return;
-          }
-          fetchAndApplyTask(item.task_id);
-        });
-      }
+      // Notification-state is used for counts and feed rendering only.
+      // Task rows are updated by task_updated / assignment_updated events so
+      // stale notification snapshots cannot overwrite fresh status state.
     }
 
     function setTaskUnread(taskId, unread) {
@@ -14687,14 +14860,13 @@
       if (!table) return false;
       if (typeof window.__insertTaskRow !== "function") return false;
       removeTaskRowsLocal(task.id);
-      var assignment = Array.isArray(task.assignments) && task.assignments.length ? task.assignments[0] : null;
       var row = window.__insertTaskRow(
         table,
         task.id,
         task.title || "",
         Object.assign({}, task.info || (typeof window.__emptyTaskInfo === "function" ? window.__emptyTaskInfo() : {}), { position: task.position }),
         task.due_at || "",
-        assignment
+        task.assignments || []
       );
       if (!row) return false;
       row.setAttribute("data-task-position", String(task.position || ""));
@@ -14707,7 +14879,14 @@
         : "open");
       var rowStatusHost = row.querySelector('[data-task-status-host="' + task.id + '"]');
       if (rowStatusHost) {
-        rowStatusHost._taskPayload = task;
+        if (typeof window.__renderTaskStatusHost === "function") {
+          window.__renderTaskStatusHost(rowStatusHost, task, { todo: false });
+        } else {
+          rowStatusHost._taskPayload = task;
+          if (typeof renderTaskStatusCellHtml === "function") {
+            rowStatusHost.innerHTML = renderTaskStatusCellHtml(task, { todo: false });
+          }
+        }
       }
       syncTaskStatusUi(task);
       var dueInput = row.querySelector('.due-input[data-task-id="' + task.id + '"]');
@@ -14733,9 +14912,6 @@
       var params = new URLSearchParams(window.location.search);
       params.set("project_id", String(projectId));
       params.set("view", "project");
-      if (!params.has("show_completed")) {
-        params.set("show_completed", "1");
-      }
       params.delete("open_discussion_task_id");
       return "/?" + params.toString();
     }
@@ -15196,6 +15372,12 @@
           if (!result.ok) {
             throw new Error((result.data && result.data.error) || "Could not update status");
           }
+          if (result.data && result.data.id) {
+            logTaskSocketDebug("patchTaskUserStatus:response", result.data, {
+              requested_status: statusValue,
+              requested_user_id: userId,
+            });
+          }
           return result.data || {};
         });
     }
@@ -15203,7 +15385,13 @@
     function openSettingsStatusMenu() {
       if (currentEntityType !== "task") return;
       if (currentTaskData && taskIsLocked(currentTaskData)) return;
-      if (taskSettingsStatusEl && String(taskSettingsStatusEl.dataset.statusMode || "single") === "percentage" && currentTaskData) {
+      if (taskSettingsStatusEl && (function (value, fallback) {
+        var normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "per_user" || normalized === "multi") return "multi";
+        if (normalized === "percentage" || normalized === "percent") return "percent";
+        if (normalized === "single") return "single";
+        return fallback || "single";
+      })(taskSettingsStatusEl.dataset.statusMode || "single", "single") === "percent" && currentTaskData) {
         if (typeof window.__openPercentageStatusMenu === "function") {
           window.__openPercentageStatusMenu(currentTaskData, taskSettingsStatusEl, "settings");
         }
@@ -15883,11 +16071,11 @@
             hostTask = {
               id: String(taskId),
               status: percentValue >= 100 ? "complete" : "open",
-              status_mode: "percentage",
+              status_mode: "percent",
               status_percentage: percentValue,
-              per_user_status_enabled: true,
+              per_user_status_enabled: false,
               status_meta: {
-                mode: "percentage",
+                mode: "percent",
                 percentage_complete: percentValue,
               },
             };
@@ -15896,7 +16084,7 @@
         }
         if (hostTask && String(hostTask.id || "") === String(taskId)) {
           var hostMeta = taskStatusMeta(hostTask);
-          if (hostMeta.mode === "percentage" && typeof window.__openPercentageStatusMenu === "function") {
+          if (hostMeta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
             window.__openPercentageStatusMenu(hostTask, trigger, "row");
           } else {
             openMultiStatusMenu(hostTask, trigger, "row");
@@ -15905,7 +16093,7 @@
         }
         if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
           var currentMeta = taskStatusMeta(currentTaskData);
-          if (currentMeta.mode === "percentage" && typeof window.__openPercentageStatusMenu === "function") {
+          if (currentMeta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
             window.__openPercentageStatusMenu(currentTaskData, trigger, "row");
           } else {
             openMultiStatusMenu(currentTaskData, trigger, "row");
@@ -15917,7 +16105,7 @@
           .then(function (task) {
             if (!task || !task.id) return;
             var meta = taskStatusMeta(task);
-            if (meta.mode === "percentage" && typeof window.__openPercentageStatusMenu === "function") {
+            if (meta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
               window.__openPercentageStatusMenu(task, trigger, "row");
             } else {
               openMultiStatusMenu(task, trigger, "row");
@@ -15956,14 +16144,26 @@
             if (data && data.status_meta) {
               var task = (multiStatusMenu._task && String(multiStatusMenu._task.id) === String(taskId))
                 ? Object.assign({}, multiStatusMenu._task, {
-                    status_mode: (multiStatusMenu._task && multiStatusMenu._task.status_mode) || (currentTaskData && currentTaskData.status_mode) || "per_user",
+                    status_mode: (function (value, fallback) {
+                      var normalized = String(value || "").trim().toLowerCase();
+                      if (normalized === "per_user" || normalized === "multi") return "multi";
+                      if (normalized === "percentage" || normalized === "percent") return "percent";
+                      if (normalized === "single") return "single";
+                      return fallback || "single";
+                    })((multiStatusMenu._task && multiStatusMenu._task.status_mode) || (currentTaskData && currentTaskData.status_mode), "multi"),
                     status_meta: data.status_meta,
                     per_user_status_enabled: true,
                   })
                 : {
                     id: taskId,
                     status: data.status || "open",
-                    status_mode: (currentTaskData && currentTaskData.status_mode) || "per_user",
+                    status_mode: (function (value, fallback) {
+                      var normalized = String(value || "").trim().toLowerCase();
+                      if (normalized === "per_user" || normalized === "multi") return "multi";
+                      if (normalized === "percentage" || normalized === "percent") return "percent";
+                      if (normalized === "single") return "single";
+                      return fallback || "single";
+                    })((currentTaskData && currentTaskData.status_mode), "multi"),
                     status_meta: data.status_meta,
                     per_user_status_enabled: true,
                   };
@@ -16001,14 +16201,14 @@
         if (!taskId) return;
         var nextValue = Math.max(0, Math.min(100, Number(percentageStatusInput.value || 0)));
         rememberLocalTaskStatusOverride(taskId, {
-          mode: "percentage",
+          mode: "percent",
           percentage: nextValue,
         });
         patchTaskPercentageStatus(taskId, nextValue)
           .then(function (data) {
             if (!data || !data.id) return;
             rememberLocalTaskStatusOverride(data.id, {
-              mode: "percentage",
+              mode: "percent",
               percentage: nextValue,
             });
             if (String(currentTaskId || "") === String(data.id)) {
@@ -16834,7 +17034,7 @@
           var currentMeta = taskStatusMeta(currentTaskData);
           rememberLocalTaskStatusOverride(currentTaskData.id, {
             mode: nextMode,
-            percentage: nextMode === "percentage"
+            percentage: nextMode === "percent"
               ? Math.max(0, Math.min(100, Number(
                   currentTaskData.status_percentage != null
                     ? currentTaskData.status_percentage
@@ -16844,7 +17044,7 @@
           });
           currentTaskData = Object.assign({}, currentTaskData, {
             status_mode: nextMode,
-            per_user_status_enabled: nextMode !== "single",
+            per_user_status_enabled: nextMode === "multi",
             status_meta: Object.assign({}, (currentTaskData && currentTaskData.status_meta) || {}, {
               mode: nextMode,
             }),
@@ -17095,7 +17295,6 @@
       } else {
         currentView = "tree";
       }
-      var showCompleted = {{ 'true' if show_completed else 'false' }};
       if (currentView === "todo") {
         var cleanTodoPath = {{ url_for('ui.todo_dashboard')|tojson }};
         if (url.searchParams.has("project_id")) {
@@ -17110,12 +17309,7 @@
           url.searchParams.delete("tree_select_id");
           changed = true;
         }
-        if (showCompleted) {
-          if (url.searchParams.get("show_completed") !== "1") {
-            url.searchParams.set("show_completed", "1");
-            changed = true;
-          }
-        } else if (url.searchParams.has("show_completed")) {
+        if (url.searchParams.has("show_completed")) {
           url.searchParams.delete("show_completed");
           changed = true;
         }
@@ -17494,12 +17688,32 @@
         var taskId = data && data.assignment ? data.assignment.task_id : null;
         var affectsCurrentViewer = data && data.assignment && data.assignment.user_id && String(data.assignment.user_id) === String(currentUserId);
         var hasStatusHost = taskId ? !!document.querySelector('[data-task-status-host="' + taskId + '"]') : false;
+        if (taskId) {
+          logTaskSocketDebug("socket.assignment_updated:received", {
+            id: taskId,
+            project_id: data && data.assignment && data.assignment.project_id != null ? data.assignment.project_id : "",
+            group_id: data && data.assignment && data.assignment.group_id != null ? data.assignment.group_id : "",
+            status: data && data.assignment && data.assignment.status ? data.assignment.status : "",
+            status_mode: data && data.assignment && data.assignment.status_mode ? data.assignment.status_mode : "",
+            assignments: data && data.assignment ? [data.assignment] : [],
+          }, {
+            action: data && data.action || "updated",
+            actor_user_id: data && data.actor_user_id || "",
+            affects_current_viewer: affectsCurrentViewer,
+            has_status_host: hasStatusHost,
+            is_own_event: isOwnEvent,
+          });
+        }
         if (taskId && affectsCurrentViewer) {
           applyCurrentViewerStatusAccessLocal(taskId, data.action !== "deleted");
         }
         if (taskId && (affectsCurrentViewer || hasStatusHost || String(currentTaskId || "") === String(taskId))) {
           fetchTaskSnapshot(taskId).then(function (task) {
             if (!task) return;
+            logTaskSocketDebug("socket.assignment_updated:fresh", task, {
+              action: data && data.action || "updated",
+              actor_user_id: data && data.actor_user_id || "",
+            });
             mergeDashboardTask(task);
             if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
               window.__updateCachedTreeSnapshotsForTask(task, { action: "updated" });
@@ -17527,6 +17741,10 @@
         if (!updated && !isOwnEvent && taskId) {
           fetchTaskSnapshot(taskId).then(function (task) {
             if (!task) return;
+            logTaskSocketDebug("socket.assignment_updated:fresh-fallback", task, {
+              action: data && data.action || "updated",
+              actor_user_id: data && data.actor_user_id || "",
+            });
             mergeDashboardTask(task);
             if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
               window.__updateCachedTreeSnapshotsForTask(task, { action: "updated" });
@@ -17960,13 +18178,13 @@
         if (!data || !data.task) return;
         var task = data.task;
         var isLocalActor = String(data.actor_user_id || "") !== "" && String(data.actor_user_id) === String(currentUserId || "");
-        mergeDashboardTask(task);
-        if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
-          window.__updateCachedTreeSnapshotsForTask(task, {
-            action: data.action || "updated",
-            oldProjectId: data.old_project_id || "",
-          });
-        }
+        logTaskSocketDebug("socket.task_updated:received", task, {
+          action: data.action || "updated",
+          old_project_id: data.old_project_id || "",
+          old_group_id: data.old_group_id || "",
+          actor_user_id: data.actor_user_id || "",
+          is_local_actor: isLocalActor,
+        });
         updateInboxItemsForTask(task);
         if (activeDrawerTab === "messages" && currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
           refreshOpenDiscussionTimeline();
@@ -18001,6 +18219,19 @@
         if (data.action === "moved") {
           fetchTaskSnapshot(task.id).then(function (freshTask) {
             if (!freshTask) return;
+            logTaskSocketDebug("socket.task_updated:moved:fresh", freshTask, {
+              action: data.action || "updated",
+              old_project_id: data.old_project_id || "",
+              old_group_id: data.old_group_id || "",
+            });
+            mergeDashboardTask(freshTask);
+            if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
+              window.__updateCachedTreeSnapshotsForTask(freshTask, {
+                action: data.action || "updated",
+                oldProjectId: data.old_project_id || "",
+              });
+            }
+            updateInboxItemsForTask(freshTask);
             removeTaskRowsLocal(freshTask.id);
             var todoInserted = false;
             if (typeof window.__upsertTodoItemFromSnapshot === "function") {
@@ -18024,60 +18255,91 @@
           });
           return;
         }
-        var todoUpdated = false;
-        if (typeof window.__upsertTodoItemFromSnapshot === "function") {
-          todoUpdated = !!window.__upsertTodoItemFromSnapshot(task);
-        }
-        if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
-          if (window.__upsertTaskRowFromSnapshot(task)) {
-            pulseTask(task.id);
-            return;
-          }
-        }
-        var updated = applyTaskRowUpdate(task);
-        renderTaskAssignments(task.id, task.assignments || []);
-        if (task.project_id && !isLocalActor) {
-          queueTreeProjectSnapshotRefresh(task.project_id, { id: task.project_id });
-        }
-        if (!isLocalActor && data.old_project_id && String(data.old_project_id) !== String(task.project_id || "")) {
-          queueTreeProjectSnapshotRefresh(data.old_project_id, { id: data.old_project_id });
-        }
-        if (updated || todoUpdated) {
-          pulseTask(task.id);
-          if (typeof window.__ensureTreeTaskVisible === "function") {
-            window.__ensureTreeTaskVisible(task);
-          }
-          return;
-        }
         fetchTaskSnapshot(task.id).then(function (freshTask) {
-          if (!freshTask) return;
-          mergeDashboardTask(freshTask);
+          var resolvedTask = freshTask && freshTask.id ? freshTask : task;
+          logTaskSocketDebug(freshTask && freshTask.id ? "socket.task_updated:fresh" : "socket.task_updated:fallback", resolvedTask, {
+            action: data.action || "updated",
+            old_project_id: data.old_project_id || "",
+            old_group_id: data.old_group_id || "",
+          });
+          mergeDashboardTask(resolvedTask);
           if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
-            window.__updateCachedTreeSnapshotsForTask(freshTask, {
+            window.__updateCachedTreeSnapshotsForTask(resolvedTask, {
               action: data.action || "updated",
               oldProjectId: data.old_project_id || "",
             });
           }
-          var fetchedTodoUpdated = false;
+          var todoUpdated = false;
           if (typeof window.__upsertTodoItemFromSnapshot === "function") {
-            fetchedTodoUpdated = !!window.__upsertTodoItemFromSnapshot(freshTask);
+            todoUpdated = !!window.__upsertTodoItemFromSnapshot(resolvedTask);
           }
           if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
-            if (window.__upsertTaskRowFromSnapshot(freshTask)) {
-              pulseTask(freshTask.id);
+            if (window.__upsertTaskRowFromSnapshot(resolvedTask)) {
+              pulseTask(resolvedTask.id);
               return;
             }
           }
-          var fetchedUpdated = applyTaskRowUpdate(freshTask);
-          renderTaskAssignments(freshTask.id, freshTask.assignments || []);
-          if (fetchedUpdated || fetchedTodoUpdated) {
-            pulseTask(freshTask.id);
-          } else if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(freshTask)) {
-            pulseTask(freshTask.id);
+          var updated = applyTaskRowUpdate(resolvedTask);
+          renderTaskAssignments(resolvedTask.id, resolvedTask.assignments || []);
+          if (resolvedTask.project_id && !isLocalActor) {
+            queueTreeProjectSnapshotRefresh(resolvedTask.project_id, { id: resolvedTask.project_id });
+          }
+          if (!isLocalActor && data.old_project_id && String(data.old_project_id) !== String(resolvedTask.project_id || "")) {
+            queueTreeProjectSnapshotRefresh(data.old_project_id, { id: data.old_project_id });
+          }
+          if (updated || todoUpdated) {
+            pulseTask(resolvedTask.id);
+            if (typeof window.__ensureTreeTaskVisible === "function") {
+              window.__ensureTreeTaskVisible(resolvedTask);
+            }
+            return;
+          }
+          if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(resolvedTask)) {
+            pulseTask(resolvedTask.id);
             return;
           }
           if (typeof window.__ensureTreeTaskVisible === "function") {
-            window.__ensureTreeTaskVisible(freshTask);
+            window.__ensureTreeTaskVisible(resolvedTask);
+          }
+        }).catch(function () {
+          var todoUpdated = false;
+          if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+            todoUpdated = !!window.__upsertTodoItemFromSnapshot(task);
+          }
+          if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
+            if (window.__upsertTaskRowFromSnapshot(task)) {
+              pulseTask(task.id);
+              return;
+            }
+          }
+          mergeDashboardTask(task);
+          if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
+            window.__updateCachedTreeSnapshotsForTask(task, {
+              action: data.action || "updated",
+              oldProjectId: data.old_project_id || "",
+            });
+          }
+          var updated = applyTaskRowUpdate(task);
+          renderTaskAssignments(task.id, task.assignments || []);
+          if (task.project_id && !isLocalActor) {
+            queueTreeProjectSnapshotRefresh(task.project_id, { id: task.project_id });
+          }
+          if (!isLocalActor && data.old_project_id && String(data.old_project_id) !== String(task.project_id || "")) {
+            queueTreeProjectSnapshotRefresh(data.old_project_id, { id: data.old_project_id });
+          }
+          if (updated || todoUpdated) {
+            pulseTask(task.id);
+            if (typeof window.__ensureTreeTaskVisible === "function") {
+              window.__ensureTreeTaskVisible(task);
+            }
+            return;
+          }
+          if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(task)) {
+            pulseTask(task.id);
+            return;
+          }
+          if (typeof window.__ensureTreeTaskVisible === "function") {
+            window.__ensureTreeTaskVisible(task);
           }
         });
       });

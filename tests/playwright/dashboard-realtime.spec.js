@@ -550,6 +550,57 @@ test.describe('dashboard and realtime flows', () => {
     await memberContext.close();
   });
 
+  test('tree project status update does not reset unrelated assignees or status pills', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['socket', 'tree', 'status', 'single-status', 'assignments', 'jannaf']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+    await ownerPage.goto(`/tree/project/${state.jannaf_project.id}`);
+    await memberPage.goto(`/tree/project/${state.jannaf_project.id}`);
+    await expect(ownerPage.locator(`[data-task-row-id="${state.jannaf_status_task.id}"]`)).toHaveCount(1);
+    await expect(ownerPage.locator(`[data-task-row-id="${state.jannaf_assignee_task.id}"]`)).toHaveCount(1);
+    await focusTreeTask(ownerPage, state.jannaf_status_task.id, 'Owner initial JANNAF status task', ['Register for JANNAF starts as Open.']);
+    await focusTreeTask(ownerPage, state.jannaf_assignee_task.id, 'Owner initial JANNAF assignee task', ['Get JANNAF accounts starts as Critical with both Owner and Member assigned.']);
+    await steps.multiStep('Open the JANNAF project tree view in both browsers and confirm both target rows are visible.', [
+      { name: 'owner', page: ownerPage },
+      { name: 'member', page: memberPage },
+    ]);
+
+    await expectAttributeWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.jannaf_assignee_task.id}"]`, 'data-status-state', 'critical', 'jannaf-initial-related-row-state', 'The unaffected JANNAF row should begin in Critical state.');
+    await expectContainsTextWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.jannaf_assignee_task.id}"] [data-task-status-host="${state.jannaf_assignee_task.id}"]`, 'critical', 'jannaf-initial-related-row-pill', 'The unaffected JANNAF row should begin with a Critical status pill.');
+    await expectTreeAssignmentsWithFailure(ownerPage, test.info(), state.jannaf_assignee_task.id, ['Owner', 'Member'], 'jannaf-initial-related-row-assignees', 'The unaffected JANNAF row should begin with both assignee badges.');
+
+    await patchTask(memberPage, state.jannaf_status_task.id, { status: 'complete' });
+    await focusTreeTask(memberPage, state.jannaf_status_task.id, 'Member changed Register for JANNAF to Complete', ['The changed row should now show Complete in the member browser.']);
+    await steps.multiStep('In the member browser, change Register for JANNAF to Complete.', [
+      { name: 'member', page: memberPage },
+    ]);
+
+    await expectAttributeWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.jannaf_status_task.id}"]`, 'data-status-state', 'complete', 'jannaf-changed-row-state-owner', 'The receiving browser should mark Register for JANNAF as Complete.');
+    await expectContainsTextWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.jannaf_status_task.id}"] [data-task-status-host="${state.jannaf_status_task.id}"]`, 'complete', 'jannaf-changed-row-pill-owner', 'The receiving browser should show a Complete status pill for Register for JANNAF.');
+    await focusTreeTask(ownerPage, state.jannaf_status_task.id, 'Owner received Register for JANNAF status update', ['The status pill should now read Complete.']);
+    await steps.multiStep('Return to the owner browser and verify Register for JANNAF updates to Complete immediately.', [
+      { name: 'owner', page: ownerPage },
+    ]);
+
+    await expectAttributeWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.jannaf_assignee_task.id}"]`, 'data-status-state', 'critical', 'jannaf-unrelated-row-state-owner', 'Get JANNAF accounts should keep its existing Critical row state.');
+    await expectContainsTextWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.jannaf_assignee_task.id}"] [data-task-status-host="${state.jannaf_assignee_task.id}"]`, 'critical', 'jannaf-unrelated-row-pill-owner', 'Get JANNAF accounts should keep its existing Critical status pill.');
+    await expectTreeAssignmentsWithFailure(ownerPage, test.info(), state.jannaf_assignee_task.id, ['Owner', 'Member'], 'jannaf-unrelated-row-assignees-owner', 'Get JANNAF accounts should keep both assignee badges after the other row changes status.');
+    await focusTreeTask(ownerPage, state.jannaf_assignee_task.id, 'Owner unrelated JANNAF row after remote status update', ['Get JANNAF accounts should still show Critical and both assignees.']);
+    await steps.multiStep('Inspect Get JANNAF accounts in the owner browser and verify it still shows Critical with both Owner and Member assigned.', [
+      { name: 'owner', page: ownerPage },
+    ]);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
   test('mobile dashboard to todo keeps the sidebar trigger usable', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['mobile', 'navigation', 'sidebar']);
@@ -638,40 +689,6 @@ test.describe('dashboard and realtime flows', () => {
     await expectContainsTextWithFailure(ownerPage, test.info(), '.todo-date-group[data-todo-date-key="tomorrow"]', 'Realtime Task', 'todo-rebucket-tomorrow', 'Owner Todo board should move the task into Tomorrow.');
     await focusActivity(ownerPage, '.todo-date-group[data-todo-date-key="tomorrow"]', 'Owner Tomorrow bucket after rebucket');
     await steps.multiStep('Verify the owner Todo board moves the task into the Tomorrow bucket.', [
-      { name: 'owner', page: ownerPage },
-    ]);
-
-    await ownerContext.close();
-    await memberContext.close();
-  });
-
-  test('todo hides completed task after remote status update when completed is hidden', async ({ browser, request }) => {
-    const steps = createStepRecorder(test.info());
-    await steps.tags(['socket', 'todo', 'status', 'filters']);
-    const state = await fetchSeedState(request);
-    const ownerContext = await browser.newContext();
-    const memberContext = await browser.newContext();
-    const ownerPage = await ownerContext.newPage();
-    const memberPage = await memberContext.newPage();
-
-    await login(ownerPage, state.owner.email, state.owner.password);
-    await login(memberPage, state.member.email, state.member.password);
-    await ownerPage.goto('/todo?show_completed=0');
-    await expect(ownerPage.locator(`.todo-item[data-task-id="${state.task.id}"]`)).toHaveCount(1);
-    await steps.multiStep('Open /todo?show_completed=0 and confirm the task is initially visible.', [
-      { name: 'owner', page: ownerPage },
-    ]);
-
-    await memberPage.goto('/todo?show_completed=1');
-    await patchTask(memberPage, state.task.id, { status: 'complete' });
-    await focusTodoTask(memberPage, state.task.id, 'Member marked Todo task complete');
-    await steps.multiStep('In the member browser, mark the task complete.', [
-      { name: 'member', page: memberPage },
-    ]);
-
-    await expect(ownerPage.locator(`.todo-item[data-task-id="${state.task.id}"]`)).toBeHidden();
-    await annotateLocator(ownerPage, '.todo-board', 'Owner Todo board after completed item filtered out', ['The updated task should no longer be visible in this list.']);
-    await steps.multiStep('Verify the completed task disappears from the owner Todo board without a refresh.', [
       { name: 'owner', page: ownerPage },
     ]);
 

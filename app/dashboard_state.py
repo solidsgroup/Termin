@@ -85,21 +85,6 @@ def _is_complete_status(status: str | None) -> bool:
     }
 
 
-def _should_show_todo_task(
-    task: Task,
-    show_completed: bool,
-    today: date,
-    *,
-    viewer_status: str | None = None,
-) -> bool:
-    task_status = viewer_status if viewer_status is not None else task.status
-    if show_completed or not _is_complete_status(task_status):
-        return True
-    if task.due_at and task.due_at.date() >= today:
-        return True
-    return False
-
-
 def _todo_bucket_rank(task: Task) -> tuple[int, str]:
     today = datetime.utcnow().date()
     week_start = today - timedelta(days=today.weekday())
@@ -263,7 +248,7 @@ def _serialize_task(
         "status": task.status,
         "status_mode": status_meta.get("mode") or "single",
         "status_percentage": status_meta.get("percentage_complete") or 0,
-        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "per_user_status_enabled": (status_meta.get("mode") or "single") == "multi",
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "status_meta": status_meta,
@@ -290,7 +275,7 @@ def _serialize_notification(notification: TaskNotification) -> dict:
     }
 
 
-def build_dashboard_bootstrap(user, *, show_completed: bool = True) -> dict:
+def build_dashboard_bootstrap(user) -> dict:
     now_utc = datetime.utcnow()
     theme_name = normalize_theme_name(getattr(user, "theme_name", None))
     projects, owned_projects, member_project_ids = _accessible_projects_for_user(user)
@@ -377,20 +362,7 @@ def build_dashboard_bootstrap(user, *, show_completed: bool = True) -> dict:
         if task_id
     } if task_ids else set()
 
-    todo_tasks = [
-        task
-        for task in tasks
-        if _should_show_todo_task(
-            task,
-            show_completed,
-            now_utc.date(),
-            viewer_status=effective_task_status_for_user(
-                task,
-                viewer_user_id=user.id,
-                status_meta=status_map.get(task.id),
-            ),
-        )
-    ]
+    todo_tasks = list(tasks)
     todo_tasks.sort(
         key=lambda task: (
             _todo_bucket_rank(task)[0],
@@ -432,7 +404,6 @@ def build_dashboard_bootstrap(user, *, show_completed: bool = True) -> dict:
             "generated_at": now_utc.isoformat(),
             "cursor": now_utc.isoformat(),
             "schema_version": 1,
-            "show_completed": bool(show_completed),
         },
         "entities": {
             "divisions": {
@@ -495,8 +466,8 @@ def build_dashboard_bootstrap(user, *, show_completed: bool = True) -> dict:
     return payload
 
 
-def build_dashboard_changes(user, *, since: datetime, show_completed: bool = True) -> dict:
-    payload = build_dashboard_bootstrap(user, show_completed=show_completed)
+def build_dashboard_changes(user, *, since: datetime) -> dict:
+    payload = build_dashboard_bootstrap(user)
     divisions = payload.get("entities", {}).get("divisions", {})
     projects = payload.get("entities", {}).get("projects", {})
     groups = payload.get("entities", {}).get("groups", {})

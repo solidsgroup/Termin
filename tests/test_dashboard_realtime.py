@@ -156,8 +156,8 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.login(client_a, user_a_id)
         self.login(client_b, user_b_id)
 
-        response_a = client_a.get(f"/api/projects/{project_id}/tree_snapshot?show_completed=1")
-        response_b = client_b.get(f"/api/projects/{project_id}/tree_snapshot?show_completed=1")
+        response_a = client_a.get(f"/api/projects/{project_id}/tree_snapshot")
+        response_b = client_b.get(f"/api/projects/{project_id}/tree_snapshot")
         payload_a = response_a.get_json()
         payload_b = response_b.get_json()
 
@@ -187,7 +187,7 @@ class DashboardRealtimeTestCase(unittest.TestCase):
 
         client_b = self.app.test_client()
         self.login(client_b, user_b_id)
-        response = client_b.get(f"/api/projects/{project_id}/tree_snapshot?show_completed=1")
+        response = client_b.get(f"/api/projects/{project_id}/tree_snapshot")
         payload = response.get_json()
         task_payload = payload["ungrouped_tasks"][0]
 
@@ -246,6 +246,7 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             task_id = sqlalchemy_inspect(task).identity[0]
             self.add_assignment(task, user=owner)
             self.add_assignment(task, user=member)
+            task.status_mode = "multi"
             task.per_user_status_enabled = True
             db.session.add(task)
             db.session.flush()

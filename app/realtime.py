@@ -35,7 +35,7 @@ from app.models import (
     User,
 )
 from app.themes import DEFAULT_THEME_NAME, division_effective_color, normalize_theme_name
-from app.task_status import task_status_meta
+from app.task_status import normalize_task_status_mode, task_status_meta, task_status_percentage
 from app.utils import current_user, display_name_for_user
 from app.web_push import send_web_push_notification
 
@@ -482,8 +482,8 @@ def _task_summary(task: Task | None) -> dict | None:
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     meta = info_payload.get("meta") or {}
     follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
-    raw_status_mode = str((meta.get("status_mode") or "")).strip().lower()
-    status_mode = raw_status_mode if raw_status_mode in {"single", "per_user", "percentage"} else ("per_user" if bool(getattr(task, "per_user_status_enabled", False)) else "single")
+    raw_status_mode = normalize_task_status_mode(getattr(task, "status_mode", None) or meta.get("status_mode"), default="")
+    status_mode = raw_status_mode if raw_status_mode in {"single", "multi", "percent"} else ("multi" if bool(getattr(task, "per_user_status_enabled", False)) else "single")
     raw_percentage = str((meta.get("status_percentage") or "")).strip()
     try:
         status_percentage = max(0, min(100, int(float(raw_percentage))))
@@ -500,7 +500,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "status": task.status,
         "status_mode": status_mode,
         "status_percentage": status_percentage,
-        "per_user_status_enabled": bool(task.per_user_status_enabled),
+        "per_user_status_enabled": status_mode == "multi",
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "follow_project_members": follow_project_members,
@@ -1159,7 +1159,9 @@ def _serialize_task_payload(
             "due_at": task.due_at.isoformat() if task.due_at else None,
             "due_mode": _task_due_mode(task),
             "status": task.status,
-            "per_user_status_enabled": bool(task.per_user_status_enabled),
+            "status_mode": normalize_task_status_mode(getattr(task, "status_mode", None), default="single"),
+            "status_percentage": task_status_percentage(task),
+            "per_user_status_enabled": normalize_task_status_mode(getattr(task, "status_mode", None), default="single") == "multi",
             "assign_group_members": bool(task.assign_group_members),
             "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
             "follow_project_members": follow_project_members,
