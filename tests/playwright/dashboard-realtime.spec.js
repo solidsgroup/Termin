@@ -178,6 +178,14 @@ async function waitForTreeTaskUiToSettle(page, taskId, ms = 1400) {
   await page.waitForTimeout(ms);
 }
 
+async function waitForTreeProjectReady(page, projectId, taskId) {
+  const board = page.locator(`[data-tree-project-board="${projectId}"]`).first();
+  await expect(board).toHaveCount(1);
+  if (taskId != null) {
+    await expect(page.locator(`[data-task-row-id="${taskId}"]`)).toHaveCount(1);
+  }
+}
+
 async function focusTodoTask(page, taskId, label, extraLines = []) {
   const selector = `.todo-item[data-task-id="${taskId}"]`;
   const item = page.locator(selector);
@@ -257,11 +265,13 @@ test.describe('dashboard and realtime flows', () => {
       { name: 'member', page: memberPage },
     ]);
     await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
     await expect(ownerPage.locator('[data-tree-project-board]')).toContainText('Realtime Task');
     await steps.multiStep('In the owner browser, open /tree/project/1 and confirm Realtime Task is visible.', [
       { name: 'owner', page: ownerPage },
     ]);
     await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
     await patchTask(memberPage, state.task.id, { title: 'Realtime Task Updated' });
     await focusTreeTask(memberPage, state.task.id, 'Member changed task title', ['Title should now read Realtime Task Updated.']);
     await steps.multiStep('In the member browser, update task 1 title to "Realtime Task Updated".', [
@@ -291,6 +301,8 @@ test.describe('dashboard and realtime flows', () => {
     await login(memberPage, state.member.email, state.member.password);
     await ownerPage.goto(`/tree/project/${state.project.id}`);
     await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
     await steps.multiStep('Open the same tree project in both browsers with the shared task visible.', [
       { name: 'owner', page: ownerPage },
       { name: 'member', page: memberPage },
@@ -332,7 +344,7 @@ test.describe('dashboard and realtime flows', () => {
 
     await login(page, state.owner.email, state.owner.password);
     await page.goto(`/tree/project/${state.project.id}`);
-    await expect(page.locator(`[data-task-row-id="${state.task.id}"]`)).toHaveCount(1);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
     await expectTreeAssignmentsWithFailure(page, test.info(), state.task.id, ['Owner', 'Member'], 'tree-inline-status-initial-assignments', 'The seed task should start with both assignee badges visible.');
     await focusTreeTask(page, state.task.id, 'Initial tree task status', ['This task starts as open before any inline status changes.']);
     await steps.step('Open /tree/project/1 as owner@example.com and locate the shared task row in the Tree board.', page);
@@ -379,6 +391,7 @@ test.describe('dashboard and realtime flows', () => {
       { name: 'member', page: memberPage },
     ]);
     await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
     await patchTask(memberPage, state.task.id, { title: 'Off Tree Update' });
     await focusTreeTask(memberPage, state.task.id, 'Member changed task while owner stayed off Tree', ['Owner remains on the dashboard for this step.']);
     await steps.multiStep('In the member browser, update task 1 title to "Off Tree Update" while the owner stays off Tree.', [
@@ -387,6 +400,7 @@ test.describe('dashboard and realtime flows', () => {
     ]);
 
     await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
     await expectContainsTextWithFailure(ownerPage, test.info(), '[data-tree-project-board]', 'Off Tree Update', 'off-tree-navigation-title', 'Owner tree view should already contain the updated title on navigation.');
     await focusTreeTask(ownerPage, state.task.id, 'Owner navigated into updated tree view');
     await steps.multiStep('Go back to the owner browser, navigate to /tree/project/1, and verify the tree view already shows "Off Tree Update".', [
@@ -414,6 +428,7 @@ test.describe('dashboard and realtime flows', () => {
       { name: 'member', page: memberPage },
     ]);
     await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
     const commentResult = await memberPage.evaluate(async (taskId) => {
       const response = await fetch(`/api/tasks/${taskId}/comments`, {
         method: 'POST',
@@ -456,6 +471,7 @@ test.describe('dashboard and realtime flows', () => {
       { name: 'member', page: memberPage },
     ]);
     await memberPage.goto(`/tree/project/${state.direct_project.id}`);
+    await waitForTreeProjectReady(memberPage, state.direct_project.id, state.direct_task.id);
     await deleteAssignment(memberPage, state.assignments.direct_owner.id);
     await focusTreeTask(memberPage, state.direct_task.id, 'Member removed owner assignment', ['Direct task should now keep only Member assigned.']);
     await steps.multiStep('In the member browser, remove the owner assignment from the direct-project task.', [
@@ -464,6 +480,8 @@ test.describe('dashboard and realtime flows', () => {
 
     await ownerPage.goto(`/tree/project/${state.direct_project.id}`);
     await memberPage.goto(`/tree/project/${state.direct_project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.direct_project.id, state.direct_task.id);
+    await waitForTreeProjectReady(memberPage, state.direct_project.id, state.direct_task.id);
     await steps.multiStep('Open /tree/project/2 in both browsers.', [
       { name: 'owner', page: ownerPage },
       { name: 'member', page: memberPage },
@@ -510,6 +528,7 @@ test.describe('dashboard and realtime flows', () => {
     ]);
 
     await ownerPage.goto(`/tree/project/${state.direct_project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.direct_project.id, state.direct_task.id);
     await expect(ownerPage.locator(`[data-task-row-id="${state.direct_task.id}"]`)).toHaveAttribute('data-status-state', 'open');
     await steps.multiStep('In the owner browser, open the direct project tree view once so the initial Open snapshot is cached locally.', [
       { name: 'owner', page: ownerPage },
@@ -522,6 +541,7 @@ test.describe('dashboard and realtime flows', () => {
     ]);
 
     await memberPage.goto(`/tree/project/${state.direct_project.id}`);
+    await waitForTreeProjectReady(memberPage, state.direct_project.id, state.direct_task.id);
     await patchTask(memberPage, state.direct_task.id, { status: 'critical' });
     await focusTreeTask(memberPage, state.direct_task.id, 'Member changed direct task status', ['Single-status task should now read Critical.']);
     await steps.multiStep('In the member browser, update the same direct-project task to Critical while the owner is off Tree.', [
@@ -535,6 +555,8 @@ test.describe('dashboard and realtime flows', () => {
 
     await ownerPage.goto(`/tree/project/${state.direct_project.id}`);
     await memberPage.goto(`/tree/project/${state.direct_project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.direct_project.id, state.direct_task.id);
+    await waitForTreeProjectReady(memberPage, state.direct_project.id, state.direct_task.id);
     const ownerRow = ownerPage.locator(`[data-task-row-id="${state.direct_task.id}"]`);
     const memberRow = memberPage.locator(`[data-task-row-id="${state.direct_task.id}"]`);
     await annotateTaskStatusView(ownerPage, state.direct_task.id, 'Owner task view');
@@ -563,7 +585,8 @@ test.describe('dashboard and realtime flows', () => {
     await login(memberPage, state.member.email, state.member.password);
     await ownerPage.goto(`/tree/project/${state.jannaf_project.id}`);
     await memberPage.goto(`/tree/project/${state.jannaf_project.id}`);
-    await expect(ownerPage.locator(`[data-task-row-id="${state.jannaf_status_task.id}"]`)).toHaveCount(1);
+    await waitForTreeProjectReady(ownerPage, state.jannaf_project.id, state.jannaf_status_task.id);
+    await waitForTreeProjectReady(memberPage, state.jannaf_project.id, state.jannaf_status_task.id);
     await expect(ownerPage.locator(`[data-task-row-id="${state.jannaf_assignee_task.id}"]`)).toHaveCount(1);
     await focusTreeTask(ownerPage, state.jannaf_status_task.id, 'Owner initial JANNAF status task', ['Register for JANNAF starts as Open.']);
     await focusTreeTask(ownerPage, state.jannaf_assignee_task.id, 'Owner initial JANNAF assignee task', ['Get JANNAF accounts starts as Critical with both Owner and Member assigned.']);
@@ -709,12 +732,14 @@ test.describe('dashboard and realtime flows', () => {
     await login(ownerPage, state.owner.email, state.owner.password);
     await login(memberPage, state.member.email, state.member.password);
     await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
     await expect(ownerPage.locator('[data-tree-project-board]')).toContainText('Realtime Task');
     await steps.multiStep('Open the project tree board as owner@example.com.', [
       { name: 'owner', page: ownerPage },
     ]);
 
     await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
     await patchTask(memberPage, state.task.id, { due_at: tomorrow, due_mode: 'date' });
     await focusTreeTask(memberPage, state.task.id, 'Member changed tree due date', [`Due date should now be ${tomorrow}.`]);
     await steps.multiStep(`In the member browser, set the task due date to ${tomorrow}.`, [
@@ -743,6 +768,7 @@ test.describe('dashboard and realtime flows', () => {
     await login(ownerPage, state.owner.email, state.owner.password);
     await login(memberPage, state.member.email, state.member.password);
     await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
     await expect(ownerPage.locator(`[data-task-row-id="${state.task.id}"] .assignments`)).toContainText('Owner');
     await expect(ownerPage.locator(`[data-task-row-id="${state.task.id}"] .assignments`)).toContainText('Member');
     await steps.multiStep('Open the shared project tree board and confirm both Owner and Member are assigned.', [
@@ -750,6 +776,7 @@ test.describe('dashboard and realtime flows', () => {
     ]);
 
     await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
     await deleteAssignment(memberPage, state.assignments.task_owner.id);
     await focusTreeTask(memberPage, state.task.id, 'Member removed shared task assignment', ['Owner badge should disappear after sync.']);
     await steps.multiStep('In the member browser, remove the owner assignment from the shared task.', [
@@ -786,6 +813,7 @@ test.describe('dashboard and realtime flows', () => {
     ]);
 
     await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
     const commentResult = await memberPage.evaluate(async (taskId) => {
       const response = await fetch(`/api/tasks/${taskId}/comments`, {
         method: 'POST',

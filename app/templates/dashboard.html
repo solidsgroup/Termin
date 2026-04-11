@@ -4558,7 +4558,8 @@
         var normalizedProjectId = String(projectId || (projectData && projectData.id) || "");
         if (!normalizedProjectId) return Promise.resolve(false);
         var url = "/api/projects/" + encodeURIComponent(normalizedProjectId) + "/tree_snapshot";
-        var cached = loadCachedTreeSnapshot(normalizedProjectId, snapshotShowCompleted);
+        var cacheVariant = "1";
+        var cached = loadCachedTreeSnapshot(normalizedProjectId, cacheVariant);
         var existingBoard = document.querySelector('[data-tree-project-board="' + normalizedProjectId + '"]');
         var canWarmHydrateFromCache = !!(
           existingBoard &&
@@ -4593,7 +4594,7 @@
             if (typeof result.data.can_manage_project === "boolean") {
               result.data.project.can_manage = !!result.data.can_manage_project;
             }
-            saveCachedTreeSnapshot(normalizedProjectId, result.data, snapshotShowCompleted);
+            saveCachedTreeSnapshot(normalizedProjectId, result.data, cacheVariant);
             var applied = false;
             try {
               applied = applyTreeProjectSnapshotLocal(result.data);
