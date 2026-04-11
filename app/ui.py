@@ -1837,10 +1837,30 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     else:
         dashboard_greeting = "Good evening"
     dashboard_first_name = (user.display_name or user.email.split("@", 1)[0]).strip().split(" ", 1)[0] or "there"
-    dashboard_action_items = todo_items[:8]
+    normalized_user_email = (user.email or "").strip().lower()
+
+    def dashboard_item_assigned_to_user(item):
+        task = item.get("task")
+        if not task:
+            return False
+        for assignment in assignments_by_task.get(task.id, []):
+            if assignment.user_id and int(assignment.user_id) == int(user.id):
+                return True
+            assignment_email = (assignment.email or "").strip().lower()
+            if normalized_user_email and assignment_email and assignment_email == normalized_user_email:
+                return True
+        if task.assign_group_members:
+            for member in group_assignment_members_by_task.get(task.id, []):
+                member_user_id = member.get("user_id") if isinstance(member, dict) else None
+                if member_user_id and int(member_user_id) == int(user.id):
+                    return True
+        return False
+
+    dashboard_assigned_items = [item for item in todo_items if dashboard_item_assigned_to_user(item)]
+    dashboard_action_items = dashboard_assigned_items[:8]
     dashboard_stats = {
-        "overdue": sum(1 for item in todo_items if item["date_key"] == "overdue"),
-        "today": sum(1 for item in todo_items if item["date_key"] in {"today", "asap"}),
+        "overdue": sum(1 for item in dashboard_assigned_items if item["date_key"] == "overdue"),
+        "today": sum(1 for item in dashboard_assigned_items if item["date_key"] in {"today", "asap"}),
         "unread_messages": len(message_notifications),
         "unread_notifications": len(task_notifications),
         "projects": len(projects),
