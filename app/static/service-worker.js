@@ -1,5 +1,7 @@
 const STATIC_CACHE = "termin-static-v2";
 const SHELL_CACHE = "termin-shell-v2";
+const FAVICON_CACHE = "termin-favicons-v2";
+const faviconInflight = new Map();
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/static/brand/termin-icon-v4-192.png",
@@ -33,6 +35,28 @@ function isSocketRequest(url) {
 
 function isServiceWorkerRequest(url) {
   return url.pathname === "/service-worker.js";
+}
+
+function isLinkFaviconRequest(url) {
+  return url.pathname === "/link-favicon";
+}
+
+function normalizedLinkFaviconUrl(url) {
+  if (!isLinkFaviconRequest(url)) {
+    return url.toString();
+  }
+  const rawTarget = url.searchParams.get("url") || "";
+  try {
+    const parsedTarget = new URL(rawTarget);
+    if (parsedTarget.protocol !== "http:" && parsedTarget.protocol !== "https:") {
+      return url.toString();
+    }
+    const normalized = new URL(url.toString());
+    normalized.searchParams.set("url", parsedTarget.origin);
+    return normalized.toString();
+  } catch (_error) {
+    return url.toString();
+  }
 }
 
 function isNavigationRequest(request) {
@@ -76,6 +100,41 @@ async function staleWhileRevalidate(cacheName, request) {
   return cached || networkPromise || fetch(request);
 }
 
+async function cacheFirst(cacheName, request) {
+  const cache = await caches.open(cacheName);
+  const requestUrl = new URL(request.url);
+  const normalizedFaviconUrl = isLinkFaviconRequest(requestUrl) ? normalizedLinkFaviconUrl(requestUrl) : "";
+  const cacheKey = normalizedFaviconUrl
+    ? new Request(normalizedFaviconUrl, { method: "GET", credentials: "same-origin" })
+    : request;
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  if (normalizedFaviconUrl && faviconInflight.has(normalizedFaviconUrl)) {
+    return faviconInflight.get(normalizedFaviconUrl).then(function (response) {
+      return response.clone();
+    });
+  }
+  const networkPromise = fetch(normalizedFaviconUrl || request)
+    .then(function (response) {
+      if (response && response.ok) {
+        cache.put(cacheKey, response.clone());
+      }
+      return response;
+    })
+    .finally(function () {
+      if (normalizedFaviconUrl) {
+        faviconInflight.delete(normalizedFaviconUrl);
+      }
+    });
+  if (normalizedFaviconUrl) {
+    faviconInflight.set(normalizedFaviconUrl, networkPromise);
+  }
+  const response = await networkPromise;
+  return normalizedFaviconUrl && response ? response.clone() : response;
+}
+
 async function networkFirst(cacheName, request) {
   const cache = await caches.open(cacheName);
   try {
@@ -107,7 +166,7 @@ self.addEventListener("activate", function (event) {
     caches.keys().then(function (keys) {
       return Promise.all(
         keys.map(function (key) {
-          if (key === STATIC_CACHE || key === SHELL_CACHE) return null;
+          if (key === STATIC_CACHE || key === SHELL_CACHE || key === FAVICON_CACHE) return null;
           return caches.delete(key);
         })
       );
@@ -125,6 +184,11 @@ self.addEventListener("fetch", function (event) {
 
   const url = new URL(request.url);
   if (isApiRequest(url) || isSocketRequest(url) || isServiceWorkerRequest(url)) {
+    return;
+  }
+
+  if (isLinkFaviconRequest(url)) {
+    event.respondWith(cacheFirst(FAVICON_CACHE, request));
     return;
   }
 

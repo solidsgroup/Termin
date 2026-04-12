@@ -285,7 +285,7 @@
                 {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
                 {% set origin = ('https://' ~ host) if link.startswith('https://') else ('http://' ~ host) if link.startswith('http://') else '' %}
                 <a class="task-link-badge" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
-                  <img src="{{ url_for('link_favicon') }}?url={{ link | urlencode }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+                  <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"{% if origin %} data-favicon-origin="{{ origin }}"{% endif %} />
                 </a>
               {% endfor %}
             </span>
@@ -6735,16 +6735,9 @@
     };
 
     const renderInlineTaskLinkBadges = (links) =>
-      (Array.isArray(links) ? links : [])
-        .map((link) => {
-          try {
-            const url = new URL(link);
-            return `<a class="task-link-badge" href="${escapeHtml(link)}" target="_blank" rel="noreferrer noopener" title="${escapeHtml(link)}"><img src="{{ url_for('link_favicon') }}?url=${encodeURIComponent(link)}" alt="" referrerpolicy="no-referrer" /></a>`;
-          } catch (_error) {
-            return "";
-          }
-        })
-        .join("");
+      typeof window.__renderTaskLinkBadges === "function"
+        ? window.__renderTaskLinkBadges(links)
+        : "";
 
     const renderAssignmentBadge = (assignment) => {
       const label = assignment.display_name || assignment.display_email || assignment.email || "User";
@@ -12317,7 +12310,11 @@
 
     function faviconUrlFor(link) {
       if (!link) return "";
-      return "{{ url_for('link_favicon') }}?url=" + encodeURIComponent(link);
+      var cachedDataUrl = cachedFaviconDataUrlFor(link);
+      if (cachedDataUrl) return cachedDataUrl;
+      var origin = faviconOriginFor(link);
+      if (!origin) return "";
+      return transparentPixelDataUrl;
     }
 
     function formatLinkLabel(link) {
@@ -12357,20 +12354,211 @@
       }
     }
 
+    var faviconDataUrlCache = null;
+    var faviconDataUrlCachePersistTimer = null;
+    var faviconFetchInflight = Object.create(null);
+    var faviconDataUrlCacheKey = "termin.faviconDataUrlCache.v1";
+    var faviconDataUrlCacheMaxEntries = 128;
+    var faviconResponseCacheName = "termin-favicons-v2";
+    var transparentPixelDataUrl = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+    function loadFaviconDataUrlCache() {
+      if (faviconDataUrlCache) return faviconDataUrlCache;
+      faviconDataUrlCache = Object.create(null);
+      if (!window.localStorage) return faviconDataUrlCache;
+      try {
+        var raw = window.localStorage.getItem(faviconDataUrlCacheKey);
+        if (!raw) return faviconDataUrlCache;
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          Object.keys(parsed).forEach(function (key) {
+            var entry = parsed[key];
+            if (!entry || typeof entry.data_url !== "string" || !entry.data_url) return;
+            faviconDataUrlCache[key] = {
+              data_url: entry.data_url,
+              updated_at: Number(entry.updated_at || 0),
+            };
+          });
+        }
+      } catch (_error) {
+        faviconDataUrlCache = Object.create(null);
+      }
+      return faviconDataUrlCache;
+    }
+
+    function schedulePersistFaviconDataUrlCache() {
+      if (!window.localStorage) return;
+      if (faviconDataUrlCachePersistTimer) window.clearTimeout(faviconDataUrlCachePersistTimer);
+      faviconDataUrlCachePersistTimer = window.setTimeout(function () {
+        faviconDataUrlCachePersistTimer = null;
+        try {
+          window.localStorage.setItem(faviconDataUrlCacheKey, JSON.stringify(loadFaviconDataUrlCache()));
+        } catch (_error) {
+          return;
+        }
+      }, 50);
+    }
+
+    function pruneFaviconDataUrlCache() {
+      var cache = loadFaviconDataUrlCache();
+      var keys = Object.keys(cache);
+      if (keys.length <= faviconDataUrlCacheMaxEntries) return;
+      keys.sort(function (a, b) {
+        return Number((cache[a] && cache[a].updated_at) || 0) - Number((cache[b] && cache[b].updated_at) || 0);
+      });
+      keys.slice(0, keys.length - faviconDataUrlCacheMaxEntries).forEach(function (key) {
+        delete cache[key];
+      });
+    }
+
+    function faviconOriginFor(link) {
+      if (!link) return "";
+      try {
+        var parsed = new URL(String(link));
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+        return parsed.origin;
+      } catch (_error) {
+        return "";
+      }
+    }
+
+    function cachedFaviconDataUrlFor(link) {
+      var origin = faviconOriginFor(link);
+      if (!origin) return "";
+      var cache = loadFaviconDataUrlCache();
+      return cache[origin] && cache[origin].data_url ? cache[origin].data_url : "";
+    }
+
+    function rememberFaviconDataUrl(origin, dataUrl) {
+      if (!origin || !dataUrl) return;
+      var cache = loadFaviconDataUrlCache();
+      cache[origin] = {
+        data_url: dataUrl,
+        updated_at: Date.now(),
+      };
+      pruneFaviconDataUrlCache();
+      schedulePersistFaviconDataUrlCache();
+    }
+
+    function updateFaviconImagesForOrigin(origin, dataUrl) {
+      if (!origin || !dataUrl) return;
+      document.querySelectorAll("img[data-favicon-origin]").forEach(function (img) {
+        if (img.getAttribute("data-favicon-origin") !== origin) return;
+        if (img.getAttribute("src") !== dataUrl) {
+          img.setAttribute("src", dataUrl);
+        }
+      });
+    }
+
+    function faviconRequestUrlForOrigin(origin) {
+      if (!origin) return "";
+      return "{{ url_for('link_favicon') }}?url=" + encodeURIComponent(origin);
+    }
+
+    function blobToDataUrl(blob) {
+      if (!blob) return Promise.resolve("");
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onloadend = function () {
+          if (typeof reader.result === "string" && reader.result) {
+            resolve(reader.result);
+          } else {
+            reject(new Error("Could not read favicon data"));
+          }
+        };
+        reader.onerror = function () {
+          reject(new Error("Could not read favicon data"));
+        };
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    function loadFaviconDataUrlFromCacheStorage(origin) {
+      if (!origin || !window.caches) return Promise.resolve("");
+      return window.caches.open(faviconResponseCacheName)
+        .then(function (cache) {
+          return cache.match(new Request(faviconRequestUrlForOrigin(origin), {
+            method: "GET",
+            credentials: "same-origin",
+          }));
+        })
+        .then(function (response) {
+          if (!response || !response.ok) return "";
+          return response.blob().then(function (blob) {
+            return blobToDataUrl(blob);
+          });
+        })
+        .catch(function () {
+          return "";
+        });
+    }
+
+    function hydrateDeferredFaviconImages() {
+      document.querySelectorAll("img[data-favicon-origin]").forEach(function (img) {
+        var origin = String(img.getAttribute("data-favicon-origin") || "").trim();
+        if (!origin) return;
+        var cached = cachedFaviconDataUrlFor(origin);
+        if (cached) {
+          if (img.getAttribute("src") !== cached) {
+            img.setAttribute("src", cached);
+          }
+          return;
+        }
+        warmFaviconDataUrlFor(origin);
+      });
+    }
+
+    function warmFaviconDataUrlFor(link) {
+      var origin = faviconOriginFor(link);
+      if (!origin) return;
+      if (cachedFaviconDataUrlFor(origin)) return;
+      if (faviconFetchInflight[origin]) return;
+      faviconFetchInflight[origin] = loadFaviconDataUrlFromCacheStorage(origin)
+        .then(function (cachedDataUrl) {
+          if (cachedDataUrl) return cachedDataUrl;
+          return fetch(faviconRequestUrlForOrigin(origin), {
+            credentials: "same-origin",
+          })
+            .then(function (response) {
+              if (!response.ok) throw new Error("favicon fetch failed");
+              return response.blob();
+            })
+            .then(function (blob) {
+              return blobToDataUrl(blob);
+            });
+        })
+        .then(function (dataUrl) {
+          if (!dataUrl) return null;
+          rememberFaviconDataUrl(origin, dataUrl);
+          updateFaviconImagesForOrigin(origin, dataUrl);
+          return dataUrl;
+        })
+        .catch(function () {
+          return null;
+        })
+        .finally(function () {
+          delete faviconFetchInflight[origin];
+        });
+    }
+    window.__hydrateDeferredFaviconImages = hydrateDeferredFaviconImages;
+
     function renderTaskLinkBadges(links) {
       return (Array.isArray(links) ? links : [])
         .map(function (link) {
           var favicon = faviconUrlFor(link);
+          var origin = faviconOriginFor(link);
           if (!favicon) return "";
+          warmFaviconDataUrlFor(link);
           return (
             '<a class="task-link-badge" href="' + escapeHtml(link) + '" target="_blank" rel="noreferrer noopener" title="' + escapeHtml(link) + '">' +
-              '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" />' +
+              '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" loading="lazy" decoding="async"' + (origin ? ' data-favicon-origin="' + escapeHtml(origin) + '"' : '') + ' />' +
             '</a>'
           );
         })
         .join("");
     }
     window.__renderTaskLinkBadges = renderTaskLinkBadges;
+    hydrateDeferredFaviconImages();
 
     function renderSettingsAssignmentRows(assignments) {
       if (currentTaskData && currentTaskData.assign_group_members) {
@@ -13587,12 +13775,14 @@
       var links = Array.isArray(currentEntityLinks) ? currentEntityLinks : [];
       var items = links.map(function (link, index) {
         var favicon = faviconUrlFor(link);
+        var origin = faviconOriginFor(link);
         var host = linkHostname(link);
+        if (favicon) warmFaviconDataUrlFor(link);
         return (
           '<div class="discussion-link-row" data-link-row="' + index + '">' +
             '<div class="discussion-link-favicon">' +
               (favicon
-                ? '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" />'
+                ? '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" loading="lazy" decoding="async"' + (origin ? ' data-favicon-origin="' + escapeHtml(origin) + '"' : '') + ' />'
                 : '<i class="fa-solid fa-link" aria-hidden="true"></i>') +
             '</div>' +
             '<div class="discussion-link-meta">' +

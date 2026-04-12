@@ -8,6 +8,16 @@ from urllib.parse import quote, urljoin, urlparse
 import requests
 from flask import Flask, Response, send_from_directory
 
+_FAVICON_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+
+
+def canonical_favicon_target(target: str) -> str:
+    value = str(target or "").strip()
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
 class _IconLinkParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -24,18 +34,22 @@ class _IconLinkParser(HTMLParser):
         self.icons.append(href)
 
 
+def _apply_cache_headers(response: Response, etag_value: str) -> Response:
+    response.headers["Cache-Control"] = f"public, max-age={_FAVICON_MAX_AGE_SECONDS}, immutable"
+    response.headers["ETag"] = '"' + str(etag_value or "") + '"'
+    return response
+
+
 def placeholder_response(app: Flask):
     response = send_from_directory(app.static_folder, "icons/link-badge.svg", mimetype="image/svg+xml")
-    response.headers["Cache-Control"] = "public, max-age=86400"
     response.headers["X-Termin-Favicon-Source"] = "placeholder"
-    return response
+    return _apply_cache_headers(response, "placeholder-link-badge-v1")
 
 
 def _favicon_response(payload: bytes, content_type: str, source: str):
     response = Response(payload, mimetype=content_type or "image/x-icon")
-    response.headers["Cache-Control"] = "public, max-age=86400"
     response.headers["X-Termin-Favicon-Source"] = source
-    return response
+    return _apply_cache_headers(response, hashlib.sha256(payload).hexdigest())
 
 
 def _cache_dir(app: Flask) -> Path:
@@ -163,7 +177,10 @@ def cache_favicon_for_link(app: Flask, target: str) -> bool:
     parsed = urlparse(target)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return False
-    if _load_cached(app, target):
+    cache_target = canonical_favicon_target(target)
+    if not cache_target:
+        return False
+    if _load_cached(app, cache_target):
         return True
     session = requests.Session()
     session.headers.update(
@@ -175,7 +192,7 @@ def cache_favicon_for_link(app: Flask, target: str) -> bool:
     for candidate in _candidate_urls(target):
         try:
             payload, content_type = _fetch_binary(session, candidate)
-            _store_cached(app, target, payload, content_type, candidate)
+            _store_cached(app, cache_target, payload, content_type, candidate)
             return True
         except Exception:
             continue
@@ -195,12 +212,15 @@ def favicon_response_for_link(app: Flask, target: str):
     parsed = urlparse(target)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return placeholder_response(app)
+    cache_target = canonical_favicon_target(target)
+    if not cache_target:
+        return placeholder_response(app)
     try:
-        cached = _load_cached(app, target)
+        cached = _load_cached(app, cache_target)
         if cached is None:
             if not cache_favicon_for_link(app, target):
                 return placeholder_response(app)
-            cached = _load_cached(app, target)
+            cached = _load_cached(app, cache_target)
             if cached is None:
                 return placeholder_response(app)
         payload, content_type, source = cached
