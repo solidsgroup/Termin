@@ -13443,12 +13443,14 @@
         });
     }
 
-    function fetchTaskSnapshot(taskId) {
+    function fetchTaskSnapshot(taskId, options) {
       if (!taskId) return Promise.resolve(null);
+      var config = options && typeof options === "object" ? options : {};
+      var preferCache = config.preferCache !== false;
       if (window.__terminDebugFetchTrace) {
         console.log("[task-fetch]", "fetchTaskSnapshot", String(taskId || ""));
       }
-      var cachedTask = getRecentTaskSnapshot(taskId);
+      var cachedTask = preferCache ? getRecentTaskSnapshot(taskId) : null;
       if (cachedTask) {
         return Promise.resolve(cachedTask);
       }
@@ -18258,7 +18260,7 @@
         }
         var taskSnapshotPromise = isLocalActor
           ? Promise.resolve(task)
-          : fetchTaskSnapshot(task.id);
+          : fetchTaskSnapshot(task.id, { preferCache: false });
         taskSnapshotPromise.then(function (freshTask) {
           var resolvedTask = freshTask && freshTask.id ? freshTask : task;
           mergeDashboardTask(resolvedTask);

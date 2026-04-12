@@ -32,6 +32,7 @@ from app.identity import find_user_by_email, normalize_email, search_users_by_id
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
 from app.favicon_cache import cache_favicons_for_links
 from app.notification_preferences import user_notification_channel_enabled
+from app.debug_tools import debug_print
 from app.web_push import (
     active_web_push_subscriptions_for_user,
     delete_web_push_subscription,
@@ -981,6 +982,16 @@ def web_push_status():
     user = current_user()
     config = public_web_push_config()
     subscriptions = active_web_push_subscriptions_for_user(user.id)
+    debug_print(
+        "web-push",
+        "status",
+        "user_id=",
+        user.id,
+        "configured=",
+        config["enabled"],
+        "subscriptions=",
+        len(subscriptions),
+    )
     return {
         "configured": config["enabled"],
         "public_key": config["public_key"],
@@ -1002,6 +1013,8 @@ def web_push_status():
 @login_required
 def register_web_push_subscription():
     user = current_user()
+    if not public_web_push_config().get("enabled"):
+        return {"error": "web push is not configured"}, 409
     payload = request.get_json(silent=True) or {}
     subscription = payload.get("subscription") if isinstance(payload.get("subscription"), dict) else {}
     keys = subscription.get("keys") if isinstance(subscription.get("keys"), dict) else {}
@@ -1020,7 +1033,18 @@ def register_web_push_subscription():
         device_label=str(payload.get("device_label") or "").strip() or None,
     )
     db.session.commit()
-    return {"ok": True}
+    subscriptions = active_web_push_subscriptions_for_user(user.id)
+    debug_print(
+        "web-push",
+        "registered",
+        "user_id=",
+        user.id,
+        "subscriptions=",
+        len(subscriptions),
+        "device_label=",
+        str(payload.get("device_label") or "").strip() or "",
+    )
+    return {"ok": True, "subscription_count": len(subscriptions)}
 
 
 @api_bp.delete("/web-push")
@@ -1034,7 +1058,18 @@ def unregister_web_push_subscription():
     deleted = delete_web_push_subscription(user_id=user.id, endpoint=endpoint)
     if deleted:
         db.session.commit()
-    return {"ok": True, "deleted": bool(deleted)}
+    subscriptions = active_web_push_subscriptions_for_user(user.id)
+    debug_print(
+        "web-push",
+        "unregistered",
+        "user_id=",
+        user.id,
+        "deleted=",
+        bool(deleted),
+        "subscriptions=",
+        len(subscriptions),
+    )
+    return {"ok": True, "deleted": bool(deleted), "subscription_count": len(subscriptions)}
 
 
 @api_bp.post("/web-push/test")
@@ -1043,7 +1078,7 @@ def send_test_web_push():
     user = current_user()
     if not public_web_push_config().get("enabled"):
         return {"error": "web push is not configured"}, 400
-    send_web_push_notification(
+    result = send_web_push_notification(
         user_id=user.id,
         payload={
             "title": "Termin notifications enabled",
@@ -1052,7 +1087,27 @@ def send_test_web_push():
             "tag": "termin:test-push",
         },
     )
-    return {"ok": True}
+    if result["subscription_count"] <= 0:
+        return {
+            "ok": False,
+            "error": "no active browser push subscription is registered for this account",
+            **result,
+        }, 409
+    if result["sent_count"] <= 0:
+        first_error = next(
+            (
+                item.get("error")
+                for item in result.get("failures") or []
+                if item.get("error")
+            ),
+            "browser push could not be delivered",
+        )
+        return {
+            "ok": False,
+            "error": first_error,
+            **result,
+        }, 502
+    return {"ok": True, **result}
 
 
 @api_bp.get("/notifications")

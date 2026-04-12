@@ -11076,6 +11076,7 @@
           const status = document.getElementById("web-push-status");
           const hint = document.getElementById("web-push-hint");
           const config = window.TerminPWAConfig || {};
+          let serverState = null;
           if (!button || !status || !hint) return;
 
           function setBusy(isBusy) {
@@ -11116,10 +11117,37 @@
             return registration.pushManager.getSubscription();
           }
 
+          async function getServerState() {
+            const response = await fetch("/api/web-push", {
+              method: "GET",
+              credentials: "same-origin",
+              headers: { "Accept": "application/json" },
+            });
+            const payload = await response.json().catch(function () {
+              return {};
+            });
+            if (!response.ok) {
+              throw new Error(payload.error || "Unable to load browser notification state.");
+            }
+            serverState = payload || {};
+            return serverState;
+          }
+
           async function refreshState() {
+            let remote = serverState;
+            try {
+              remote = await getServerState();
+            } catch (_error) {}
             const subscription = await getExistingSubscription();
             setLabel(!!subscription);
-            if (!config.enabled) {
+            const configured = !!(remote && remote.configured);
+            const subscriptionCount = Number((remote && remote.subscription_count) || 0);
+            const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
+            const isStandalone = !!(
+              (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+              window.navigator.standalone === true
+            );
+            if (!configured) {
               status.textContent = "Browser push is not configured on this server yet.";
               button.disabled = true;
               return;
@@ -11134,19 +11162,30 @@
               button.disabled = true;
               return;
             }
+            if (isIos && !isStandalone) {
+              status.textContent = "On iPhone, push notifications require the Home Screen app.";
+              button.disabled = true;
+              return;
+            }
             if (Notification.permission === "denied") {
               status.textContent = "Notification permission is blocked for this browser.";
               button.disabled = true;
               return;
             }
             button.disabled = false;
-            status.textContent = subscription
-              ? "Browser push is enabled in this browser."
+            if (subscription) {
+              status.textContent = subscriptionCount > 0
+                ? "Browser push is enabled in this browser."
+                : "This browser has a local push subscription, but the server has not stored it yet.";
+              return;
+            }
+            status.textContent = subscriptionCount > 0
+              ? "This account has browser subscriptions on other devices, but not in this browser."
               : "Browser push is available but not enabled in this browser yet.";
           }
 
           async function registerSubscription(subscription) {
-            await fetch("/api/web-push", {
+            const response = await fetch("/api/web-push", {
               method: "POST",
               credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
@@ -11155,22 +11194,45 @@
                 device_label: window.matchMedia("(display-mode: standalone)").matches ? "Installed app" : "Browser tab",
               }),
             });
+            const payload = await response.json().catch(function () {
+              return {};
+            });
+            if (!response.ok || !payload.ok) {
+              throw new Error(payload.error || "Unable to register browser notifications.");
+            }
+            serverState = payload;
+            return payload;
           }
 
           async function deleteSubscription(subscription) {
-            await fetch("/api/web-push", {
+            const response = await fetch("/api/web-push", {
               method: "DELETE",
               credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ endpoint: subscription.endpoint }),
             });
+            const payload = await response.json().catch(function () {
+              return {};
+            });
+            if (!response.ok || !payload.ok) {
+              throw new Error(payload.error || "Unable to disable browser notifications.");
+            }
+            serverState = payload;
+            return payload;
           }
 
           async function sendTestPush() {
-            await fetch("/api/web-push/test", {
+            const response = await fetch("/api/web-push/test", {
               method: "POST",
               credentials: "same-origin",
             });
+            const payload = await response.json().catch(function () {
+              return {};
+            });
+            if (!response.ok || !payload.ok) {
+              throw new Error(payload.error || "Test push could not be delivered.");
+            }
+            return payload;
           }
 
           async function handleToggle(event) {
@@ -11203,12 +11265,12 @@
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(config.public_key || ""),
               });
-              await registerSubscription(subscription);
-              await sendTestPush().catch(function () {});
-              hint.textContent = "Browser notifications enabled for this browser. A test push was sent.";
+              const registrationResult = await registerSubscription(subscription);
+              const testResult = await sendTestPush();
+              hint.textContent = "Browser notifications enabled for this browser. Test push sent to " + String(testResult.sent_count || registrationResult.subscription_count || 1) + " subscription.";
               await refreshState();
-            } catch (_error) {
-              hint.textContent = "Unable to update browser notifications.";
+            } catch (error) {
+              hint.textContent = (error && error.message) ? error.message : "Unable to update browser notifications.";
             } finally {
               setBusy(false);
             }

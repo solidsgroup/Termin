@@ -6,6 +6,7 @@ import json
 from flask import current_app
 from pywebpush import WebPushException, webpush
 
+from app.debug_tools import debug_print
 from app.extensions import db
 from app.models import WebPushSubscription
 
@@ -82,13 +83,24 @@ def active_web_push_subscriptions_for_user(user_id: int) -> list[WebPushSubscrip
     )
 
 
-def send_web_push_notification(*, user_id: int, payload: dict) -> None:
-    if not web_push_is_configured():
-        return
+def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
+    result = {
+        "configured": bool(web_push_is_configured()),
+        "subscription_count": 0,
+        "sent_count": 0,
+        "stale_count": 0,
+        "failure_count": 0,
+        "failures": [],
+    }
+    if not result["configured"]:
+        debug_print("web-push", "send skipped", "user_id=", user_id, "reason=config-disabled")
+        return result
 
     subscriptions = active_web_push_subscriptions_for_user(user_id)
+    result["subscription_count"] = len(subscriptions)
     if not subscriptions:
-        return
+        debug_print("web-push", "send skipped", "user_id=", user_id, "reason=no-subscriptions")
+        return result
 
     vapid_private_key = current_app.config["WEB_PUSH_PRIVATE_KEY"]
     vapid_claims = {"sub": current_app.config["WEB_PUSH_SUBJECT"]}
@@ -114,18 +126,52 @@ def send_web_push_notification(*, user_id: int, payload: dict) -> None:
             status_code = getattr(getattr(exc, "response", None), "status_code", None)
             if status_code in {404, 410}:
                 stale_rows.append(row)
+                result["stale_count"] += 1
                 continue
+            result["failure_count"] += 1
+            result["failures"].append(
+                {
+                    "endpoint": row.endpoint,
+                    "status_code": status_code,
+                    "error": str(exc),
+                }
+            )
             current_app.logger.warning(
                 "web push delivery failed",
                 extra={"user_id": user_id, "endpoint": row.endpoint, "status_code": status_code},
             )
         except Exception:
+            result["failure_count"] += 1
+            result["failures"].append(
+                {
+                    "endpoint": row.endpoint,
+                    "status_code": None,
+                    "error": "unexpected error",
+                }
+            )
             current_app.logger.exception(
                 "web push delivery failed",
                 extra={"user_id": user_id, "endpoint": row.endpoint},
             )
+        else:
+            result["sent_count"] += 1
 
     if stale_rows:
         for row in stale_rows:
             db.session.delete(row)
         db.session.commit()
+    debug_print(
+        "web-push",
+        "send result",
+        "user_id=",
+        user_id,
+        "subscriptions=",
+        result["subscription_count"],
+        "sent=",
+        result["sent_count"],
+        "stale=",
+        result["stale_count"],
+        "failed=",
+        result["failure_count"],
+    )
+    return result
