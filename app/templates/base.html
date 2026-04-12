@@ -1234,6 +1234,48 @@
         opacity: 1;
       }
 
+      @keyframes termin-page-spinner {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .page-loading-overlay {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--menu-bg) 90%, transparent);
+        border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+        box-shadow: var(--menu-shadow);
+        backdrop-filter: blur(12px);
+        color: var(--ink);
+        font-size: 0.9rem;
+        font-weight: 700;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 160ms ease;
+        z-index: 700;
+      }
+
+      .page-loading-spinner {
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        border: 2px solid color-mix(in srgb, var(--muted) 45%, transparent);
+        border-top-color: var(--accent);
+        animation: termin-page-spinner 720ms linear infinite;
+      }
+
+      body.is-page-loading .page-loading-overlay {
+        opacity: 1;
+      }
+
       @keyframes termin-header-loading {
         from {
           background-position: 0 0;
@@ -10358,6 +10400,10 @@
       </script>
     {% endif %}
     <div class="mobile-sidebar-backdrop" data-mobile-sidebar-backdrop hidden></div>
+    <div class="page-loading-overlay" aria-live="polite" aria-atomic="true">
+      <span class="page-loading-spinner" aria-hidden="true"></span>
+      <span>Loading…</span>
+    </div>
     <main>
       {% block content %}{% endblock %}
     </main>

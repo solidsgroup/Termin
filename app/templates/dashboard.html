@@ -412,6 +412,44 @@
     font-size: 0.95rem;
   }
 
+  .dashboard-pane-loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--bg) 76%, transparent);
+    backdrop-filter: blur(3px);
+    z-index: 12;
+  }
+
+  .dashboard-pane-loading.is-active {
+    display: flex;
+  }
+
+  .dashboard-pane-loading-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--menu-bg) 92%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+    box-shadow: var(--menu-shadow);
+    color: var(--ink);
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  .dashboard-pane-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--muted) 45%, transparent);
+    border-top-color: var(--accent);
+    animation: termin-page-spinner 720ms linear infinite;
+  }
+
   .dashboard-home-stats {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1022,6 +1060,12 @@
       </div>
     </div>
     <div class="dashboard-view-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-view="todo">
+      <div class="dashboard-pane-loading" data-dashboard-pane-loading="todo" aria-hidden="true">
+        <div class="dashboard-pane-loading-chip">
+          <span class="dashboard-pane-spinner" aria-hidden="true"></span>
+          <span>Loading Todo…</span>
+        </div>
+      </div>
       <div class="todo-board" data-todo-resize data-todo-client-board="1" data-todo-board-ready="0">
         <div class="panel" data-todo-empty-panel>
           <h3>Loading tasks</h3>
@@ -1030,6 +1074,12 @@
       </div>
     </div>
     <div class="dashboard-view-pane{% if current_view == 'tree' %} is-active{% endif %}" data-dashboard-view="tree">
+      <div class="dashboard-pane-loading" data-dashboard-pane-loading="tree" aria-hidden="true">
+        <div class="dashboard-pane-loading-chip">
+          <span class="dashboard-pane-spinner" aria-hidden="true"></span>
+          <span>Loading Tree…</span>
+        </div>
+      </div>
       <div class="tree-board" data-tree-board data-tree-ready="0" data-tree-client-board="1">
         {% if selected_project %}
           <div class="tree-project-board" data-tree-project-board="{{ selected_project.id }}" data-tree-division-id="{{ selected_project.division_id if selected_project.division_id is not none else 'none' }}" style="--project-color: {{ selected_project_color or '#4cc9f0' }};">
@@ -15357,9 +15407,18 @@
       }).join("");
     }
 
+    function setDashboardPaneLoading(view, isLoading) {
+      var overlay = document.querySelector('[data-dashboard-pane-loading="' + String(view || "") + '"]');
+      if (!overlay) return;
+      overlay.classList.toggle("is-active", !!isLoading);
+      overlay.setAttribute("aria-hidden", isLoading ? "false" : "true");
+    }
+    window.__setDashboardPaneLoading = setDashboardPaneLoading;
+
     function renderTodoBoardFromStore() {
       var board = document.querySelector(".todo-board[data-todo-client-board='1']");
       if (!board) return false;
+      setDashboardPaneLoading("todo", true);
       if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return false;
       var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
         ? dashboardBootstrapStore.views.todo.task_ids
@@ -15377,6 +15436,7 @@
         upsertTodoItemFromSnapshot(task);
       });
       board.setAttribute("data-todo-board-ready", "1");
+      setDashboardPaneLoading("todo", false);
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
@@ -19067,15 +19127,18 @@
       }
 
       function ensureAndSyncTreeSelection(selection) {
+        setDashboardPaneLoading("tree", true);
         removeTreeLoadingPanels();
         return ensureTreeSelectionBoards(selection)
           .then(function (changed) {
             syncTreeSelectionAfterEnsure();
+            setDashboardPaneLoading("tree", false);
             return changed;
           })
           .catch(function (error) {
             console.warn("tree selection ensure failed", error);
             syncTreeSelectionAfterEnsure();
+            setDashboardPaneLoading("tree", false);
             return false;
           });
       }
@@ -19534,12 +19597,14 @@
       if (treeBoard) {
         treeBoard.setAttribute("data-tree-ready", "1");
       }
+      setDashboardPaneLoading("tree", isTreeDashboardView());
       if (isTreeDashboardView()) {
         scheduleInitialTreeSelectionEnsure();
       }
       document.addEventListener("termin:dashboard-view-change", function (event) {
         var detail = event && event.detail ? event.detail : null;
         if (!detail || detail.currentView !== "tree" || detail.previousView === "tree") return;
+        setDashboardPaneLoading("tree", true);
         window.requestAnimationFrame(function () {
           focusTreeSidebarSelection(currentSelection);
           ensureAndSyncTreeSelection(currentSelection);
@@ -20557,7 +20622,11 @@
       document.addEventListener("termin:dashboard-view-change", function (event) {
         var detail = event && event.detail ? event.detail : null;
         if (!detail || detail.currentView !== "todo") return;
+        setDashboardPaneLoading("todo", true);
         refreshTodoBoardLayout();
+        window.requestAnimationFrame(function () {
+          window.__renderTodoBoardFromStore();
+        });
       });
     })();
 
