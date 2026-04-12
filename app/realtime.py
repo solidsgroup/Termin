@@ -1632,6 +1632,7 @@ def register_socket_handlers() -> None:
             .first()
         ):
             return
+        passive = bool((data or {}).get("passive"))
         sid = request.sid
         user_id = _sid_user.get(sid)
         if user_id is None:
@@ -1642,10 +1643,11 @@ def register_socket_handlers() -> None:
             _project_user_counts[project_id][user_id] += 1
             _recompute_user_active_projects(user_id)
             emit_global_presence()
-        _mark_project_notifications_read(user_id, project_id)
-        emit_notification_state(user_id)
-        emit("project_room_joined", {"project_id": project_id})
-        emit_project_presence(project_id)
+        if not passive:
+            _mark_project_notifications_read(user_id, project_id)
+            emit_notification_state(user_id)
+            emit_project_presence(project_id)
+        emit("project_room_joined", {"project_id": project_id, "passive": passive})
 
     @socketio.on("leave_discussion_presence")
     def handle_leave_discussion_presence(data):

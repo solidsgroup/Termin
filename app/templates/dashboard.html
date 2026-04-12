@@ -12308,15 +12308,6 @@
       }
     }
 
-    function faviconUrlFor(link) {
-      if (!link) return "";
-      var cachedDataUrl = cachedFaviconDataUrlFor(link);
-      if (cachedDataUrl) return cachedDataUrl;
-      var origin = faviconOriginFor(link);
-      if (!origin) return "";
-      return transparentPixelDataUrl;
-    }
-
     function formatLinkLabel(link) {
       try {
         var url = new URL(link);
@@ -12361,6 +12352,12 @@
     var faviconDataUrlCacheMaxEntries = 128;
     var faviconResponseCacheName = "termin-favicons-v2";
     var transparentPixelDataUrl = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+    function faviconUrlFor(link) {
+      if (!link) return "";
+      var cachedDataUrl = cachedFaviconDataUrlFor(link);
+      return cachedDataUrl || (faviconOriginFor(link) ? transparentPixelDataUrl : "");
+    }
 
     function loadFaviconDataUrlCache() {
       if (faviconDataUrlCache) return faviconDataUrlCache;
@@ -12508,8 +12505,8 @@
       });
     }
 
-    function warmFaviconDataUrlFor(link) {
-      var origin = faviconOriginFor(link);
+    function warmFaviconDataUrlFor(linkOrOrigin) {
+      var origin = faviconOriginFor(linkOrOrigin);
       if (!origin) return;
       if (cachedFaviconDataUrlFor(origin)) return;
       if (faviconFetchInflight[origin]) return;
@@ -12548,7 +12545,7 @@
           var favicon = faviconUrlFor(link);
           var origin = faviconOriginFor(link);
           if (!favicon) return "";
-          warmFaviconDataUrlFor(link);
+          warmFaviconDataUrlFor(origin);
           return (
             '<a class="task-link-badge" href="' + escapeHtml(link) + '" target="_blank" rel="noreferrer noopener" title="' + escapeHtml(link) + '">' +
               '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" loading="lazy" decoding="async"' + (origin ? ' data-favicon-origin="' + escapeHtml(origin) + '"' : '') + ' />' +
@@ -13777,7 +13774,7 @@
         var favicon = faviconUrlFor(link);
         var origin = faviconOriginFor(link);
         var host = linkHostname(link);
-        if (favicon) warmFaviconDataUrlFor(link);
+        if (favicon) warmFaviconDataUrlFor(origin);
         return (
           '<div class="discussion-link-row" data-link-row="' + index + '">' +
             '<div class="discussion-link-favicon">' +
@@ -14356,20 +14353,27 @@
 
     function syncProjectRooms() {
       if (!socket || !socketConnected) return;
-      var ids = new Set();
+      var joinModes = Object.create(null);
       visibleProjectIds().forEach(function (projectId) {
-        ids.add(projectId);
+        joinModes[String(projectId)] = "active";
       });
       if (document.querySelector("[data-todo-tree]")) {
         document.querySelectorAll("[data-todo-project]").forEach(function (node) {
           var projectId = node.getAttribute("data-todo-project");
-          if (projectId) ids.add(String(projectId));
+          if (!projectId) return;
+          projectId = String(projectId);
+          if (!joinModes[projectId]) {
+            joinModes[projectId] = "passive";
+          }
         });
       }
-      ids.forEach(function (projectId) {
+      Object.keys(joinModes).forEach(function (projectId) {
         if (joinedProjectIds.has(projectId)) return;
         joinedProjectIds.add(projectId);
-        socket.emit("join_project", { project_id: projectId });
+        socket.emit("join_project", {
+          project_id: projectId,
+          passive: joinModes[projectId] === "passive",
+        });
       });
     }
 
