@@ -11073,14 +11073,17 @@
       (function () {
         async function initTerminBrowserPush() {
           const button = document.getElementById("web-push-toggle");
+          const testButton = document.getElementById("web-push-test-button");
           const status = document.getElementById("web-push-status");
           const hint = document.getElementById("web-push-hint");
+          const testResult = document.getElementById("web-push-test-result");
           const config = window.TerminPWAConfig || {};
           let serverState = null;
           if (!button || !status || !hint) return;
 
           function setBusy(isBusy) {
             button.disabled = !!isBusy;
+            if (testButton) testButton.disabled = !!isBusy;
           }
 
           function setLabel(hasSubscription) {
@@ -11133,12 +11136,48 @@
             return serverState;
           }
 
+          function serverHasSubscriptionForEndpoint(endpoint) {
+            if (!endpoint || !serverState || !Array.isArray(serverState.subscriptions)) return false;
+            return serverState.subscriptions.some(function (item) {
+              return String((item && item.endpoint) || "") === String(endpoint);
+            });
+          }
+
+          async function ensurePushSubscriptionSynced() {
+            if (!config.enabled) return null;
+            if (!window.isSecureContext) return null;
+            if (!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) return null;
+            if (Notification.permission !== "granted") return null;
+            const registration = await ensureRegistration();
+            if (!registration) return null;
+            let subscription = await registration.pushManager.getSubscription();
+            if (!subscription) {
+              subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(config.public_key || ""),
+              });
+            }
+            if (subscription && !serverHasSubscriptionForEndpoint(subscription.endpoint)) {
+              await registerSubscription(subscription);
+              await getServerState().catch(function () {});
+            }
+            return subscription;
+          }
+
           async function refreshState() {
             let remote = serverState;
             try {
               remote = await getServerState();
             } catch (_error) {}
-            const subscription = await getExistingSubscription();
+            let subscription = await getExistingSubscription();
+            try {
+              subscription = (await ensurePushSubscriptionSynced()) || subscription;
+            } catch (_error) {}
+            if (!remote || !Array.isArray(remote.subscriptions)) {
+              try {
+                remote = await getServerState();
+              } catch (_error) {}
+            }
             setLabel(!!subscription);
             const configured = !!(remote && remote.configured);
             const subscriptionCount = Number((remote && remote.subscription_count) || 0);
@@ -11235,11 +11274,19 @@
             return payload;
           }
 
+          function setTestResult(message, isError) {
+            if (!testResult) return;
+            testResult.style.display = message ? "block" : "none";
+            testResult.textContent = message || "";
+            testResult.style.color = isError ? "#f87171" : "var(--success)";
+          }
+
           async function handleToggle(event) {
             if (event && typeof event.preventDefault === "function") event.preventDefault();
             if (event && typeof event.stopPropagation === "function") event.stopPropagation();
             if (!config.enabled) return;
             setBusy(true);
+            setTestResult("", false);
             try {
               const existing = await getExistingSubscription();
               if (existing) {
@@ -11276,11 +11323,38 @@
             }
           }
 
+          async function handleTestPush(event) {
+            if (event && typeof event.preventDefault === "function") event.preventDefault();
+            if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+            setBusy(true);
+            setTestResult("", false);
+            try {
+              await refreshState();
+              const result = await sendTestPush();
+              setTestResult(
+                "Test push sent successfully to " + String(result.sent_count || 1) + " subscription.",
+                false
+              );
+            } catch (error) {
+              setTestResult(
+                (error && error.message) ? error.message : "Test push could not be delivered.",
+                true
+              );
+            } finally {
+              setBusy(false);
+            }
+          }
+
           window.TerminPWA = window.TerminPWA || {};
           window.TerminPWA.toggleBrowserPush = handleToggle;
+          window.TerminPWA.testBrowserPush = handleTestPush;
           if (!button.dataset.webPushBound) {
             button.dataset.webPushBound = "1";
             button.addEventListener("click", handleToggle);
+          }
+          if (testButton && !testButton.dataset.webPushBound) {
+            testButton.dataset.webPushBound = "1";
+            testButton.addEventListener("click", handleTestPush);
           }
           await refreshState();
         }

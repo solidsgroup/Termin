@@ -611,9 +611,18 @@
               >
                 Enable browser notifications
               </button>
+              <button
+                type="button"
+                class="btn secondary"
+                id="web-push-test-button"
+                onclick="if (window.TerminPWA && typeof window.TerminPWA.testBrowserPush === 'function') { window.TerminPWA.testBrowserPush(event); }"
+              >
+                Test mobile push
+              </button>
               <span class="footer-note" id="web-push-hint">
                 Works on desktop installs and Android PWAs. iPhone requires the Home Screen app.
               </span>
+              <span class="footer-note" id="web-push-test-result" style="display: none; width: 100%;"></span>
             </span>
           </div>
           {% if web_push_subscriptions %}
