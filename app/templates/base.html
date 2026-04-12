@@ -11329,6 +11329,41 @@
             setBusy(true);
             setTestResult("", false);
             try {
+              if (!config.enabled) {
+                throw new Error("Browser push is not configured on this server yet.");
+              }
+              if (!window.isSecureContext) {
+                throw new Error("Browser push requires HTTPS or localhost.");
+              }
+              if (!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) {
+                throw new Error("This browser does not support web push notifications.");
+              }
+              const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
+              const isStandalone = !!(
+                (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+                window.navigator.standalone === true
+              );
+              if (isIos && !isStandalone) {
+                throw new Error("On iPhone, push notifications require the Home Screen app.");
+              }
+              if (Notification.permission === "denied") {
+                throw new Error("Notification permission is blocked for this browser.");
+              }
+              if (Notification.permission !== "granted") {
+                const permission = await Notification.requestPermission();
+                if (permission !== "granted") {
+                  throw new Error("Notification permission was not granted.");
+                }
+              }
+              await getServerState().catch(function () {});
+              const subscription = await ensurePushSubscriptionSynced();
+              if (!subscription || !subscription.endpoint) {
+                throw new Error("This device could not create a browser push subscription.");
+              }
+              await getServerState().catch(function () {});
+              if (!serverHasSubscriptionForEndpoint(subscription.endpoint)) {
+                throw new Error("This device is not registered for browser push on the server.");
+              }
               await refreshState();
               const result = await sendTestPush();
               setTestResult(
