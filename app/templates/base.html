@@ -11080,6 +11080,17 @@
           const config = window.TerminPWAConfig || {};
           let serverState = null;
           if (!button || !status || !hint) return;
+          window.__terminLocalPushState = window.__terminLocalPushState || {
+            configured: false,
+            permission: "",
+            hasSubscription: false,
+            endpoint: "",
+            serverRegistered: false,
+          };
+
+          function publishLocalPushState(nextState) {
+            window.__terminLocalPushState = Object.assign({}, window.__terminLocalPushState || {}, nextState || {});
+          }
 
           function setBusy(isBusy) {
             button.disabled = !!isBusy;
@@ -11216,8 +11227,22 @@
               status.textContent = subscriptionCount > 0
                 ? "Browser push is enabled in this browser."
                 : "This browser has a local push subscription, but the server has not stored it yet.";
+              publishLocalPushState({
+                configured: configured,
+                permission: Notification.permission || "",
+                hasSubscription: true,
+                endpoint: String((subscription && subscription.endpoint) || ""),
+                serverRegistered: subscriptionCount > 0 && serverHasSubscriptionForEndpoint(subscription.endpoint),
+              });
               return;
             }
+            publishLocalPushState({
+              configured: configured,
+              permission: Notification.permission || "",
+              hasSubscription: false,
+              endpoint: "",
+              serverRegistered: false,
+            });
             status.textContent = subscriptionCount > 0
               ? "This account has browser subscriptions on other devices, but not in this browser."
               : "Browser push is available but not enabled in this browser yet.";

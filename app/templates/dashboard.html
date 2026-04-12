@@ -11556,6 +11556,10 @@
 
     function shouldSuppressDesktopNotification(item) {
       if (!item) return true;
+      var localPushState = window.__terminLocalPushState || null;
+      if (localPushState && localPushState.hasSubscription && localPushState.serverRegistered) {
+        return true;
+      }
       return isActivelyViewingMessageItem(item);
     }
 

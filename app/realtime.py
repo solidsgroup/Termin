@@ -209,18 +209,96 @@ def _web_push_payload_for_notification(
         elif kind == "task_completed":
             title = "Task completed"
             body = f'{actor_name} completed "{task_title}"'
+        elif kind == "task_due_changed":
+            title = "Due date changed"
+            new_due = str(detail.get("new_due_label") or detail.get("new_due_at") or "").strip()
+            if actor_name and new_due:
+                body = actor_name + " changed " + task_title + " due date to " + new_due
+            elif actor_name:
+                body = actor_name + " changed " + task_title + " due date"
+            else:
+                body = ("Due date changed to " + new_due) if new_due else "Due date changed"
+        elif kind == "task_due_cleared":
+            title = "Due date removed"
+            body = (actor_name + " removed the due date from " + task_title) if actor_name else "Due date removed"
+        elif kind == "task_due_asap":
+            title = "Marked ASAP"
+            body = (actor_name + " marked " + task_title + " ASAP") if actor_name else "Marked ASAP"
+        elif kind == "task_status_changed":
+            title = "Status changed"
+            new_status = str(detail.get("new_status") or "").strip()
+            if actor_name and new_status:
+                body = actor_name + " changed " + task_title + " status to " + new_status
+            elif actor_name:
+                body = actor_name + " changed " + task_title + " status"
+            else:
+                body = ("Status changed to " + new_status) if new_status else "Status changed"
+        elif kind == "task_renamed":
+            title = "Task renamed"
+            new_title = str(detail.get("new_title") or "").strip()
+            if actor_name and new_title:
+                body = actor_name + " renamed this task to " + new_title
+            elif actor_name:
+                body = actor_name + " renamed " + task_title
+            else:
+                body = ("Renamed to " + new_title) if new_title else "Task renamed"
+        elif kind == "assignment_added":
+            title = "Assigned to task"
+            if detail.get("group_assign"):
+                project_label = str(detail.get("project_name") or task_title or "Task").strip()
+                other_count = max(int(detail.get("group_assign_other_count") or 0), 0)
+                if actor_name:
+                    body = (
+                        actor_name + " assigned " + project_label + " to you and " + str(other_count) + " other(s)"
+                        if other_count
+                        else actor_name + " assigned " + project_label + " to you"
+                    )
+                else:
+                    body = (
+                        project_label + " was assigned to you and " + str(other_count) + " other(s)"
+                        if other_count
+                        else project_label + " was assigned to you"
+                    )
+            else:
+                recipient_phrase = str(detail.get("recipient_assignment_phrase") or "").strip()
+                assignee = str(detail.get("assignee_label") or "").strip()
+                if actor_name and recipient_phrase:
+                    body = actor_name + " assigned " + task_title + " to " + recipient_phrase
+                elif actor_name and assignee:
+                    body = actor_name + " assigned " + task_title + " to " + assignee
+                elif actor_name:
+                    body = actor_name + " assigned " + task_title
+                elif recipient_phrase:
+                    body = task_title + " was assigned to " + recipient_phrase
+                else:
+                    body = ("Assigned to " + assignee) if assignee else "Assigned to task"
+        elif kind == "task_moved":
+            title = "Task moved"
+            body = (actor_name + " moved " + task_title) if actor_name else "Task moved"
         elif kind == "task_created":
             title = "Task created"
             body = f'{actor_name} created "{task_title}"'
         else:
             title = "Task updated"
-            body = f'{actor_name} updated "{task_title}"'
+            changed_fields = [str(value).strip() for value in (detail.get("changed_fields") or []) if str(value).strip()]
+            if actor_name and changed_fields:
+                body = actor_name + " updated " + task_title + " (" + ", ".join(changed_fields) + ")"
+            elif changed_fields:
+                body = "Updated " + ", ".join(changed_fields)
+            else:
+                body = f'{actor_name} updated "{task_title}"'
     elif project is not None or project_id:
         url = f"/tree/project/{project_id}"
         tag = f"termin:{kind}:project:{project_id}"
         if kind == "project_comment":
             title = f"{actor_name} commented"
             body = f'In project "{project_name or "Project"}"'
+        elif kind == "project_shared":
+            title = "Added to project"
+            body = ((actor_name + " added you to " + (project_name or "Project")) if actor_name else ("Added to " + (project_name or "Project")))
+        elif kind == "project_removed":
+            title = "Removed from project"
+            body = ((actor_name + " removed you from " + (project_name or "Project")) if actor_name else ("Removed from " + (project_name or "Project")))
         else:
             title = "Project updated"
             body = f'{actor_name} updated "{project_name or "Project"}"'
