@@ -20622,8 +20622,12 @@
       document.addEventListener("termin:dashboard-view-change", function (event) {
         var detail = event && event.detail ? event.detail : null;
         if (!detail || detail.currentView !== "todo") return;
-        setDashboardPaneLoading("todo", true);
         refreshTodoBoardLayout();
+        var board = document.querySelector(".todo-board[data-todo-client-board='1']");
+        if (!board) return;
+        var alreadyRendered = board.getAttribute("data-todo-board-ready") === "1" && !!board.querySelector(".todo-item, [data-todo-empty-panel]");
+        if (alreadyRendered) return;
+        setDashboardPaneLoading("todo", true);
         window.requestAnimationFrame(function () {
           window.__renderTodoBoardFromStore();
         });
