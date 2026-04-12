@@ -36,6 +36,7 @@ from app.web_push import (
     active_web_push_subscriptions_for_user,
     delete_web_push_subscription,
     public_web_push_config,
+    send_web_push_notification,
     upsert_web_push_subscription,
 )
 from app.realtime import (
@@ -1034,6 +1035,24 @@ def unregister_web_push_subscription():
     if deleted:
         db.session.commit()
     return {"ok": True, "deleted": bool(deleted)}
+
+
+@api_bp.post("/web-push/test")
+@login_required
+def send_test_web_push():
+    user = current_user()
+    if not public_web_push_config().get("enabled"):
+        return {"error": "web push is not configured"}, 400
+    send_web_push_notification(
+        user_id=user.id,
+        payload={
+            "title": "Termin notifications enabled",
+            "body": "This browser can receive Termin push notifications.",
+            "url": "/account",
+            "tag": "termin:test-push",
+        },
+    )
+    return {"ok": True}
 
 
 @api_bp.get("/notifications")

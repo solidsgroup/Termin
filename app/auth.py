@@ -24,6 +24,11 @@ auth_bp = Blueprint("auth", __name__)
 OWNER_BOOTSTRAP_EMAIL = "brunnels@solids.group"
 
 
+def _establish_session(user_id: int) -> None:
+    session.permanent = True
+    session["user_id"] = int(user_id)
+
+
 def _can_self_bootstrap_account(email: str | None) -> bool:
     return normalize_email(email) == OWNER_BOOTSTRAP_EMAIL
 
@@ -175,7 +180,7 @@ def _link_provider_account(
         login_alias.avatar_url = avatar_url
     sync_user_avatar_from_primary_email(user)
     db.session.commit()
-    session["user_id"] = user.id
+    _establish_session(user.id)
     return user
 
 
@@ -228,7 +233,7 @@ def _claim_collaborator_with_provider(
         login_alias.avatar_url = avatar_url
     sync_user_avatar_from_primary_email(user)
     db.session.commit()
-    session["user_id"] = user.id
+    _establish_session(user.id)
     return user
 
 
@@ -265,7 +270,7 @@ def _login_with_provider(
         expires_in=expires_in,
     )
     db.session.commit()
-    session["user_id"] = user.id
+    _establish_session(user.id)
     return user
 
 
@@ -338,13 +343,13 @@ def login():
                     db.session.flush()
                 ensure_primary_user_email(user)
                 db.session.commit()
-                session["user_id"] = user.id
+                _establish_session(user.id)
                 return redirect(url_for("ui.dashboard"))
         user = find_user_by_email(email)
         if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
             error = "Invalid email or password."
         else:
-            session["user_id"] = user.id
+            _establish_session(user.id)
             return redirect(url_for("ui.dashboard"))
 
     if session.get("collaborator_claim_token"):

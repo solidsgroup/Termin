@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from urllib.parse import urlparse
 
 
@@ -49,6 +50,13 @@ class Config:
         f"https://{_render_hostname}" if _render_hostname else "http://localhost:5000",
     )
     PREFERRED_URL_SCHEME = _env("PREFERRED_URL_SCHEME", "https")
+    _public_scheme = urlparse(PUBLIC_BASE_URL).scheme or PREFERRED_URL_SCHEME or "https"
+    SESSION_COOKIE_NAME = _env("SESSION_COOKIE_NAME", "termin_session")
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = _env("SESSION_COOKIE_SAMESITE", "Lax")
+    SESSION_COOKIE_SECURE = _env_bool("SESSION_COOKIE_SECURE", _public_scheme == "https")
+    SESSION_REFRESH_EACH_REQUEST = True
+    PERMANENT_SESSION_LIFETIME = timedelta(days=int(_env("PERMANENT_SESSION_DAYS", "45")))
 
     # Mail delivery
     MAIL_PROVIDER = _env("MAIL_PROVIDER", "smtp")

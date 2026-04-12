@@ -11100,9 +11100,13 @@
           async function ensureRegistration() {
             if (!("serviceWorker" in navigator)) return null;
             let registration = await navigator.serviceWorker.getRegistration("/");
-            if (registration) return registration;
-            registration = await navigator.serviceWorker.register("/service-worker.js");
-            return registration;
+            if (!registration) {
+              registration = await navigator.serviceWorker.register("/service-worker.js");
+            }
+            try {
+              await navigator.serviceWorker.ready;
+            } catch (_error) {}
+            return (await navigator.serviceWorker.getRegistration("/")) || registration;
           }
 
           async function getExistingSubscription() {
@@ -11130,6 +11134,11 @@
               button.disabled = true;
               return;
             }
+            if (Notification.permission === "denied") {
+              status.textContent = "Notification permission is blocked for this browser.";
+              button.disabled = true;
+              return;
+            }
             button.disabled = false;
             status.textContent = subscription
               ? "Browser push is enabled in this browser."
@@ -11139,6 +11148,7 @@
           async function registerSubscription(subscription) {
             await fetch("/api/web-push", {
               method: "POST",
+              credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 subscription: subscription.toJSON(),
@@ -11150,8 +11160,16 @@
           async function deleteSubscription(subscription) {
             await fetch("/api/web-push", {
               method: "DELETE",
+              credentials: "same-origin",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ endpoint: subscription.endpoint }),
+            });
+          }
+
+          async function sendTestPush() {
+            await fetch("/api/web-push/test", {
+              method: "POST",
+              credentials: "same-origin",
             });
           }
 
@@ -11186,7 +11204,8 @@
                 applicationServerKey: urlBase64ToUint8Array(config.public_key || ""),
               });
               await registerSubscription(subscription);
-              hint.textContent = "Browser notifications enabled for this browser.";
+              await sendTestPush().catch(function () {});
+              hint.textContent = "Browser notifications enabled for this browser. A test push was sent.";
               await refreshState();
             } catch (_error) {
               hint.textContent = "Unable to update browser notifications.";
