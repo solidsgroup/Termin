@@ -1,13 +1,142 @@
-self.addEventListener("install", function () {
+const STATIC_CACHE = "termin-static-v2";
+const SHELL_CACHE = "termin-shell-v2";
+const STATIC_ASSETS = [
+  "/manifest.webmanifest",
+  "/static/brand/termin-icon-v4-192.png",
+  "/static/brand/termin-icon-v4-512.png",
+  "/static/brand/termin-icon-v4-180.png",
+];
+
+function isGet(request) {
+  return request && request.method === "GET";
+}
+
+function isHttp(request) {
+  return request && request.url && request.url.startsWith("http");
+}
+
+function isSameOrigin(request) {
+  try {
+    return new URL(request.url).origin === self.location.origin;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function isApiRequest(url) {
+  return url.pathname.startsWith("/api/");
+}
+
+function isSocketRequest(url) {
+  return url.pathname.startsWith("/socket.io/");
+}
+
+function isServiceWorkerRequest(url) {
+  return url.pathname === "/service-worker.js";
+}
+
+function isNavigationRequest(request) {
+  return request.mode === "navigate";
+}
+
+function isStaticAsset(url) {
+  return (
+    url.pathname.startsWith("/static/") ||
+    url.pathname === "/manifest.webmanifest" ||
+    url.pathname === "/favicon.ico"
+  );
+}
+
+function isShellPath(url) {
+  if (url.pathname === "/" || url.pathname === "/dashboard" || url.pathname === "/todo" || url.pathname === "/inbox") {
+    return true;
+  }
+  if (url.pathname.startsWith("/tree/")) {
+    return true;
+  }
+  if (url.pathname.startsWith("/task/")) {
+    return true;
+  }
+  return false;
+}
+
+async function staleWhileRevalidate(cacheName, request) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  const networkPromise = fetch(request)
+    .then(function (response) {
+      if (response && response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(function () {
+      return null;
+    });
+  return cached || networkPromise || fetch(request);
+}
+
+async function networkFirst(cacheName, request) {
+  const cache = await caches.open(cacheName);
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (_error) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw _error;
+  }
+}
+
+self.addEventListener("install", function (event) {
+  event.waitUntil(
+    caches.open(STATIC_CACHE).then(function (cache) {
+      return cache.addAll(STATIC_ASSETS);
+    }).catch(function () {
+      return null;
+    })
+  );
   self.skipWaiting();
 });
 
 self.addEventListener("activate", function (event) {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then(function (keys) {
+      return Promise.all(
+        keys.map(function (key) {
+          if (key === STATIC_CACHE || key === SHELL_CACHE) return null;
+          return caches.delete(key);
+        })
+      );
+    }).then(function () {
+      return self.clients.claim();
+    })
+  );
 });
 
 self.addEventListener("fetch", function (event) {
-  event.respondWith(fetch(event.request));
+  const request = event.request;
+  if (!isGet(request) || !isHttp(request) || !isSameOrigin(request)) {
+    return;
+  }
+
+  const url = new URL(request.url);
+  if (isApiRequest(url) || isSocketRequest(url) || isServiceWorkerRequest(url)) {
+    return;
+  }
+
+  if (isStaticAsset(url)) {
+    event.respondWith(staleWhileRevalidate(STATIC_CACHE, request));
+    return;
+  }
+
+  if (isNavigationRequest(request) && isShellPath(url)) {
+    event.respondWith(networkFirst(SHELL_CACHE, request));
+    return;
+  }
 });
 
 self.addEventListener("push", function (event) {
