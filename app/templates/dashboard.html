@@ -572,9 +572,38 @@
   }
 
   @media (max-width: 980px) {
-    .dashboard-home-grid,
-    .dashboard-home-stats {
+    .dashboard-home-grid {
       grid-template-columns: 1fr;
+    }
+
+    .dashboard-home-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .dashboard-home-stats {
+      gap: 10px;
+    }
+
+    .dashboard-stat-card {
+      padding: 12px 14px;
+      border-radius: 16px;
+    }
+
+    .dashboard-stat-label {
+      font-size: 0.72rem;
+    }
+
+    .dashboard-stat-value {
+      font-size: clamp(1.45rem, 6vw, 2rem);
+      line-height: 1;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .dashboard-quick-links {
+      display: none;
     }
   }
 
@@ -927,7 +956,7 @@
     <div class="dashboard-view-pane{% if current_view == 'dashboard' %} is-active{% endif %}" data-dashboard-view="dashboard">
       <div class="dashboard-home">
         <section class="dashboard-home-hero">
-          <div class="dashboard-home-kicker">Termin Dashboard</div>
+          <div class="dashboard-home-kicker" data-live-datetime></div>
           <h1 class="dashboard-home-title">{{ dashboard_greeting }}, {{ dashboard_first_name }}</h1>
           <div class="dashboard-quick-links">
               <a class="dashboard-quick-link" href="{% if selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}" data-dashboard-view-target="tree"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Tree</span></a>
@@ -10382,6 +10411,7 @@
     var dashboardStorePersistTimer = null;
     var dashboardBootstrapCacheSchemaVersion = 2;
     var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v2.user." + String(currentUserId);
+    var discussionDrawerHistoryKey = "discussionDrawerOpen";
 
     function dashboardStoreEntities() {
       return dashboardBootstrapStore && dashboardBootstrapStore.entities ? dashboardBootstrapStore.entities : {};
@@ -15493,6 +15523,43 @@
       closeMultiStatusMenu();
     }
 
+    function currentLocationForHistory() {
+      return window.location.pathname + window.location.search + window.location.hash;
+    }
+
+    function markDrawerOpenInHistory() {
+      if (!window.history || typeof window.history.pushState !== "function") return;
+      var currentState = (window.history.state && typeof window.history.state === "object")
+        ? window.history.state
+        : {};
+      if (currentState && currentState[discussionDrawerHistoryKey]) return;
+      var nextState = Object.assign({}, currentState);
+      nextState[discussionDrawerHistoryKey] = true;
+      window.history.pushState(nextState, "", currentLocationForHistory());
+    }
+
+    function clearDrawerHistoryMarker() {
+      if (!window.history || typeof window.history.replaceState !== "function") return;
+      var currentState = (window.history.state && typeof window.history.state === "object")
+        ? window.history.state
+        : {};
+      if (!currentState || !currentState[discussionDrawerHistoryKey]) return;
+      var nextState = Object.assign({}, currentState);
+      delete nextState[discussionDrawerHistoryKey];
+      window.history.replaceState(nextState, "", currentLocationForHistory());
+    }
+
+    function dismissOpenDrawer(options) {
+      var opts = options || {};
+      if (!drawer.classList.contains("open")) return false;
+      closeDrawer();
+      if (opts.clearHistory !== false) {
+        clearDrawerHistoryMarker();
+      }
+      return true;
+    }
+    window.__dismissDiscussionDrawer = dismissOpenDrawer;
+
     function renderMultiStatusMenuRows(task) {
       var meta = taskStatusMeta(task);
       var assignees = Array.isArray(meta.assignees) ? meta.assignees.slice() : [];
@@ -15935,6 +16002,7 @@
       }
       listEl.innerHTML = '<div class="footer-note">Loading…</div>';
       drawer.classList.add("open");
+      markDrawerOpenInHistory();
       setDrawerTab("messages");
       fetch(commentBaseUrl(entityType, entityId) + "/comments", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
@@ -15964,6 +16032,7 @@
     function openLinks(taskId, taskTitle, projectName) {
       loadTaskMeta(taskId, taskTitle, projectName);
       drawer.classList.add("open");
+      markDrawerOpenInHistory();
       setDrawerTab("links");
     }
 
@@ -15974,6 +16043,7 @@
       }
       loadTaskMeta(taskId, taskTitle, projectName);
       drawer.classList.add("open");
+      markDrawerOpenInHistory();
       setDrawerTab("settings");
     }
 
@@ -15998,6 +16068,7 @@
       }
       loadEntityMeta(entityType, entityId, entityTitle, projectName);
       drawer.classList.add("open");
+      markDrawerOpenInHistory();
       setDrawerTab(kind);
     }
 
@@ -16615,7 +16686,14 @@
     }
 
     closeEls.forEach(function (button) {
-      button.addEventListener("click", closeDrawer);
+      button.addEventListener("click", function () {
+        dismissOpenDrawer();
+      });
+    });
+    window.addEventListener("popstate", function () {
+      if (drawer.classList.contains("open")) {
+        closeDrawer();
+      }
     });
     if (taskSettingsAssignmentsEl) {
       taskSettingsAssignmentsEl.addEventListener("click", function (event) {
@@ -17696,6 +17774,9 @@
           mobileTrigger.style.visibility = hideMobileTrigger ? "hidden" : "";
           mobileTrigger.style.pointerEvents = hideMobileTrigger ? "none" : "";
           mobileTrigger.setAttribute("aria-hidden", hideMobileTrigger ? "true" : "false");
+          if (document.body) {
+            document.body.classList.toggle("mobile-no-sidebar-trigger", hideMobileTrigger);
+          }
         }
         if (sidebar) {
           sidebar.setAttribute("aria-hidden", (nextView === "inbox" || nextView === "dashboard") ? "true" : "false");
@@ -17706,12 +17787,22 @@
         var opts = options || {};
         var nextView = knownViews[view] ? view : parseViewFromLocation();
         var previousView = activeView();
+        var shouldOpenMobileSidebar =
+          previousView !== nextView &&
+          nextView === "tree" &&
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(max-width: 900px)").matches;
         if (previousView !== nextView) {
           viewPaths[previousView] = currentPath();
         }
         applyViewState(nextView);
         if (typeof window.__closeMobileSidebar === "function") {
-          window.__closeMobileSidebar();
+          window.__closeMobileSidebar({ immediate: true });
+        }
+        if (shouldOpenMobileSidebar && typeof window.__openMobileSidebar === "function") {
+          window.setTimeout(function () {
+            window.__openMobileSidebar();
+          }, 0);
         }
         var nextUrl = opts.url || viewPaths[nextView] || currentPath();
         if (opts.syncHistory) {
@@ -17740,7 +17831,25 @@
           var targetView = String(link.getAttribute("data-dashboard-view-target") || "");
           if (!knownViews[targetView]) return;
           event.preventDefault();
-          if (targetView === activeView()) return;
+          if (typeof window.__dismissDiscussionDrawer === "function") {
+            if (window.__dismissDiscussionDrawer()) {
+              return;
+            }
+          }
+          if (targetView === activeView()) {
+            if (
+              (targetView === "tree" || targetView === "todo") &&
+              typeof window.matchMedia === "function" &&
+              window.matchMedia("(max-width: 900px)").matches &&
+              typeof window.__toggleMobileSidebar === "function"
+            ) {
+              event.__terminActiveViewToggleHandled = true;
+              event.stopPropagation();
+              window.__toggleMobileSidebar();
+            }
+            return;
+          }
+          event.__terminDashboardViewChanged = true;
           setDashboardView(targetView, {
             syncHistory: true,
             url: viewPaths[targetView] || link.getAttribute("href") || currentPath(),

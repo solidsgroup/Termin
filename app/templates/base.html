@@ -1179,6 +1179,7 @@
         min-height: 54px;
         display: flex;
         align-items: center;
+        gap: 4px;
         position: relative;
       }
 
@@ -1293,6 +1294,18 @@
 
         .header-brand-logo {
           height: 28px;
+        }
+
+        .header-center .view-switcher {
+          gap: 6px;
+          padding-left: 10px;
+          padding-right: 10px;
+        }
+
+        .header-center .view-switcher > a.view-switch {
+          min-height: 52px;
+          padding: 7px 4px;
+          border-radius: 14px;
         }
       }
 
@@ -1803,6 +1816,48 @@
         min-width: 0;
         text-align: left;
         white-space: nowrap;
+      }
+
+      .mobile-bottom-nav {
+        display: none;
+      }
+
+      .mobile-bottom-nav-slot .view-switcher {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        align-items: center;
+        width: min(100%, 520px);
+        margin: 0 auto;
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .mobile-bottom-nav-slot .view-switcher > a.view-switch {
+        min-width: 0;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        min-height: 54px;
+        padding: 8px 6px;
+        border-radius: 16px;
+        text-align: center;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .mobile-bottom-nav-slot .view-switcher > a.view-switch i {
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .mobile-bottom-nav-slot .view-switcher > a.view-switch.active {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 44%, var(--border) 56%);
+        box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 18%, transparent);
       }
 
       main {
@@ -3122,9 +3177,9 @@
         display: none;
         width: 36px;
         height: 36px;
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        background: color-mix(in srgb, var(--panel) 80%, transparent);
+        border-radius: 0;
+        border: 0;
+        background: transparent;
         color: var(--ink);
         align-items: center;
         justify-content: center;
@@ -3133,8 +3188,7 @@
       }
 
       .mobile-sidebar-trigger:hover {
-        border-color: rgba(76, 201, 240, 0.35);
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        color: var(--accent);
       }
 
       .mobile-sidebar-backdrop {
@@ -3158,6 +3212,9 @@
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
       }
 
       .view-switch:hover {
@@ -3172,21 +3229,33 @@
       }
 
       .view-search-trigger {
-        border: 0;
-        background: transparent;
+        position: relative;
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--panel) 80%, transparent);
+        color: var(--ink);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         cursor: pointer;
       }
 
+      .view-search-trigger:hover {
+        border-color: rgba(76, 201, 240, 0.35);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+
       .view-search.is-open .view-search-trigger {
-        color: var(--ink);
-        border-bottom-color: var(--accent);
-        background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+        border-color: rgba(76, 201, 240, 0.35);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
       }
 
       .view-search-menu {
         position: absolute;
         top: calc(100% + 10px);
-        left: 0;
+        right: 0;
         width: min(420px, 72vw);
         display: none;
         flex-direction: column;
@@ -8926,12 +8995,38 @@
         .header-center {
           grid-column: 1 / -1;
           order: 3;
-          border-top: 1px solid rgba(255, 255, 255, 0.04);
+          border-top: 0;
+          position: static;
         }
 
         .mobile-sidebar-trigger {
           display: inline-flex;
-          margin-right: 10px;
+          margin-right: 1px;
+          opacity: 1;
+          width: 36px;
+          overflow: hidden;
+          transition: width 220ms ease, margin-right 220ms ease, opacity 180ms ease;
+        }
+
+        body.mobile-no-sidebar-trigger .mobile-sidebar-trigger {
+          display: inline-flex;
+          width: 0;
+          margin-right: 0;
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        body.mobile-no-sidebar-trigger .header-brand {
+          gap: 0;
+          justify-content: flex-start;
+        }
+
+        .header-brand a {
+          transition: transform 220ms ease;
+        }
+
+        body.mobile-no-sidebar-trigger .header-brand a {
+          transform: translateX(-14px);
         }
 
         .header-center {
@@ -8949,18 +9044,26 @@
           margin-bottom: 0;
         }
 
-        .view-switch {
-          flex: 1 1 50%;
-          text-align: center;
-          padding-top: 12px;
+        .header-center .view-switcher {
+          display: none;
         }
 
-        .view-switcher > a.view-switch {
-          flex: 1 1 0;
+        .mobile-bottom-nav {
+          display: block;
+          position: fixed;
+          left: env(safe-area-inset-left, 0px);
+          right: env(safe-area-inset-right, 0px);
+          bottom: 0;
+          z-index: 530;
+          background:
+            linear-gradient(180deg, color-mix(in srgb, var(--header-bg) 72%, transparent) 0%, color-mix(in srgb, var(--header-bg) 96%, var(--panel) 4%) 100%);
+          backdrop-filter: blur(18px);
+          border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+          box-shadow: 0 -16px 34px rgba(0, 0, 0, 0.18);
         }
 
-        .view-search-trigger {
-          flex: 0 0 auto;
+        .mobile-bottom-nav-slot .view-search {
+          display: none;
         }
 
         .notifications-menu,
@@ -9024,6 +9127,7 @@
         main {
           height: calc(100dvh - var(--mobile-sidebar-top, 96px));
           min-height: 0;
+          padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
         }
 
         .content > *,
@@ -10036,11 +10140,23 @@
           color: var(--accent);
         }
       }
+
+      @media (prefers-reduced-motion: reduce) {
+        .mobile-sidebar-trigger,
+        .header-brand a {
+          transition: none !important;
+        }
+      }
     </style>
   </head>
-  <body class="is-page-loading" data-theme="{{ active_theme }}" data-theme-family="{{ active_theme_name }}">
+  <body class="is-page-loading" data-theme="{{ active_theme }}" data-theme-family="{{ active_theme_name }}" data-current-view="{{ current_view or '' }}">
     <header>
       <div class="header-brand">
+        {% if current_view is defined and current_view in ['dashboard', 'tree', 'todo', 'inbox'] %}
+        <button class="mobile-sidebar-trigger" type="button" data-mobile-sidebar-trigger aria-label="Open navigation" aria-expanded="false">
+          <i class="fa-solid fa-bars" aria-hidden="true"></i>
+        </button>
+        {% endif %}
         <a href="{{ url_for('ui.dashboard') }}" aria-label="Termin dashboard">
           <img
             class="header-brand-logo is-dark"
@@ -10057,18 +10173,19 @@
       </div>
       <div class="header-center">
         {% if current_view is defined %}
-          {% if current_view in ['dashboard', 'tree', 'todo', 'inbox'] %}
-          <button class="mobile-sidebar-trigger" type="button" data-mobile-sidebar-trigger aria-label="Open navigation" aria-expanded="false">
-            <i class="fa-solid fa-bars" aria-hidden="true"></i>
-          </button>
-          {% endif %}
           <div class="view-switcher">
-            <a class="view-switch view-switch-icon{% if current_view == 'dashboard' %} active{% endif %}" data-dashboard-view-target="dashboard" href="{{ url_for('ui.dashboard_home') }}" aria-label="Dashboard" title="Dashboard"><i class="fa-solid fa-house" aria-hidden="true"></i></a>
-            <a class="view-switch{% if current_view == 'tree' %} active{% endif %}" data-dashboard-view-target="tree" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}">Tree</a>
-            <a class="view-switch{% if current_view == 'todo' %} active{% endif %}" data-dashboard-view-target="todo" href="{{ url_for('ui.todo_dashboard') }}">Todo</a>
-            <a class="view-switch{% if current_view == 'inbox' %} active{% endif %}" data-dashboard-view-target="inbox" href="{{ url_for('ui.inbox_dashboard') }}">Inbox</a>
+            <a class="view-switch view-switch-icon{% if current_view == 'dashboard' %} active{% endif %}" data-dashboard-view-target="dashboard" href="{{ url_for('ui.dashboard_home') }}" aria-label="Dashboard" title="Dashboard"><i class="fa-solid fa-house" aria-hidden="true"></i><span>Home</span></a>
+            <a class="view-switch view-switch-icon{% if current_view == 'tree' %} active{% endif %}" data-dashboard-view-target="tree" href="{% if selected_project is defined and selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}" aria-label="Tree" title="Tree"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Tree</span></a>
+            <a class="view-switch view-switch-icon{% if current_view == 'todo' %} active{% endif %}" data-dashboard-view-target="todo" href="{{ url_for('ui.todo_dashboard') }}" aria-label="Todo" title="Todo"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>Todo</span></a>
+            <a class="view-switch view-switch-icon{% if current_view == 'inbox' %} active{% endif %}" data-dashboard-view-target="inbox" href="{{ url_for('ui.inbox_dashboard') }}" aria-label="Inbox" title="Inbox"><i class="fa-regular fa-message" aria-hidden="true"></i><span>Inbox</span></a>
+          </div>
+        {% endif %}
+      </div>
+      <div class="header-actions">
+        {% if user %}
+          {% if current_view is defined %}
             <div class="view-search" data-task-search>
-              <button class="view-switch view-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" data-task-search-trigger aria-label="Search" title="Search">
+              <button class="view-search-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" data-task-search-trigger aria-label="Search" title="Search">
                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
               </button>
               <div class="view-search-menu" data-task-search-menu>
@@ -10078,11 +10195,7 @@
                 </div>
               </div>
             </div>
-          </div>
-        {% endif %}
-      </div>
-      <div class="header-actions">
-        {% if user %}
+          {% endif %}
           {% if task_notifications is defined %}
             <div class="notifications-shell" data-notifications-menu data-notification-kind="regular">
               <button class="notifications-trigger" type="button" aria-haspopup="menu" aria-expanded="false" data-notifications-trigger title="Notifications">
@@ -10229,12 +10342,47 @@
         {% endif %}
       </div>
     </header>
+    {% if current_view is defined and current_view in ['dashboard', 'tree', 'todo', 'inbox'] %}
+      <nav class="mobile-bottom-nav" data-mobile-bottom-nav aria-label="Primary">
+        <div class="mobile-bottom-nav-slot" data-mobile-bottom-nav-slot></div>
+      </nav>
+      <script>
+        (function () {
+          if (!window.matchMedia || !window.matchMedia("(max-width: 900px)").matches) return;
+          var headerCenter = document.querySelector(".header-center");
+          var headerViewSwitcher = headerCenter ? headerCenter.querySelector(".view-switcher") : null;
+          var mobileBottomNavSlot = document.querySelector("[data-mobile-bottom-nav-slot]");
+          if (!headerViewSwitcher || !mobileBottomNavSlot) return;
+          mobileBottomNavSlot.appendChild(headerViewSwitcher);
+        })();
+      </script>
+    {% endif %}
     <div class="mobile-sidebar-backdrop" data-mobile-sidebar-backdrop hidden></div>
     <main>
       {% block content %}{% endblock %}
     </main>
     <script>
       window.addEventListener("DOMContentLoaded", () => {
+        const liveDateTimeNodes = Array.from(document.querySelectorAll("[data-live-datetime]"));
+        if (liveDateTimeNodes.length) {
+          const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          });
+          const renderLiveDateTime = () => {
+            const text = dateTimeFormatter.format(new Date());
+            liveDateTimeNodes.forEach((node) => {
+              node.textContent = text;
+              node.setAttribute("aria-label", text);
+            });
+          };
+          renderLiveDateTime();
+          window.setInterval(renderLiveDateTime, 30000);
+        }
+
         document.querySelectorAll("input, textarea").forEach((el) => {
           el.setAttribute("autocomplete", "nope");
           el.setAttribute("autocapitalize", "off");
@@ -10255,14 +10403,20 @@
           document.documentElement.style.setProperty("--mobile-sidebar-top", `${offset}px`);
           document.documentElement.style.setProperty("--mobile-header-menu-top", `${Math.max(0, offset - 2)}px`);
         };
-        const closeMobileSidebar = () => {
+        const closeMobileSidebar = (options) => {
+          const opts = options || {};
+          const immediate = !!opts.immediate;
           if (!mobileSidebar) return;
           if (mobileSidebarCloseTimer) {
             window.clearTimeout(mobileSidebarCloseTimer);
             mobileSidebarCloseTimer = null;
           }
           mobileSidebar.classList.remove("is-mobile-open");
-          mobileSidebar.classList.add("is-mobile-closing");
+          if (immediate) {
+            mobileSidebar.classList.remove("is-mobile-closing");
+          } else {
+            mobileSidebar.classList.add("is-mobile-closing");
+          }
           document.body.classList.remove("mobile-sidebar-open");
           if (mobileSidebarBackdrop) {
             mobileSidebarBackdrop.classList.remove("is-open");
@@ -10271,6 +10425,9 @@
           mobileSidebarTriggers.forEach((trigger) => {
             trigger.setAttribute("aria-expanded", "false");
           });
+          if (immediate) {
+            return;
+          }
           mobileSidebarCloseTimer = window.setTimeout(() => {
             mobileSidebar.classList.remove("is-mobile-closing");
             mobileSidebarCloseTimer = null;
@@ -10293,7 +10450,17 @@
             trigger.setAttribute("aria-expanded", "true");
           });
         };
+        window.__openMobileSidebar = openMobileSidebar;
         window.__closeMobileSidebar = closeMobileSidebar;
+        window.__toggleMobileSidebar = () => {
+          if (!isMobileSidebarMode()) return false;
+          if (mobileSidebar && mobileSidebar.classList.contains("is-mobile-open")) {
+            closeMobileSidebar();
+          } else {
+            openMobileSidebar();
+          }
+          return true;
+        };
         syncMobileSidebarOffset();
         window.addEventListener("resize", syncMobileSidebarOffset);
         mobileSidebarTriggers.forEach((mobileSidebarTrigger) => {
@@ -10333,6 +10500,122 @@
             mobileSidebarMql.addEventListener("change", syncMobileSidebarState);
           } else if (mobileSidebarMql.addListener) {
             mobileSidebarMql.addListener(syncMobileSidebarState);
+          }
+        }
+
+        const mobileBottomNav = document.querySelector("[data-mobile-bottom-nav]");
+        const mobileBottomNavSlot = document.querySelector("[data-mobile-bottom-nav-slot]");
+        const headerCenter = document.querySelector(".header-center");
+        const headerViewSwitcher = headerCenter ? headerCenter.querySelector(".view-switcher") : null;
+        const viewSwitcherPlaceholder = document.createComment("view-switcher-placeholder");
+        const currentView = String((document.body && document.body.getAttribute("data-current-view")) || "").trim().toLowerCase();
+        const mobileTreeSidebarIntentKey = "termin.mobileTreeSidebarIntent";
+        const mobileNavLandingTargetKey = "termin.mobileNavLandingTarget";
+        let mobileNavToggleArmedAt = Date.now() + 700;
+        let viewSwitcherDockedToBottom = false;
+
+        const syncMobileBottomNav = () => {
+          if (!mobileBottomNav || !mobileBottomNavSlot || !headerCenter || !headerViewSwitcher || !mobileSidebarMql) return;
+          if (mobileSidebarMql.matches) {
+            if (!viewSwitcherDockedToBottom) {
+              if (headerViewSwitcher.parentNode === headerCenter) {
+                headerCenter.insertBefore(viewSwitcherPlaceholder, headerViewSwitcher);
+              }
+              mobileBottomNavSlot.appendChild(headerViewSwitcher);
+              viewSwitcherDockedToBottom = true;
+            }
+          } else if (viewSwitcherDockedToBottom) {
+            if (viewSwitcherPlaceholder.parentNode) {
+              viewSwitcherPlaceholder.parentNode.replaceChild(headerViewSwitcher, viewSwitcherPlaceholder);
+            } else {
+              headerCenter.appendChild(headerViewSwitcher);
+            }
+            viewSwitcherDockedToBottom = false;
+          }
+        };
+
+        syncMobileBottomNav();
+        if (mobileSidebarMql && mobileSidebarMql.matches) {
+          try {
+            if (window.sessionStorage) {
+              const landingTarget = String(window.sessionStorage.getItem(mobileNavLandingTargetKey) || "").trim().toLowerCase();
+              if (landingTarget && landingTarget === currentView) {
+                mobileNavToggleArmedAt = Date.now() + 1800;
+                window.sessionStorage.removeItem(mobileNavLandingTargetKey);
+              } else if (landingTarget) {
+                window.sessionStorage.removeItem(mobileNavLandingTargetKey);
+              }
+              const pendingTreeIntent = window.sessionStorage.getItem(mobileTreeSidebarIntentKey) === "open";
+              if (currentView === "tree" && pendingTreeIntent) {
+                window.sessionStorage.removeItem(mobileTreeSidebarIntentKey);
+                window.setTimeout(() => {
+                  openMobileSidebar();
+                }, 0);
+              } else if (currentView === "todo") {
+                window.sessionStorage.removeItem(mobileTreeSidebarIntentKey);
+                window.setTimeout(() => {
+                  closeMobileSidebar();
+                }, 0);
+              } else if (currentView !== "tree" && pendingTreeIntent) {
+                window.sessionStorage.removeItem(mobileTreeSidebarIntentKey);
+                closeMobileSidebar();
+              } else if (currentView !== "tree") {
+                closeMobileSidebar();
+              }
+            }
+          } catch (_error) {
+            // Ignore storage access failures.
+          }
+        }
+        if (headerViewSwitcher) {
+          headerViewSwitcher.addEventListener("click", (event) => {
+            if (event.__terminActiveViewToggleHandled) return;
+            if (event.__terminDashboardViewChanged) return;
+            const link = event.target.closest("a.view-switch[data-dashboard-view-target]");
+            if (!link || !mobileSidebarMql || !mobileSidebarMql.matches || !viewSwitcherDockedToBottom) return;
+            if (typeof window.__dismissDiscussionDrawer === "function" && window.__dismissDiscussionDrawer()) {
+              event.preventDefault();
+              return;
+            }
+            const target = String(link.getAttribute("data-dashboard-view-target") || "").trim().toLowerCase();
+            const isActive = link.classList.contains("active");
+            if (target === "tree" && !isActive) {
+              try {
+                if (window.sessionStorage) {
+                  window.sessionStorage.setItem(mobileNavLandingTargetKey, "tree");
+                  window.sessionStorage.setItem(mobileTreeSidebarIntentKey, "open");
+                }
+              } catch (_error) {
+                // Ignore storage access failures.
+              }
+              return;
+            }
+            if (target === "todo" && !isActive) {
+              try {
+                if (window.sessionStorage) {
+                  window.sessionStorage.setItem(mobileNavLandingTargetKey, "todo");
+                  window.sessionStorage.removeItem(mobileTreeSidebarIntentKey);
+                }
+              } catch (_error) {
+                // Ignore storage access failures.
+              }
+              return;
+            }
+            if ((target !== "tree" && target !== "todo") || !isActive) return;
+            event.preventDefault();
+            if (mobileSidebar && mobileSidebar.classList.contains("is-mobile-open")) {
+              closeMobileSidebar();
+            } else {
+              openMobileSidebar();
+            }
+          });
+        }
+        window.addEventListener("resize", syncMobileBottomNav);
+        if (mobileSidebarMql) {
+          if (mobileSidebarMql.addEventListener) {
+            mobileSidebarMql.addEventListener("change", syncMobileBottomNav);
+          } else if (mobileSidebarMql.addListener) {
+            mobileSidebarMql.addListener(syncMobileBottomNav);
           }
         }
 
