@@ -146,6 +146,22 @@ async function focusTreeTask(page, taskId, label, extraLines = []) {
   ]);
 }
 
+async function focusTreeDirectProjectRow(page, projectId, label, extraLines = []) {
+  const selector = `[data-tree-direct-project="${projectId}"] .todo-tree-row`;
+  const row = page.locator(selector).first();
+  const text = ((await row.textContent()) || '').trim().replace(/\s+/g, ' ').slice(0, 180);
+  const hasAvatar = await row.locator('.avatar-stack.is-tree-direct .avatar-chip').count();
+  const shareIcons = await row.locator('.shared-with-me-icon').count();
+  const toggles = await row.locator('[data-tree-toggle-project], .todo-tree-toggle.is-hidden, .todo-tree-toggle.is-project-toggle').count();
+  await annotateLocator(page, selector, label, [
+    `Row text: ${text}`,
+    `Direct avatar chips: ${hasAvatar}`,
+    `Share icons: ${shareIcons}`,
+    `Project toggles: ${toggles}`,
+    ...extraLines,
+  ]);
+}
+
 async function expectTreeAssignmentsWithFailure(page, testInfo, taskId, expectedLabels, label, note = '') {
   const selector = `[data-task-row-id="${taskId}"] .assignments`;
   const locator = page.locator(selector).first();
@@ -196,6 +212,23 @@ async function focusTodoTask(page, taskId, label, extraLines = []) {
     `Text: ${text}`,
     ...extraLines,
   ]);
+}
+
+async function expectTodoTaskLinkBadge(page, testInfo, taskId, linkUrl, label, note = '') {
+  const selector = `.todo-item[data-task-id="${taskId}"] a[href="${linkUrl}"]`;
+  const locator = page.locator(selector).first();
+  try {
+    await expect(locator).toHaveCount(1);
+    await expect(locator.locator('img')).toHaveCount(1);
+  } catch (error) {
+    await captureFailureSnapshot(page, testInfo, label, {
+      selector: `.todo-item[data-task-id="${taskId}"]`,
+      expected: `link badge for ${linkUrl}`,
+      actual: (((await page.locator(`.todo-item[data-task-id="${taskId}"]`).first().innerHTML()) || '').replace(/\s+/g, ' ').slice(0, 500)),
+      note,
+    });
+    throw error;
+  }
 }
 
 async function focusActivity(page, selector, label) {
@@ -572,6 +605,45 @@ test.describe('dashboard and realtime flows', () => {
     await memberContext.close();
   });
 
+  test('tree direct-project click keeps avatar and avoids regular project chrome', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'direct', 'sidebar', 'avatar']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await expect(page.locator(`[data-tree-direct-project="${state.direct_project.id}"]`)).toHaveCount(1);
+
+    const directRowSelector = `[data-tree-direct-project="${state.direct_project.id}"] .todo-tree-row`;
+    const directButtonSelector = `[data-tree-direct-project="${state.direct_project.id}"] [data-tree-select-type="project"][data-tree-select-id="${state.direct_project.id}"]`;
+    const directNodeSelector = `[data-tree-direct-project="${state.direct_project.id}"]`;
+
+    await expect(page.locator(`${directRowSelector} .avatar-stack.is-tree-direct .avatar-chip`)).toHaveCount(1);
+    await expect(page.locator(`${directRowSelector} .shared-with-me-icon`)).toHaveCount(0);
+    await expect(page.locator(`${directRowSelector} [data-tree-toggle-project="${state.direct_project.id}"]`)).toHaveCount(0);
+    await focusTreeDirectProjectRow(page, state.direct_project.id, 'Direct project row before click', [
+      'The sidebar row should show the peer avatar.',
+      'No shared/share-out icon should be present.',
+      'No project toggle should be present.',
+    ]);
+    await steps.step('Open Tree on a regular project first and inspect the direct-project row in the sidebar before clicking it.', page);
+
+    await page.locator(directButtonSelector).click();
+    await waitForTreeProjectReady(page, state.direct_project.id, state.direct_task.id);
+    await expect(page.locator(directButtonSelector)).toHaveClass(/is-active/);
+    await expect(page.locator(`${directRowSelector} .avatar-stack.is-tree-direct .avatar-chip`)).toHaveCount(1);
+    await expect(page.locator(`${directRowSelector} .shared-with-me-icon`)).toHaveCount(0);
+    await expect(page.locator(`${directRowSelector} [data-tree-toggle-project="${state.direct_project.id}"]`)).toHaveCount(0);
+    await expect(page.locator(`${directNodeSelector} .todo-tree-groups [data-tree-group-row]`)).toHaveCount(0);
+    await focusTreeDirectProjectRow(page, state.direct_project.id, 'Direct project row after click', [
+      'The avatar should still be present after selection.',
+      'No shared/share-out icon should appear after click.',
+      'The direct row should not grow project-group children.',
+    ]);
+    await steps.step('Click the direct-project row and verify it stays avatar-based, with no share icon and no expandable group chrome injected.', page);
+  });
+
   test('tree project status update does not reset unrelated assignees or status pills', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'tree', 'status', 'single-status', 'assignments', 'jannaf']);
@@ -682,6 +754,27 @@ test.describe('dashboard and realtime flows', () => {
 
     await ownerContext.close();
     await memberContext.close();
+  });
+
+  test('todo refresh preserves link favicons', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['todo', 'links', 'refresh', 'favicons']);
+    const state = await fetchSeedState(request);
+    const taskId = state.linked_todo_task.id;
+    const linkUrl = state.linked_todo_task.link;
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto('/todo');
+    await expect(page.locator(`.todo-item[data-task-id="${taskId}"]`)).toContainText('Linked Todo Task');
+    await expectTodoTaskLinkBadge(page, test.info(), taskId, linkUrl, 'todo-link-badge-before-refresh', 'The linked Todo task should show its favicon badge on the initial Todo load.');
+    await focusTodoTask(page, taskId, 'Linked Todo task before refresh', [`Expected link badge: ${linkUrl}`]);
+    await steps.step('Open /todo as owner@example.com and verify Linked Todo Task shows its link favicon badge.', page);
+
+    await page.reload();
+    await expect(page.locator(`.todo-item[data-task-id="${taskId}"]`)).toContainText('Linked Todo Task');
+    await expectTodoTaskLinkBadge(page, test.info(), taskId, linkUrl, 'todo-link-badge-after-refresh', 'The same Todo task should still show its favicon badge immediately after a full page refresh.');
+    await focusTodoTask(page, taskId, 'Linked Todo task after refresh', [`Expected link badge: ${linkUrl}`]);
+    await steps.step('Refresh /todo and verify Linked Todo Task still shows the same link favicon badge immediately after reload.', page);
   });
 
   test('todo rebuckets live when another user changes due date', async ({ browser, request }) => {

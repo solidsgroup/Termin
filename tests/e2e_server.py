@@ -92,6 +92,13 @@ def seed_data():
             title="Realtime Task",
             status="open",
         )
+        linked_todo_task = Task(
+            project_id=project.id,
+            creator_user_id=owner.id,
+            title="Linked Todo Task",
+            status="open",
+            link="https://example.com/todo-link-target",
+        )
         direct_task = Task(
             project_id=direct_project.id,
             creator_user_id=owner.id,
@@ -110,11 +117,12 @@ def seed_data():
             title="Get JANNAF accounts",
             status="critical",
         )
-        db.session.add_all([task, direct_task, jannaf_status_task, jannaf_assignee_task])
+        db.session.add_all([task, linked_todo_task, direct_task, jannaf_status_task, jannaf_assignee_task])
         db.session.flush()
 
         task_owner_assignment = Assignment(task_id=task.id, user_id=owner.id, status="assigned")
         task_member_assignment = Assignment(task_id=task.id, user_id=member.id, status="assigned")
+        linked_todo_owner_assignment = Assignment(task_id=linked_todo_task.id, user_id=owner.id, status="assigned")
         direct_owner_assignment = Assignment(task_id=direct_task.id, user_id=owner.id, status="assigned")
         direct_member_assignment = Assignment(task_id=direct_task.id, user_id=member.id, status="assigned")
         jannaf_status_owner_assignment = Assignment(task_id=jannaf_status_task.id, user_id=owner.id, status="assigned")
@@ -125,6 +133,7 @@ def seed_data():
             [
                 task_owner_assignment,
                 task_member_assignment,
+                linked_todo_owner_assignment,
                 direct_owner_assignment,
                 direct_member_assignment,
                 jannaf_status_owner_assignment,
@@ -150,12 +159,14 @@ def seed_data():
             "direct_project": {"id": direct_project.id},
             "jannaf_project": {"id": jannaf_project.id},
             "task": {"id": task.id},
+            "linked_todo_task": {"id": linked_todo_task.id, "link": linked_todo_task.link},
             "direct_task": {"id": direct_task.id},
             "jannaf_status_task": {"id": jannaf_status_task.id},
             "jannaf_assignee_task": {"id": jannaf_assignee_task.id},
             "assignments": {
                 "task_owner": {"id": task_owner_assignment.id},
                 "task_member": {"id": task_member_assignment.id},
+                "linked_todo_owner": {"id": linked_todo_owner_assignment.id},
                 "direct_owner": {"id": direct_owner_assignment.id},
                 "direct_member": {"id": direct_member_assignment.id},
                 "jannaf_status_owner": {"id": jannaf_status_owner_assignment.id},

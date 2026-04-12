@@ -930,9 +930,9 @@
           <div class="dashboard-home-kicker">Termin Dashboard</div>
           <h1 class="dashboard-home-title">{{ dashboard_greeting }}, {{ dashboard_first_name }}</h1>
           <div class="dashboard-quick-links">
-            <a class="dashboard-quick-link" href="{{ url_for('ui.todo_dashboard') }}" data-dashboard-view-target="todo"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>Open Todo</span></a>
-            <a class="dashboard-quick-link" href="{% if selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}" data-dashboard-view-target="tree"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Open Tree</span></a>
-            <a class="dashboard-quick-link" href="{{ url_for('ui.inbox_dashboard') }}" data-dashboard-view-target="inbox"><i class="fa-regular fa-envelope" aria-hidden="true"></i><span>Open Inbox</span></a>
+              <a class="dashboard-quick-link" href="{% if selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}" data-dashboard-view-target="tree"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Tree</span></a>
+              <a class="dashboard-quick-link" href="{{ url_for('ui.todo_dashboard') }}" data-dashboard-view-target="todo"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>Todo</span></a>
+            <a class="dashboard-quick-link" href="{{ url_for('ui.inbox_dashboard') }}" data-dashboard-view-target="inbox"><i class="fa-regular fa-envelope" aria-hidden="true"></i><span>Inbox</span></a>
           </div>
         </section>
         <section class="dashboard-home-stats">
@@ -3338,16 +3338,24 @@
         if (!snapshot || !snapshot.project || !snapshot.project.id) return false;
         var project = snapshot.project;
         var canManage = !!project.can_manage;
+        var isDirectProject = !!project.is_direct;
         var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
         var treeSidebar = document.querySelector("[data-tree-sidebar]");
         var treeBoard = document.querySelector("[data-tree-board]");
         if (!treeSidebar || !treeBoard) return false;
 
-        var targetDivision = treeSidebar.querySelector('[data-tree-division-node="' + divisionId + '"]');
-        if (!targetDivision && divisionId === "none") {
-          targetDivision = ensureTreeOtherProjectsNode();
+        var targetDivision = null;
+        var targetDirectList = null;
+        if (isDirectProject) {
+          targetDirectList = ensureTreeDirectList();
+          if (!targetDirectList) return false;
+        } else {
+          targetDivision = treeSidebar.querySelector('[data-tree-division-node="' + divisionId + '"]');
+          if (!targetDivision && divisionId === "none") {
+            targetDivision = ensureTreeOtherProjectsNode();
+          }
+          if (!targetDivision) return false;
         }
-        if (!targetDivision) return false;
 
         var existingNode = treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]');
 	        var existingBoard = treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]');
@@ -3358,30 +3366,42 @@
 	            previousMode = String(activeModeButton.getAttribute("data-project-mode-button") || "tasks");
 	          }
 	        }
-        var divisionChildren = targetDivision.querySelector(".todo-tree-children");
-        if (!divisionChildren) return false;
-        var node = buildTreeProjectNode(project, canManage);
+        var divisionChildren = targetDivision ? targetDivision.querySelector(".todo-tree-children") : null;
+        if (!isDirectProject && !divisionChildren) return false;
+        var node = isDirectProject
+          ? buildTreeDirectProjectNode(project, canManage)
+          : buildTreeProjectNode(project, canManage);
         if (!node) return false;
-        node.classList.remove("is-collapsed");
-        var projectToggle = node.querySelector('[data-tree-toggle-project="' + String(project.id) + '"]');
-        if (projectToggle) {
-          projectToggle.textContent = "▾";
-        }
-        var groupsContainer = node.querySelector(".todo-tree-groups");
-        if (groupsContainer) {
-          groupsContainer.innerHTML = "";
-          if (Array.isArray(snapshot.groups) && snapshot.groups.length) {
-            snapshot.groups.forEach(function (group) {
-              var groupNode = buildTreeGroupNode(project, group, canManage);
-              if (groupNode) groupsContainer.appendChild(groupNode);
-            });
+        if (!isDirectProject) {
+          node.classList.remove("is-collapsed");
+          var projectToggle = node.querySelector('[data-tree-toggle-project="' + String(project.id) + '"]');
+          if (projectToggle) {
+            projectToggle.textContent = "▾";
           }
-          syncTreeProjectToggle(node);
+          var groupsContainer = node.querySelector(".todo-tree-groups");
+          if (groupsContainer) {
+            groupsContainer.innerHTML = "";
+            if (Array.isArray(snapshot.groups) && snapshot.groups.length) {
+              snapshot.groups.forEach(function (group) {
+                var groupNode = buildTreeGroupNode(project, group, canManage);
+                if (groupNode) groupsContainer.appendChild(groupNode);
+              });
+            }
+            syncTreeProjectToggle(node);
+          }
         }
         if (existingNode && existingNode.parentNode) {
           existingNode.parentNode.replaceChild(node, existingNode);
+          if (isDirectProject && node.parentNode !== targetDirectList) {
+            targetDirectList.appendChild(node);
+          }
+        } else if (isDirectProject) {
+          targetDirectList.appendChild(node);
         } else {
           divisionChildren.appendChild(node);
+        }
+        if (isDirectProject) {
+          updateDirectProjectEmptyState();
         }
 
         try {
@@ -3389,7 +3409,7 @@
             var nextState = window.__loadTreeViewState() || {};
             nextState.expanded = nextState.expanded || {};
             nextState.expanded.projects = nextState.expanded.projects || {};
-            nextState.expanded.projects[String(project.id)] = true;
+            nextState.expanded.projects[String(project.id)] = !isDirectProject;
             window.__saveTreeViewState(nextState);
           }
         } catch (err) {}
@@ -13953,6 +13973,9 @@
         var row = button.closest(".todo-tree-row");
         if (!row) return;
         row.querySelectorAll(".shared-with-me-icon").forEach(function (node) { node.remove(); });
+        if (row.hasAttribute("data-project-direct") || row.closest("[data-tree-direct-project]")) {
+          return;
+        }
         if (iconHtml) {
           button.insertAdjacentHTML("afterend", iconHtml);
         }
@@ -18545,7 +18568,7 @@
         if (divisionNode) {
           next.expanded.divisions[String(divisionNode.getAttribute("data-tree-division-node"))] = true;
         }
-        if (projectNode) {
+        if (projectNode && !projectNode.hasAttribute("data-tree-direct-project")) {
           next.expanded.projects[String(projectNode.getAttribute("data-tree-project-node"))] = true;
         }
         return next;

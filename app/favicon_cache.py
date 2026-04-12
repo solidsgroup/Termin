@@ -55,7 +55,10 @@ def _cache_paths(app: Flask, url: str) -> tuple[Path, Path]:
 
 
 def _load_cached(app: Flask, url: str) -> tuple[bytes, str, str] | None:
-    payload_path, meta_path = _cache_paths(app, url)
+    try:
+        payload_path, meta_path = _cache_paths(app, url)
+    except Exception:
+        return None
     if not payload_path.exists() or not meta_path.exists():
         return None
     try:
@@ -69,18 +72,21 @@ def _load_cached(app: Flask, url: str) -> tuple[bytes, str, str] | None:
 
 
 def _store_cached(app: Flask, url: str, payload: bytes, content_type: str, source: str) -> None:
-    payload_path, meta_path = _cache_paths(app, url)
-    payload_path.write_bytes(payload)
-    meta_path.write_text(
-        json.dumps(
-            {
-                "url": url,
-                "content_type": content_type,
-                "source": source,
-            },
-            separators=(",", ":"),
+    try:
+        payload_path, meta_path = _cache_paths(app, url)
+        payload_path.write_bytes(payload)
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "url": url,
+                    "content_type": content_type,
+                    "source": source,
+                },
+                separators=(",", ":"),
+            )
         )
-    )
+    except Exception:
+        return
 
 
 def _fetch_binary(session: requests.Session, url: str):
@@ -189,12 +195,24 @@ def favicon_response_for_link(app: Flask, target: str):
     parsed = urlparse(target)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return placeholder_response(app)
-    cached = _load_cached(app, target)
-    if cached is None:
-        if not cache_favicon_for_link(app, target):
-            return placeholder_response(app)
+    try:
         cached = _load_cached(app, target)
         if cached is None:
+            if not cache_favicon_for_link(app, target):
+                return placeholder_response(app)
+            cached = _load_cached(app, target)
+            if cached is None:
+                return placeholder_response(app)
+        payload, content_type, source = cached
+        return _favicon_response(payload, content_type, source)
+    except Exception:
+        try:
             return placeholder_response(app)
-    payload, content_type, source = cached
-    return _favicon_response(payload, content_type, source)
+        except Exception:
+            response = Response(
+                b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1f2937"/><path d="M10 16h12" stroke="#e5e7eb" stroke-width="2" stroke-linecap="round"/><path d="M16 10v12" stroke="#e5e7eb" stroke-width="2" stroke-linecap="round"/></svg>',
+                mimetype="image/svg+xml",
+            )
+            response.headers["Cache-Control"] = "public, max-age=86400"
+            response.headers["X-Termin-Favicon-Source"] = "placeholder-inline"
+            return response
