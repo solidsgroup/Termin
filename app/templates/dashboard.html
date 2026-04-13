@@ -3395,6 +3395,13 @@
           (ganttEnabled
             ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden><div class="project-gantt-toolbar" data-project-gantt-controls="' + String(project.id) + '"><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Major</span><select data-project-gantt-major="' + String(project.id) + '"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="semester">Semester</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + String(project.id) + '"><option value="none">None</option><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="semester">Semester</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label><button class="project-gantt-export-btn" type="button" data-project-gantt-export="' + String(project.id) + '">Copy Latex</button></div><div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-items="[]"></div></div>'
             : '');
+        if (!project.is_direct) {
+          window.setTimeout(function () {
+            if (typeof window.__syncProjectHeaderAvatars === "function") {
+              window.__syncProjectHeaderAvatars(project.id, project.members);
+            }
+          }, 0);
+        }
         return board;
       }
 
@@ -10739,6 +10746,7 @@
     var projectHierarchyMeta = {{ project_hierarchy_meta|tojson }};
     var dashboardBootstrapStore = null;
     var dashboardStorePersistTimer = null;
+    var dashboardBootstrapCacheDisabled = false;
     var dashboardBootstrapCacheSchemaVersion = 2;
     var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v2.user." + String(currentUserId);
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
@@ -10792,13 +10800,21 @@
     }
 
     function scheduleDashboardBootstrapStorePersist() {
-      if (!dashboardBootstrapStore || !window.localStorage) return;
+      if (!dashboardBootstrapStore || !window.localStorage || dashboardBootstrapCacheDisabled) return;
       if (dashboardStorePersistTimer) window.clearTimeout(dashboardStorePersistTimer);
       dashboardStorePersistTimer = window.setTimeout(function () {
         dashboardStorePersistTimer = null;
         try {
           window.localStorage.setItem(dashboardBootstrapCacheKey, JSON.stringify(dashboardBootstrapStore));
         } catch (error) {
+          if (error && error.name === "QuotaExceededError") {
+            dashboardBootstrapCacheDisabled = true;
+            try {
+              window.localStorage.removeItem(dashboardBootstrapCacheKey);
+            } catch (_removeError) {}
+            console.warn("dashboard bootstrap cache disabled; payload exceeded localStorage quota");
+            return;
+          }
           console.warn("dashboard bootstrap cache persist failed", error);
         }
       }, 50);
@@ -14550,6 +14566,29 @@
         }
       });
     }
+
+    function syncProjectHeaderAvatars(projectId, members) {
+      var normalizedProjectId = String(projectId || "").trim();
+      if (!normalizedProjectId) return;
+      var selector = '[data-project-members="' + normalizedProjectId + '"]';
+      var knownMembers = Array.isArray(members) ? members : discussionAudienceByProjectId.get(normalizedProjectId);
+      if (Array.isArray(knownMembers)) {
+        updateMemberAvatars(selector, knownMembers, 6);
+        applyProjectShareIndicators(normalizedProjectId, knownMembers);
+        return;
+      }
+      fetch("/api/projects/" + encodeURIComponent(normalizedProjectId) + "/members", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          if (!data || !Array.isArray(data.members)) return;
+          updateMemberAvatars(selector, data.members, 6);
+          applyProjectShareIndicators(normalizedProjectId, data.members);
+        })
+        .catch(function (err) {
+          console.error("syncProjectHeaderAvatars failed", err);
+        });
+    }
+    window.__syncProjectHeaderAvatars = syncProjectHeaderAvatars;
 
     function applyAssignmentUpdate(payload) {
       if (!payload || !payload.assignment) return false;
@@ -21020,7 +21059,7 @@
         }
       });
       window.addEventListener("load", function () {
-        if (activeView() === "todo") return;
+        if (typeof window.__getDashboardCurrentView === "function" && window.__getDashboardCurrentView() === "todo") return;
         scheduleTodoBoardWarmup();
       });
     })();

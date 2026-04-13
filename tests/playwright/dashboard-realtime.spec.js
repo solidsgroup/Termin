@@ -753,6 +753,27 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Click the direct-project row and verify it stays avatar-based, with no share icon and no expandable group chrome injected.', page);
   });
 
+  test('tree shared structure project shows header avatars', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'shared', 'project-header', 'avatars']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+
+    const headerAvatarSelector = `[data-tree-project-board="${state.project.id}"] .project-header-avatars .avatar-chip`;
+    await expect(page.locator(headerAvatarSelector)).toHaveCount(2);
+    await expect(page.locator(`[data-tree-project-board="${state.project.id}"] .project-header-avatars [data-user-id="${state.owner.id}"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-tree-project-board="${state.project.id}"] .project-header-avatars [data-user-id="${state.member.id}"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-tree-project-board="${state.project.id}"] .project-header-share-tools`)).toHaveCount(1);
+    await annotateLocator(page, `[data-tree-project-board="${state.project.id}"] .project-board-header`, 'Shared structure project header avatars', [
+      'The shared structure project should show header avatars for Owner and Member.',
+      'The share tools container should remain present on the board header.',
+    ]);
+    await steps.step('Open the shared structure project and verify its board header renders Owner and Member avatar chips immediately.', page);
+  });
+
   test('tree project status update does not reset unrelated assignees or status pills', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'tree', 'status', 'single-status', 'assignments', 'jannaf']);
