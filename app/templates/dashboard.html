@@ -14606,13 +14606,18 @@
           }
         });
       }
+      var joinPayload = [];
       Object.keys(joinModes).forEach(function (projectId) {
         if (joinedProjectIds.has(projectId)) return;
         joinedProjectIds.add(projectId);
-        socket.emit("join_project", {
+        joinPayload.push({
           project_id: projectId,
           passive: joinModes[projectId] === "passive",
         });
+      });
+      if (!joinPayload.length) return;
+      socket.emit("join_projects", {
+        projects: joinPayload,
       });
     }
 

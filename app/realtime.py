@@ -60,6 +60,12 @@ def _debug_socket_summary(payload) -> dict | str:
     for key in ("action", "actor_user_id", "project_id", "group_id", "task_id", "notification_id", "kind"):
         if payload.get(key) is not None:
             summary[key] = payload.get(key)
+    project_ids = payload.get("project_ids")
+    if isinstance(project_ids, list):
+        summary["project_count"] = len(project_ids)
+    projects = payload.get("projects")
+    if isinstance(projects, list):
+        summary["project_count"] = len(projects)
     task = payload.get("task")
     if isinstance(task, dict):
         summary["task"] = {
@@ -177,6 +183,37 @@ def _mark_project_notifications_read(user_id: int, project_id: int) -> None:
             "Skipping project notification read update due to SQLite lock",
             extra={"user_id": user_id, "project_id": project_id},
         )
+
+
+def _user_can_join_project(user_id: int, project_id: int) -> bool:
+    return bool(
+        Project.query.filter_by(id=project_id, owner_id=user_id).first()
+        or ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).first()
+        or db.session.query(Group.id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .filter(Group.project_id == project_id, GroupMember.user_id == user_id)
+        .first()
+    )
+
+
+def _join_project_for_sid(
+    *,
+    sid: str,
+    user_id: int,
+    project_id: int,
+    passive: bool,
+) -> tuple[bool, bool]:
+    project = Project.query.get(project_id)
+    if not project:
+        return False, False
+    if not _user_can_join_project(user_id, project_id):
+        return False, False
+    join_room(project_room(project_id))
+    is_new_join = project_id not in _sid_projects[sid]
+    if is_new_join:
+        _sid_projects[sid].add(project_id)
+        _project_user_counts[project_id][user_id] += 1
+    return True, is_new_join
 
 
 def _web_push_payload_for_notification(
@@ -1621,27 +1658,20 @@ def register_socket_handlers() -> None:
             project_id = int((data or {}).get("project_id"))
         except (TypeError, ValueError):
             return
-        project = Project.query.get(project_id)
-        if not project:
-            return
-        if not (
-            Project.query.filter_by(id=project_id, owner_id=user.id).first()
-            or ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first()
-            or db.session.query(Group.id)
-            .join(GroupMember, GroupMember.group_id == Group.id)
-            .filter(Group.project_id == project_id, GroupMember.user_id == user.id)
-            .first()
-        ):
-            return
         passive = bool((data or {}).get("passive"))
         sid = request.sid
         user_id = _sid_user.get(sid)
         if user_id is None:
             return
-        join_room(project_room(project_id))
-        if project_id not in _sid_projects[sid]:
-            _sid_projects[sid].add(project_id)
-            _project_user_counts[project_id][user_id] += 1
+        joined, is_new_join = _join_project_for_sid(
+            sid=sid,
+            user_id=user_id,
+            project_id=project_id,
+            passive=passive,
+        )
+        if not joined:
+            return
+        if is_new_join:
             _recompute_user_active_projects(user_id)
             emit_global_presence()
         if not passive:
@@ -1649,6 +1679,56 @@ def register_socket_handlers() -> None:
             emit_notification_state(user_id)
             emit_project_presence(project_id)
         emit("project_room_joined", {"project_id": project_id, "passive": passive})
+
+    @socketio.on("join_projects")
+    def handle_join_projects(data):
+        _debug_socket_recv("join_projects", data)
+        user = current_user()
+        if not user:
+            return
+        sid = request.sid
+        user_id = _sid_user.get(sid)
+        if user_id is None:
+            return
+        raw_projects = (data or {}).get("projects")
+        if not isinstance(raw_projects, list):
+            return
+        joined_payloads: list[dict[str, object]] = []
+        active_project_ids: list[int] = []
+        any_new_join = False
+        for entry in raw_projects:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                project_id = int(entry.get("project_id"))
+            except (TypeError, ValueError):
+                continue
+            passive = bool(entry.get("passive"))
+            joined, is_new_join = _join_project_for_sid(
+                sid=sid,
+                user_id=user_id,
+                project_id=project_id,
+                passive=passive,
+            )
+            if not joined:
+                continue
+            joined_payloads.append({"project_id": project_id, "passive": passive})
+            if is_new_join:
+                any_new_join = True
+            if not passive:
+                active_project_ids.append(project_id)
+        if not joined_payloads:
+            return
+        if any_new_join:
+            _recompute_user_active_projects(user_id)
+            emit_global_presence()
+        if active_project_ids:
+            for project_id in active_project_ids:
+                _mark_project_notifications_read(user_id, project_id)
+            emit_notification_state(user_id)
+            for project_id in active_project_ids:
+                emit_project_presence(project_id)
+        emit("project_rooms_joined", {"projects": joined_payloads})
 
     @socketio.on("leave_discussion_presence")
     def handle_leave_discussion_presence(data):
