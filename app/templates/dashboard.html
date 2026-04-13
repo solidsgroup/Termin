@@ -15580,10 +15580,13 @@
     }
     window.__setDashboardPaneLoading = setDashboardPaneLoading;
 
-    function renderTodoBoardFromStore() {
+    function renderTodoBoardFromStore(options) {
+      var opts = options || {};
       var board = document.querySelector(".todo-board[data-todo-client-board='1']");
       if (!board) return false;
-      setDashboardPaneLoading("todo", true);
+      if (opts.showLoading !== false) {
+        setDashboardPaneLoading("todo", true);
+      }
       if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return false;
       var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
         ? dashboardBootstrapStore.views.todo.task_ids
@@ -15601,13 +15604,40 @@
         upsertTodoItemFromSnapshot(task);
       });
       board.setAttribute("data-todo-board-ready", "1");
-      setDashboardPaneLoading("todo", false);
+      if (opts.showLoading !== false) {
+        setDashboardPaneLoading("todo", false);
+      }
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
       return true;
     }
     window.__renderTodoBoardFromStore = renderTodoBoardFromStore;
+
+    var todoBoardWarmupScheduled = false;
+
+    function scheduleTodoBoardWarmup() {
+      if (todoBoardWarmupScheduled) return;
+      var board = document.querySelector(".todo-board[data-todo-client-board='1']");
+      if (!board) return;
+      var alreadyRendered = board.getAttribute("data-todo-board-ready") === "1" && !!board.querySelector(".todo-item, [data-todo-empty-panel]");
+      if (alreadyRendered) return;
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return;
+      todoBoardWarmupScheduled = true;
+      var runner = function () {
+        todoBoardWarmupScheduled = false;
+        var currentBoard = document.querySelector(".todo-board[data-todo-client-board='1']");
+        if (!currentBoard) return;
+        var currentReady = currentBoard.getAttribute("data-todo-board-ready") === "1" && !!currentBoard.querySelector(".todo-item, [data-todo-empty-panel]");
+        if (currentReady) return;
+        renderTodoBoardFromStore({ showLoading: false });
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(runner, { timeout: 800 });
+      } else {
+        window.setTimeout(runner, 120);
+      }
+    }
 
     function upsertTodoItemFromSnapshot(task) {
       if (!task || !task.id) return false;
@@ -20813,6 +20843,17 @@
         window.requestAnimationFrame(function () {
           window.__renderTodoBoardFromStore();
         });
+      });
+      document.addEventListener("termin:dashboard-view-change", function (event) {
+        var detail = event && event.detail ? event.detail : null;
+        if (!detail) return;
+        if (detail.currentView === "dashboard" || detail.currentView === "inbox" || detail.currentView === "tree") {
+          scheduleTodoBoardWarmup();
+        }
+      });
+      window.addEventListener("load", function () {
+        if (activeView() === "todo") return;
+        scheduleTodoBoardWarmup();
       });
     })();
 
