@@ -363,6 +363,25 @@
     padding: 4px 0 16px;
   }
 
+  .dashboard-home.is-pending {
+    visibility: hidden;
+  }
+
+  .dashboard-home.is-ready {
+    visibility: visible;
+  }
+
+  @keyframes dashboardFadeLift {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   .dashboard-home-hero {
     padding: 22px 24px;
     border-radius: 28px;
@@ -371,6 +390,26 @@
       linear-gradient(135deg, color-mix(in srgb, var(--panel) 90%, #fff 10%), color-mix(in srgb, var(--panel-alt) 92%, #000 8%));
     border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
+  }
+
+  .dashboard-home.is-ready .dashboard-home-hero,
+  .dashboard-home.is-ready .dashboard-home-stats,
+  .dashboard-home.is-ready .dashboard-home-panel {
+    opacity: 0;
+    transform: translateY(10px);
+    animation: dashboardFadeLift 320ms ease forwards;
+  }
+
+  .dashboard-home.is-ready .dashboard-home-stats {
+    animation-delay: 70ms;
+  }
+
+  .dashboard-home.is-ready .dashboard-home-panel:first-of-type {
+    animation-delay: 130ms;
+  }
+
+  .dashboard-home.is-ready .dashboard-home-panel:last-of-type {
+    animation-delay: 180ms;
   }
 
   .dashboard-home-kicker {
@@ -492,6 +531,14 @@
     border-radius: 14px;
     background: color-mix(in srgb, var(--panel-alt) 82%, #fff 18%);
     border: 1px solid color-mix(in srgb, var(--dashboard-accent, var(--line)) 20%, var(--line));
+  }
+
+  button.dashboard-activity-item {
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
   }
 
   .dashboard-action-icon,
@@ -619,6 +666,16 @@
     }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .dashboard-home.is-ready .dashboard-home-hero,
+    .dashboard-home.is-ready .dashboard-home-stats,
+    .dashboard-home.is-ready .dashboard-home-panel {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+
   @media (max-width: 640px) {
     .dashboard-home-stats {
       gap: 10px;
@@ -668,7 +725,7 @@
     display: none;
   }
 </style>
-<div class="layout dashboard-layout{% if current_view == 'inbox' %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
+<div class="layout dashboard-layout{% if current_view in ['dashboard', 'inbox'] %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
   <aside class="sidebar todo-tree dashboard-sidebar" data-dashboard-sidebar data-todo-tree data-tree-sidebar>
     <div class="dashboard-sidebar-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-sidebar-pane="todo">
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
@@ -992,10 +1049,10 @@
       <div class="dashboard-notice" role="alert">{{ dashboard_notice }}</div>
     {% endif %}
     <div class="dashboard-view-pane{% if current_view == 'dashboard' %} is-active{% endif %}" data-dashboard-view="dashboard">
-      <div class="dashboard-home">
+      <div class="dashboard-home is-pending" data-dashboard-home-shell>
         <section class="dashboard-home-hero">
           <div class="dashboard-home-kicker" data-live-datetime></div>
-          <h1 class="dashboard-home-title">{{ dashboard_greeting }}, {{ dashboard_first_name }}</h1>
+          <h1 class="dashboard-home-title" data-dashboard-greeting data-dashboard-first-name="{{ dashboard_first_name|e }}">Hello, {{ dashboard_first_name }}</h1>
           <div class="dashboard-quick-links">
               <a class="dashboard-quick-link" href="{% if selected_project %}{{ url_for('ui.tree_project_dashboard', project_id=selected_project.id) }}{% else %}{{ url_for('ui.tree_dashboard') }}{% endif %}" data-dashboard-view-target="tree"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Tree</span></a>
               <a class="dashboard-quick-link" href="{{ url_for('ui.todo_dashboard') }}" data-dashboard-view-target="todo"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>Todo</span></a>
@@ -1038,7 +1095,7 @@
             {% if inbox_items[:6] %}
               <div class="dashboard-activity-list" data-dashboard-activity-list>
                 {% for item in inbox_items[:6] %}
-                  <div class="dashboard-activity-item">
+                  <button class="dashboard-activity-item" type="button" data-dashboard-activity-open='{{ {"kind": item.kind, "task_id": item.task_id, "task_title": item.task_title, "project_id": item.project_id, "project_name": item.project_name, "group_id": item.group_id}|tojson|forceescape }}'>
                     <div class="dashboard-activity-icon">
                       {{ render_inbox_activity_icon(item.kind) }}
                     </div>
@@ -1049,7 +1106,7 @@
                     <div class="dashboard-action-status">
                       <span class="dashboard-action-pill">{{ item.kind.replace('_', ' ')|title if item.kind else 'Update' }}</span>
                     </div>
-                  </div>
+                  </button>
                 {% endfor %}
               </div>
             {% else %}
@@ -11299,7 +11356,14 @@
         var copy = escapeHtml(item.comment_preview || item.preview || "New activity in Termin.");
         var pill = escapeHtml(kind ? kind.replace(/_/g, " ") : "Update");
         return (
-          '<div class="dashboard-activity-item">' +
+          '<button class="dashboard-activity-item" type="button" data-dashboard-activity-open=\'' + escapeHtml(JSON.stringify({
+            kind: item.kind || "",
+            task_id: item.task_id || "",
+            task_title: item.task_title || "",
+            project_id: item.project_id || "",
+            project_name: item.project_name || "",
+            group_id: item.group_id || "",
+          })) + '\'>' +
             '<div class="dashboard-activity-icon">' + icon + '</div>' +
             '<div class="dashboard-activity-meta">' +
               '<div class="dashboard-activity-title">' + title + '</div>' +
@@ -11308,7 +11372,7 @@
             '<div class="dashboard-action-status">' +
               '<span class="dashboard-action-pill">' + pill + '</span>' +
             '</div>' +
-          '</div>'
+          '</button>'
         );
       }).join("");
     }
@@ -15329,6 +15393,7 @@
         : '<div class="editable todo-item-title" contenteditable="' + (task.locked ? "false" : "true") + '" data-task-id="' + task.id + '" data-field="title" data-col="1">' + title + '</div>';
       var item = document.createElement("div");
       item.className = "todo-item" + (isGithub ? " github-task-row" : "");
+      item.id = "task-" + String(task.id);
       item.style.setProperty("--todo-color", meta.divisionColor);
       item.setAttribute("data-task-id", String(task.id));
       item.setAttribute("data-project-id", String(task.project_id));
@@ -16744,6 +16809,17 @@
         openInboxItem(payload);
       });
     }
+
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-dashboard-activity-open]");
+      if (!button) return;
+      event.preventDefault();
+      var payload = null;
+      try {
+        payload = JSON.parse(button.getAttribute("data-dashboard-activity-open") || "{}");
+      } catch (err) {}
+      openInboxItem(payload);
+    });
 
     closeEls.forEach(function (button) {
       button.addEventListener("click", function () {
@@ -20687,6 +20763,106 @@
         });
       }
     });
+
+    document.addEventListener("click", function (event) {
+      var dashboardLink = event.target.closest(".dashboard-action-project, .dashboard-action-group, .dashboard-action-title");
+      if (!dashboardLink) return;
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var href = dashboardLink.getAttribute("href");
+      if (!href || typeof window.__setDashboardView !== "function") return;
+      var nextUrl;
+      try {
+        nextUrl = new URL(href, window.location.href);
+      } catch (_error) {
+        return;
+      }
+      if (nextUrl.origin !== window.location.origin) return;
+      event.preventDefault();
+      if (dashboardLink.classList.contains("dashboard-action-title")) {
+        var taskHrefMatch = nextUrl.hash.match(/^#task-(\d+)$/);
+        if (taskHrefMatch && typeof window.__openSettings === "function") {
+          var taskId = taskHrefMatch[1];
+          var taskTitle = dashboardLink.textContent ? dashboardLink.textContent.trim() : "";
+          window.__openSettings(taskId, taskTitle, "");
+        }
+        return;
+      }
+      window.__setDashboardView("tree", {
+        syncHistory: true,
+        url: nextUrl.pathname + nextUrl.search + nextUrl.hash,
+      });
+      if (typeof window.__syncTreeSelectionFromLocation === "function") {
+        window.requestAnimationFrame(function () {
+          window.__syncTreeSelectionFromLocation();
+        });
+      }
+    });
+
+    (function initDashboardGreeting() {
+      var greetingEl = document.querySelector("[data-dashboard-greeting]");
+      var dashboardHomeShell = document.querySelector("[data-dashboard-home-shell]");
+      var dateTimeNodes = dashboardHomeShell
+        ? Array.prototype.slice.call(dashboardHomeShell.querySelectorAll("[data-live-datetime]"))
+        : [];
+      var hasRevealedDashboardHome = false;
+      var firstName = greetingEl
+        ? (String(greetingEl.getAttribute("data-dashboard-first-name") || "").trim() || "there")
+        : "there";
+
+      function greetingForHour(hour) {
+        if (hour < 12) return "Good morning";
+        if (hour < 18) return "Good afternoon";
+        return "Good evening";
+      }
+
+      function renderGreeting() {
+        if (!greetingEl) return;
+        var now = new Date();
+        greetingEl.textContent = greetingForHour(now.getHours()) + ", " + firstName;
+      }
+
+      function renderHeroDateTime() {
+        if (!dateTimeNodes.length) return;
+        var formatter = new Intl.DateTimeFormat(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        var text = formatter.format(new Date());
+        dateTimeNodes.forEach(function (node) {
+          node.textContent = text;
+          node.setAttribute("aria-label", text);
+        });
+      }
+
+      function revealDashboardHome() {
+        if (!dashboardHomeShell || hasRevealedDashboardHome) return;
+        hasRevealedDashboardHome = true;
+        var reveal = function () {
+          dashboardHomeShell.classList.remove("is-pending");
+          dashboardHomeShell.classList.add("is-ready");
+        };
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(reveal);
+        } else {
+          reveal();
+        }
+      }
+
+      renderHeroDateTime();
+      renderGreeting();
+      revealDashboardHome();
+      if (dateTimeNodes.length) {
+        window.setInterval(renderHeroDateTime, 30 * 1000);
+      }
+      if (greetingEl) {
+        window.setInterval(renderGreeting, 15 * 60 * 1000);
+      }
+    })();
 
     hydrateDashboardBootstrapStoreFromCache();
     scheduleDashboardBootstrapRefresh();

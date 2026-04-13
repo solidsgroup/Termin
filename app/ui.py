@@ -1798,14 +1798,6 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         if not todo_groups_by_date or todo_groups_by_date[-1]["key"] != item["date_key"]:
             todo_groups_by_date.append({"key": item["date_key"], "label": item["date_label"], "items": []})
         todo_groups_by_date[-1]["items"].append(item)
-    local_now = to_user_timezone(now_utc, user) or now_utc
-    greeting_hour = local_now.hour
-    if greeting_hour < 12:
-        dashboard_greeting = "Good morning"
-    elif greeting_hour < 18:
-        dashboard_greeting = "Good afternoon"
-    else:
-        dashboard_greeting = "Good evening"
     dashboard_first_name = (user.display_name or user.email.split("@", 1)[0]).strip().split(" ", 1)[0] or "there"
     normalized_user_email = (user.email or "").strip().lower()
 
@@ -1907,7 +1899,6 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         message_notifications=message_notifications,
         inbox_items=inbox_items,
         inbox_items_json=inbox_items_json,
-        dashboard_greeting=dashboard_greeting,
         dashboard_first_name=dashboard_first_name,
         dashboard_action_items=dashboard_action_items,
         dashboard_stats=dashboard_stats,
