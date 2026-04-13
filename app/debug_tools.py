@@ -14,12 +14,13 @@ def debug_print(*parts) -> None:
     print("[termin-debug]", *parts)
 
 
-def record_timing_event(*, method: str, path: str, status: int, duration_ms: float) -> None:
+def record_timing_event(*, method: str, path: str, status: int, duration_ms: float, payload_bytes: int | None = None) -> None:
     _TIMING_EVENTS.appendleft({
         "method": str(method or "").upper(),
         "path": str(path or ""),
         "status": int(status or 0),
         "duration_ms": round(float(duration_ms or 0.0), 1),
+        "payload_bytes": int(payload_bytes or 0) if payload_bytes else 0,
     })
 
 

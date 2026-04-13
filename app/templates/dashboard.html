@@ -858,7 +858,7 @@
         <h3 style="margin: 0;">Structure</h3>
         <button class="todo-tree-only-btn todo-tree-heading-action" type="button" data-todo-only-all="structure" aria-label="Show all structure items">All</button>
       </div>
-      <div class="todo-tree-list">
+      <div class="todo-tree-list" data-todo-structure-list>
         {% for division in divisions %}
           {% set division_projects = projects_by_division.get(division.id, []) %}
           {% if division_projects %}
@@ -10747,9 +10747,25 @@
     var dashboardBootstrapStore = null;
     var dashboardStorePersistTimer = null;
     var dashboardBootstrapCacheDisabled = false;
-    var dashboardBootstrapCacheSchemaVersion = 2;
-    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v2.user." + String(currentUserId);
+    var dashboardBootstrapCacheSchemaVersion = 3;
+    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v3.user." + String(currentUserId);
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
+    var terminClientPerfEvents = [];
+
+    function recordClientPerf(name, startedAt, extra) {
+      var durationMs = Math.max(0, performance.now() - Number(startedAt || 0));
+      var event = Object.assign({
+        name: String(name || ""),
+        duration_ms: Math.round(durationMs * 10) / 10,
+        at: new Date().toISOString(),
+      }, extra || {});
+      terminClientPerfEvents.unshift(event);
+      if (terminClientPerfEvents.length > 120) {
+        terminClientPerfEvents.length = 120;
+      }
+      window.__terminClientPerfEvents = terminClientPerfEvents;
+      return event;
+    }
 
     function dashboardStoreEntities() {
       return dashboardBootstrapStore && dashboardBootstrapStore.entities ? dashboardBootstrapStore.entities : {};
@@ -10984,22 +11000,26 @@
     }
 
     function fetchDashboardBootstrapStore() {
+      var startedAt = performance.now();
       return fetch(dashboardStoreRequestUrl(dashboardBootstrapUrl), {
         credentials: "same-origin",
         headers: { "Accept": "application/json" },
       })
         .then(function (res) {
+          var payloadBytes = Number(res.headers.get("X-Termin-Payload-Bytes") || 0);
           return res.json().catch(function () { return {}; }).then(function (data) {
-            return { ok: res.ok, data: data };
+            return { ok: res.ok, data: data, payloadBytes: payloadBytes };
           });
         })
         .then(function (result) {
           if (!result.ok || !result.data || !result.data.dashboard) {
             throw new Error("Could not load dashboard bootstrap");
           }
+          recordClientPerf("dashboard-bootstrap-fetch", startedAt, { payload_bytes: result.payloadBytes || 0 });
           return setDashboardBootstrapStore(result.data.dashboard);
         })
         .catch(function (error) {
+          recordClientPerf("dashboard-bootstrap-fetch-failed", startedAt);
           console.warn("dashboard bootstrap load failed", error);
           return null;
         });
@@ -15757,6 +15777,7 @@
     window.__setDashboardPaneLoading = setDashboardPaneLoading;
 
     function renderTodoBoardFromStore(options) {
+      var startedAt = performance.now();
       var opts = options || {};
       var board = document.querySelector(".todo-board[data-todo-client-board='1']");
       if (!board) return false;
@@ -15772,6 +15793,7 @@
       if (!taskIds.length) {
         board.innerHTML = '<div class="panel" data-todo-empty-panel><h3>No tasks</h3><p class="footer-note">No visible tasks yet.</p></div>';
         board.setAttribute("data-todo-board-ready", "1");
+        recordClientPerf("todo-render", startedAt, { task_count: 0 });
         return true;
       }
       taskIds.forEach(function (taskId) {
@@ -15786,6 +15808,7 @@
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
+      recordClientPerf("todo-render", startedAt, { task_count: taskIds.length });
       return true;
     }
     window.__renderTodoBoardFromStore = renderTodoBoardFromStore;
@@ -19515,18 +19538,26 @@
       }
 
       function ensureAndSyncTreeSelection(selection) {
+        var startedAt = performance.now();
         setDashboardPaneLoading("tree", true);
         removeTreeLoadingPanels();
         return ensureTreeSelectionBoards(selection)
           .then(function (changed) {
             syncTreeSelectionAfterEnsure();
             setDashboardPaneLoading("tree", false);
+            recordClientPerf("tree-selection-hydrate", startedAt, {
+              selection_type: selection && selection.type ? String(selection.type) : "",
+              changed: changed ? 1 : 0,
+            });
             return changed;
           })
           .catch(function (error) {
             console.warn("tree selection ensure failed", error);
             syncTreeSelectionAfterEnsure();
             setDashboardPaneLoading("tree", false);
+            recordClientPerf("tree-selection-hydrate-failed", startedAt, {
+              selection_type: selection && selection.type ? String(selection.type) : "",
+            });
             return false;
           });
       }

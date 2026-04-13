@@ -242,11 +242,12 @@ def create_app() -> Flask:
               <th>Method</th>
               <th>Status</th>
               <th>Duration</th>
+              <th>Payload</th>
               <th>Path</th>
             </tr>
           </thead>
           <tbody id="timing-rows">
-            <tr><td colspan="4" class="muted">No profiled requests yet.</td></tr>
+            <tr><td colspan="5" class="muted">No profiled requests yet.</td></tr>
           </tbody>
         </table>
       </section>
@@ -268,16 +269,21 @@ def create_app() -> Flask:
         maxEl.textContent = max.toFixed(1) + ' ms';
         updatedEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
         if (!events.length) {
-          rowsEl.innerHTML = '<tr><td colspan="4" class="muted">No profiled requests yet.</td></tr>';
+          rowsEl.innerHTML = '<tr><td colspan="5" class="muted">No profiled requests yet.</td></tr>';
           return;
         }
         rowsEl.innerHTML = events.map(function (item) {
           const duration = Number(item.duration_ms || 0);
           const cls = duration >= 250 ? 'duration bad' : (duration >= 100 ? 'duration warn' : 'duration');
+          const payloadBytes = Number(item.payload_bytes || 0);
+          const payloadLabel = payloadBytes >= 1048576
+            ? (payloadBytes / 1048576).toFixed(2) + ' MB'
+            : (payloadBytes >= 1024 ? (payloadBytes / 1024).toFixed(1) + ' KB' : payloadBytes + ' B');
           return '<tr>' +
             '<td>' + String(item.method || '') + '</td>' +
             '<td>' + String(item.status || '') + '</td>' +
             '<td class="' + cls + '">' + duration.toFixed(1) + ' ms</td>' +
+            '<td>' + payloadLabel + '</td>' +
             '<td class="path">' + String(item.path || '') + '</td>' +
           '</tr>';
         }).join('');
@@ -315,6 +321,8 @@ def create_app() -> Flask:
             duration_ms = max(0.0, (perf_counter() - started_at) * 1000.0)
             existing_server_timing = response.headers.get("Server-Timing", "").strip()
             timing_value = "app;dur=" + format(duration_ms, ".1f")
+            payload_bytes_header = response.headers.get("X-Termin-Payload-Bytes", "").strip()
+            payload_bytes = int(payload_bytes_header) if payload_bytes_header.isdigit() else 0
             response.headers["Server-Timing"] = (
                 existing_server_timing + ", " + timing_value
                 if existing_server_timing
@@ -328,12 +336,15 @@ def create_app() -> Flask:
                 response.status_code,
                 "dur_ms=",
                 format(duration_ms, ".1f"),
+                "payload_bytes=",
+                payload_bytes,
             )
             record_timing_event(
                 method=request.method,
                 path=path,
                 status=response.status_code,
                 duration_ms=duration_ms,
+                payload_bytes=payload_bytes,
             )
         if path.startswith("/static/") and response.status_code == 200:
             response.cache_control.public = True

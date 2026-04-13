@@ -121,6 +121,19 @@ from app.utils import current_user, display_name_for_user, is_admin as user_is_a
 api_bp = Blueprint("api", __name__)
 
 
+def _json_response_with_payload_header(payload: dict, status_code: int = 200):
+    response = current_app.response_class(
+        current_app.json.dumps(payload),
+        status=status_code,
+        mimetype="application/json",
+    )
+    try:
+        response.headers["X-Termin-Payload-Bytes"] = str(len(response.get_data()))
+    except Exception:
+        response.headers["X-Termin-Payload-Bytes"] = "0"
+    return response
+
+
 URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 MENTION_PATTERN = re.compile(r"@\{([^{}\s]+)\}")
 DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
@@ -957,7 +970,7 @@ def me():
 @login_required
 def dashboard_bootstrap():
     user = current_user()
-    return {"dashboard": build_dashboard_bootstrap(user)}
+    return _json_response_with_payload_header({"dashboard": build_dashboard_bootstrap(user)})
 
 
 @api_bp.get("/dashboard-changes")
@@ -973,7 +986,7 @@ def dashboard_changes():
             cursor = cursor.astimezone().replace(tzinfo=None)
     except ValueError:
         return {"error": "cursor must be an ISO-8601 datetime"}, 400
-    return {"dashboard": build_dashboard_changes(user, since=cursor)}
+    return _json_response_with_payload_header({"dashboard": build_dashboard_changes(user, since=cursor)})
 
 
 @api_bp.get("/web-push")
@@ -2086,7 +2099,7 @@ def get_project_tree_snapshot(project_id: int):
         else:
             ungrouped_tasks.append(row)
 
-    return {
+    return _json_response_with_payload_header({
         "project": _serialize_project_payload_for_user(project, user.id),
         "can_manage_project": bool(_can_manage_project(user, project.id)),
         "groups": [
@@ -2104,7 +2117,7 @@ def get_project_tree_snapshot(project_id: int):
             for group in groups
         ],
         "ungrouped_tasks": ungrouped_tasks,
-    }, 200
+    }, 200)
 
 
 @api_bp.get("/groups/<int:group_id>")

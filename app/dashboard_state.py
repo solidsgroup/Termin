@@ -328,7 +328,6 @@ def build_dashboard_bootstrap(user) -> dict:
     groups_by_project: dict[int, list[Group]] = {project_id: [] for project_id in projects_by_id}
     for group in groups:
         groups_by_project.setdefault(group.project_id, []).append(group)
-
     tasks = (
         Task.query.filter(Task.project_id.in_(list(projects_by_id.keys())))
         .order_by(Task.position.asc(), Task.id.asc())
