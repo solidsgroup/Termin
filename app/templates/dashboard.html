@@ -595,6 +595,24 @@
     text-decoration: underline;
   }
 
+  .task-cell .editable[data-field="title"],
+  .todo-item-main .editable[data-field="title"] {
+    display: block;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .task-cell .editable[data-field="title"]:focus,
+  .todo-item-main .editable[data-field="title"]:focus {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .dashboard-action-due,
   .dashboard-activity-copy {
     color: var(--muted);
