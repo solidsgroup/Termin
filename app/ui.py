@@ -966,8 +966,68 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     task_info_map = {task.id: load_info_payload(task.info, task.link) for task in tasks.values()} if tasks else {}
     project_ids = {task.project_id for task in tasks.values() if task and task.project_id}
     projects = {project.id: project for project in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
+    group_ids = {task.group_id for task in tasks.values() if task and task.group_id}
+    groups = {group.id: group for group in Group.query.filter(Group.id.in_(group_ids)).all()} if group_ids else {}
     entries: list[dict] = []
     default_calendar_opt_in = collaborator.new_task_notification_preference == "calendar"
+
+    def task_due_mode(task: Task | None) -> str:
+        if not task:
+            return "none"
+        info_payload = task_info_map.get(task.id, {}) or {}
+        due_mode = str((info_payload.get("meta") or {}).get("due_mode") or "").strip().lower()
+        if due_mode in {"asap", "date"}:
+            return due_mode
+        if task.due_at:
+            return "date"
+        return "none"
+
+    def task_due_label(task: Task | None) -> str:
+        if not task:
+            return ""
+        due_mode = task_due_mode(task)
+        if due_mode == "asap":
+            return "ASAP"
+        if task.due_at:
+            return "Due " + task.due_at.strftime("%Y-%m-%d")
+        return "Created " + task.created_at.strftime("%Y-%m-%d")
+
+    def project_table_sort_key(task: Task | None) -> tuple[int, int, int, int]:
+        if not task:
+            return (10**9, 10**9, 10**9, 10**9)
+        group = groups.get(task.group_id) if task.group_id else None
+        project = projects.get(task.project_id) if task.project_id else None
+        if group:
+            return (
+                int(project.id if project else task.project_id or 10**9),
+                0,
+                int(group.position or 0),
+                int(task.position or 0),
+            )
+        return (
+            int(project.id if project else task.project_id or 10**9),
+            1,
+            0,
+            int(task.position or 0),
+        )
+
+    def task_sort_payload(task: Task | None) -> dict:
+        due_mode = task_due_mode(task)
+        if due_mode == "asap":
+            bucket = 0
+        elif due_mode == "date" and task and task.due_at:
+            bucket = 1
+        else:
+            bucket = 2
+        project_id, group_rank, group_position, task_position = project_table_sort_key(task)
+        return {
+            "bucket": bucket,
+            "due_at_iso": task.due_at.isoformat() if task and task.due_at else "",
+            "project_id": int(project_id),
+            "group_rank": int(group_rank),
+            "group_position": int(group_position),
+            "task_position": int(task_position),
+        }
 
     def resolve_context(task_id: int | None) -> tuple[Task | None, Project | None]:
         task = tasks.get(task_id) if task_id else None
@@ -1003,6 +1063,9 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                 "work_status": work_status,
                 "is_complete": _is_complete_status(work_status),
                 "links": list((task_info_map.get(task.id, {}) or {}).get("links") or []) if task else [],
+                "due_mode": task_due_mode(task),
+                "due_label": task_due_label(task),
+                "sort": task_sort_payload(task),
                 "description_html": _render_description(
                     task.description,
                     task.description_format,
@@ -1036,6 +1099,9 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                 "work_status": work_status,
                 "is_complete": _is_complete_status(work_status),
                 "links": list((task_info_map.get(task.id, {}) or {}).get("links") or []) if task else [],
+                "due_mode": task_due_mode(task),
+                "due_label": task_due_label(task),
+                "sort": task_sort_payload(task),
                 "description_html": _render_description(
                     task.description,
                     task.description_format,
@@ -1072,9 +1138,24 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
             deduped[key] = entry
 
     final_entries = list(deduped.values())
+
+    def entry_sort_key(item: dict) -> tuple:
+        task = item.get("task")
+        due_mode = str(item.get("due_mode") or "none").strip().lower()
+        if due_mode == "asap":
+            bucket = 0
+        elif due_mode == "date" and task and task.due_at:
+            bucket = 1
+        else:
+            bucket = 2
+        due_at = task.due_at if task and task.due_at else datetime.max
+        table_key = project_table_sort_key(task)
+        created_at = item.get("created_at") or datetime.min
+        fallback_id = item["invite"].id if item.get("invite") else item["assignment"].id if item.get("assignment") else 0
+        return (bucket, due_at, table_key, created_at, fallback_id)
+
     final_entries.sort(
-        key=lambda item: (item["created_at"], item["invite"].id if item["invite"] else item["assignment"].id),
-        reverse=True,
+        key=entry_sort_key,
     )
     return final_entries
 

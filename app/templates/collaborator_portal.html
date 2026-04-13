@@ -26,7 +26,7 @@
       margin-right: -12px;
     }
 
-    .collab-row.complete .collab-title {
+    .collab-row.complete .collab-title > span:first-child {
       text-decoration: line-through;
       color: var(--success);
     }
@@ -281,8 +281,21 @@
     }
 
     .choice-btn.complete.is-selected {
-      background: rgba(76, 201, 240, 0.16);
-      box-shadow: inset 0 0 0 1px rgba(76, 201, 240, 0.22);
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #0b1220;
+      font-weight: 800;
+      box-shadow: 0 10px 22px rgba(76, 201, 240, 0.28);
+    }
+
+    .choice-btn.complete:disabled,
+    .choice-btn.complete[aria-disabled="true"] {
+      border-color: color-mix(in srgb, var(--border) 88%, transparent);
+      background: color-mix(in srgb, var(--panel-alt) 78%, transparent);
+      color: color-mix(in srgb, var(--muted) 88%, transparent);
+      opacity: 0.52;
+      cursor: not-allowed;
+      box-shadow: none;
     }
 
     .collab-chat-btn {
@@ -516,6 +529,42 @@
         } else if (snapshot.html) {
           taskListEl.insertAdjacentHTML("beforeend", snapshot.html);
         }
+        reorderTaskList();
+      }
+
+      function collabRowSortValue(row, attr, fallback) {
+        if (!row) return fallback;
+        var value = row.getAttribute(attr);
+        if (value == null || value === "") return fallback;
+        if (typeof fallback === "number") {
+          var parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : fallback;
+        }
+        return value;
+      }
+
+      function reorderTaskList() {
+        if (!taskListEl) return;
+        var rows = Array.from(taskListEl.querySelectorAll('[data-collab-task-row]'));
+        if (!rows.length) return;
+        rows.sort(function (a, b) {
+          var comparisons = [
+            collabRowSortValue(a, 'data-sort-bucket', 2) - collabRowSortValue(b, 'data-sort-bucket', 2),
+            String(collabRowSortValue(a, 'data-sort-due-at', '9999-12-31T23:59:59')) < String(collabRowSortValue(b, 'data-sort-due-at', '9999-12-31T23:59:59')) ? -1 : String(collabRowSortValue(a, 'data-sort-due-at', '9999-12-31T23:59:59')) > String(collabRowSortValue(b, 'data-sort-due-at', '9999-12-31T23:59:59')) ? 1 : 0,
+            collabRowSortValue(a, 'data-sort-project-id', 999999999) - collabRowSortValue(b, 'data-sort-project-id', 999999999),
+            collabRowSortValue(a, 'data-sort-group-rank', 1) - collabRowSortValue(b, 'data-sort-group-rank', 1),
+            collabRowSortValue(a, 'data-sort-group-position', 999999999) - collabRowSortValue(b, 'data-sort-group-position', 999999999),
+            collabRowSortValue(a, 'data-sort-task-position', 999999999) - collabRowSortValue(b, 'data-sort-task-position', 999999999),
+            collabRowSortValue(a, 'data-collab-task-row', 999999999) - collabRowSortValue(b, 'data-collab-task-row', 999999999),
+          ];
+          for (var i = 0; i < comparisons.length; i += 1) {
+            if (comparisons[i] !== 0) return comparisons[i];
+          }
+          return 0;
+        });
+        rows.forEach(function (row) {
+          taskListEl.appendChild(row);
+        });
       }
 
       function submitComment() {
@@ -592,6 +641,7 @@
         }
       });
       focusTaskFromUrl();
+      reorderTaskList();
 
       if (typeof io === "function" && collaboratorToken) {
         const socket = io({

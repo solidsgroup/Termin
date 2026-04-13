@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import types
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from werkzeug.security import generate_password_hash
@@ -30,7 +31,7 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app.extensions import db, socketio
-from app.models import Assignment, Group, Project, ProjectMember, Task, TaskNotification, User
+from app.models import Assignment, CollaboratorProfile, Group, Invite, Project, ProjectMember, Task, TaskNotification, User
 
 
 app = create_app()
@@ -98,6 +99,15 @@ def seed_data():
         db.session.add(ProjectMember(project_id=direct_project.id, user_id=member.id))
         db.session.add(ProjectMember(project_id=jannaf_project.id, user_id=member.id))
 
+        collaborator = CollaboratorProfile(
+            email="collab@example.com",
+            access_token="collab-access-token",
+            display_name="Email Collaborator",
+            default_calendar_opt_in=False,
+        )
+        db.session.add(collaborator)
+        db.session.flush()
+
         task = Task(
             project_id=project.id,
             group_id=group.id,
@@ -130,7 +140,56 @@ def seed_data():
             title="Get JANNAF accounts",
             status="critical",
         )
-        db.session.add_all([task, linked_todo_task, direct_task, jannaf_status_task, jannaf_assignee_task])
+        collaborator_assignment_task = Task(
+            project_id=project.id,
+            creator_user_id=owner.id,
+            title="Email Collaborator Assignment",
+            description="Collaborator assignment description",
+            description_format="markdown",
+            status="open",
+            position=3,
+        )
+        collaborator_asap_task = Task(
+            project_id=project.id,
+            creator_user_id=owner.id,
+            title="Email Collaborator ASAP",
+            status="open",
+            info='{"meta":{"due_mode":"asap"}}',
+            position=1,
+        )
+        collaborator_dated_task = Task(
+            project_id=project.id,
+            creator_user_id=owner.id,
+            title="Email Collaborator Due Soon",
+            status="open",
+            due_at=datetime.utcnow() + timedelta(days=2),
+            position=2,
+        )
+        collaborator_undated_followup_task = Task(
+            project_id=project.id,
+            creator_user_id=owner.id,
+            title="Email Collaborator Followup",
+            status="open",
+            position=4,
+        )
+        collaborator_invite_task = Task(
+            project_id=project.id,
+            creator_user_id=owner.id,
+            title="Email Collaborator Invite",
+            status="open",
+        )
+        db.session.add_all([
+            task,
+            linked_todo_task,
+            direct_task,
+            jannaf_status_task,
+            jannaf_assignee_task,
+            collaborator_asap_task,
+            collaborator_dated_task,
+            collaborator_assignment_task,
+            collaborator_undated_followup_task,
+            collaborator_invite_task,
+        ])
         db.session.flush()
 
         task_owner_assignment = Assignment(task_id=task.id, user_id=owner.id, status="assigned")
@@ -142,6 +201,10 @@ def seed_data():
         jannaf_status_member_assignment = Assignment(task_id=jannaf_status_task.id, user_id=member.id, status="assigned")
         jannaf_assignee_owner_assignment = Assignment(task_id=jannaf_assignee_task.id, user_id=owner.id, status="assigned")
         jannaf_assignee_member_assignment = Assignment(task_id=jannaf_assignee_task.id, user_id=member.id, status="assigned")
+        collaborator_asap_assignment = Assignment(task_id=collaborator_asap_task.id, email=collaborator.email, status="assigned")
+        collaborator_dated_assignment = Assignment(task_id=collaborator_dated_task.id, email=collaborator.email, status="assigned")
+        collaborator_email_assignment = Assignment(task_id=collaborator_assignment_task.id, email=collaborator.email, status="assigned")
+        collaborator_undated_followup_assignment = Assignment(task_id=collaborator_undated_followup_task.id, email=collaborator.email, status="assigned")
         db.session.add_all(
             [
                 task_owner_assignment,
@@ -153,8 +216,21 @@ def seed_data():
                 jannaf_status_member_assignment,
                 jannaf_assignee_owner_assignment,
                 jannaf_assignee_member_assignment,
+                collaborator_asap_assignment,
+                collaborator_dated_assignment,
+                collaborator_email_assignment,
+                collaborator_undated_followup_assignment,
             ]
         )
+        db.session.flush()
+        collaborator_invite = Invite(
+            task_id=collaborator_invite_task.id,
+            email=collaborator.email,
+            token="collab-invite-token",
+            status="sent",
+            calendar_opt_in=False,
+        )
+        db.session.add(collaborator_invite)
         db.session.flush()
         db.session.add(
             TaskNotification(
@@ -177,6 +253,16 @@ def seed_data():
             "direct_task": {"id": direct_task.id},
             "jannaf_status_task": {"id": jannaf_status_task.id},
             "jannaf_assignee_task": {"id": jannaf_assignee_task.id},
+            "collaborator": {
+                "email": collaborator.email,
+                "access_token": collaborator.access_token,
+            },
+            "collaborator_assignment_task": {"id": collaborator_assignment_task.id},
+            "collaborator_asap_task": {"id": collaborator_asap_task.id},
+            "collaborator_dated_task": {"id": collaborator_dated_task.id},
+            "collaborator_undated_followup_task": {"id": collaborator_undated_followup_task.id},
+            "collaborator_invite_task": {"id": collaborator_invite_task.id},
+            "collaborator_invite": {"id": collaborator_invite.id, "token": collaborator_invite.token},
             "assignments": {
                 "task_owner": {"id": task_owner_assignment.id},
                 "task_member": {"id": task_member_assignment.id},
@@ -187,6 +273,10 @@ def seed_data():
                 "jannaf_status_member": {"id": jannaf_status_member_assignment.id},
                 "jannaf_assignee_owner": {"id": jannaf_assignee_owner_assignment.id},
                 "jannaf_assignee_member": {"id": jannaf_assignee_member_assignment.id},
+                "collaborator_asap_assignment": {"id": collaborator_asap_assignment.id},
+                "collaborator_dated_assignment": {"id": collaborator_dated_assignment.id},
+                "collaborator_email_assignment": {"id": collaborator_email_assignment.id},
+                "collaborator_undated_followup_assignment": {"id": collaborator_undated_followup_assignment.id},
             },
         }
 

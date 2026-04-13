@@ -2,6 +2,7 @@ from datetime import datetime
 from collections import defaultdict
 from html import escape
 import json
+import re
 from markdown import markdown as render_markdown
 from sqlalchemy import func, or_
 from sqlalchemy.exc import OperationalError

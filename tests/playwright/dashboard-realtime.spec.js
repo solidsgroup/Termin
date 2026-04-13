@@ -527,6 +527,186 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Open the project context menu in Tree, apply the template, and verify the new group and its tasks render immediately.', page);
   });
 
+  test('email collaborator invite accepts from the magic link page', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'email', 'invite']);
+    const state = await fetchSeedState(request);
+
+    await page.goto(`/invites/${state.collaborator_invite.token}`);
+    await expectContainsTextWithFailure(
+      page,
+      test.info(),
+      '.panel',
+      'Email Collaborator Invite',
+      'collaborator-invite-page-task',
+      'The invite landing page should show the task title for the emailed collaborator.'
+    );
+    await page.locator('button[name="action"][value="accept"]').click();
+    await expectContainsTextWithFailure(
+      page,
+      test.info(),
+      '.panel',
+      'already accepted',
+      'collaborator-invite-accepted',
+      'Accepting the invite should transition the page into the accepted state.'
+    );
+    await expect(page.locator('a[href*="/collaborators/"]')).toHaveCount(1);
+    await steps.step('Open the emailed invite link, accept it, and verify the invite page reflects the accepted state with a collaborator portal link.', page);
+  });
+
+  test('email collaborator portal can mark an email assignment complete and undo it', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'email', 'portal']);
+    const state = await fetchSeedState(request);
+
+    await page.goto(`/collaborators/${state.collaborator.access_token}`);
+    const collaboratorRow = page.locator(`[data-collab-task-row="${state.collaborator_assignment_task.id}"]`).first();
+    await expectContainsTextWithFailure(
+      page,
+      test.info(),
+      `[data-collab-task-row="${state.collaborator_assignment_task.id}"]`,
+      'Email Collaborator Assignment',
+      'collaborator-portal-task-visible',
+      'The collaborator portal should show the email-only assignment row.'
+    );
+    await expect(collaboratorRow.locator('button[name="action"][value="complete"]')).toBeDisabled();
+
+    await collaboratorRow.locator('button[name="action"][value="accept"]').click();
+    await expect(collaboratorRow.locator('button[name="action"][value="complete"]')).toBeEnabled();
+    await collaboratorRow.locator('button[name="action"][value="complete"]').click();
+    await expect(collaboratorRow).toHaveClass(/complete/);
+    await expect(collaboratorRow.locator('button[name="action"][value="accept"]')).toHaveCount(0);
+    await expect(collaboratorRow.locator('button[name="action"][value="decline"]')).toHaveCount(0);
+    await expect(collaboratorRow.locator('button[name="action"][value="uncomplete"]')).toHaveCount(1);
+
+    await collaboratorRow.locator('button[name="action"][value="uncomplete"]').click();
+    await expect(collaboratorRow).not.toHaveClass(/complete/);
+    await expect(collaboratorRow.locator('button[name="action"][value="accept"]')).toHaveCount(1);
+    await expect(collaboratorRow.locator('button[name="action"][value="decline"]')).toHaveCount(1);
+    await expect(collaboratorRow.locator('button[name="action"][value="complete"]')).toHaveCount(1);
+    await expect(collaboratorRow.locator('button[name="action"][value="complete"]')).toBeEnabled();
+    await steps.step('Open the collaborator portal, confirm Mark complete is disabled until Accept is selected, then mark complete and verify Accept/Decline disappear until the task is uncompleted.', page);
+  });
+
+  test('email collaborator portal still loads after task description changes', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'email', 'portal', 'description']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const collaboratorContext = await browser.newContext();
+    const collaboratorPage = await collaboratorContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await patchTask(ownerPage, state.collaborator_assignment_task.id, {
+      description: 'Updated plain text description for collaborator portal.\n\nSecond paragraph after edit.',
+      description_format: 'plain',
+    });
+    await steps.step('As the owner, update the shared collaborator task description to plain text with multiple paragraphs.', ownerPage);
+
+    await collaboratorPage.goto(`/collaborators/${state.collaborator.access_token}`);
+    const collaboratorRowSelector = `[data-collab-task-row="${state.collaborator_assignment_task.id}"]`;
+    await expectContainsTextWithFailure(
+      collaboratorPage,
+      test.info(),
+      collaboratorRowSelector,
+      'Email Collaborator Assignment',
+      'collaborator-portal-description-task-visible',
+      'The collaborator portal should still load the shared task row after the owner edits its description.'
+    );
+    await expectContainsTextWithFailure(
+      collaboratorPage,
+      test.info(),
+      `${collaboratorRowSelector} .collab-description`,
+      'Updated plain text description for collaborator portal.',
+      'collaborator-portal-description-visible',
+      'The collaborator portal should render the updated plain text description instead of failing to load.'
+    );
+    await steps.step('Open the collaborator portal and verify the task row and updated description both render after the owner edit.', collaboratorPage);
+
+    await ownerContext.close();
+    await collaboratorContext.close();
+  });
+
+  test('email collaborator portal shows ASAP for asap due mode', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'email', 'portal', 'due-mode']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const collaboratorContext = await browser.newContext();
+    const collaboratorPage = await collaboratorContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await patchTask(ownerPage, state.collaborator_assignment_task.id, {
+      due_mode: 'asap',
+      due_at: '',
+    });
+    await steps.step('As the owner, change the shared collaborator task due mode to ASAP.', ownerPage);
+
+    await collaboratorPage.goto(`/collaborators/${state.collaborator.access_token}`);
+    await expectContainsTextWithFailure(
+      collaboratorPage,
+      test.info(),
+      `[data-collab-task-row="${state.collaborator_assignment_task.id}"] .collab-due`,
+      'ASAP',
+      'collaborator-portal-asap-visible',
+      'The collaborator portal should show ASAP when the shared task due mode is ASAP.'
+    );
+    await steps.step('Open the collaborator portal and verify the task row shows ASAP instead of falling back to Created.', collaboratorPage);
+
+    await ownerContext.close();
+    await collaboratorContext.close();
+  });
+
+  test('email collaborator portal orders asap first, then dated, then undated by table order', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'email', 'portal', 'ordering']);
+    const state = await fetchSeedState(request);
+
+    await page.goto(`/collaborators/${state.collaborator.access_token}`);
+    const titles = await page.locator('[data-collab-task-row] .collab-title > span:first-child').allTextContents();
+    expect(titles.indexOf('Email Collaborator ASAP')).toBeGreaterThanOrEqual(0);
+    expect(titles.indexOf('Email Collaborator Due Soon')).toBeGreaterThanOrEqual(0);
+    expect(titles.indexOf('Email Collaborator Assignment')).toBeGreaterThanOrEqual(0);
+    expect(titles.indexOf('Email Collaborator Followup')).toBeGreaterThanOrEqual(0);
+    expect(titles.indexOf('Email Collaborator ASAP')).toBeLessThan(titles.indexOf('Email Collaborator Due Soon'));
+    expect(titles.indexOf('Email Collaborator Due Soon')).toBeLessThan(titles.indexOf('Email Collaborator Assignment'));
+    expect(titles.indexOf('Email Collaborator Assignment')).toBeLessThan(titles.indexOf('Email Collaborator Followup'));
+    await steps.step('Open the collaborator portal and verify tasks are ordered with ASAP first, then dated tasks, then undated tasks in project-table order.', page);
+  });
+
+  test('email collaborator portal reorders live after socket updates', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'email', 'portal', 'socket', 'ordering']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const collaboratorContext = await browser.newContext();
+    const collaboratorPage = await collaboratorContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await collaboratorPage.goto(`/collaborators/${state.collaborator.access_token}`);
+    const initialTitles = await collaboratorPage.locator('[data-collab-task-row] .collab-title > span:first-child').allTextContents();
+    expect(initialTitles.indexOf('Email Collaborator Due Soon')).toBeLessThan(initialTitles.indexOf('Email Collaborator Assignment'));
+    await steps.step('Open the collaborator portal and confirm the dated task starts below the existing ASAP task but above undated tasks.', collaboratorPage);
+
+    await patchTask(ownerPage, state.collaborator_dated_task.id, {
+      due_mode: 'asap',
+      due_at: '',
+    });
+    await collaboratorPage.waitForFunction(() => {
+      const titles = Array.from(document.querySelectorAll('[data-collab-task-row] .collab-title > span:first-child')).map((node) => (node.textContent || '').trim());
+      return titles[0] === 'Email Collaborator ASAP' && titles[1] === 'Email Collaborator Due Soon';
+    });
+    const updatedTitles = await collaboratorPage.locator('[data-collab-task-row] .collab-title > span:first-child').allTextContents();
+    expect(updatedTitles.indexOf('Email Collaborator Due Soon')).toBeLessThan(updatedTitles.indexOf('Email Collaborator Assignment'));
+    await steps.step('Change the dated task to ASAP in the owner browser and verify the collaborator portal reorders it immediately after the existing ASAP row.', collaboratorPage);
+
+    await ownerContext.close();
+    await collaboratorContext.close();
+  });
+
   test('tree single-status control updates its button state after each inline change', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['tree', 'status', 'single-status', 'ui']);
