@@ -451,6 +451,40 @@
     font-size: 0.95rem;
   }
 
+  .project-board-description,
+  .group-description {
+    color: var(--group-color, var(--project-color, var(--accent)));
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
+  .project-board-description {
+    margin: 6px 0 12px 12px;
+  }
+
+  .group-description {
+    margin: 8px 0 12px;
+    display: block;
+    width: 100%;
+    text-align: left;
+    clear: both;
+  }
+
+  .project-board-description > :first-child,
+  .group-description > :first-child {
+    margin-top: 0;
+  }
+
+  .project-board-description > :last-child,
+  .group-description > :last-child {
+    margin-bottom: 0;
+  }
+
+  .project-board-description a,
+  .group-description a {
+    color: inherit;
+  }
+
   .dashboard-pane-loading {
     position: absolute;
     inset: 0;
@@ -1308,6 +1342,9 @@
                 </span>
               </h3>
             </div>
+            {% if group_info_by_id.get(group.id, {}).get('rendered_description') %}
+              <div class="group-description" data-group-description="{{ group.id }}">{{ group_info_by_id.get(group.id, {}).get('rendered_description')|safe }}</div>
+            {% endif %}
             <table class="table tasks-table" data-project-id="{{ selected_project.id }}" data-group-id="{{ group.id }}">
             <colgroup>
               <col style="width: 3%;">
@@ -2865,6 +2902,29 @@
         });
       }
 
+      function setGroupDescriptionLocal(groupId, renderedDescription) {
+        var descriptionHtml = String(renderedDescription || "").trim();
+        document.querySelectorAll('[data-group-description="' + groupId + '"]').forEach(function (node) {
+          if (descriptionHtml) {
+            node.innerHTML = descriptionHtml;
+          } else {
+            node.remove();
+          }
+        });
+        if (!descriptionHtml) return;
+        document.querySelectorAll('.group-block[data-group-id="' + groupId + '"] .panel.group').forEach(function (panel) {
+          if (panel.querySelector('[data-group-description="' + groupId + '"]')) return;
+          var table = panel.querySelector(".tasks-table");
+          if (!table) return;
+          var descriptionNode = document.createElement("div");
+          descriptionNode.className = "group-description";
+          descriptionNode.setAttribute("data-group-description", String(groupId));
+          descriptionNode.innerHTML = descriptionHtml;
+          panel.insertBefore(descriptionNode, table);
+        });
+      }
+      window.__setGroupDescriptionLocal = setGroupDescriptionLocal;
+
       function setDivisionNameLocal(divisionId, name) {
         document.querySelectorAll('.sidebar-heading-row[data-division-context="' + divisionId + '"] .sidebar-division-title').forEach(function (node) {
           node.textContent = name;
@@ -3203,6 +3263,7 @@
           : project.is_shared_out
             ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
             : '';
+        var projectDescriptionHtml = String(project.rendered_description || "").trim();
 	        var ganttEnabled = !!(project.start_date && project.end_date);
 	        var board = document.createElement("div");
 	        var projectColor = resolveProjectColor(project);
@@ -3229,6 +3290,9 @@
                     '<div class="share-avatars project-header-avatars" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"></div>' +
                   '</div>') +
             '</div>' +
+            (projectDescriptionHtml
+              ? '<div class="project-board-description" data-project-description="' + String(project.id) + '">' + projectDescriptionHtml + '</div>'
+              : '') +
             '<div class="project-board-mode-tabs" data-project-mode-tabs="' + String(project.id) + '">' +
               '<button class="project-board-mode-tab is-active" type="button" data-project-mode-button="tasks" data-project-id="' + String(project.id) + '" onclick="return window.__setProjectBoardMode && window.__setProjectBoardMode(this);">Tasks</button>' +
               (ganttEnabled
@@ -3335,6 +3399,7 @@
 	        var projectId = String(project.id);
 	        var projectName = project.display_name || project.name || "Project";
 	        var projectColor = resolveProjectColor(project);
+        var groupDescriptionHtml = String(group.rendered_description || "").trim();
 	        var block = document.createElement("div");
         block.className = "group-block";
         block.setAttribute("data-group-id", String(group.id));
@@ -3361,6 +3426,9 @@
                 '</span>' +
               '</h3>' +
             '</div>' +
+            (groupDescriptionHtml
+              ? '<div class="group-description" data-group-description="' + String(group.id) + '">' + groupDescriptionHtml + '</div>'
+              : '') +
             '<table class="table tasks-table" data-project-id="' + projectId + '" data-group-id="' + String(group.id) + '">' +
               '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
               '<thead><tr><th></th><th>Task<span class="col-resizer" data-col="1"></span></th><th>Due<span class="col-resizer" data-col="2"></span></th><th>Status<span class="col-resizer" data-col="3"></span></th><th>Assign<span class="col-resizer" data-col="4"></span></th></tr></thead>' +
@@ -13915,12 +13983,21 @@
             document.querySelectorAll('.group-title-text[data-group-id="' + currentEntityId + '"]').forEach(function (node) {
               node.textContent = data.name || node.textContent;
             });
+            if (typeof window.__setGroupDescriptionLocal === "function" || typeof setGroupDescriptionLocal === "function") {
+              (typeof setGroupDescriptionLocal === "function" ? setGroupDescriptionLocal : window.__setGroupDescriptionLocal)(String(currentEntityId), data.rendered_description || "");
+            }
           }
           if (currentEntityType === "project" && typeof window.__updateProjectBoardDatesLocal === "function") {
             window.__updateProjectBoardDatesLocal(currentEntityData || data);
           }
           if (currentEntityType === "project" && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
             window.__refreshTreeProjectSnapshotLocal(currentEntityId, currentEntityData || data);
+          }
+          if (currentEntityType === "group" && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+            var groupProjectId = String((currentEntityData && currentEntityData.project_id) || data.project_id || "");
+            if (groupProjectId) {
+              window.__refreshTreeProjectSnapshotLocal(groupProjectId);
+            }
           }
         })
         .catch(function (err) { console.error('persistEntitySettings failed', err); });
@@ -18487,6 +18564,9 @@
         if (typeof window.__setGroupNameLocal === "function") {
           window.__setGroupNameLocal(String(group.id), group.name || "Group");
         }
+        if (typeof window.__setGroupDescriptionLocal === "function") {
+          window.__setGroupDescriptionLocal(String(group.id), group.rendered_description || "");
+        }
         if (typeof syncEntityLinkBadges === "function") {
           syncEntityLinkBadges("group", group.id, group.links || []);
         }
@@ -18495,6 +18575,9 @@
         }
         if (typeof window.__updateTodoItemGroupMeta === "function") {
           window.__updateTodoItemGroupMeta(String(group.id), group.name || "Group");
+        }
+        if (typeof isTreeRealtimeView === "function" && isTreeRealtimeView() && typeof window.__refreshTreeProjectSnapshotLocal === "function" && group.project_id) {
+          window.__refreshTreeProjectSnapshotLocal(group.project_id);
         }
         if (typeof window.__applyTodoFilters === "function") window.__applyTodoFilters();
         if (typeof window.__updateTodoParentCheckboxes === "function") window.__updateTodoParentCheckboxes();

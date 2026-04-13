@@ -30,7 +30,7 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app.extensions import db, socketio
-from app.models import Assignment, Project, ProjectMember, Task, TaskNotification, User
+from app.models import Assignment, Group, Project, ProjectMember, Task, TaskNotification, User
 
 
 app = create_app()
@@ -61,6 +61,8 @@ def seed_data():
         project = Project(
             name="Realtime Project",
             owner_id=owner.id,
+            description="Realtime project description for the tree board.",
+            description_format="markdown",
             created_at=db.func.now(),
             updated_at=db.func.now(),
         )
@@ -82,12 +84,23 @@ def seed_data():
         db.session.add_all([project, direct_project, jannaf_project])
         db.session.flush()
 
+        group = Group(
+            project_id=project.id,
+            name="Realtime Group",
+            description="Realtime group description for the tree board.",
+            description_format="markdown",
+            position=1,
+        )
+        db.session.add(group)
+        db.session.flush()
+
         db.session.add(ProjectMember(project_id=project.id, user_id=member.id))
         db.session.add(ProjectMember(project_id=direct_project.id, user_id=member.id))
         db.session.add(ProjectMember(project_id=jannaf_project.id, user_id=member.id))
 
         task = Task(
             project_id=project.id,
+            group_id=group.id,
             creator_user_id=owner.id,
             title="Realtime Task",
             status="open",
@@ -156,6 +169,7 @@ def seed_data():
             "owner": {"id": owner.id, "email": owner.email, "password": "password123"},
             "member": {"id": member.id, "email": member.email, "password": "password123"},
             "project": {"id": project.id},
+            "group": {"id": group.id},
             "direct_project": {"id": direct_project.id},
             "jannaf_project": {"id": jannaf_project.id},
             "task": {"id": task.id},

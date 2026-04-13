@@ -590,6 +590,7 @@ def _serialize_group_payload(group: Group) -> dict:
         "links": info_payload.get("links", []),
         "description": group.description,
         "description_format": group.description_format or "markdown",
+        "rendered_description": _render_description(group.description, group.description_format, "markdown"),
     }
 
 

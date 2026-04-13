@@ -2096,6 +2096,9 @@ def get_project_tree_snapshot(project_id: int):
                 "name": group.name,
                 "position": group.position,
                 "links": _info_payload_for(group).get("links", []),
+                "description": group.description,
+                "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
+                "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
                 "tasks": tasks_by_group.get(group.id, []),
             }
             for group in groups

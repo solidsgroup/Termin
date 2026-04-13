@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from html import escape
+import re
+
+from markdown import markdown as render_markdown
 
 from app.discussion_activity import build_discussion_activity_items
 from app.extensions import db
@@ -22,6 +26,7 @@ from app.models import (
 from app.sidebar_layout import sidebar_preference_map, top_level_sidebar_items
 from app.task_status import effective_task_status_for_user, task_status_meta_map
 from app.themes import division_effective_color, normalize_theme_name
+from app.info_utils import sanitize_info_html
 from app.ui import _build_github_task_meta
 from app.utils import display_name_for_user
 
@@ -83,6 +88,23 @@ def _is_complete_status(status: str | None) -> bool:
         "pr closed",
         "pr merged",
     }
+
+
+def _render_description(description: str | None, description_format: str | None, default_format: str) -> str:
+    if not description:
+        return ""
+    fmt = (description_format or default_format or "").strip().lower()
+    if fmt == "markdown":
+        rendered = render_markdown(description, extensions=["extra", "sane_lists"])
+        return sanitize_info_html(rendered)
+    if fmt == "html":
+        return sanitize_info_html(description)
+    paragraphs = []
+    for block in re.split(r"\n\s*\n", escape(description).strip()):
+        if not block:
+            continue
+        paragraphs.append(f"<p>{block.replace('\\n', '<br />')}</p>")
+    return "".join(paragraphs)
 
 
 def _todo_bucket_rank(task: Task) -> tuple[int, str]:
@@ -165,6 +187,7 @@ def _serialize_project(
         "default_invitee_calendar_opt_in": bool(project.default_invitee_calendar_opt_in),
         "description": project.description,
         "description_format": project.description_format,
+        "rendered_description": _render_description(project.description, project.description_format, "markdown"),
         "start_date": project.start_date.isoformat() if project.start_date else None,
         "end_date": project.end_date.isoformat() if project.end_date else None,
         "link": project.link,
@@ -188,6 +211,7 @@ def _serialize_group(group: Group) -> dict:
         "color": group.color,
         "description": group.description,
         "description_format": group.description_format,
+        "rendered_description": _render_description(group.description, group.description_format, "markdown"),
         "link": group.link,
         "info": info,
         "links": list(info.get("links") or []),
@@ -403,7 +427,7 @@ def build_dashboard_bootstrap(user) -> dict:
             "user_id": user.id,
             "generated_at": now_utc.isoformat(),
             "cursor": now_utc.isoformat(),
-            "schema_version": 2,
+            "schema_version": 3,
         },
         "entities": {
             "divisions": {

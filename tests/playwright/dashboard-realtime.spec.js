@@ -54,6 +54,26 @@ async function deleteAssignment(page, assignmentId) {
   expect(result.ok).toBeTruthy();
 }
 
+async function patchGroup(page, groupId, payload) {
+  const result = await page.evaluate(async ({ groupId, payload }) => {
+    const response = await fetch(`/api/groups/${groupId}`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data };
+  }, { groupId, payload });
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
 async function annotateTaskStatusView(page, taskId, label) {
   await page.locator(`[data-task-row-id="${taskId}"]`).scrollIntoViewIfNeeded();
   await page.evaluate(({ taskId, label }) => {
@@ -363,6 +383,95 @@ test.describe('dashboard and realtime flows', () => {
     await expectContainsTextWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.task.id}"]`, 'Realtime Task After Status', 'tree-single-status-title-owner', 'Owner should also receive the follow-up title change.');
     await focusTreeTask(ownerPage, state.task.id, 'Owner sees critical status after follow-up edit');
     await steps.multiStep('Verify the owner browser still shows Critical after the title edit, with the new title visible too.', [
+      { name: 'owner', page: ownerPage },
+    ]);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('tree shows project and group descriptions in the board layout', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'descriptions', 'project', 'group']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+
+    await expectContainsTextWithFailure(
+      page,
+      test.info(),
+      `[data-tree-project-board="${state.project.id}"] [data-project-description="${state.project.id}"]`,
+      'Realtime project description for the tree board.',
+      'tree-project-description-visible',
+      'The project description should render below the project header and above the mode tabs.'
+    );
+    await expectContainsTextWithFailure(
+      page,
+      test.info(),
+      `.group-block[data-group-id="${state.group.id}"] [data-group-description="${state.group.id}"]`,
+      'Realtime group description for the tree board.',
+      'tree-group-description-visible',
+      'The group description should render below the group title and above the task table.'
+    );
+    await steps.step('Open Tree on the seeded realtime project and verify both the project and group descriptions are visible in the board layout.', page);
+  });
+
+  test('tree group description updates live for another user', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['socket', 'tree', 'group', 'description']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
+
+    await expectContainsTextWithFailure(
+      ownerPage,
+      test.info(),
+      `.group-block[data-group-id="${state.group.id}"] [data-group-description="${state.group.id}"]`,
+      'Realtime group description for the tree board.',
+      'tree-group-description-initial-owner',
+      'The receiving browser should start with the seeded group description.'
+    );
+
+    await patchGroup(memberPage, state.group.id, {
+      description: 'Live group description updated from another browser.',
+      description_format: 'markdown',
+    });
+    await annotateLocator(
+      memberPage,
+      `.group-block[data-group-id="${state.group.id}"] [data-group-description="${state.group.id}"]`,
+      'Member updated group description',
+      ['The new group description should show immediately in the editing browser.']
+    );
+    await steps.multiStep('In the member browser, update the group description for the realtime group.', [
+      { name: 'member', page: memberPage },
+    ]);
+
+    await expectContainsTextWithFailure(
+      ownerPage,
+      test.info(),
+      `.group-block[data-group-id="${state.group.id}"] [data-group-description="${state.group.id}"]`,
+      'Live group description updated from another browser.',
+      'tree-group-description-live-owner',
+      'The receiving browser should show the updated group description without a refresh.'
+    );
+    await annotateLocator(
+      ownerPage,
+      `.group-block[data-group-id="${state.group.id}"] [data-group-description="${state.group.id}"]`,
+      'Owner received live group description update',
+      ['The updated group description should appear without refreshing the Tree page.']
+    );
+    await steps.multiStep('Verify the owner browser receives the new group description immediately over realtime updates.', [
       { name: 'owner', page: ownerPage },
     ]);
 

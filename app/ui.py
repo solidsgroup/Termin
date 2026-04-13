@@ -1513,7 +1513,17 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     info_by_task = {}
     project_map = {project.id: project for project in projects}
     project_info = load_info_payload(selected_project.info, selected_project.link) if selected_project else {"html": "", "attachments": [], "links": []}
-    group_info_by_id = {group.id: load_info_payload(group.info, group.link) for group in groups}
+    group_info_by_id = {
+        group.id: {
+            **load_info_payload(group.info, group.link),
+            "rendered_description": _render_description(
+                group.description,
+                group.description_format,
+                "markdown",
+            ),
+        }
+        for group in groups
+    }
     project_viewers, group_viewers, viewer_user_map = _build_dashboard_viewer_maps(projects)
     user_map = dict(viewer_user_map)
     direct_project_peers = {project.id: _direct_peer_for_user(project, user.id) for project in direct_projects}
