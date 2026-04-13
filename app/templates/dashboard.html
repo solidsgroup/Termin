@@ -485,6 +485,79 @@
     color: inherit;
   }
 
+  .project-gantt-export-btn {
+    margin-left: 0;
+    min-height: 32px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(10, 13, 18, 0.74);
+    color: var(--text);
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+  }
+
+  .project-gantt-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .project-gantt-mark-control,
+  .project-gantt-export-btn {
+    flex: 0 0 auto;
+  }
+
+  .project-gantt-guide.is-major {
+    top: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: color-mix(in srgb, var(--accent) 58%, rgba(255, 255, 255, 0.24));
+    opacity: 0.95;
+  }
+
+  .project-gantt-guide.is-minor {
+    top: 12px;
+    width: 1px;
+    background: currentColor;
+    opacity: 0.18;
+  }
+
+  .project-gantt-guide.is-today {
+    top: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: #000;
+    opacity: 0.95;
+  }
+
+  body[data-theme="dark"] .project-gantt-guide.is-today {
+    background: #fff;
+  }
+
+  .project-gantt-axis-label {
+    font-weight: 700;
+    color: color-mix(in srgb, var(--text) 88%, white 12%);
+  }
+
+  .project-gantt-export-btn:hover {
+    background: rgba(18, 23, 31, 0.92);
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+
+  .project-gantt-export-btn:active {
+    transform: translateY(1px);
+  }
+
   .dashboard-pane-loading {
     position: absolute;
     inset: 0;
@@ -3320,7 +3393,7 @@
           '</div>' +
           '</div>' +
           (ganttEnabled
-            ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden><div class="project-gantt-toolbar" data-project-gantt-controls="' + String(project.id) + '"><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Major</span><select data-project-gantt-major="' + String(project.id) + '"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + String(project.id) + '"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label></div><div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-items="[]"></div></div>'
+            ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden><div class="project-gantt-toolbar" data-project-gantt-controls="' + String(project.id) + '"><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Major</span><select data-project-gantt-major="' + String(project.id) + '"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="semester">Semester</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label><label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + String(project.id) + '"><option value="none">None</option><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="semester">Semester</option><option value="year">Year</option><option value="project_month">Project Month</option><option value="project_quarter">Project Quarter</option><option value="project_year">Project Year</option></select></label><button class="project-gantt-export-btn" type="button" data-project-gantt-export="' + String(project.id) + '">Copy Latex</button></div><div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-items="[]"></div></div>'
             : '');
         return board;
       }
@@ -3775,7 +3848,8 @@
 
         function defaultProjectGanttMarkUnits(startDate, endDate) {
           var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
-          if (rangeDays > 730) return { major: "year", minor: "month" };
+          if (rangeDays > 730) return { major: "year", minor: "semester" };
+          if (rangeDays > 180) return { major: "semester", minor: "month" };
           if (rangeDays > 61) return { major: "month", minor: "week" };
           if (rangeDays > 14) return { major: "week", minor: "day" };
           return { major: "day", minor: "week" };
@@ -3809,6 +3883,10 @@
             var monthDelta = Math.floor((value.getFullYear() - projectStartDate.getFullYear()) * 12 + (value.getMonth() - projectStartDate.getMonth()));
             return "PQ" + (Math.floor(monthDelta / 3) + 1);
           }
+          if (unit === "semester") {
+            var semesterMeta = ganttSemesterMeta(value);
+            return semesterMeta.name + " " + String(semesterMeta.year);
+          }
           if (unit === "project_year" && projectStartDate) {
             var projectYearMonthDelta = Math.floor((value.getFullYear() - projectStartDate.getFullYear()) * 12 + (value.getMonth() - projectStartDate.getMonth()));
             return "PY" + (Math.floor(projectYearMonthDelta / 12) + 1);
@@ -3818,6 +3896,36 @@
 	        }
 	        return value.toLocaleDateString([], { month: "short", day: "numeric" });
 	      }
+
+        function ganttSemesterMeta(value) {
+          var next = new Date(value.getTime());
+          next.setHours(0, 0, 0, 0);
+          var year = next.getFullYear();
+          var month = next.getMonth();
+          var day = next.getDate();
+          if (month < 4 || (month === 4 && day <= 15)) {
+            return {
+              name: "Spring",
+              year: year,
+              start: new Date(year, 0, 1),
+              end: new Date(year, 4, 15),
+            };
+          }
+          if (month < 7 || (month === 7 && day <= 14)) {
+            return {
+              name: "Summer",
+              year: year,
+              start: new Date(year, 4, 16),
+              end: new Date(year, 7, 14),
+            };
+          }
+          return {
+            name: "Fall",
+            year: year,
+            start: new Date(year, 7, 15),
+            end: new Date(year, 11, 31),
+          };
+        }
 
 	      function ganttStartOfUnit(value, unit) {
 	        var next = new Date(value.getTime());
@@ -3833,6 +3941,9 @@
 	        if (unit === "quarter") {
             next.setMonth(Math.floor(next.getMonth() / 3) * 3, 1);
             return next;
+          }
+          if (unit === "semester") {
+            return ganttSemesterMeta(next).start;
           }
           if (unit === "project_month" || unit === "project_quarter" || unit === "project_year") {
             return next;
@@ -3860,6 +3971,12 @@
             next.setMonth(next.getMonth() + 3);
             return next;
           }
+          if (unit === "semester") {
+            var semester = ganttSemesterMeta(next);
+            var afterSemester = new Date(semester.end.getTime());
+            afterSemester.setDate(afterSemester.getDate() + 1);
+            return afterSemester;
+          }
           if (unit === "project_month") {
             next.setMonth(next.getMonth() + 1);
             return next;
@@ -3885,7 +4002,7 @@
 	        var majorUnit = String(units && units.major || "month");
 	        var minorUnit = String(units && units.minor || "week");
 	        function positionsFor(unit) {
-	          if (!unit) return [];
+	          if (!unit || unit === "none") return [];
 	          var positions = [];
 	          var cursor = (unit === "project_month" || unit === "project_quarter" || unit === "project_year")
               ? new Date(startDate.getTime())
@@ -4295,11 +4412,31 @@
 	          if (edgeEnd) {
 	            html += '<span class="project-gantt-axis-edge is-end">' + edgeEnd + '</span>';
 	          }
-	          (data.majorLines || []).forEach(function (line) {
-	            var label = formatProjectGanttMajorLabel(data.majorUnit, line.date, data.projectStartDate || null);
-	            if (!label) return;
-	            html += '<span class="project-gantt-axis-label" style="left:' + Number(line.percent || 0).toFixed(2) + '%;">' + label + '</span>';
-	          });
+            var labeledSegments = [];
+            var previousPercent = 0;
+            var previousDate = data.projectStartDate || null;
+            (data.majorLines || []).forEach(function (line) {
+              var currentPercent = Number(line.percent || 0);
+              if (currentPercent > previousPercent) {
+                labeledSegments.push({
+                  date: previousDate,
+                  centerPercent: previousPercent + ((currentPercent - previousPercent) / 2),
+                });
+              }
+              previousPercent = currentPercent;
+              previousDate = line.date || previousDate;
+            });
+            if (previousDate) {
+              labeledSegments.push({
+                date: previousDate,
+                centerPercent: previousPercent + ((100 - previousPercent) / 2),
+              });
+            }
+            labeledSegments.forEach(function (segment) {
+              var label = formatProjectGanttMajorLabel(data.majorUnit, segment.date, data.projectStartDate || null);
+              if (!label) return;
+              html += '<span class="project-gantt-axis-label" style="left:' + Number(segment.centerPercent || 0).toFixed(2) + '%;">' + label + '</span>';
+            });
 	        }
 	        return html;
 	      }
@@ -19355,6 +19492,26 @@
           });
       }
 
+      var treeSelectionWarmupScheduled = false;
+
+      function scheduleTreeSelectionWarmup() {
+        if (treeSelectionWarmupScheduled) return;
+        if (isTreeDashboardView()) return;
+        if (!currentSelection || !treeSelectionStillLoading(currentSelection)) return;
+        treeSelectionWarmupScheduled = true;
+        var runner = function () {
+          treeSelectionWarmupScheduled = false;
+          if (isTreeDashboardView()) return;
+          if (!currentSelection || !treeSelectionStillLoading(currentSelection)) return;
+          ensureTreeSelectionBoards(currentSelection).catch(function () {});
+        };
+        if (typeof window.requestIdleCallback === "function") {
+          window.requestIdleCallback(runner, { timeout: 900 });
+        } else {
+          window.setTimeout(runner, 140);
+        }
+      }
+
       function scheduleInitialTreeSelectionEnsure() {
         if (!isTreeDashboardView()) return;
         ensureAndSyncTreeSelection(currentSelection);
@@ -19822,11 +19979,22 @@
           ensureAndSyncTreeSelection(currentSelection);
         });
       });
+      document.addEventListener("termin:dashboard-view-change", function (event) {
+        var detail = event && event.detail ? event.detail : null;
+        if (!detail) return;
+        if (detail.currentView === "dashboard" || detail.currentView === "inbox" || detail.currentView === "todo") {
+          scheduleTreeSelectionWarmup();
+        }
+      });
 
       window.addEventListener("load", function () {
         if (!isTreeDashboardView()) return;
         if (!treeSelectionStillLoading(currentSelection)) return;
         scheduleInitialTreeSelectionEnsure();
+      });
+      window.addEventListener("load", function () {
+        if (isTreeDashboardView()) return;
+        scheduleTreeSelectionWarmup();
       });
 
       window.addEventListener("popstate", function () {
