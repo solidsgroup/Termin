@@ -479,6 +479,38 @@ test.describe('dashboard and realtime flows', () => {
     await memberContext.close();
   });
 
+  test('project context menu applies a group template', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['templates', 'groups', 'tree', 'settings']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto('/account?section=templates');
+    await page.locator('[data-group-template-create-form] #group-template-title').fill('Semester Template');
+    await page.locator('[data-group-template-create-form] #group-template-tasks').fill('Draft outline\nReview budget');
+    await page.locator('[data-group-template-create-form] button[type="submit"]').click();
+    const createdTemplateCard = page.locator('[data-group-template-card]').first();
+    await expect(createdTemplateCard.locator('input[name="title"]')).toHaveValue('Semester Template');
+    await expect(createdTemplateCard.locator('textarea[name="tasks_text"]')).toHaveValue('Draft outline\nReview budget');
+    await steps.step('Create a private group template in Settings with two task rows.', page);
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const projectRow = page.locator(`[data-tree-project-row="${state.project.id}"]`).first();
+    await projectRow.click({ button: 'right' });
+    await expect(page.locator('#context-menu [data-action="add-group-template"]')).toBeVisible();
+    await page.locator('#context-menu [data-action="add-group-template"]').click();
+    await expect(page.locator('#group-template-modal')).toBeVisible();
+    await page.locator('#group-template-list [data-apply-group-template]').filter({ hasText: 'Semester Template' }).click();
+
+    const templateGroup = page.locator('.group-block', {
+      has: page.locator('.group-title-text', { hasText: 'Semester Template' }),
+    }).first();
+    await expect(templateGroup).toContainText('Draft outline');
+    await expect(templateGroup).toContainText('Review budget');
+    await steps.step('Open the project context menu in Tree, apply the template, and verify the new group and its tasks render immediately.', page);
+  });
+
   test('tree single-status control updates its button state after each inline change', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['tree', 'status', 'single-status', 'ui']);

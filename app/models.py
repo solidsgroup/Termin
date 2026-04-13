@@ -168,6 +168,24 @@ class Group(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class GroupTemplate(db.Model):
+    __tablename__ = "group_templates"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class GroupTemplateTask(db.Model):
+    __tablename__ = "group_template_tasks"
+    id = db.Column(db.Integer, primary_key=True)
+    group_template_id = db.Column(db.Integer, db.ForeignKey("group_templates.id"), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    position = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class GroupMember(db.Model):
     __tablename__ = "group_members"
     id = db.Column(db.Integer, primary_key=True)

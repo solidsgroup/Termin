@@ -27,6 +27,7 @@ from app.discussion_history import (
     serialized_discussion_events_for_entity,
 )
 from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
+from app.group_templates import serialize_group_template
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, normalize_email, search_users_by_identity
 from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
@@ -92,7 +93,7 @@ from app.sidebar_layout import (
     top_level_sidebar_items,
 )
 from app.task_status import effective_task_status_for_user, normalize_task_status, normalize_task_status_mode, set_task_user_status, task_status_meta, task_status_meta_map
-from app.themes import DEFAULT_THEME_NAME, color_slot_from_palette, division_effective_color, normalize_theme_name
+from app.themes import DEFAULT_THEME_NAME, color_slot_from_palette, division_effective_color, normalize_theme_name, theme_palette
 import secrets
 
 from app.models import (
@@ -112,6 +113,8 @@ from app.models import (
     TaskFollower,
     TaskNotification,
     CollaboratorProfile,
+    GroupTemplate,
+    GroupTemplateTask,
     ProjectComment,
     GroupComment,
 )
@@ -987,6 +990,82 @@ def dashboard_changes():
     except ValueError:
         return {"error": "cursor must be an ISO-8601 datetime"}, 400
     return _json_response_with_payload_header({"dashboard": build_dashboard_changes(user, since=cursor)})
+
+
+@api_bp.get("/group-templates")
+@login_required
+def list_group_templates():
+    user = current_user()
+    templates = (
+        GroupTemplate.query.filter_by(user_id=user.id)
+        .order_by(GroupTemplate.updated_at.desc(), GroupTemplate.id.desc())
+        .all()
+    )
+    return {
+        "templates": [serialize_group_template(template) for template in templates],
+    }
+
+
+@api_bp.post("/projects/<int:project_id>/group-templates/<int:template_id>/apply")
+@login_required
+def apply_group_template(project_id: int, template_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_manage_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+    template = GroupTemplate.query.filter_by(id=template_id, user_id=user.id).first()
+    if not template:
+        return {"error": "group template not found"}, 404
+    template_tasks = (
+        GroupTemplateTask.query.filter_by(group_template_id=template.id)
+        .order_by(GroupTemplateTask.position.asc(), GroupTemplateTask.id.asc())
+        .all()
+    )
+    task_titles = [str(row.title or "").strip() for row in template_tasks if str(row.title or "").strip()]
+    if not task_titles:
+        return {"error": "group template has no tasks"}, 400
+
+    max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
+    palette = list(theme_palette(getattr(user, "theme_name", None)))
+    group = Group(
+        project_id=project.id,
+        name=template.title,
+        position=max_pos + 1,
+        color=palette[max_pos % len(palette)] if palette else None,
+    )
+    db.session.add(group)
+    db.session.flush()
+
+    created_tasks: list[Task] = []
+    for index, title in enumerate(task_titles, start=1):
+        task = Task(
+            project_id=project.id,
+            group_id=group.id,
+            creator_user_id=user.id,
+            position=index,
+            title=title,
+            info=normalize_info_payload(None),
+            owner_calendar_opt_in=project.default_owner_calendar_opt_in,
+        )
+        db.session.add(task)
+        created_tasks.append(task)
+    db.session.flush()
+
+    log_group_history(group, actor=user, action="created")
+    for task in created_tasks:
+        log_task_history(task, actor=user, action="created")
+    db.session.commit()
+
+    emit_group_created(group, actor_user_id=user.id)
+    for task in created_tasks:
+        emit_task_updated(task, action="created", actor_user_id=user.id)
+
+    return {
+        "group": _serialize_group_payload(group),
+        "tasks": [_serialize_task_row(task, viewer_user_id=user.id) for task in created_tasks],
+    }, 201
 
 
 @api_bp.get("/web-push")

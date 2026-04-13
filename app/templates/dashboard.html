@@ -1696,6 +1696,7 @@
 <div id="context-menu" class="context-menu">
   <button data-action="add-project">Add Project</button>
   <button data-action="add-group">Add Group</button>
+  <button data-action="add-group-template">Add Group Template</button>
   <button data-action="promote-project">Promote to Project</button>
   <button data-action="move-up">Move up</button>
   <button data-action="move-down">Move down</button>
@@ -1762,6 +1763,17 @@
     <div id="direct-project-status" class="footer-note" style="margin-top: 8px;"></div>
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
       <button class="btn secondary" type="button" id="direct-project-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="group-template-modal" class="modal">
+  <div class="panel">
+    <h3>Apply Group Template</h3>
+    <div id="group-template-status" class="footer-note" style="margin-top: 8px;"></div>
+    <div id="group-template-list" class="share-list" style="margin-top: 12px;"></div>
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button class="btn secondary" type="button" id="group-template-cancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -5974,6 +5986,10 @@
           if (typeof window.__submitTreeQuickCreate === "function") {
             window.__submitTreeQuickCreate("group", id);
           }
+        } else if (action === "add-group-template") {
+          if (typeof window.__openGroupTemplateModal === "function") {
+            window.__openGroupTemplateModal(id);
+          }
         } else if (action === "promote-project") {
           fetch("/api/groups/" + id + "/promote", {
             method: "POST",
@@ -8786,6 +8802,10 @@
     const directProjectSuggest = document.getElementById("direct-project-suggest");
     const directProjectStatus = document.getElementById("direct-project-status");
     const directProjectCancel = document.getElementById("direct-project-cancel");
+    const groupTemplateModal = document.getElementById("group-template-modal");
+    const groupTemplateStatus = document.getElementById("group-template-status");
+    const groupTemplateList = document.getElementById("group-template-list");
+    const groupTemplateCancel = document.getElementById("group-template-cancel");
     const infoModal = document.getElementById("info-modal");
     const infoEditor = document.getElementById("info-editor");
     const infoSave = document.getElementById("info-save");
@@ -8799,6 +8819,7 @@
     let shareSuggestActiveIndex = -1;
     let directProjectResults = [];
     let directProjectActiveIndex = -1;
+    let groupTemplateProjectId = "";
 
     const hideContextMenu = () => {
       if (contextMenu) contextMenu.style.display = "none";
@@ -8876,7 +8897,7 @@
             ? action === "delete"
             : action === "promote-project"
               ? type === "group"
-            : action === "add-group"
+            : action === "add-group" || action === "add-group-template"
               ? type === "project"
               : action === "add-project"
                 ? false
@@ -8961,6 +8982,63 @@
       if (shareStatus) shareStatus.textContent = "";
       if (shareList) shareList.innerHTML = "";
     };
+
+    const closeGroupTemplateModal = () => {
+      if (!groupTemplateModal) return;
+      groupTemplateModal.style.display = "none";
+      groupTemplateProjectId = "";
+      if (groupTemplateStatus) groupTemplateStatus.textContent = "";
+      if (groupTemplateList) groupTemplateList.innerHTML = "";
+    };
+
+    const renderGroupTemplateChoices = (templates) => {
+      if (!groupTemplateList) return;
+      if (!templates.length) {
+        groupTemplateList.innerHTML = '<div class="footer-note">No group templates yet. Create one in Settings → Templates.</div>';
+        return;
+      }
+      groupTemplateList.innerHTML = templates.map((template) => {
+        const taskCount = Number(template.task_count || 0);
+        const preview = Array.isArray(template.task_titles) ? template.task_titles.slice(0, 4) : [];
+        return (
+          '<button class="notifications-open" type="button" data-apply-group-template="' + String(template.id) + '" style="width:100%; text-align:left; border:1px solid var(--border); border-radius:14px; padding:14px; background:var(--panel-alt); color:var(--ink); display:block; margin-bottom:10px;">' +
+            '<div style="font-weight:700;">' + escapeHtml(template.title || "Template") + '</div>' +
+            '<div class="footer-note" style="margin-top:4px;">' + taskCount + ' task' + (taskCount === 1 ? '' : 's') + '</div>' +
+            (preview.length
+              ? '<div class="footer-note" style="margin-top:8px;">' + preview.map((title) => escapeHtml(title)).join(' · ') + '</div>'
+              : '') +
+          '</button>'
+        );
+      }).join("");
+    };
+
+    const openGroupTemplateModal = (projectId) => {
+      if (!groupTemplateModal || !projectId) return;
+      groupTemplateProjectId = String(projectId);
+      if (groupTemplateStatus) groupTemplateStatus.textContent = "Loading templates…";
+      if (groupTemplateList) groupTemplateList.innerHTML = "";
+      groupTemplateModal.style.display = "flex";
+      fetch("/api/group-templates", {
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          if (!result.ok) throw new Error((result.data && result.data.error) || "Could not load group templates");
+          const templates = Array.isArray(result.data && result.data.templates) ? result.data.templates : [];
+          if (groupTemplateStatus) {
+            groupTemplateStatus.textContent = templates.length
+              ? "Choose a template to create a new group in this project."
+              : "";
+          }
+          renderGroupTemplateChoices(templates);
+        })
+        .catch((error) => {
+          if (groupTemplateStatus) groupTemplateStatus.textContent = error && error.message ? error.message : "Could not load templates.";
+          if (groupTemplateList) groupTemplateList.innerHTML = "";
+        });
+    };
+    window.__openGroupTemplateModal = openGroupTemplateModal;
 
     const syncDirectProjectSuggestionActive = () => {
       if (!directProjectSuggest) return;
@@ -9515,6 +9593,9 @@
         if (action === "add-group" && typeof window.__submitTreeQuickCreate === "function") {
           window.__submitTreeQuickCreate("group", id);
         }
+        if (action === "add-group-template" && typeof window.__openGroupTemplateModal === "function") {
+          window.__openGroupTemplateModal(id);
+        }
         if (action === "promote-project") {
           fetch(`/api/groups/${id}/promote`, {
             method: "POST",
@@ -9826,6 +9907,49 @@
     if (directProjectModal) {
       directProjectModal.addEventListener("click", (event) => {
         if (event.target === directProjectModal) closeDirectProjectModal();
+      });
+    }
+
+    if (groupTemplateCancel) {
+      groupTemplateCancel.addEventListener("click", closeGroupTemplateModal);
+    }
+
+    if (groupTemplateModal) {
+      groupTemplateModal.addEventListener("click", (event) => {
+        if (event.target === groupTemplateModal) closeGroupTemplateModal();
+      });
+    }
+
+    if (groupTemplateList) {
+      groupTemplateList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-apply-group-template]");
+        if (!button || !groupTemplateProjectId) return;
+        const templateId = button.getAttribute("data-apply-group-template");
+        if (!templateId) return;
+        button.disabled = true;
+        if (groupTemplateStatus) groupTemplateStatus.textContent = "Applying template…";
+        fetch(`/api/projects/${groupTemplateProjectId}/group-templates/${templateId}/apply`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" },
+        })
+          .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+          .then((result) => {
+            if (!result.ok) {
+              throw new Error((result.data && result.data.error) || "Could not apply group template");
+            }
+            const createdGroup = result.data && result.data.group ? result.data.group : null;
+            closeGroupTemplateModal();
+            if (createdGroup && typeof window.__ensureTreeProjectBoard === "function") {
+              window.__ensureTreeProjectBoard(String(groupTemplateProjectId));
+            }
+          })
+          .catch((error) => {
+            button.disabled = false;
+            if (groupTemplateStatus) {
+              groupTemplateStatus.textContent = error && error.message ? error.message : "Could not apply group template.";
+            }
+          });
       });
     }
 

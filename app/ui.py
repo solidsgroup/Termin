@@ -19,6 +19,12 @@ from app.extensions import db
 from app.discussion_activity import build_discussion_activity_items, task_discussion_user_ids, upsert_discussion_activity
 from app.discussion_history import log_group_history, log_project_history, log_task_history
 from app.github_sync import GitHubSyncError, github_identity_for_user, github_sync_state_for_user, should_sync_github_issues, sync_github_issues_for_user
+from app.group_templates import (
+    normalize_group_template_task_titles,
+    normalize_group_template_title,
+    replace_group_template_tasks,
+    serialize_group_template,
+)
 from app.identity import (
     add_user_email,
     claim_collaborator_profile,
@@ -46,7 +52,7 @@ from app.notification_emailer import (
     normalize_notification_email_frequency,
     send_notification_digest_email,
 )
-from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
+from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, GroupTemplate, GroupTemplateTask, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
 from app.models import UserNotificationPreference
 from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
@@ -746,6 +752,12 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
     message_notifications = [item for item in notification_items if item["kind"] == "comment"]
     web_push_config = public_web_push_config()
     web_push_subscriptions = active_web_push_subscriptions_for_user(user.id)
+    group_templates = [
+        serialize_group_template(row)
+        for row in GroupTemplate.query.filter_by(user_id=user.id)
+        .order_by(GroupTemplate.updated_at.desc(), GroupTemplate.id.desc())
+        .all()
+    ]
     return render_template(
         "account.html",
         user=user,
@@ -772,6 +784,7 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         message_notifications=message_notifications,
         web_push_config=web_push_config,
         web_push_subscriptions=web_push_subscriptions,
+        group_templates=group_templates,
         error=error,
         merge_message=message,
     )
@@ -1999,7 +2012,7 @@ def dev_mailbox():
 def account():
     user = current_user()
     section = (request.args.get("section") or "emails").strip().lower()
-    if section not in {"emails", "experience", "notifications"}:
+    if section not in {"emails", "experience", "notifications", "templates"}:
         section = "emails"
     return _render_account_page(user, section=section)
 
@@ -2008,6 +2021,12 @@ def account():
 @login_required
 def account_notifications():
     return _render_account_page(current_user(), section="notifications")
+
+
+@ui_bp.get("/account/templates")
+@login_required
+def account_templates():
+    return _render_account_page(current_user(), section="templates")
 
 
 @ui_bp.post("/account/experience")
@@ -2121,6 +2140,56 @@ def send_account_notification_test_email():
         current_app.logger.exception("notification test email failed", extra={"user_id": user.id})
         return _render_account_page(user, section="notifications", error="Unable to send the test email.")
     return _render_account_page(user, section="notifications", message="Test email sent.")
+
+
+@ui_bp.post("/account/templates")
+@login_required
+def create_account_group_template():
+    user = current_user()
+    title = normalize_group_template_title(request.form.get("title"))
+    task_titles = normalize_group_template_task_titles(request.form.get("tasks_text"))
+    if not title:
+        return _render_account_page(user, section="templates", error="Template title is required.")
+    if not task_titles:
+        return _render_account_page(user, section="templates", error="Add at least one task to the template.")
+    template = GroupTemplate(user_id=user.id, title=title)
+    db.session.add(template)
+    db.session.flush()
+    replace_group_template_tasks(template, task_titles)
+    db.session.commit()
+    return _render_account_page(user, section="templates", message="Group template created.")
+
+
+@ui_bp.post("/account/templates/<int:template_id>")
+@login_required
+def update_account_group_template(template_id: int):
+    user = current_user()
+    template = GroupTemplate.query.filter_by(id=template_id, user_id=user.id).first()
+    if not template:
+        return _render_account_page(user, section="templates", error="Group template not found.")
+    title = normalize_group_template_title(request.form.get("title"))
+    task_titles = normalize_group_template_task_titles(request.form.get("tasks_text"))
+    if not title:
+        return _render_account_page(user, section="templates", error="Template title is required.")
+    if not task_titles:
+        return _render_account_page(user, section="templates", error="Add at least one task to the template.")
+    template.title = title
+    replace_group_template_tasks(template, task_titles)
+    db.session.commit()
+    return _render_account_page(user, section="templates", message="Group template updated.")
+
+
+@ui_bp.post("/account/templates/<int:template_id>/delete")
+@login_required
+def delete_account_group_template(template_id: int):
+    user = current_user()
+    template = GroupTemplate.query.filter_by(id=template_id, user_id=user.id).first()
+    if not template:
+        return _render_account_page(user, section="templates", error="Group template not found.")
+    db.session.query(GroupTemplateTask).filter_by(group_template_id=template.id).delete(synchronize_session=False)
+    db.session.delete(template)
+    db.session.commit()
+    return _render_account_page(user, section="templates", message="Group template deleted.")
 
 
 @ui_bp.get("/admin")
