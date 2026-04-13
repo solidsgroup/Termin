@@ -72,6 +72,9 @@ function isStaticAsset(url) {
 }
 
 function isShellPath(url) {
+  if (url.pathname.startsWith("/debug/")) {
+    return false;
+  }
   if (url.pathname === "/" || url.pathname === "/dashboard" || url.pathname === "/todo" || url.pathname === "/inbox") {
     return true;
   }
@@ -184,6 +187,10 @@ self.addEventListener("fetch", function (event) {
 
   const url = new URL(request.url);
   if (isApiRequest(url) || isSocketRequest(url) || isServiceWorkerRequest(url)) {
+    return;
+  }
+
+  if (url.pathname.startsWith("/debug/")) {
     return;
   }
 

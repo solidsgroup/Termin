@@ -487,11 +487,18 @@ test.describe('dashboard and realtime flows', () => {
     await login(page, state.owner.email, state.owner.password);
     await page.goto('/account?section=templates');
     await page.locator('[data-group-template-create-form] #group-template-title').fill('Semester Template');
-    await page.locator('[data-group-template-create-form] #group-template-tasks').fill('Draft outline\nReview budget');
-    await page.locator('[data-group-template-create-form] button[type="submit"]').click();
+    const createForm = page.locator('[data-group-template-create-form]');
+    await createForm.locator('input[name="task_title"]').first().fill('Draft outline');
+    await createForm.locator('textarea[name="task_description"]').first().fill('Write the **initial** outline.');
+    await createForm.locator('[data-group-template-add-task]').click();
+    await expect(createForm.locator('input[name="task_title"]')).toHaveCount(2);
+    await createForm.locator('input[name="task_title"]').nth(1).fill('Review budget');
+    await createForm.locator('textarea[name="task_description"]').nth(1).fill('Confirm the budget assumptions.');
+    await createForm.locator('button[type="submit"]').click();
     const createdTemplateCard = page.locator('[data-group-template-card]').first();
     await expect(createdTemplateCard.locator('input[name="title"]')).toHaveValue('Semester Template');
-    await expect(createdTemplateCard.locator('textarea[name="tasks_text"]')).toHaveValue('Draft outline\nReview budget');
+    await expect(createdTemplateCard.locator('input[name="task_title"]').first()).toHaveValue('Draft outline');
+    await expect(createdTemplateCard.locator('textarea[name="task_description"]').first()).toHaveValue('Write the **initial** outline.');
     await steps.step('Create a private group template in Settings with two task rows.', page);
 
     await page.goto(`/tree/project/${state.project.id}`);
@@ -501,13 +508,22 @@ test.describe('dashboard and realtime flows', () => {
     await expect(page.locator('#context-menu [data-action="add-group-template"]')).toBeVisible();
     await page.locator('#context-menu [data-action="add-group-template"]').click();
     await expect(page.locator('#group-template-modal')).toBeVisible();
+    const applyResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/projects/${state.project.id}/group-templates/`) && response.request().method() === 'POST');
     await page.locator('#group-template-list [data-apply-group-template]').filter({ hasText: 'Semester Template' }).click();
+    const applyResponse = await applyResponsePromise;
+    const applyPayload = await applyResponse.json();
 
     const templateGroup = page.locator('.group-block', {
       has: page.locator('.group-title-text', { hasText: 'Semester Template' }),
     }).first();
     await expect(templateGroup).toContainText('Draft outline');
     await expect(templateGroup).toContainText('Review budget');
+    expect(applyPayload.tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: 'Draft outline', description: 'Write the **initial** outline.' }),
+        expect.objectContaining({ title: 'Review budget', description: 'Confirm the budget assumptions.' }),
+      ])
+    );
     await steps.step('Open the project context menu in Tree, apply the template, and verify the new group and its tasks render immediately.', page);
   });
 

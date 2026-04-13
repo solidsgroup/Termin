@@ -182,6 +182,7 @@ class GroupTemplateTask(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     group_template_id = db.Column(db.Integer, db.ForeignKey("group_templates.id"), nullable=False)
     title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
     position = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 

@@ -20,6 +20,29 @@ def normalize_group_template_task_titles(raw_value: str | None) -> list[str]:
     return titles
 
 
+def normalize_group_template_task_entries(form_data) -> list[dict]:
+    titles = form_data.getlist("task_title") if form_data is not None else []
+    descriptions = form_data.getlist("task_description") if form_data is not None else []
+    entries: list[dict] = []
+    if titles:
+        for index, raw_title in enumerate(titles):
+            title = str(raw_title or "").strip()[:255]
+            description = str(descriptions[index] or "").strip() if index < len(descriptions) else ""
+            if not title and not description:
+                continue
+            if not title:
+                continue
+            entries.append(
+                {
+                    "title": title,
+                    "description": description or None,
+                }
+            )
+        return entries
+    legacy_titles = normalize_group_template_task_titles(form_data.get("tasks_text") if form_data is not None else None)
+    return [{"title": title, "description": None} for title in legacy_titles]
+
+
 def group_template_tasks(template_id: int) -> list[GroupTemplateTask]:
     return (
         GroupTemplateTask.query.filter_by(group_template_id=template_id)
@@ -39,6 +62,7 @@ def serialize_group_template(template: GroupTemplate) -> dict:
             {
                 "id": task.id,
                 "title": task.title,
+                "description": task.description or "",
                 "position": task.position,
             }
             for task in tasks
@@ -51,15 +75,15 @@ def serialize_group_template(template: GroupTemplate) -> dict:
     }
 
 
-def replace_group_template_tasks(template: GroupTemplate, task_titles: list[str]) -> None:
+def replace_group_template_tasks(template: GroupTemplate, task_entries: list[dict]) -> None:
     GroupTemplateTask.query.filter_by(group_template_id=template.id).delete(synchronize_session=False)
-    for index, title in enumerate(task_titles, start=1):
+    for index, entry in enumerate(task_entries, start=1):
         db.session.add(
             GroupTemplateTask(
                 group_template_id=template.id,
-                title=title,
+                title=str(entry.get("title") or "").strip()[:255],
+                description=str(entry.get("description") or "").strip() or None,
                 position=index,
             )
         )
     template.updated_at = datetime.utcnow()
-

@@ -1006,6 +1006,23 @@ def list_group_templates():
     }
 
 
+@api_bp.post("/markdown-preview")
+@login_required
+def markdown_preview():
+    payload = request.get_json(silent=True) or {}
+    text = str(payload.get("text") or "")
+    html = sanitize_info_html(
+        render_markdown(
+            text,
+            extensions=["extra", "sane_lists", "nl2br"],
+            output_format="html5",
+        )
+    ) if text.strip() else ""
+    return {
+        "html": html,
+    }
+
+
 @api_bp.post("/projects/<int:project_id>/group-templates/<int:template_id>/apply")
 @login_required
 def apply_group_template(project_id: int, template_id: int):
@@ -1023,8 +1040,15 @@ def apply_group_template(project_id: int, template_id: int):
         .order_by(GroupTemplateTask.position.asc(), GroupTemplateTask.id.asc())
         .all()
     )
-    task_titles = [str(row.title or "").strip() for row in template_tasks if str(row.title or "").strip()]
-    if not task_titles:
+    template_task_rows = [
+        {
+            "title": str(row.title or "").strip(),
+            "description": str(row.description or "").strip() or None,
+        }
+        for row in template_tasks
+        if str(row.title or "").strip()
+    ]
+    if not template_task_rows:
         return {"error": "group template has no tasks"}, 400
 
     max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
@@ -1039,13 +1063,15 @@ def apply_group_template(project_id: int, template_id: int):
     db.session.flush()
 
     created_tasks: list[Task] = []
-    for index, title in enumerate(task_titles, start=1):
+    for index, template_task in enumerate(template_task_rows, start=1):
         task = Task(
             project_id=project.id,
             group_id=group.id,
             creator_user_id=user.id,
             position=index,
-            title=title,
+            title=template_task["title"],
+            description=template_task["description"],
+            description_format="markdown" if template_task["description"] else "plain",
             info=normalize_info_payload(None),
             owner_calendar_opt_in=project.default_owner_calendar_opt_in,
         )

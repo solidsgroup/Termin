@@ -253,8 +253,22 @@ def create_app() -> Flask:
       </section>
     </div>
     <script>
+      let pollingStopped = false;
+
       async function loadPerformance() {
         const response = await fetch('/debug/performance.json', { cache: 'no-store', credentials: 'same-origin' });
+        if (!response.ok) {
+          pollingStopped = true;
+          const updatedEl = document.getElementById('last-updated');
+          const rowsEl = document.getElementById('timing-rows');
+          if (updatedEl) {
+            updatedEl.textContent = 'Performance JSON unavailable (' + String(response.status) + ')';
+          }
+          if (rowsEl) {
+            rowsEl.innerHTML = '<tr><td colspan="5" class="muted">Performance JSON is unavailable. If you are not running with --debug, this is expected.</td></tr>';
+          }
+          throw new Error('Could not load performance JSON');
+        }
         const data = await response.json();
         const events = Array.isArray(data.events) ? data.events : [];
         const countEl = document.getElementById('sample-count');
@@ -293,6 +307,7 @@ def create_app() -> Flask:
       });
       loadPerformance().catch(function () {});
       window.setInterval(function () {
+        if (pollingStopped) return;
         const checkbox = document.getElementById('auto-refresh');
         if (!checkbox || !checkbox.checked) return;
         loadPerformance().catch(function () {});

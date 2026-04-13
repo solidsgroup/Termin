@@ -904,6 +904,75 @@
           margin-top: 12px;
         }
 
+        .group-template-task-stack {
+          display: grid;
+          gap: 10px;
+        }
+
+        .group-template-task-row {
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+          padding: 12px;
+          display: grid;
+          gap: 10px;
+        }
+
+        .group-template-task-row-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .group-template-task-row-head input[name="task_title"] {
+          flex: 1 1 auto;
+          min-width: 0;
+        }
+
+        .group-template-task-remove {
+          border: 0;
+          background: transparent;
+          color: var(--muted);
+          font: inherit;
+          font-weight: 700;
+          cursor: pointer;
+          padding: 0;
+        }
+
+        .group-template-task-remove:hover,
+        .group-template-task-remove:focus-visible {
+          color: var(--danger);
+          outline: none;
+        }
+
+        .group-template-task-row textarea {
+          min-height: 96px;
+          resize: vertical;
+        }
+
+        .group-template-task-row.is-previewing textarea[name="task_description"] {
+          display: none;
+        }
+
+        .group-template-task-preview {
+          display: none;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--panel-alt) 80%, transparent);
+          padding: 12px;
+          color: var(--ink);
+        }
+
+        .group-template-task-preview.is-active {
+          display: block;
+        }
+
+        .group-template-task-preview:empty::before {
+          content: "Nothing to preview.";
+          color: var(--muted);
+        }
+
         .group-template-empty {
           color: var(--muted);
         }
@@ -972,16 +1041,30 @@
               </label>
               <label class="group-template-field">
                 <span>Tasks</span>
-                <textarea
-                  id="group-template-tasks"
-                  name="tasks_text"
-                  rows="8"
-                  placeholder="Draft outline&#10;Review budget&#10;Submit abstract"
-                  required
-                ></textarea>
+                <div class="group-template-task-stack" data-group-template-task-stack>
+                  <div class="group-template-task-row" data-group-template-task-row>
+                    <div class="group-template-task-row-head">
+                      <input
+                        name="task_title"
+                        type="text"
+                        placeholder="Draft outline"
+                        required
+                      />
+                      <button type="button" class="btn secondary" data-group-template-preview-toggle>Preview</button>
+                      <button type="button" class="group-template-task-remove" data-group-template-task-remove aria-label="Remove task">Remove</button>
+                    </div>
+                    <textarea
+                      id="group-template-tasks"
+                      name="task_description"
+                      placeholder="Markdown description for this task"
+                    ></textarea>
+                    <div class="group-template-task-preview" data-group-template-task-preview></div>
+                  </div>
+                </div>
               </label>
-              <div class="footer-note">One task title per line.</div>
+              <div class="footer-note">Each task can include an optional markdown description.</div>
               <div class="group-template-card-actions">
+                <button class="btn secondary" type="button" data-group-template-add-task>Add Task</button>
                 <button class="btn" type="submit">Create Template</button>
               </div>
             </form>
@@ -1010,14 +1093,31 @@
                 </label>
                 <label class="group-template-field">
                   <span>Tasks</span>
-                  <textarea
-                    name="tasks_text"
-                    rows="{{ 6 if group_template.task_count < 6 else group_template.task_count }}"
-                    required
-                  >{{ group_template.tasks_text }}</textarea>
+                  <div class="group-template-task-stack" data-group-template-task-stack>
+                    {% for template_task in group_template.tasks %}
+                      <div class="group-template-task-row" data-group-template-task-row>
+                        <div class="group-template-task-row-head">
+                          <input
+                            name="task_title"
+                            type="text"
+                            value="{{ template_task.title }}"
+                            required
+                          />
+                          <button type="button" class="btn secondary" data-group-template-preview-toggle>Preview</button>
+                          <button type="button" class="group-template-task-remove" data-group-template-task-remove aria-label="Remove task">Remove</button>
+                        </div>
+                        <textarea
+                          name="task_description"
+                          placeholder="Markdown description for this task"
+                        >{{ template_task.description }}</textarea>
+                        <div class="group-template-task-preview" data-group-template-task-preview></div>
+                      </div>
+                    {% endfor %}
+                  </div>
                 </label>
                 <div class="footer-note">{{ group_template.task_count }} task{{ '' if group_template.task_count == 1 else 's' }} in this template.</div>
                 <div class="group-template-card-actions">
+                  <button class="btn secondary" type="button" data-group-template-add-task>Add Task</button>
                   <button class="btn" type="submit">Save Template</button>
                 </div>
               </form>
@@ -1042,6 +1142,117 @@
           const buttons = Array.from(root.querySelectorAll('[data-group-template-select]'));
           const editors = Array.from(root.querySelectorAll('[data-group-template-editor]'));
 
+          async function renderTaskPreview(row) {
+            const textarea = row.querySelector('textarea[name="task_description"]');
+            const preview = row.querySelector('[data-group-template-task-preview]');
+            if (!textarea || !preview) return;
+            const text = textarea.value || '';
+            if (!text.trim()) {
+              preview.innerHTML = '';
+              return;
+            }
+            try {
+              const response = await fetch('/api/markdown-preview', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text }),
+              });
+              if (!response.ok) {
+                throw new Error('preview failed');
+              }
+              const payload = await response.json();
+              preview.innerHTML = String(payload.html || '');
+            } catch (_error) {
+              preview.textContent = text;
+            }
+          }
+
+          function syncTaskRows(scope) {
+            const rows = Array.from(scope.querySelectorAll('[data-group-template-task-row]'));
+            rows.forEach((row, index) => {
+              const removeButton = row.querySelector('[data-group-template-task-remove]');
+              if (removeButton) {
+                removeButton.disabled = rows.length <= 1;
+                removeButton.style.visibility = rows.length <= 1 ? 'hidden' : 'visible';
+              }
+              const titleInput = row.querySelector('input[name="task_title"]');
+              if (titleInput && !titleInput.placeholder) {
+                titleInput.placeholder = 'Task ' + String(index + 1);
+              }
+            });
+          }
+
+          function buildTaskRow() {
+            const row = document.createElement('div');
+            row.className = 'group-template-task-row';
+            row.setAttribute('data-group-template-task-row', '');
+            row.innerHTML = `
+              <div class="group-template-task-row-head">
+                <input name="task_title" type="text" placeholder="Task title" required />
+                <button type="button" class="btn secondary" data-group-template-preview-toggle>Preview</button>
+                <button type="button" class="group-template-task-remove" data-group-template-task-remove aria-label="Remove task">Remove</button>
+              </div>
+              <textarea name="task_description" placeholder="Markdown description for this task"></textarea>
+              <div class="group-template-task-preview" data-group-template-task-preview></div>
+            `;
+            return row;
+          }
+
+          function bindTaskEditor(scope) {
+            if (!scope || scope.dataset.groupTemplateEditorBound === '1') return;
+            scope.dataset.groupTemplateEditorBound = '1';
+            const stack = scope.querySelector('[data-group-template-task-stack]');
+            const addButton = scope.querySelector('[data-group-template-add-task]');
+            if (!stack || !addButton) return;
+
+            addButton.addEventListener('click', function () {
+              const row = buildTaskRow();
+              stack.appendChild(row);
+              syncTaskRows(scope);
+              const titleInput = row.querySelector('input[name="task_title"]');
+              if (titleInput) {
+                titleInput.focus();
+              }
+            });
+
+            scope.addEventListener('click', function (event) {
+              const removeButton = event.target.closest('[data-group-template-task-remove]');
+              if (!removeButton) return;
+              const row = removeButton.closest('[data-group-template-task-row]');
+              if (!row) return;
+              const rows = stack.querySelectorAll('[data-group-template-task-row]');
+              if (rows.length <= 1) return;
+              row.remove();
+              syncTaskRows(scope);
+            });
+
+            scope.addEventListener('click', function (event) {
+              const previewButton = event.target.closest('[data-group-template-preview-toggle]');
+              if (!previewButton) return;
+              const row = previewButton.closest('[data-group-template-task-row]');
+              if (!row) return;
+              const preview = row.querySelector('[data-group-template-task-preview]');
+              if (!preview) return;
+              const isActive = preview.classList.contains('is-active');
+              if (isActive) {
+                preview.classList.remove('is-active');
+                row.classList.remove('is-previewing');
+                previewButton.textContent = 'Preview';
+                return;
+              }
+              renderTaskPreview(row).finally(function () {
+                preview.classList.add('is-active');
+                row.classList.add('is-previewing');
+                previewButton.textContent = 'Edit';
+              });
+            });
+
+            syncTaskRows(scope);
+          }
+
           function activateTemplate(id) {
             buttons.forEach((button) => {
               button.classList.toggle('is-active', button.getAttribute('data-group-template-select') === id);
@@ -1050,6 +1261,7 @@
               const isActive = editor.getAttribute('data-group-template-editor') === id;
               editor.classList.toggle('is-active', isActive);
               if (isActive) {
+                bindTaskEditor(editor);
                 const input = editor.querySelector('input[name="title"]');
                 if (input && typeof input.focus === 'function') {
                   input.focus({ preventScroll: true });
@@ -1063,6 +1275,8 @@
               activateTemplate(button.getAttribute('data-group-template-select') || 'new');
             });
           });
+
+          editors.forEach(bindTaskEditor);
         })();
       </script>
     {% elif account_section == "experience" %}

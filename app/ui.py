@@ -20,6 +20,7 @@ from app.discussion_activity import build_discussion_activity_items, task_discus
 from app.discussion_history import log_group_history, log_project_history, log_task_history
 from app.github_sync import GitHubSyncError, github_identity_for_user, github_sync_state_for_user, should_sync_github_issues, sync_github_issues_for_user
 from app.group_templates import (
+    normalize_group_template_task_entries,
     normalize_group_template_task_titles,
     normalize_group_template_title,
     replace_group_template_tasks,
@@ -2147,15 +2148,15 @@ def send_account_notification_test_email():
 def create_account_group_template():
     user = current_user()
     title = normalize_group_template_title(request.form.get("title"))
-    task_titles = normalize_group_template_task_titles(request.form.get("tasks_text"))
+    task_entries = normalize_group_template_task_entries(request.form)
     if not title:
         return _render_account_page(user, section="templates", error="Template title is required.")
-    if not task_titles:
+    if not task_entries:
         return _render_account_page(user, section="templates", error="Add at least one task to the template.")
     template = GroupTemplate(user_id=user.id, title=title)
     db.session.add(template)
     db.session.flush()
-    replace_group_template_tasks(template, task_titles)
+    replace_group_template_tasks(template, task_entries)
     db.session.commit()
     return _render_account_page(user, section="templates", message="Group template created.")
 
@@ -2168,13 +2169,13 @@ def update_account_group_template(template_id: int):
     if not template:
         return _render_account_page(user, section="templates", error="Group template not found.")
     title = normalize_group_template_title(request.form.get("title"))
-    task_titles = normalize_group_template_task_titles(request.form.get("tasks_text"))
+    task_entries = normalize_group_template_task_entries(request.form)
     if not title:
         return _render_account_page(user, section="templates", error="Template title is required.")
-    if not task_titles:
+    if not task_entries:
         return _render_account_page(user, section="templates", error="Add at least one task to the template.")
     template.title = title
-    replace_group_template_tasks(template, task_titles)
+    replace_group_template_tasks(template, task_entries)
     db.session.commit()
     return _render_account_page(user, section="templates", message="Group template updated.")
 
