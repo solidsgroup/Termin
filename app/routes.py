@@ -4310,6 +4310,12 @@ def delete_task(task_id: int):
     invite_count = invite_query.filter(Invite.status != "draft").count()
 
     requires_confirm = invite_count > 0
+    if request.args.get("preview") == "1":
+        return {
+            "preview": True,
+            "requires_confirm": requires_confirm,
+            "invite_count": invite_count,
+        }, 200
     if request.args.get("confirm") != "1":
         if requires_confirm:
             return {

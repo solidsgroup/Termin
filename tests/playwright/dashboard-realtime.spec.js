@@ -43,6 +43,26 @@ async function patchTask(page, taskId, payload) {
   return result.data;
 }
 
+async function createTask(page, payload) {
+  const result = await page.evaluate(async (taskPayload) => {
+    const response = await fetch('/api/tasks', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(taskPayload),
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data };
+  }, payload);
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
 async function deleteAssignment(page, assignmentId) {
   const result = await page.evaluate(async (assignmentIdArg) => {
     const response = await fetch(`/api/assignments/${assignmentIdArg}`, {
@@ -511,6 +531,148 @@ test.describe('dashboard and realtime flows', () => {
     await expect(page.locator('#discussion-drawer')).not.toHaveClass(/open/);
     await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
     await steps.step('Delete the task from the drawer and verify the drawer closes and the task disappears without a refresh.', page);
+  });
+
+  test('dashboard delete toast can undo a task delete', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'delete', 'toast', 'undo']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await page.goto('/dashboard');
+
+    await page.locator('.dashboard-action-title', { hasText: 'Realtime Task' }).click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await page.locator('#task-settings-delete').click();
+    await expect(page.locator('.action-toast-title', { hasText: 'Task deleted' })).toHaveCount(1);
+    await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
+    await steps.step('Delete Realtime Task from the dashboard drawer and verify the undo toast appears while the task disappears locally.', page);
+
+    await page.locator('.action-toast').filter({ hasText: 'Realtime Task' }).locator('button', { hasText: 'Undo' }).click();
+    await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(1);
+    await steps.step('Click Undo on the delete toast and verify the task returns to the dashboard Action Items list.', page);
+  });
+
+  test('dashboard delete toast dismiss commits the delete', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'delete', 'toast', 'dismiss']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await page.goto('/dashboard');
+
+    await page.locator('.dashboard-action-title', { hasText: 'Realtime Task' }).click();
+    await page.locator('#task-settings-delete').click();
+    const toast = page.locator('.action-toast').filter({ hasText: 'Realtime Task' }).first();
+    await expect(toast).toBeVisible();
+    await toast.locator('button', { hasText: 'Dismiss' }).click();
+    await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
+    await steps.step('Dismiss the delete toast and verify the task remains deleted after a reload.', page);
+  });
+
+  test('dashboard completion toast can undo marking a task complete', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'complete', 'toast', 'undo']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status: 'open', status_mode: 'single' });
+    await page.goto('/dashboard');
+
+    await page.locator('.dashboard-action-title', { hasText: 'Realtime Task' }).click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await page.locator('#task-settings-status').click();
+    await expect(page.locator('#status-menu')).toBeVisible();
+    await page.locator('#status-menu [data-status-option="complete"]').click();
+    await expect(page.locator('.action-toast-title', { hasText: 'Task completed' })).toHaveCount(1);
+    await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
+    await steps.step('Mark Realtime Task complete from the dashboard drawer and verify the completion toast appears while the action item disappears.', page);
+
+    await page.locator('.action-toast').filter({ hasText: 'Realtime Task' }).locator('button', { hasText: 'Undo' }).click();
+    await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(1);
+    await steps.step('Click Undo on the completion toast and verify the task returns to the dashboard Action Items list.', page);
+  });
+
+  test('dashboard delete undo restores action item order', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'delete', 'toast', 'undo', 'order']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    const firstTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Undo Order First',
+      assignee_email: state.owner.email,
+    });
+    const secondTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Undo Order Second',
+      assignee_email: state.owner.email,
+    });
+    await patchTask(page, firstTask.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await patchTask(page, secondTask.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await page.goto('/dashboard');
+
+    const actionTitles = page.locator('.dashboard-action-title');
+    await expect(actionTitles.filter({ hasText: 'Undo Order First' })).toHaveCount(1);
+    await expect(actionTitles.filter({ hasText: 'Undo Order Second' })).toHaveCount(1);
+
+    const beforeOrder = await actionTitles.evaluateAll((nodes) =>
+      nodes.map((node) => (node.textContent || '').trim()).filter((value) => value === 'Undo Order First' || value === 'Undo Order Second')
+    );
+    expect(beforeOrder).toEqual(['Undo Order First', 'Undo Order Second']);
+
+    await page.locator('.dashboard-action-title', { hasText: 'Undo Order First' }).click();
+    await page.locator('#task-settings-delete').click();
+    await page.locator('.action-toast').filter({ hasText: 'Undo Order First' }).locator('button', { hasText: 'Undo' }).click();
+
+    const afterOrder = await actionTitles.evaluateAll((nodes) =>
+      nodes.map((node) => (node.textContent || '').trim()).filter((value) => value === 'Undo Order First' || value === 'Undo Order Second')
+    );
+    expect(afterOrder).toEqual(['Undo Order First', 'Undo Order Second']);
+    await steps.step('Delete the first of two adjacent action items, undo it, and verify the original ordering is preserved.', page);
+  });
+
+  test('dashboard delete propagates to another dashboard window without refresh', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'socket', 'delete', 'toast']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+    const ownerContextA = await browser.newContext();
+    const ownerPageA = await ownerContextA.newPage();
+    const ownerContextB = await browser.newContext();
+    const ownerPageB = await ownerContextB.newPage();
+
+    await login(ownerPageA, state.owner.email, state.owner.password);
+    await login(ownerPageB, state.owner.email, state.owner.password);
+    await patchTask(ownerPageA, state.task.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await ownerPageA.goto('/dashboard');
+    await ownerPageB.goto('/dashboard');
+
+    await expect(ownerPageA.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(1);
+    await expect(ownerPageB.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(1);
+
+    await ownerPageA.locator('.dashboard-action-title', { hasText: 'Realtime Task' }).click();
+    await ownerPageA.locator('#task-settings-delete').click();
+    const toast = ownerPageA.locator('.action-toast').filter({ hasText: 'Realtime Task' }).first();
+    await expect(toast).toBeVisible();
+    await toast.locator('button', { hasText: 'Dismiss' }).click();
+    await expect(ownerPageA.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
+    await expect(ownerPageB.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
+    await steps.step('Dismiss a delete toast in one dashboard window and verify the task disappears in another dashboard window without a refresh.', ownerPageA);
+
+    await ownerContextA.close();
+    await ownerContextB.close();
   });
 
   test('tree updates live when another user changes task title', async ({ browser, request }) => {

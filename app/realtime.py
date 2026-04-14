@@ -1374,6 +1374,10 @@ def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: in
         if any(int(project_id) in relevant_project_ids for project_id in project_ids):
             recipient_sids.add(sid)
 
+    for project_id in relevant_project_ids:
+        for recipient_id in project_access_map(int(project_id)).keys():
+            recipient_sids.update(_user_sids(recipient_id))
+
     for recipient_id in _task_notification_user_ids(task):
         recipient_sids.update(_user_sids(recipient_id))
 

@@ -3019,6 +3019,7 @@
         }
         var taskId = statusCell.getAttribute("data-task-id");
         if (taskId) {
+          var previousTaskSnapshot = taskSnapshotForUndo(taskId);
           if (pendingInlineStatusTaskIds[String(taskId)] === true) return;
           pendingInlineStatusTaskIds[String(taskId)] = true;
           statusCell.dataset.inlineStatusSaving = "1";
@@ -3030,6 +3031,7 @@
           patchInlineTaskStatus(taskId, nextValue)
             .then(function (data) {
               if (data && data.id) {
+                maybeShowTaskCompletionToast(previousTaskSnapshot, data);
                 applyTaskRowUpdate(data);
                 if (String(currentTaskId || "") === String(data.id)) {
                   currentTaskData = Object.assign({}, currentTaskData || {}, data);
@@ -8967,34 +8969,9 @@
         const taskId = deleteBtn.getAttribute("data-delete-task");
         if (!taskId) return;
         if (window.__taskIdIsLocked(taskId)) return;
-        const closeDeletedTaskDrawer = () => {
-          const openDrawer = document.getElementById("discussion-drawer");
-          if (!openDrawer) return;
-          if (String(openDrawer.getAttribute("data-open-task-id") || "") !== String(taskId)) return;
-          openDrawer.classList.remove("open");
-          openDrawer.setAttribute("data-open-task-id", "");
-        };
-        fetch(`/api/tasks/${taskId}`, { method: "DELETE" })
-          .then((res) => res.json().catch(() => ({})))
-          .then((data) => {
-            if (data.requires_confirm) {
-              const needsInvite = data.invite_count > 0;
-              const parts = [];
-              if (needsInvite) parts.push(`${data.invite_count} sent links`);
-              const message = `This task has ${parts.join(" and ")}. Delete anyway?`;
-              if (!confirm(message)) return;
-              return fetch(`/api/tasks/${taskId}?confirm=1`, { method: "DELETE" })
-                .then((res2) => res2.json().catch(() => ({})))
-                .then((data2) => {
-                  if (data2.status !== "deleted") return;
-                  removeTaskLocal(taskId, { keepDrawerOpen: true });
-                  closeDeletedTaskDrawer();
-                });
-            }
-            if (data.status !== "deleted") return;
-            removeTaskLocal(taskId, { keepDrawerOpen: true });
-            closeDeletedTaskDrawer();
-          });
+        queueTaskDelete(taskId, { closeDrawer: true }).catch(function (error) {
+          console.error("queueTaskDelete failed", error);
+        });
         return;
       }
 
@@ -11986,6 +11963,7 @@
       if (typeof window.__renderTodoBoardFromStore === "function") {
         window.__renderTodoBoardFromStore();
       }
+      syncProjectRooms();
       return dashboardBootstrapStore;
     }
 
@@ -15322,6 +15300,7 @@
       if (currentEntityType === "task") {
         var statusMode = taskSettingsStatusModeEl ? String(taskSettingsStatusModeEl.value || "single") : "single";
         var persistTaskId = String(currentEntityId || "");
+        var previousTaskSnapshot = cloneTaskForUndo(currentTaskData);
         var payload = {
           title: taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "",
           due_at: taskSettingsDueModeEl && taskSettingsDueModeEl.value !== "date"
@@ -15352,6 +15331,7 @@
           .then(function (data) {
             if (!data || !data.id) return;
             rememberRecentTaskSnapshot(data);
+            maybeShowTaskCompletionToast(previousTaskSnapshot, data);
             if (String(currentTaskId || "") !== persistTaskId) return;
             currentTaskData = Object.assign({}, currentTaskData || {}, data);
             applyTaskRowUpdate(currentTaskData);
@@ -16035,6 +16015,18 @@
       visibleProjectIds().forEach(function (projectId) {
         joinModes[String(projectId)] = "active";
       });
+      if (dashboardBootstrapStore && dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo) {
+        var todoTaskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+          ? dashboardBootstrapStore.views.todo.task_ids
+          : [];
+        var taskMap = dashboardEntityMap("tasks");
+        todoTaskIds.forEach(function (taskId) {
+          var task = taskMap[String(taskId)];
+          var projectId = task && task.project_id ? String(task.project_id) : "";
+          if (!projectId || joinModes[projectId]) return;
+          joinModes[projectId] = "passive";
+        });
+      }
       if (document.querySelector("[data-todo-tree]")) {
         document.querySelectorAll("[data-todo-project]").forEach(function (node) {
           var projectId = node.getAttribute("data-todo-project");
@@ -16711,6 +16703,32 @@
       }
     }
 
+    var pendingDeleteTasks = {};
+
+    function cloneTaskForUndo(task) {
+      if (!task || typeof task !== "object") return null;
+      try {
+        return JSON.parse(JSON.stringify(task));
+      } catch (_error) {
+        return Object.assign({}, task);
+      }
+    }
+
+    function taskSnapshotForUndo(taskId) {
+      var normalizedTaskId = String(taskId || "");
+      if (!normalizedTaskId) return null;
+      if (String(currentTaskId || "") === normalizedTaskId && currentTaskData) {
+        return cloneTaskForUndo(currentTaskData);
+      }
+      var storeTask = dashboardTaskEntity(normalizedTaskId);
+      if (storeTask) return cloneTaskForUndo(storeTask);
+      var statusHost = document.querySelector('[data-task-status-host="' + normalizedTaskId + '"]');
+      if (statusHost && statusHost._taskPayload) {
+        return cloneTaskForUndo(statusHost._taskPayload);
+      }
+      return null;
+    }
+
     function removeTaskLocal(taskId, options) {
       var normalizedTaskId = String(taskId || "");
       if (!normalizedTaskId) return;
@@ -16726,6 +16744,214 @@
       if (!config.skipDashboardRefresh) {
         refreshDashboardHomeFromTodo();
       }
+    }
+
+    function restoreTaskLocal(task) {
+      if (!task || !task.id) return;
+      mergeDashboardEntity("tasks", task);
+      if (dashboardBootstrapStore && dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo) {
+        var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+          ? dashboardBootstrapStore.views.todo.task_ids.map(function (value) { return String(value); })
+          : [];
+        if (taskIds.indexOf(String(task.id)) === -1) {
+          taskIds.push(String(task.id));
+          dashboardBootstrapStore.views.todo.task_ids = taskIds;
+        }
+        scheduleDashboardBootstrapStorePersist();
+      }
+      if (typeof window.__renderTodoBoardFromStore === "function") {
+        window.__renderTodoBoardFromStore({ showLoading: false });
+      } else if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+        window.__upsertTodoItemFromSnapshot(task);
+      }
+      if (!(typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(task))) {
+        applyTaskRowUpdate(task);
+      }
+      renderTaskAssignments(task.id, task.assignments || []);
+      if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
+        window.__updateCachedTreeSnapshotsForTask(task, { action: "restored" });
+      }
+      refreshDashboardHomeFromTodo();
+    }
+
+    function restoreDeletedTaskLocal(task, orderIndex) {
+      if (!task || !task.id) return;
+      mergeDashboardEntity("tasks", task);
+      if (dashboardBootstrapStore && dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo) {
+        var normalizedTaskId = String(task.id);
+        var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+          ? dashboardBootstrapStore.views.todo.task_ids.map(function (value) { return String(value); })
+          : [];
+        taskIds = taskIds.filter(function (value) {
+          return String(value) !== normalizedTaskId;
+        });
+        var insertionIndex = Number.isFinite(Number(orderIndex)) ? Math.max(0, Math.min(taskIds.length, Number(orderIndex))) : taskIds.length;
+        taskIds.splice(insertionIndex, 0, normalizedTaskId);
+        dashboardBootstrapStore.views.todo.task_ids = taskIds;
+        scheduleDashboardBootstrapStorePersist();
+      }
+      if (typeof window.__renderTodoBoardFromStore === "function") {
+        window.__renderTodoBoardFromStore({ showLoading: false });
+      } else if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+        window.__upsertTodoItemFromSnapshot(task);
+      }
+      if (!(typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(task))) {
+        applyTaskRowUpdate(task);
+      }
+      renderTaskAssignments(task.id, task.assignments || []);
+      if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
+        window.__updateCachedTreeSnapshotsForTask(task, { action: "restored" });
+      }
+      refreshDashboardHomeFromTodo();
+    }
+
+    function taskUndoStatusPayload(previousTask, nextTask) {
+      var before = previousTask || {};
+      var after = nextTask || {};
+      var beforeMeta = taskStatusMeta(before);
+      var afterMeta = taskStatusMeta(after);
+      var beforeMode = beforeMeta.mode || "single";
+      var afterMode = afterMeta.mode || "single";
+      var payload = {};
+      if (beforeMode !== afterMode) {
+        payload.status_mode = beforeMode;
+      }
+      if (beforeMode === "percent") {
+        payload.status_mode = "percent";
+        payload.status_percentage = Math.max(0, Math.min(100, Number(
+          before.status_percentage != null
+            ? before.status_percentage
+            : (beforeMeta.percentage_complete || 0)
+        )));
+        return payload;
+      }
+      if (beforeMode === "multi") {
+        payload.user_status = beforeMeta.my_status || "open";
+        payload.status_user_id = currentUserId;
+        return payload;
+      }
+      payload.status = beforeMeta.task_status || before.status || "open";
+      return payload;
+    }
+
+    function maybeShowTaskCompletionToast(previousTask, nextTask) {
+      if (!previousTask || !nextTask || !nextTask.id) return;
+      if (String(nextTask.id || "") !== String(previousTask.id || nextTask.id || "")) return;
+      var wasComplete = taskMyStatusState(previousTask) === "complete";
+      var isComplete = taskMyStatusState(nextTask) === "complete";
+      if (wasComplete || !isComplete) return;
+      var undoPayload = taskUndoStatusPayload(previousTask, nextTask);
+      window.__showActionToast({
+        title: "Task completed",
+        body: nextTask.title || "Task",
+        undoLabel: "Undo",
+        onUndo: function () {
+          fetch("/api/tasks/" + nextTask.id, {
+            method: "PATCH",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(undoPayload),
+          })
+            .then(function (res) {
+              return res.json().catch(function () { return {}; }).then(function (data) {
+                return { ok: res.ok, data: data };
+              });
+            })
+            .then(function (result) {
+              if (!result.ok || !result.data || !result.data.id) {
+                throw new Error((result.data && result.data.error) || "Could not undo task completion");
+              }
+              rememberRecentTaskSnapshot(result.data);
+              applyTaskRowUpdate(result.data);
+              if (String(currentTaskId || "") === String(result.data.id)) {
+                currentTaskData = Object.assign({}, currentTaskData || {}, result.data);
+                renderTaskSettings();
+              }
+            })
+            .catch(function (error) {
+              console.error("undo task completion failed", error);
+            });
+        },
+      });
+    }
+
+    function queueTaskDelete(taskId, options) {
+      var normalizedTaskId = String(taskId || "");
+      if (!normalizedTaskId || pendingDeleteTasks[normalizedTaskId]) return Promise.resolve(false);
+      var config = options || {};
+      var taskOrderIndex = dashboardBootstrapStore && dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo && Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+        ? dashboardBootstrapStore.views.todo.task_ids.map(function (value) { return String(value); }).indexOf(normalizedTaskId)
+        : -1;
+      return fetch("/api/tasks/" + normalizedTaskId + "?preview=1", {
+        method: "DELETE",
+        credentials: "same-origin",
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok) {
+            throw new Error((result.data && result.data.error) || "Could not delete task");
+          }
+          var preview = result.data || {};
+          if (preview.requires_confirm) {
+            var parts = [];
+            if (preview.invite_count > 0) parts.push(preview.invite_count + " sent links");
+            var message = "This task has " + parts.join(" and ") + ". Delete anyway?";
+            if (!confirm(message)) return false;
+          }
+          var snapshot = taskSnapshotForUndo(normalizedTaskId);
+          pendingDeleteTasks[normalizedTaskId] = {
+            task: snapshot,
+            orderIndex: taskOrderIndex,
+            timer: 0,
+          };
+          removeTaskLocal(normalizedTaskId, { keepDrawerOpen: true });
+          if (config.closeDrawer !== false) {
+            var openDrawer = document.getElementById("discussion-drawer");
+            if (openDrawer && String(openDrawer.getAttribute("data-open-task-id") || "") === normalizedTaskId) {
+              closeDrawer();
+            }
+          }
+          window.__showActionToast({
+            title: "Task deleted",
+            body: snapshot && snapshot.title ? snapshot.title : "Task",
+            undoLabel: "Undo",
+            durationMs: 7000,
+            onUndo: function () {
+              var pending = pendingDeleteTasks[normalizedTaskId];
+              if (!pending) return;
+              if (pending.timer) window.clearTimeout(pending.timer);
+              delete pendingDeleteTasks[normalizedTaskId];
+              restoreDeletedTaskLocal(pending.task, pending.orderIndex);
+            },
+            onExpire: function () {
+              var pending = pendingDeleteTasks[normalizedTaskId];
+              if (!pending) return;
+              delete pendingDeleteTasks[normalizedTaskId];
+              fetch("/api/tasks/" + normalizedTaskId + "?confirm=1", {
+                method: "DELETE",
+                credentials: "same-origin",
+              }).catch(function (error) {
+                console.error("delete task commit failed", error);
+              });
+            },
+            onDismiss: function () {
+              var pending = pendingDeleteTasks[normalizedTaskId];
+              if (!pending) return;
+              delete pendingDeleteTasks[normalizedTaskId];
+              fetch("/api/tasks/" + normalizedTaskId + "?confirm=1", {
+                method: "DELETE",
+                credentials: "same-origin",
+              }).catch(function (error) {
+                console.error("delete task dismiss commit failed", error);
+              });
+            },
+          });
+          return true;
+        });
     }
 
     function insertTaskRowByPosition(tbody, row, taskId, position) {
@@ -18156,6 +18382,7 @@
         var userId = control.getAttribute("data-multi-status-user-id");
         var nextValue = action.getAttribute("data-status-value");
         var priorValue = control.dataset.currentValue || "open";
+        var previousTaskSnapshot = taskSnapshotForUndo(taskId);
         if (!taskId || !userId) return;
         if (!nextValue || nextValue === priorValue) return;
         control.dataset.submitting = "1";
@@ -18194,6 +18421,7 @@
                 currentTaskData = Object.assign({}, currentTaskData, task);
                 renderTaskSettings();
               }
+              maybeShowTaskCompletionToast(previousTaskSnapshot, task);
               applyTaskRowUpdate(task);
               syncTaskStatusUi(task);
               var nextAnchor = resolveMultiStatusAnchor(taskId, multiStatusMenu.dataset.source || "", multiStatusMenu._anchor || control);
@@ -18223,6 +18451,7 @@
         var taskId = percentageStatusMenu.dataset.taskId;
         if (!taskId) return;
         var nextValue = Math.max(0, Math.min(100, Number(percentageStatusInput.value || 0)));
+        var previousTaskSnapshot = taskSnapshotForUndo(taskId);
         rememberLocalTaskStatusOverride(taskId, {
           mode: "percent",
           percentage: nextValue,
@@ -18234,6 +18463,7 @@
               mode: "percent",
               percentage: nextValue,
             });
+            maybeShowTaskCompletionToast(previousTaskSnapshot, data);
             if (String(currentTaskId || "") === String(data.id)) {
               currentTaskData = Object.assign({}, currentTaskData || {}, data);
               renderTaskSettings();
@@ -18979,24 +19209,9 @@
           inlineDelete.click();
           return;
         }
-        fetch('/api/tasks/' + currentTaskId, { method: "DELETE" })
-          .then(function (res) { return res.json().catch(function () { return {}; }); })
-          .then(function (data) {
-            if (data.requires_confirm) {
-              var parts = [];
-              if (data.invite_count > 0) parts.push(data.invite_count + " sent links");
-              var message = "This task has " + parts.join(" and ") + ". Delete anyway?";
-              if (!confirm(message)) return;
-              return fetch('/api/tasks/' + currentTaskId + '?confirm=1', { method: "DELETE" })
-                .then(function (res2) { return res2.json().catch(function () { return {}; }); })
-                .then(function (data2) {
-                  if (data2.status !== "deleted") return;
-                  removeTaskLocal(currentTaskId);
-                });
-            }
-            if (data.status !== "deleted") return;
-            removeTaskLocal(currentTaskId);
-          });
+        queueTaskDelete(currentTaskId, { closeDrawer: true }).catch(function (error) {
+          console.error("queueTaskDelete failed", error);
+        });
       });
     }
 
@@ -20261,6 +20476,7 @@
         if (data.action === "deleted") {
           removeDashboardTask(task.id);
           removeTaskRowsLocal(task.id);
+          refreshDashboardHomeFromTodo();
           return;
         }
         if (data.action === "moved") {

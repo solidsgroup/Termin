@@ -2653,6 +2653,104 @@
         padding-top: 0;
       }
 
+      .action-toast-layer {
+        position: fixed;
+        left: 24px;
+        bottom: 24px;
+        display: flex;
+        flex-direction: column-reverse;
+        align-items: flex-start;
+        gap: 12px;
+        z-index: 560;
+        pointer-events: none;
+      }
+
+      .action-toast {
+        min-width: 280px;
+        max-width: min(420px, calc(100vw - 48px));
+        border-radius: 16px;
+        border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border) 76%);
+        background: color-mix(in srgb, var(--panel) 94%, black 6%);
+        box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+        color: var(--ink);
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        pointer-events: auto;
+        backdrop-filter: blur(14px);
+        animation: action-toast-enter 180ms ease;
+      }
+
+      .action-toast-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .action-toast-title {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      .action-toast-body {
+        margin-top: 2px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .action-toast-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+      }
+
+      .action-toast-button {
+        appearance: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        color: var(--ink);
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+      }
+
+      .action-toast-button:hover {
+        background: color-mix(in srgb, var(--accent) 28%, transparent);
+      }
+
+      .action-toast-button.is-subtle {
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .action-toast-button.is-subtle:hover {
+        background: color-mix(in srgb, var(--panel-alt) 72%, transparent);
+        color: var(--ink);
+      }
+
+      body[data-theme="light"] .action-toast {
+        background: color-mix(in srgb, white 95%, var(--panel) 5%);
+        border-color: color-mix(in srgb, var(--accent) 20%, var(--border) 80%);
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
+      }
+
+      @keyframes action-toast-enter {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
       .dashboard-notice {
         margin: 0 0 14px;
         padding: 10px 12px;
@@ -10440,6 +10538,147 @@
     <main>
       {% block content %}{% endblock %}
     </main>
+    <div class="action-toast-layer" data-action-toast-layer aria-live="polite" aria-atomic="false"></div>
+    <script>
+      (function () {
+        var toastLayer = document.querySelector("[data-action-toast-layer]");
+        var toastSequence = 0;
+        var activeToasts = new Map();
+
+        function toastAnchorRect() {
+          var content = document.querySelector("[data-dashboard-content], .content");
+          if (content && typeof content.getBoundingClientRect === "function") {
+            return content.getBoundingClientRect();
+          }
+          var main = document.querySelector("main");
+          if (main && typeof main.getBoundingClientRect === "function") {
+            return main.getBoundingClientRect();
+          }
+          return { left: 16, right: window.innerWidth - 16, bottom: window.innerHeight - 16 };
+        }
+
+        function positionToastLayer() {
+          if (!toastLayer) return;
+          var rect = toastAnchorRect();
+          var left = Math.max(16, Math.round(rect.left + 16));
+          var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+          var maxWidth = Math.max(220, viewportWidth - left - 16);
+          var bottomInset = Math.max(16, Math.round((window.innerHeight - rect.bottom) + 16));
+          var mobileNav = document.querySelector("[data-mobile-bottom-nav]");
+          if (mobileNav && window.matchMedia && window.matchMedia("(max-width: 900px)").matches) {
+            var navRect = mobileNav.getBoundingClientRect();
+            bottomInset = Math.max(bottomInset, Math.round(window.innerHeight - navRect.top + 16));
+          }
+          toastLayer.style.left = left + "px";
+          toastLayer.style.bottom = bottomInset + "px";
+          toastLayer.style.maxWidth = maxWidth + "px";
+        }
+
+        function runToastCallback(record, callbackName) {
+          if (!record || record.settled) return;
+          var handler = record[callbackName];
+          if (typeof handler !== "function") return;
+          record.settled = true;
+          try {
+            handler();
+          } catch (_error) {}
+        }
+
+        function removeToast(id) {
+          var record = activeToasts.get(id);
+          if (!record) return;
+          if (record.timer) {
+            window.clearTimeout(record.timer);
+          }
+          if (record.node && record.node.parentNode) {
+            record.node.parentNode.removeChild(record.node);
+          }
+          activeToasts.delete(id);
+          positionToastLayer();
+        }
+
+        function showActionToast(options) {
+          if (!toastLayer) return { dismiss: function () {} };
+          positionToastLayer();
+          var config = options || {};
+          var id = "toast-" + String(++toastSequence);
+          var node = document.createElement("div");
+          node.className = "action-toast";
+          node.setAttribute("role", "status");
+          node.setAttribute("data-action-toast-id", id);
+
+          var copy = document.createElement("div");
+          copy.className = "action-toast-copy";
+          var title = document.createElement("div");
+          title.className = "action-toast-title";
+          title.textContent = String(config.title || "Saved");
+          copy.appendChild(title);
+          if (config.body) {
+            var body = document.createElement("div");
+            body.className = "action-toast-body";
+            body.textContent = String(config.body);
+            copy.appendChild(body);
+          }
+          node.appendChild(copy);
+
+          var actions = document.createElement("div");
+          actions.className = "action-toast-actions";
+          if (typeof config.onUndo === "function") {
+            var undoButton = document.createElement("button");
+            undoButton.className = "action-toast-button";
+            undoButton.type = "button";
+            undoButton.textContent = String(config.undoLabel || "Undo");
+            undoButton.addEventListener("click", function () {
+              try {
+                config.onUndo();
+              } finally {
+                removeToast(id);
+              }
+            });
+            actions.appendChild(undoButton);
+          }
+          var dismissButton = document.createElement("button");
+          dismissButton.className = "action-toast-button is-subtle";
+          dismissButton.type = "button";
+          dismissButton.textContent = "Dismiss";
+          dismissButton.addEventListener("click", function () {
+            runToastCallback(activeToasts.get(id), "onDismiss");
+            removeToast(id);
+          });
+          actions.appendChild(dismissButton);
+          node.appendChild(actions);
+
+          var durationMs = Math.max(1500, Number(config.durationMs || (config.onUndo ? 7000 : 3200)));
+          var timer = window.setTimeout(function () {
+            runToastCallback(activeToasts.get(id), "onExpire");
+            removeToast(id);
+          }, durationMs);
+
+          activeToasts.set(id, {
+            node: node,
+            timer: timer,
+            onExpire: config.onExpire,
+            onDismiss: config.onDismiss,
+            settled: false,
+          });
+          toastLayer.appendChild(node);
+          positionToastLayer();
+
+          return {
+            id: id,
+            dismiss: function () {
+              removeToast(id);
+            },
+          };
+        }
+
+        window.__showActionToast = showActionToast;
+        window.__positionActionToastLayer = positionToastLayer;
+        window.addEventListener("resize", positionToastLayer);
+        window.addEventListener("scroll", positionToastLayer, true);
+        window.addEventListener("DOMContentLoaded", positionToastLayer);
+      })();
+    </script>
     <script>
       window.addEventListener("DOMContentLoaded", () => {
         const liveDateTimeNodes = Array.from(document.querySelectorAll("[data-live-datetime]"));
