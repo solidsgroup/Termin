@@ -8987,14 +8987,12 @@
                 .then((res2) => res2.json().catch(() => ({})))
                 .then((data2) => {
                   if (data2.status !== "deleted") return;
-                  const row = document.querySelector(`[data-task-row-id='${taskId}']`);
-                  if (row) row.remove();
+                  removeTaskLocal(taskId, { keepDrawerOpen: true });
                   closeDeletedTaskDrawer();
                 });
             }
             if (data.status !== "deleted") return;
-            const row = document.querySelector(`[data-task-row-id='${taskId}']`);
-            if (row) row.remove();
+            removeTaskLocal(taskId, { keepDrawerOpen: true });
             closeDeletedTaskDrawer();
           });
         return;
@@ -9551,6 +9549,34 @@
       return entities && entities[name] ? entities[name] : {};
     }
 
+    function quickTaskUpsertEntity(entityType, payload) {
+      var store = quickTaskDashboardStore();
+      if (!store || !payload || payload.id == null) return;
+      if (!store.entities) store.entities = {};
+      if (!store.entities[entityType]) store.entities[entityType] = {};
+      store.entities[entityType][String(payload.id)] = Object.assign(
+        {},
+        store.entities[entityType][String(payload.id)] || {},
+        payload
+      );
+      if (typeof scheduleDashboardBootstrapStorePersist === "function") {
+        scheduleDashboardBootstrapStorePersist();
+      }
+    }
+
+    function quickTaskRememberRecentSnapshot(task) {
+      if (!task || !task.id || typeof window === "undefined") return;
+      var cache = window.__recentTaskSnapshotCache;
+      if (!cache || typeof cache !== "object") {
+        cache = {};
+        window.__recentTaskSnapshotCache = cache;
+      }
+      cache[String(task.id)] = {
+        expiresAt: Date.now() + 1500,
+        task: task,
+      };
+    }
+
     function quickTaskManageableProjectIds() {
       var store = quickTaskDashboardStore();
       if (!store || !store.access) return [];
@@ -9585,9 +9611,9 @@
         if (match) return;
         var project = projects[projectId];
         if (!project || !project.is_direct) return;
-        var isSelfByIds = String(project.direct_user_a_id || "") === String(dashboardUserId || "") && String(project.direct_user_b_id || "") === String(dashboardUserId || "");
-        var isSelfByPayload = !project.direct_peer && String(project.owner_id || "") === String(dashboardUserId || "");
-        if (isSelfByIds || isSelfByPayload) {
+        var isSelfByIds = String(project.direct_user_a_id || "") === String(dashboardUserId || "")
+          && String(project.direct_user_b_id || "") === String(dashboardUserId || "");
+        if (isSelfByIds) {
           match = project;
         }
       });
@@ -9757,9 +9783,9 @@
 
     function quickTaskSetSelection(projectId, groupId, options) {
       var opts = options || {};
-      var project = quickTaskEntityMap("projects")[String(projectId || "")] || null;
+      var project = opts.project || quickTaskEntityMap("projects")[String(projectId || "")] || null;
       if (!project) return;
-      var group = groupId ? (quickTaskEntityMap("groups")[String(groupId || "")] || null) : null;
+      var group = opts.group || (groupId ? (quickTaskEntityMap("groups")[String(groupId || "")] || null) : null);
       quickTaskSelection = {
         projectId: String(project.id),
         groupId: group && String(group.project_id) === String(project.id) ? String(group.id) : "",
@@ -9768,7 +9794,9 @@
       if (quickTaskProjectMeta) quickTaskProjectMeta.textContent = quickTaskProjectMetaLabel(project, group);
       if (!opts.keepPickerOpen) quickTaskSetProjectPickerOpen(false);
       quickTaskRenderProjectPicker();
-      quickTaskLoadAssignees(project.id);
+      if (opts.loadAssignees) {
+        quickTaskLoadAssignees(project.id);
+      }
     }
 
     function quickTaskLoadAssignees(projectId) {
@@ -9829,6 +9857,13 @@
       quickTaskAssigneeSelect.value = defaultValue;
     }
 
+    function quickTaskPopulateMeAssignee() {
+      if (!quickTaskAssigneeSelect) return;
+      quickTaskAssigneeSelect.innerHTML = '<option value="' + quickTaskEscape(dashboardUserEmail || "") + '">' + quickTaskEscape(dashboardUserDisplayName || dashboardUserEmail || "Me") + '</option>';
+      quickTaskAssigneeSelect.disabled = false;
+      quickTaskAssigneeSelect.value = dashboardUserEmail || "";
+    }
+
     function quickTaskEnsureBootstrapReady() {
       var store = quickTaskDashboardStore();
       if (store) return Promise.resolve(store);
@@ -9856,8 +9891,11 @@
             throw new Error((result.data && result.data.error) || "Could not prepare your direct project");
           }
           var project = result.data.project;
-          mergeDashboardEntity("projects", project);
+          quickTaskUpsertEntity("projects", project);
           markQuickTaskProjectManageable(project.id);
+          if (typeof window !== "undefined") {
+            window.__quickTaskLastSelfProject = project;
+          }
           return project;
         });
     }
@@ -9869,30 +9907,27 @@
       quickTaskSetStatus("");
       quickTaskSetDueMode("asap");
       if (quickTaskSubmit) quickTaskSubmit.disabled = false;
-      if (quickTaskAssigneeSelect) {
-        quickTaskAssigneeSelect.innerHTML = '<option>Loading…</option>';
-        quickTaskAssigneeSelect.disabled = true;
-      }
+      quickTaskPopulateMeAssignee();
       quickTaskEnsureBootstrapReady()
         .then(function () {
           var existingProject = quickTaskFindSelfDirectProject();
           quickTaskRenderProjectPicker();
           if (existingProject) {
-            quickTaskSetSelection(existingProject.id, "", { keepPickerOpen: false });
+            quickTaskSetSelection(existingProject.id, "", { keepPickerOpen: false, project: existingProject });
             return existingProject;
           }
           return quickTaskEnsureSelfProject();
         })
         .then(function (project) {
           quickTaskRenderProjectPicker();
-          quickTaskSetSelection(project.id, "", { keepPickerOpen: false });
+          quickTaskSetSelection(project.id, "", { keepPickerOpen: false, project: project });
           if (quickTaskTitleInput) quickTaskTitleInput.focus();
         })
         .catch(function (error) {
           console.error("openQuickTaskModal failed", error);
           quickTaskRenderProjectPicker();
           var manageableIds = quickTaskManageableProjectIds();
-          if (manageableIds.length) {
+          if (!quickTaskSelection.projectId && manageableIds.length) {
             quickTaskSetSelection(manageableIds[0], "", { keepPickerOpen: false });
           }
           quickTaskSetStatus(error && error.message ? error.message : "Unable to prepare quick add.", true);
@@ -9946,8 +9981,17 @@
             throw new Error((result.data && result.data.error) || "Unable to create task");
           }
           var task = result.data.task;
-          rememberRecentTaskSnapshot(task);
-          mergeDashboardTask(task);
+          quickTaskRememberRecentSnapshot(task);
+          quickTaskUpsertEntity("tasks", task);
+          var store = quickTaskDashboardStore();
+          if (store) {
+            if (!store.views) store.views = {};
+            if (!store.views.todo) store.views.todo = { task_ids: [] };
+            if (!Array.isArray(store.views.todo.task_ids)) store.views.todo.task_ids = [];
+            if (store.views.todo.task_ids.map(function (value) { return String(value); }).indexOf(String(task.id)) === -1) {
+              store.views.todo.task_ids.push(task.id);
+            }
+          }
           if (typeof window.__upsertTodoItemFromSnapshot === "function") {
             window.__upsertTodoItemFromSnapshot(task);
           }
@@ -10796,7 +10840,7 @@
         quickTaskSetSelection(
           button.getAttribute("data-quick-task-select-project"),
           button.getAttribute("data-quick-task-select-group") || "",
-          { keepPickerOpen: false }
+          { keepPickerOpen: false, loadAssignees: true }
         );
       });
     }
@@ -16667,6 +16711,23 @@
       }
     }
 
+    function removeTaskLocal(taskId, options) {
+      var normalizedTaskId = String(taskId || "");
+      if (!normalizedTaskId) return;
+      var config = options || {};
+      removeDashboardTask(normalizedTaskId);
+      removeTaskRowsLocal(normalizedTaskId);
+      document.querySelectorAll('[data-dashboard-action-task-id="' + normalizedTaskId + '"]').forEach(function (item) {
+        item.remove();
+      });
+      if (!config.keepDrawerOpen && String(currentTaskId || "") === normalizedTaskId) {
+        closeDrawer();
+      }
+      if (!config.skipDashboardRefresh) {
+        refreshDashboardHomeFromTodo();
+      }
+    }
+
     function insertTaskRowByPosition(tbody, row, taskId, position) {
       if (!tbody || !row) return;
       var hasPosition = position !== null && position !== undefined && position !== "" && Number.isFinite(Number(position));
@@ -18930,11 +18991,11 @@
                 .then(function (res2) { return res2.json().catch(function () { return {}; }); })
                 .then(function (data2) {
                   if (data2.status !== "deleted") return;
-                  drawer.classList.remove("open");
+                  removeTaskLocal(currentTaskId);
                 });
             }
             if (data.status !== "deleted") return;
-            drawer.classList.remove("open");
+            removeTaskLocal(currentTaskId);
           });
       });
     }

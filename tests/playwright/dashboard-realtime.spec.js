@@ -80,6 +80,29 @@ async function convertCollaborator(request) {
   return response.json();
 }
 
+async function fetchDirectProjects(page) {
+  const result = await page.evaluate(async () => {
+    const response = await fetch('/api/direct-projects', {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (_error) {
+      data = {};
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      data,
+    };
+  });
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
 async function fetchNotificationState(page) {
   return page.evaluate(async () => {
     const response = await fetch('/api/notifications', {
@@ -438,6 +461,56 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Verify the converted collaborator dashboard removes the completed task from Action Items without a refresh.', convertedPage);
 
     await convertedContext.close();
+  });
+
+  test('quick task add creates and selects the self direct project for a user without one', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'quick-add', 'direct-project', 'regression']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto('/dashboard');
+
+    const before = await fetchDirectProjects(page);
+    const beforeResults = Array.isArray(before.results) ? before.results : [];
+    expect(beforeResults.some((project) => (project.display_name || project.name) === 'Owner')).toBeFalsy();
+    await steps.step('Verify the owner starts without a self direct project in the direct-project API results.', page);
+
+    await page.locator('#dashboard-quick-task-fab').click();
+    await expect(page.locator('#quick-task-modal')).toBeVisible();
+    await expect(page.locator('#quick-task-project-title')).toHaveText('Owner');
+    await expect(page.locator('#quick-task-assignee')).toHaveValue(state.owner.email);
+    await steps.step('Open quick task add and confirm it selects the self direct project with the owner as default assignee.', page);
+
+    const after = await fetchDirectProjects(page);
+    const afterResults = Array.isArray(after.results) ? after.results : [];
+    expect(afterResults.some((project) => (project.display_name || project.name) === 'Owner')).toBeTruthy();
+    expect(afterResults).toHaveLength(beforeResults.length + 1);
+    await steps.step('Verify opening quick task add created the self direct project for the owner.', page);
+  });
+
+  test('dashboard action item drawer can delete a task and close without refresh', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'delete', 'regression']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await page.goto('/dashboard');
+
+    const taskTitle = page.locator('.dashboard-action-title', { hasText: 'Realtime Task' });
+    await expect(taskTitle).toHaveCount(1);
+    await steps.step(`Open /dashboard with Realtime Task due ${today} so it appears in Action Items.`, page);
+
+    await taskTitle.click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await steps.step('Open the task drawer from the dashboard Action Items title.', page);
+
+    await page.locator('#task-settings-delete').click();
+    await expect(page.locator('#discussion-drawer')).not.toHaveClass(/open/);
+    await expect(page.locator('.dashboard-action-title', { hasText: 'Realtime Task' })).toHaveCount(0);
+    await steps.step('Delete the task from the drawer and verify the drawer closes and the task disappears without a refresh.', page);
   });
 
   test('tree updates live when another user changes task title', async ({ browser, request }) => {

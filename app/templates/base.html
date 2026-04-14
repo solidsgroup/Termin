@@ -1270,6 +1270,7 @@
         display: flex;
         justify-content: flex-start;
         align-items: end;
+        overflow: hidden;
       }
 
       .header-actions {
@@ -1279,6 +1280,7 @@
         gap: 10px;
         position: relative;
         z-index: 320;
+        flex: 0 0 auto;
       }
 
       .task-pill {
@@ -3187,6 +3189,8 @@
         align-items: stretch;
         gap: 0;
         margin-bottom: -1px;
+        min-width: 0;
+        max-width: 100%;
       }
 
       .mobile-sidebar-trigger {
@@ -3231,6 +3235,55 @@
         display: inline-flex;
         align-items: center;
         gap: 9px;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 1180px) and (min-width: 901px) {
+        header {
+          grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) auto;
+          gap: 10px;
+          padding: 0 14px;
+        }
+
+        .header-center {
+          min-width: 0;
+        }
+
+        .view-switcher {
+          overflow-x: auto;
+          overflow-y: hidden;
+          scrollbar-width: none;
+        }
+
+        .view-switcher::-webkit-scrollbar {
+          display: none;
+        }
+
+        .view-switch {
+          padding-left: 12px;
+          padding-right: 12px;
+          gap: 7px;
+        }
+
+        .header-actions {
+          gap: 8px;
+        }
+      }
+
+      @media (max-width: 1060px) and (min-width: 901px) {
+        .view-switch {
+          padding-left: 10px;
+          padding-right: 10px;
+        }
+
+        .view-switch.view-switch-icon span {
+          display: none;
+        }
+
+        .view-switch.view-switch-icon {
+          min-width: 44px;
+          justify-content: center;
+        }
       }
 
       .view-switch:hover {
