@@ -928,17 +928,6 @@ test.describe('dashboard and realtime flows', () => {
 
     await waitForRegularNotificationCount(ownerPage, ownerInitialRegularCount + 1);
 
-    await ownerPage.goto(`/tree/project/${state.project.id}`);
-    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
-    await expectTreeAssignmentsWithFailure(
-      ownerPage,
-      test.info(),
-      state.collaborator_dated_task.id,
-      ['Email Collaborator'],
-      'converted-collaborator-tree-assignment-badge',
-      'After conversion, the collaborator should render as an account assignee badge in the tree row.'
-    );
-
     await ownerPage.locator('[data-notification-kind="regular"] [data-notifications-trigger]').click();
     await expectContainsTextWithFailure(
       ownerPage,
@@ -955,6 +944,17 @@ test.describe('dashboard and realtime flows', () => {
       'Email Collaborator',
       'converted-collaborator-owner-notification-actor',
       'The owner notification menu should identify the converted collaborator account actor.'
+    );
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
+    await expectTreeAssignmentsWithFailure(
+      ownerPage,
+      test.info(),
+      state.collaborator_dated_task.id,
+      ['Email Collaborator'],
+      'converted-collaborator-tree-assignment-badge',
+      'After conversion, the collaborator should render as an account assignee badge in the tree row.'
     );
     await focusTreeTask(ownerPage, state.collaborator_dated_task.id, 'Owner sees converted collaborator assignee badge', [
       'The assignee badges should now include the converted collaborator as an account user.',

@@ -9173,6 +9173,7 @@
     const dashboardUserDisplayName = {{ (user.display_name or user.email)|tojson }};
     const dashboardUserEmail = {{ user.email|tojson }};
     const dashboardUserAvatar = {{ (user.avatar_url or "")|tojson }};
+    const quickTaskDefaultSelfProjectId = {{ self_direct_project_id|tojson }};
     window.__ganttExportPalette = {{ division_palette|tojson }};
     const divisionOptions = {{ division_options|tojson }};
     const contextMenu = document.getElementById("context-menu");
@@ -9576,12 +9577,17 @@
 
     function quickTaskFindSelfDirectProject() {
       var projects = quickTaskEntityMap("projects");
+      if (quickTaskDefaultSelfProjectId != null && projects[String(quickTaskDefaultSelfProjectId)]) {
+        return projects[String(quickTaskDefaultSelfProjectId)];
+      }
       var match = null;
       Object.keys(projects).forEach(function (projectId) {
         if (match) return;
         var project = projects[projectId];
         if (!project || !project.is_direct) return;
-        if (String(project.direct_user_a_id || "") === String(dashboardUserId || "") && String(project.direct_user_b_id || "") === String(dashboardUserId || "")) {
+        var isSelfByIds = String(project.direct_user_a_id || "") === String(dashboardUserId || "") && String(project.direct_user_b_id || "") === String(dashboardUserId || "");
+        var isSelfByPayload = !project.direct_peer && String(project.owner_id || "") === String(dashboardUserId || "");
+        if (isSelfByIds || isSelfByPayload) {
           match = project;
         }
       });
@@ -9868,7 +9874,15 @@
         quickTaskAssigneeSelect.disabled = true;
       }
       quickTaskEnsureBootstrapReady()
-        .then(function () { return quickTaskEnsureSelfProject(); })
+        .then(function () {
+          var existingProject = quickTaskFindSelfDirectProject();
+          quickTaskRenderProjectPicker();
+          if (existingProject) {
+            quickTaskSetSelection(existingProject.id, "", { keepPickerOpen: false });
+            return existingProject;
+          }
+          return quickTaskEnsureSelfProject();
+        })
         .then(function (project) {
           quickTaskRenderProjectPicker();
           quickTaskSetSelection(project.id, "", { keepPickerOpen: false });

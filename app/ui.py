@@ -1682,6 +1682,14 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     project_viewers, group_viewers, viewer_user_map = _build_dashboard_viewer_maps(projects)
     user_map = dict(viewer_user_map)
     direct_project_peers = {project.id: _direct_peer_for_user(project, user.id) for project in direct_projects}
+    self_direct_project = next(
+        (
+            project
+            for project in direct_projects
+            if int(project.direct_user_a_id or 0) == int(user.id) and int(project.direct_user_b_id or 0) == int(user.id)
+        ),
+        None,
+    )
     project_display_names = {project.id: _project_display_name_for_user(project, user.id) for project in projects}
     project_hierarchy_meta = {}
     for project in projects:
@@ -2043,6 +2051,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         project_viewers=project_viewers,
         group_viewers=group_viewers,
         direct_projects=direct_projects,
+        self_direct_project_id=self_direct_project.id if self_direct_project else None,
         direct_project_peers=direct_project_peers,
         project_display_names=project_display_names,
         shared_project_ids=shared_project_ids,
