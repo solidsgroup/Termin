@@ -1232,6 +1232,52 @@ def _set_collaborator_work_item_status(task: Task | None, collaborator_email: st
         _mark_work_item_open(task)
 
 
+def _task_notification_collaborator_payload(collaborator: CollaboratorProfile | None) -> dict:
+    if not collaborator:
+        return {}
+    actor_name = (collaborator.display_name or collaborator.email or "Someone").strip() or "Someone"
+    return {
+        "actor_collaborator_id": collaborator.id,
+        "actor_name": actor_name,
+        "actor_avatar_url": "",
+    }
+
+
+def _queue_collaborator_task_action_notification(
+    task: Task | None,
+    collaborator: CollaboratorProfile | None,
+    action: str | None,
+) -> int | None:
+    if not task or not collaborator:
+        return None
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action not in {"accept", "decline", "complete", "uncomplete"}:
+        return collaborator.user_id if collaborator and collaborator.user_id else None
+    detail_payload = _task_notification_collaborator_payload(collaborator)
+    kind = "task_update"
+    if normalized_action == "accept":
+        detail_payload["changed_fields"] = ["accepted assignment"]
+    elif normalized_action == "decline":
+        detail_payload["changed_fields"] = ["declined assignment"]
+    else:
+        effective_status = effective_task_status_for_user(task, viewer_email=collaborator.email)
+        kind = "task_completed" if normalized_action == "complete" and _is_complete_status(effective_status) else "task_status_changed"
+        detail_payload.update(
+            {
+                "old_status": "complete" if normalized_action == "uncomplete" else "",
+                "new_status": effective_status or ("open" if normalized_action == "uncomplete" else "complete"),
+            }
+        )
+    exclude_user_id = collaborator.user_id if collaborator.user_id else None
+    queue_task_notifications(
+        task,
+        exclude_user_id=exclude_user_id,
+        kind=kind,
+        detail_payload=detail_payload,
+    )
+    return exclude_user_id
+
+
 def _serialize_portal_comment(comment: TaskComment, users: dict[int, User], collaborators: dict[int, CollaboratorProfile]) -> dict:
     collaborator = collaborators.get(comment.collaborator_id) if comment.collaborator_id else None
     user = users.get(comment.user_id) if comment.user_id else None
@@ -2926,12 +2972,15 @@ def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
     else:
         return redirect(url_for("ui.collaborator_portal", token=token))
 
+    exclude_notification_user_id = _queue_collaborator_task_action_notification(task, collaborator, action)
     db.session.commit()
 
     if action == "accept" and invite.calendar_opt_in and task:
         _safe_ensure_task_event(task.id, invite.email)
     if task and action in {"complete", "uncomplete"}:
         emit_task_updated(task)
+    if task:
+        emit_task_notification_updates(task, exclude_user_id=exclude_notification_user_id)
     return redirect(url_for("ui.collaborator_portal", token=token))
 
 
@@ -3061,6 +3110,7 @@ def update_collaborator_invite(token: str, invite_id: int):
     elif action == "uncomplete":
         _set_collaborator_work_item_status(task, collaborator.email, "open")
 
+    exclude_notification_user_id = _queue_collaborator_task_action_notification(task, collaborator, action)
     db.session.commit()
 
     if task and action in {"complete", "uncomplete"}:
@@ -3069,6 +3119,8 @@ def update_collaborator_invite(token: str, invite_id: int):
         assignment = Assignment.query.get(invite.assignment_id)
         if assignment:
             emit_assignment_updated(task, assignment)
+    if task:
+        emit_task_notification_updates(task, exclude_user_id=exclude_notification_user_id)
     return redirect(url_for("ui.collaborator_portal", token=token))
 
 
@@ -3092,12 +3144,14 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     elif action == "uncomplete":
         _set_collaborator_work_item_status(task, collaborator.email, "open")
 
+    exclude_notification_user_id = _queue_collaborator_task_action_notification(task, collaborator, action)
     db.session.commit()
 
     if task and action in {"complete", "uncomplete"}:
         emit_task_updated(task)
     if task:
         emit_assignment_updated(task, assignment)
+        emit_task_notification_updates(task, exclude_user_id=exclude_notification_user_id)
     return redirect(url_for("ui.collaborator_portal", token=token))
 
 

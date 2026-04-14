@@ -74,6 +74,45 @@ async function patchGroup(page, groupId, payload) {
   return result.data;
 }
 
+async function convertCollaborator(request) {
+  const response = await request.post('/_e2e/convert-collaborator');
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+async function fetchNotificationState(page) {
+  return page.evaluate(async () => {
+    const response = await fetch('/api/notifications', {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (_error) {
+      data = {};
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      data,
+    };
+  });
+}
+
+async function waitForRegularNotificationCount(page, expectedMinimum) {
+  await page.waitForFunction(async (minimum) => {
+    const response = await fetch('/api/notifications', {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await response.json().catch(() => ({}));
+    return Number((payload && payload.unread_regular_total) || 0) >= minimum;
+  }, expectedMinimum);
+}
+
 async function annotateTaskStatusView(page, taskId, label) {
   await page.locator(`[data-task-row-id="${taskId}"]`).scrollIntoViewIfNeeded();
   await page.evaluate(({ taskId, label }) => {
@@ -705,6 +744,127 @@ test.describe('dashboard and realtime flows', () => {
 
     await ownerContext.close();
     await collaboratorContext.close();
+  });
+
+  test('email collaborator actions notify the owner dashboard', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'email', 'notifications', 'dashboard']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const collaboratorContext = await browser.newContext();
+    const collaboratorPage = await collaboratorContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await ownerPage.waitForURL('**/dashboard');
+    const initialNotificationState = await fetchNotificationState(ownerPage);
+    expect(initialNotificationState.ok).toBeTruthy();
+    const initialRegularCount = Number((initialNotificationState.data && initialNotificationState.data.unread_regular_total) || 0);
+    await steps.step('Open the owner dashboard and capture the starting unread regular notification count.', ownerPage);
+
+    await collaboratorPage.goto(`/collaborators/${state.collaborator.access_token}`);
+    const collaboratorRow = collaboratorPage.locator(`[data-collab-task-row="${state.collaborator_asap_task.id}"]`).first();
+    await collaboratorRow.locator('button[name="action"][value="accept"]').click();
+    await collaboratorRow.locator('button[name="action"][value="complete"]').click();
+    await steps.step('In the email collaborator portal, accept and complete the ASAP collaborator task.', collaboratorPage);
+
+    await waitForRegularNotificationCount(ownerPage, initialRegularCount + 1);
+    await ownerPage.locator('[data-notification-kind="regular"] [data-notifications-trigger]').click();
+    await expectContainsTextWithFailure(
+      ownerPage,
+      test.info(),
+      '[data-notification-kind="regular"] .notifications-menu',
+      'Email Collaborator ASAP',
+      'email-collaborator-owner-notification-task',
+      'The owner should receive a regular notification mentioning the email collaborator task title.'
+    );
+    await expectContainsTextWithFailure(
+      ownerPage,
+      test.info(),
+      '[data-notification-kind="regular"] .notifications-menu',
+      'Email Collaborator',
+      'email-collaborator-owner-notification-actor',
+      'The owner notification menu should identify the email collaborator actor.'
+    );
+    await steps.step('Verify the owner dashboard receives a new regular notification for the collaborator completion, including the task title and actor name.', ownerPage);
+
+    await ownerContext.close();
+    await collaboratorContext.close();
+  });
+
+  test('converted collaborator account actions notify the owner and render as account badges', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['collaborator', 'conversion', 'notifications', 'tree', 'assignments']);
+    const state = await fetchSeedState(request);
+
+    const ownerContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const collaboratorContext = await browser.newContext();
+    const collaboratorPage = await collaboratorContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await ownerPage.waitForURL('**/dashboard');
+    await collaboratorPage.goto(`/collaborators/${state.collaborator.access_token}`);
+    const portalRow = collaboratorPage.locator(`[data-collab-task-row="${state.collaborator_assignment_task.id}"]`).first();
+    await portalRow.locator('button[name="action"][value="accept"]').click();
+    await portalRow.locator('button[name="action"][value="complete"]').click();
+    await steps.step('Start from the email-only collaborator state and complete one shared task in the collaborator portal.', collaboratorPage);
+
+    const conversion = await convertCollaborator(request);
+    const convertedUser = conversion.user;
+    expect(convertedUser).toBeTruthy();
+    await steps.step('Use the e2e conversion helper to convert the collaborator email into a full account and migrate assignment state.', ownerPage);
+
+    const ownerInitialNotificationState = await fetchNotificationState(ownerPage);
+    expect(ownerInitialNotificationState.ok).toBeTruthy();
+    const ownerInitialRegularCount = Number((ownerInitialNotificationState.data && ownerInitialNotificationState.data.unread_regular_total) || 0);
+
+    const convertedContext = await browser.newContext();
+    const convertedPage = await convertedContext.newPage();
+    await login(convertedPage, convertedUser.email, convertedUser.password);
+    await convertedPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(convertedPage, state.project.id, state.task.id);
+    await patchTask(convertedPage, state.collaborator_dated_task.id, { status: 'critical' });
+    await steps.step('Sign in as the converted collaborator account and update another shared task from the Tree view.', convertedPage);
+
+    await waitForRegularNotificationCount(ownerPage, ownerInitialRegularCount + 1);
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, state.task.id);
+    await expectTreeAssignmentsWithFailure(
+      ownerPage,
+      test.info(),
+      state.collaborator_dated_task.id,
+      ['Email Collaborator'],
+      'converted-collaborator-tree-assignment-badge',
+      'After conversion, the collaborator should render as an account assignee badge in the tree row.'
+    );
+
+    await ownerPage.locator('[data-notification-kind="regular"] [data-notifications-trigger]').click();
+    await expectContainsTextWithFailure(
+      ownerPage,
+      test.info(),
+      '[data-notification-kind="regular"] .notifications-menu',
+      'Email Collaborator Due Soon',
+      'converted-collaborator-owner-notification-task',
+      'The owner should receive a notification for the converted collaborator account action.'
+    );
+    await expectContainsTextWithFailure(
+      ownerPage,
+      test.info(),
+      '[data-notification-kind="regular"] .notifications-menu',
+      'Email Collaborator',
+      'converted-collaborator-owner-notification-actor',
+      'The owner notification menu should identify the converted collaborator account actor.'
+    );
+    await focusTreeTask(ownerPage, state.collaborator_dated_task.id, 'Owner sees converted collaborator assignee badge', [
+      'The assignee badges should now include the converted collaborator as an account user.',
+    ]);
+    await steps.step('Verify the owner sees both a new regular notification and a proper tree-row assignee badge for the converted collaborator account.', ownerPage);
+
+    await ownerContext.close();
+    await collaboratorContext.close();
+    await convertedContext.close();
   });
 
   test('tree single-status control updates its button state after each inline change', async ({ page, request }) => {

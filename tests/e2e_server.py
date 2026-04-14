@@ -31,7 +31,19 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app.extensions import db, socketio
-from app.models import Assignment, CollaboratorProfile, Group, Invite, Project, ProjectMember, Task, TaskNotification, User
+from app.models import (
+    Assignment,
+    CollaboratorProfile,
+    Group,
+    Invite,
+    Project,
+    ProjectMember,
+    Task,
+    TaskCollaboratorStatus,
+    TaskNotification,
+    TaskUserStatus,
+    User,
+)
 
 
 app = create_app()
@@ -290,6 +302,87 @@ def e2e_state():
 def e2e_reset():
     seed_data()
     return {"status": "ok", "state": SEEDED}
+
+
+@app.post("/_e2e/convert-collaborator")
+def e2e_convert_collaborator():
+    with app.app_context():
+        collaborator = CollaboratorProfile.query.filter_by(email="collab@example.com").first()
+        if not collaborator:
+            return {"error": "collaborator not found"}, 404
+
+        converted_user = User.query.filter_by(email=collaborator.email).first()
+        created = False
+        if not converted_user:
+            converted_user = User(
+                email=collaborator.email,
+                display_name=collaborator.display_name or "Email Collaborator",
+                timezone="America/Chicago",
+                password_hash=generate_password_hash("password123"),
+            )
+            db.session.add(converted_user)
+            db.session.flush()
+            created = True
+
+        collaborator.user_id = converted_user.id
+
+        assignments = Assignment.query.filter_by(email=collaborator.email).all()
+        touched_project_ids = set()
+        for assignment in assignments:
+            task = Task.query.get(assignment.task_id) if assignment.task_id else None
+            if task and task.project_id:
+                touched_project_ids.add(task.project_id)
+            existing_assignment = None
+            if assignment.task_id:
+                existing_assignment = Assignment.query.filter_by(
+                    task_id=assignment.task_id,
+                    user_id=converted_user.id,
+                ).first()
+            if existing_assignment:
+                existing_assignment.status = assignment.status or existing_assignment.status
+                db.session.delete(assignment)
+            else:
+                assignment.user_id = converted_user.id
+                assignment.email = None
+
+        collaborator_statuses = TaskCollaboratorStatus.query.filter_by(email=collaborator.email).all()
+        for row in collaborator_statuses:
+            existing_status = TaskUserStatus.query.filter_by(
+                task_id=row.task_id,
+                user_id=converted_user.id,
+            ).first()
+            if existing_status:
+                existing_status.status = row.status
+            else:
+                db.session.add(
+                    TaskUserStatus(
+                        task_id=row.task_id,
+                        user_id=converted_user.id,
+                        status=row.status,
+                    )
+                )
+            db.session.delete(row)
+
+        for project_id in touched_project_ids:
+            existing_member = ProjectMember.query.filter_by(
+                project_id=project_id,
+                user_id=converted_user.id,
+            ).first()
+            if not existing_member:
+                db.session.add(ProjectMember(project_id=project_id, user_id=converted_user.id))
+
+        db.session.commit()
+
+        SEEDED["converted_collaborator_user"] = {
+            "id": converted_user.id,
+            "email": converted_user.email,
+            "password": "password123",
+            "created": created,
+        }
+        return {
+            "status": "ok",
+            "user": SEEDED["converted_collaborator_user"],
+        }
 
 
 def main():
