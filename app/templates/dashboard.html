@@ -10939,11 +10939,17 @@
       }
     }
 
+    function shouldPersistDashboardBootstrapStore() {
+      return !shouldDeferStartupWarmups();
+    }
+
     function scheduleDashboardBootstrapStorePersist() {
       if (!dashboardBootstrapStore || !window.localStorage || dashboardBootstrapCacheDisabled) return;
+      if (!shouldPersistDashboardBootstrapStore()) return;
       if (dashboardStorePersistTimer) window.clearTimeout(dashboardStorePersistTimer);
       dashboardStorePersistTimer = window.setTimeout(function () {
         dashboardStorePersistTimer = null;
+        if (!shouldPersistDashboardBootstrapStore()) return;
         try {
           window.localStorage.setItem(dashboardBootstrapCacheKey, JSON.stringify(dashboardBootstrapStore));
         } catch (error) {
@@ -10961,6 +10967,7 @@
     }
 
     function hydrateDashboardBootstrapStoreFromCache() {
+      if (!shouldPersistDashboardBootstrapStore()) return null;
       if (!window.localStorage) return null;
       try {
         var raw = window.localStorage.getItem(dashboardBootstrapCacheKey);
@@ -19273,6 +19280,10 @@
         .catch(function () {});
     }
 
+    function shouldDeferStartupWarmups() {
+      return !!(window.matchMedia && window.matchMedia("(max-width: 900px)").matches);
+    }
+
     (function () {
       var treeSidebar = document.querySelector("[data-tree-sidebar]");
       var treeBoard = document.querySelector("[data-tree-board]");
@@ -19691,11 +19702,13 @@
       function scheduleTreeSelectionWarmup() {
         if (treeSelectionWarmupScheduled) return;
         if (isTreeDashboardView()) return;
+        if (shouldDeferStartupWarmups()) return;
         if (!currentSelection || !treeSelectionStillLoading(currentSelection)) return;
         treeSelectionWarmupScheduled = true;
         var runner = function () {
           treeSelectionWarmupScheduled = false;
           if (isTreeDashboardView()) return;
+          if (shouldDeferStartupWarmups()) return;
           if (!currentSelection || !treeSelectionStillLoading(currentSelection)) return;
           ensureTreeSelectionBoards(currentSelection).catch(function () {});
         };
@@ -21210,10 +21223,12 @@
         var detail = event && event.detail ? event.detail : null;
         if (!detail) return;
         if (detail.currentView === "dashboard" || detail.currentView === "inbox" || detail.currentView === "tree") {
+          if (shouldDeferStartupWarmups()) return;
           scheduleTodoBoardWarmup();
         }
       });
       window.addEventListener("load", function () {
+        if (shouldDeferStartupWarmups()) return;
         if (typeof window.__getDashboardCurrentView === "function" && window.__getDashboardCurrentView() === "todo") return;
         scheduleTodoBoardWarmup();
       });
@@ -21332,7 +21347,7 @@
         greetingEl.textContent = greetingForHour(now.getHours()) + ", " + firstName;
       }
 
-      function renderHeroDateTime() {
+    function renderHeroDateTime() {
         if (!dateTimeNodes.length) return;
         var formatter = new Intl.DateTimeFormat(undefined, {
           weekday: "short",
@@ -21373,8 +21388,35 @@
       }
     })();
 
+    function scheduleDashboardBootstrapRefreshStartup() {
+      if (!shouldDeferStartupWarmups()) {
+        scheduleDashboardBootstrapRefresh();
+        return;
+      }
+      var started = false;
+      function trigger() {
+        if (started) return;
+        started = true;
+        window.removeEventListener("pointerdown", trigger, true);
+        window.removeEventListener("keydown", trigger, true);
+        window.removeEventListener("visibilitychange", handleVisibilityChange, true);
+        window.setTimeout(function () {
+          scheduleDashboardBootstrapRefresh();
+        }, 1200);
+      }
+      function handleVisibilityChange() {
+        if (!document.hidden) {
+          trigger();
+        }
+      }
+      window.addEventListener("pointerdown", trigger, true);
+      window.addEventListener("keydown", trigger, true);
+      window.addEventListener("visibilitychange", handleVisibilityChange, true);
+      window.setTimeout(trigger, 4000);
+    }
+
     hydrateDashboardBootstrapStoreFromCache();
-    scheduleDashboardBootstrapRefresh();
+    scheduleDashboardBootstrapRefreshStartup();
     window.setInterval(pollNotificationState, 15000);
     window.setInterval(pollOpenDiscussion, 10000);
   })();

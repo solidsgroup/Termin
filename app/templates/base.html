@@ -10399,12 +10399,6 @@
           window.setInterval(renderLiveDateTime, 30000);
         }
 
-        document.querySelectorAll("input, textarea").forEach((el) => {
-          el.setAttribute("autocomplete", "nope");
-          el.setAttribute("autocapitalize", "off");
-          el.setAttribute("spellcheck", "false");
-        });
-
         const mobileSidebar = document.querySelector(".layout > .sidebar");
         const mobileSidebarTriggers = Array.from(document.querySelectorAll("[data-mobile-sidebar-trigger]"));
         const mobileSidebarBackdrop = document.querySelector("[data-mobile-sidebar-backdrop]");
