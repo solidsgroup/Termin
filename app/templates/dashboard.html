@@ -781,6 +781,340 @@
     background: color-mix(in srgb, var(--panel-alt) 88%, #fff 12%);
   }
 
+  .dashboard-quick-task-fab {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: 62px;
+    height: 62px;
+    border: 0;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 8%), color-mix(in srgb, var(--accent) 76%, #0f172a 24%));
+    color: #fff;
+    box-shadow: 0 20px 42px color-mix(in srgb, var(--accent) 36%, transparent);
+    cursor: pointer;
+    z-index: 70;
+    transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  }
+
+  .dashboard-quick-task-fab:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 24px 48px color-mix(in srgb, var(--accent) 44%, transparent);
+  }
+
+  .dashboard-quick-task-fab:active {
+    transform: translateY(1px);
+  }
+
+  .dashboard-quick-task-fab[hidden] {
+    display: none;
+  }
+
+  .dashboard-quick-task-fab i {
+    font-size: 1.4rem;
+  }
+
+  .quick-task-modal-panel {
+    width: min(560px, calc(100vw - 32px));
+    display: grid;
+    gap: 14px;
+  }
+
+  .quick-task-form {
+    display: grid;
+    gap: 12px;
+  }
+
+  .quick-task-field {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    align-items: start;
+  }
+
+  .quick-task-field label,
+  .quick-task-section-title {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding-top: 0;
+  }
+
+  .quick-task-field-body {
+    min-width: 0;
+    display: grid;
+    gap: 8px;
+  }
+
+  .quick-task-project-trigger {
+    width: 100%;
+    min-height: 46px;
+    padding: 11px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
+    color: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .quick-task-project-trigger-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+
+  .quick-task-project-trigger-title,
+  .quick-task-project-trigger-meta {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .quick-task-project-trigger-title {
+    font-weight: 700;
+  }
+
+  .quick-task-project-trigger-meta {
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+
+  .quick-task-project-picker {
+    display: none;
+    max-height: min(320px, 42vh);
+    overflow: auto;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--menu-bg) 94%, transparent);
+    padding: 8px;
+  }
+
+  .quick-task-project-picker.is-open {
+    display: block;
+  }
+
+  .quick-task-project-section + .quick-task-project-section {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  }
+
+  .quick-task-project-section-title {
+    padding: 4px 8px 6px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .quick-task-project-option,
+  .quick-task-group-option {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    border-radius: 12px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .quick-task-group-option {
+    padding-left: 34px;
+  }
+
+  .quick-task-project-option:hover,
+  .quick-task-group-option:hover,
+  .quick-task-project-option.is-selected,
+  .quick-task-group-option.is-selected {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .quick-task-project-option-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    background: var(--quick-task-option-color, var(--accent));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--quick-task-option-color, var(--accent)) 18%, transparent);
+  }
+
+  .quick-task-group-option i,
+  .quick-task-project-option i {
+    width: 14px;
+    text-align: center;
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+
+  .quick-task-option-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+
+  .quick-task-option-title,
+  .quick-task-option-meta {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .quick-task-option-title {
+    font-weight: 600;
+  }
+
+  .quick-task-option-meta {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .quick-task-field input[type="text"],
+  .quick-task-field input[type="date"],
+  .quick-task-field select {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .quick-task-due-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+  }
+
+  .quick-task-due-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel-alt) 88%, transparent);
+  }
+
+  .quick-task-due-mode-button {
+    min-height: 34px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .quick-task-due-mode-button.is-active {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--ink);
+  }
+
+  .quick-task-date-input[hidden] {
+    display: none;
+  }
+
+  .quick-task-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+    grid-column: auto;
+  }
+
+  .quick-task-status-row {
+    grid-column: auto;
+  }
+
+  body[data-theme="light"] .dashboard-quick-task-fab {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, white 18%), color-mix(in srgb, var(--accent) 68%, #0f172a 8%));
+    box-shadow: 0 18px 34px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  body[data-theme="light"] .dashboard-quick-task-fab:hover {
+    box-shadow: 0 22px 38px color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+
+  body[data-theme="light"] .quick-task-modal-panel {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, white 92%, var(--accent) 8%), color-mix(in srgb, white 98%, var(--panel-alt) 2%));
+    border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
+    box-shadow: 0 20px 48px rgba(15, 23, 42, 0.14);
+  }
+
+  body[data-theme="light"] .quick-task-project-trigger,
+  body[data-theme="light"] .quick-task-project-picker,
+  body[data-theme="light"] .quick-task-due-mode,
+  body[data-theme="light"] .quick-task-field input[type="text"],
+  body[data-theme="light"] .quick-task-field input[type="date"],
+  body[data-theme="light"] .quick-task-field select {
+    background: color-mix(in srgb, white 97%, var(--accent) 3%);
+    border-color: color-mix(in srgb, var(--border) 82%, var(--accent) 18%);
+    color: var(--ink);
+  }
+
+  body[data-theme="light"] .quick-task-project-picker {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  body[data-theme="light"] .quick-task-project-trigger-title,
+  body[data-theme="light"] .quick-task-option-title {
+    color: color-mix(in srgb, var(--ink) 92%, #0f172a 8%);
+  }
+
+  body[data-theme="light"] .quick-task-project-trigger-meta,
+  body[data-theme="light"] .quick-task-option-meta,
+  body[data-theme="light"] .quick-task-field label,
+  body[data-theme="light"] .quick-task-section-title {
+    color: color-mix(in srgb, var(--ink) 50%, white 50%);
+  }
+
+  body[data-theme="light"] .quick-task-project-option:hover,
+  body[data-theme="light"] .quick-task-group-option:hover,
+  body[data-theme="light"] .quick-task-project-option.is-selected,
+  body[data-theme="light"] .quick-task-group-option.is-selected {
+    background: color-mix(in srgb, var(--accent) 10%, white 90%);
+  }
+
+  body[data-theme="light"] .quick-task-due-mode-button {
+    color: color-mix(in srgb, var(--ink) 60%, white 40%);
+  }
+
+  body[data-theme="light"] .quick-task-due-mode-button.is-active {
+    background: color-mix(in srgb, var(--accent) 16%, white 84%);
+    color: color-mix(in srgb, var(--ink) 88%, #0f172a 12%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+
+  @media (max-width: 640px) {
+    .dashboard-quick-task-fab {
+      right: 18px;
+      bottom: calc(var(--mobile-bottom-nav-offset, 82px) + 18px);
+      width: 58px;
+      height: 58px;
+    }
+
+    .quick-task-due-row {
+      grid-template-columns: 1fr;
+    }
+
+  }
+
   @media (max-width: 980px) {
     .dashboard-home-grid {
       grid-template-columns: 1fr;
@@ -1335,6 +1669,9 @@
         </div>
       </div>
     </div>
+    <button class="dashboard-quick-task-fab" type="button" id="dashboard-quick-task-fab"{% if current_view != 'dashboard' %} hidden{% endif %} aria-label="Quick add task" title="Quick add task">
+      <i class="fa-solid fa-plus" aria-hidden="true"></i>
+    </button>
     {% if false and selected_project %}
       <div class="project-view-shell" style="--project-color: {{ selected_project_color or '#4cc9f0' }};">
         {% set viewers = project_viewers.get(selected_project.id, []) %}
@@ -1764,6 +2101,58 @@
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
       <button class="btn secondary" type="button" id="direct-project-cancel">Cancel</button>
     </div>
+  </div>
+</div>
+
+<div id="quick-task-modal" class="modal">
+  <div class="panel quick-task-modal-panel">
+    <h3>Quick Task Add</h3>
+    <div class="quick-task-field">
+      <div class="quick-task-section-title">Project</div>
+      <div class="quick-task-field-body">
+        <button class="quick-task-project-trigger" type="button" id="quick-task-project-trigger" aria-expanded="false">
+          <span class="quick-task-project-trigger-copy">
+            <span class="quick-task-project-trigger-title" id="quick-task-project-title">Choose project</span>
+            <span class="quick-task-project-trigger-meta" id="quick-task-project-meta">Select project or group</span>
+          </span>
+          <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+        </button>
+        <div class="quick-task-project-picker" id="quick-task-project-picker">
+          <div id="quick-task-project-list"></div>
+        </div>
+      </div>
+    </div>
+    <form id="quick-task-form" class="quick-task-form">
+      <div class="quick-task-field">
+        <label for="quick-task-title">Title</label>
+        <div class="quick-task-field-body">
+          <input id="quick-task-title" type="text" placeholder="What needs to happen?" autocomplete="off" />
+        </div>
+      </div>
+      <div class="quick-task-field">
+        <label for="quick-task-assignee">Assignee</label>
+        <div class="quick-task-field-body">
+          <select id="quick-task-assignee"></select>
+        </div>
+      </div>
+      <div class="quick-task-field">
+        <label for="quick-task-date">Due</label>
+        <div class="quick-task-field-body">
+          <div class="quick-task-due-row">
+            <div class="quick-task-due-mode" id="quick-task-due-mode">
+              <button class="quick-task-due-mode-button is-active" type="button" data-quick-task-due-mode="asap">ASAP</button>
+              <button class="quick-task-due-mode-button" type="button" data-quick-task-due-mode="date">Date</button>
+            </div>
+            <input id="quick-task-date" class="quick-task-date-input" type="date" hidden disabled />
+          </div>
+        </div>
+      </div>
+      <div id="quick-task-status" class="footer-note quick-task-status-row"></div>
+      <div class="quick-task-modal-actions">
+        <button class="btn secondary" type="button" id="quick-task-cancel">Cancel</button>
+        <button class="btn" type="submit" id="quick-task-submit">Create Task</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -8802,6 +9191,21 @@
     const directProjectSuggest = document.getElementById("direct-project-suggest");
     const directProjectStatus = document.getElementById("direct-project-status");
     const directProjectCancel = document.getElementById("direct-project-cancel");
+    const dashboardQuickTaskFab = document.getElementById("dashboard-quick-task-fab");
+    const quickTaskModal = document.getElementById("quick-task-modal");
+    const quickTaskForm = document.getElementById("quick-task-form");
+    const quickTaskProjectTrigger = document.getElementById("quick-task-project-trigger");
+    const quickTaskProjectTitle = document.getElementById("quick-task-project-title");
+    const quickTaskProjectMeta = document.getElementById("quick-task-project-meta");
+    const quickTaskProjectPicker = document.getElementById("quick-task-project-picker");
+    const quickTaskProjectList = document.getElementById("quick-task-project-list");
+    const quickTaskTitleInput = document.getElementById("quick-task-title");
+    const quickTaskAssigneeSelect = document.getElementById("quick-task-assignee");
+    const quickTaskDueMode = document.getElementById("quick-task-due-mode");
+    const quickTaskDateInput = document.getElementById("quick-task-date");
+    const quickTaskStatus = document.getElementById("quick-task-status");
+    const quickTaskCancel = document.getElementById("quick-task-cancel");
+    const quickTaskSubmit = document.getElementById("quick-task-submit");
     const groupTemplateModal = document.getElementById("group-template-modal");
     const groupTemplateStatus = document.getElementById("group-template-status");
     const groupTemplateList = document.getElementById("group-template-list");
@@ -8820,6 +9224,9 @@
     let directProjectResults = [];
     let directProjectActiveIndex = -1;
     let groupTemplateProjectId = "";
+    let quickTaskSelection = { projectId: "", groupId: "" };
+    let quickTaskAssigneeCache = {};
+    let quickTaskDueModeValue = "asap";
 
     const hideContextMenu = () => {
       if (contextMenu) contextMenu.style.display = "none";
@@ -9123,6 +9530,432 @@
       if (directProjectSuggest) directProjectSuggest.innerHTML = "";
       if (directProjectStatus) directProjectStatus.textContent = "";
     };
+
+    function quickTaskEscape(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function quickTaskDashboardStore() {
+      return (typeof window !== "undefined" && window.__dashboardBootstrapStore) ? window.__dashboardBootstrapStore : null;
+    }
+
+    function quickTaskEntityMap(name) {
+      var store = quickTaskDashboardStore();
+      var entities = store && store.entities ? store.entities : {};
+      return entities && entities[name] ? entities[name] : {};
+    }
+
+    function quickTaskManageableProjectIds() {
+      var store = quickTaskDashboardStore();
+      if (!store || !store.access) return [];
+      return Array.isArray(store.access.manageable_project_ids)
+        ? store.access.manageable_project_ids.map(function (value) { return String(value); })
+        : [];
+    }
+
+    function markQuickTaskProjectManageable(projectId) {
+      var store = quickTaskDashboardStore();
+      if (!projectId || !store) return;
+      if (!store.access) store.access = {};
+      var ids = Array.isArray(store.access.manageable_project_ids)
+        ? store.access.manageable_project_ids.map(function (value) { return String(value); })
+        : [];
+      if (ids.indexOf(String(projectId)) === -1) {
+        ids.push(String(projectId));
+        store.access.manageable_project_ids = ids;
+        if (typeof scheduleDashboardBootstrapStorePersist === "function") {
+          scheduleDashboardBootstrapStorePersist();
+        }
+      }
+    }
+
+    function quickTaskFindSelfDirectProject() {
+      var projects = quickTaskEntityMap("projects");
+      var match = null;
+      Object.keys(projects).forEach(function (projectId) {
+        if (match) return;
+        var project = projects[projectId];
+        if (!project || !project.is_direct) return;
+        if (String(project.direct_user_a_id || "") === String(dashboardUserId || "") && String(project.direct_user_b_id || "") === String(dashboardUserId || "")) {
+          match = project;
+        }
+      });
+      return match;
+    }
+
+    function quickTaskProjectColor(project) {
+      if (!project) return "#4cc9f0";
+      if (project.division_id != null) {
+        var division = quickTaskEntityMap("divisions")[String(project.division_id)];
+        if (division && division.color) return division.color;
+      }
+      return project.division_color || project.color || "#4cc9f0";
+    }
+
+    function quickTaskProjectLabel(project, group) {
+      if (!project) return "Choose project";
+      var projectLabel = project.display_name || project.name || "Project";
+      if (group && group.name) return projectLabel + " / " + group.name;
+      return projectLabel;
+    }
+
+    function quickTaskProjectMetaLabel(project, group) {
+      if (!project) return "Select project or group";
+      var parts = [];
+      if (project.division_id != null) {
+        var division = quickTaskEntityMap("divisions")[String(project.division_id)];
+        if (division && division.name) parts.push(division.name);
+      } else if (project.is_direct) {
+        parts.push("Direct");
+      }
+      parts.push(group && group.name ? "Group task" : "Project task");
+      return parts.join(" · ");
+    }
+
+    function quickTaskProjectGroups(projectId) {
+      var groups = Object.values(quickTaskEntityMap("groups")).filter(function (group) {
+        return group && String(group.project_id || "") === String(projectId || "");
+      });
+      groups.sort(function (a, b) {
+        return Number(a.position || 0) - Number(b.position || 0) || Number(a.id || 0) - Number(b.id || 0);
+      });
+      return groups;
+    }
+
+    function quickTaskRenderProjectPicker() {
+      if (!quickTaskProjectList) return;
+      var projects = quickTaskEntityMap("projects");
+      var divisions = quickTaskEntityMap("divisions");
+      var manageableIds = quickTaskManageableProjectIds();
+      var manageableSet = new Set(manageableIds);
+      var html = [];
+
+      var directProjects = Object.keys(projects)
+        .map(function (key) { return projects[key]; })
+        .filter(function (project) { return project && project.is_direct && manageableSet.has(String(project.id)); })
+        .sort(function (a, b) {
+          return String(a.display_name || a.name || "").localeCompare(String(b.display_name || b.name || "")) || Number(a.id || 0) - Number(b.id || 0);
+        });
+      if (directProjects.length) {
+        html.push('<div class="quick-task-project-section"><div class="quick-task-project-section-title">Direct</div>');
+        directProjects.forEach(function (project) {
+          var selected = String(quickTaskSelection.projectId || "") === String(project.id) && !quickTaskSelection.groupId;
+          html.push(
+            '<button class="quick-task-project-option' + (selected ? ' is-selected' : '') + '" type="button" data-quick-task-select-project="' + quickTaskEscape(project.id) + '" style="--quick-task-option-color:' + quickTaskEscape(quickTaskProjectColor(project)) + ';">' +
+              '<span class="quick-task-project-option-dot"></span>' +
+              '<span class="quick-task-option-copy">' +
+                '<span class="quick-task-option-title">' + quickTaskEscape(project.display_name || project.name || "Project") + '</span>' +
+                '<span class="quick-task-option-meta">Direct project</span>' +
+              '</span>' +
+            '</button>'
+          );
+        });
+        html.push('</div>');
+      }
+
+      var standardProjects = Object.keys(projects)
+        .map(function (key) { return projects[key]; })
+        .filter(function (project) { return project && !project.is_direct && manageableSet.has(String(project.id)); });
+      var topLevelProjects = standardProjects
+        .filter(function (project) { return project.division_id == null; })
+        .sort(function (a, b) {
+          return Number(a.sidebar_position != null ? a.sidebar_position : a.position || 0) - Number(b.sidebar_position != null ? b.sidebar_position : b.position || 0)
+            || String(a.display_name || a.name || "").localeCompare(String(b.display_name || b.name || ""))
+            || Number(a.id || 0) - Number(b.id || 0);
+        });
+      if (topLevelProjects.length) {
+        html.push('<div class="quick-task-project-section"><div class="quick-task-project-section-title">Projects</div>');
+        topLevelProjects.forEach(function (project) {
+          var selected = String(quickTaskSelection.projectId || "") === String(project.id) && !quickTaskSelection.groupId;
+          html.push(
+            '<button class="quick-task-project-option' + (selected ? ' is-selected' : '') + '" type="button" data-quick-task-select-project="' + quickTaskEscape(project.id) + '" style="--quick-task-option-color:' + quickTaskEscape(quickTaskProjectColor(project)) + ';">' +
+              '<span class="quick-task-project-option-dot"></span>' +
+              '<span class="quick-task-option-copy">' +
+                '<span class="quick-task-option-title">' + quickTaskEscape(project.display_name || project.name || "Project") + '</span>' +
+                '<span class="quick-task-option-meta">Project task</span>' +
+              '</span>' +
+            '</button>'
+          );
+        });
+        html.push('</div>');
+      }
+
+      Object.keys(divisions)
+        .map(function (divisionId) { return divisions[String(divisionId)]; })
+        .sort(function (a, b) {
+          return Number(a.position || 0) - Number(b.position || 0)
+            || String(a.name || "").localeCompare(String(b.name || ""))
+            || Number(a.id || 0) - Number(b.id || 0);
+        })
+        .forEach(function (division) {
+        var sectionProjects = standardProjects
+          .filter(function (project) { return String(project.division_id || "") === String(division.id); })
+          .sort(function (a, b) {
+            return Number(a.sidebar_position != null ? a.sidebar_position : a.position || 0) - Number(b.sidebar_position != null ? b.sidebar_position : b.position || 0)
+              || String(a.display_name || a.name || "").localeCompare(String(b.display_name || b.name || ""))
+              || Number(a.id || 0) - Number(b.id || 0);
+          });
+        if (!division || !sectionProjects.length) return;
+        html.push('<div class="quick-task-project-section"><div class="quick-task-project-section-title">' + quickTaskEscape(division.name || "Division") + '</div>');
+        sectionProjects.forEach(function (project) {
+          var selected = String(quickTaskSelection.projectId || "") === String(project.id) && !quickTaskSelection.groupId;
+          html.push(
+            '<button class="quick-task-project-option' + (selected ? ' is-selected' : '') + '" type="button" data-quick-task-select-project="' + quickTaskEscape(project.id) + '" style="--quick-task-option-color:' + quickTaskEscape(quickTaskProjectColor(project)) + ';">' +
+              '<span class="quick-task-project-option-dot"></span>' +
+              '<span class="quick-task-option-copy">' +
+                '<span class="quick-task-option-title">' + quickTaskEscape(project.display_name || project.name || "Project") + '</span>' +
+                '<span class="quick-task-option-meta">Project task</span>' +
+              '</span>' +
+            '</button>'
+          );
+        });
+        html.push('</div>');
+      });
+
+      quickTaskProjectList.innerHTML = html.join("") || '<div class="footer-note" style="padding: 8px 10px;">No available projects.</div>';
+    }
+
+    function quickTaskSetProjectPickerOpen(nextOpen) {
+      if (!quickTaskProjectPicker || !quickTaskProjectTrigger) return;
+      quickTaskProjectPicker.classList.toggle("is-open", !!nextOpen);
+      quickTaskProjectTrigger.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+    }
+
+    function quickTaskSetDueMode(mode) {
+      quickTaskDueModeValue = mode === "date" ? "date" : "asap";
+      if (quickTaskDueMode) {
+        quickTaskDueMode.querySelectorAll("[data-quick-task-due-mode]").forEach(function (button) {
+          button.classList.toggle("is-active", button.getAttribute("data-quick-task-due-mode") === quickTaskDueModeValue);
+        });
+      }
+      if (quickTaskDateInput) {
+        var showDate = quickTaskDueModeValue === "date";
+        quickTaskDateInput.hidden = !showDate;
+        quickTaskDateInput.disabled = !showDate;
+        if (!showDate) {
+          quickTaskDateInput.value = "";
+        }
+      }
+    }
+
+    function quickTaskSetStatus(message, isError) {
+      if (!quickTaskStatus) return;
+      quickTaskStatus.textContent = message || "";
+      quickTaskStatus.style.color = isError ? "var(--danger, #d44)" : "";
+    }
+
+    function quickTaskSetSelection(projectId, groupId, options) {
+      var opts = options || {};
+      var project = quickTaskEntityMap("projects")[String(projectId || "")] || null;
+      if (!project) return;
+      var group = groupId ? (quickTaskEntityMap("groups")[String(groupId || "")] || null) : null;
+      quickTaskSelection = {
+        projectId: String(project.id),
+        groupId: group && String(group.project_id) === String(project.id) ? String(group.id) : "",
+      };
+      if (quickTaskProjectTitle) quickTaskProjectTitle.textContent = quickTaskProjectLabel(project, group);
+      if (quickTaskProjectMeta) quickTaskProjectMeta.textContent = quickTaskProjectMetaLabel(project, group);
+      if (!opts.keepPickerOpen) quickTaskSetProjectPickerOpen(false);
+      quickTaskRenderProjectPicker();
+      quickTaskLoadAssignees(project.id);
+    }
+
+    function quickTaskLoadAssignees(projectId) {
+      if (!quickTaskAssigneeSelect || !projectId) return Promise.resolve([]);
+      var key = String(projectId);
+      if (quickTaskAssigneeCache[key]) {
+        return Promise.resolve(quickTaskAssigneeCache[key]).then(function (members) {
+          quickTaskPopulateAssigneeOptions(members);
+          return members;
+        });
+      }
+      quickTaskAssigneeSelect.disabled = true;
+      quickTaskAssigneeSelect.innerHTML = '<option>Loading…</option>';
+      return fetch("/api/projects/" + encodeURIComponent(projectId) + "/members", {
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+      })
+        .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error((result.data && result.data.error) || "Could not load assignees");
+          var members = Array.isArray(result.data && result.data.members) ? result.data.members : [];
+          quickTaskAssigneeCache[key] = members;
+          quickTaskPopulateAssigneeOptions(members);
+          return members;
+        })
+        .catch(function (error) {
+          console.error("quickTaskLoadAssignees failed", error);
+          var fallback = [{
+            email: dashboardUserEmail,
+            display_name: dashboardUserDisplayName || dashboardUserEmail,
+          }];
+          quickTaskPopulateAssigneeOptions(fallback);
+          return fallback;
+        });
+    }
+
+    function quickTaskPopulateAssigneeOptions(members) {
+      if (!quickTaskAssigneeSelect) return;
+      var options = Array.isArray(members) ? members : [];
+      var normalizedMe = String(dashboardUserEmail || "").trim().toLowerCase();
+      var defaultValue = "";
+      quickTaskAssigneeSelect.innerHTML = options.map(function (member) {
+        var email = String((member && member.email) || "").trim();
+        var label = String((member && (member.display_name || member.email)) || email || "User").trim();
+        if (!defaultValue && email && email.toLowerCase() === normalizedMe) {
+          defaultValue = email;
+        }
+        return '<option value="' + quickTaskEscape(email) + '">' + quickTaskEscape(label) + '</option>';
+      }).join("");
+      if (!defaultValue && options.length) {
+        defaultValue = String((options[0] && options[0].email) || "").trim();
+      }
+      if (!quickTaskAssigneeSelect.innerHTML) {
+        quickTaskAssigneeSelect.innerHTML = '<option value="' + quickTaskEscape(dashboardUserEmail || "") + '">' + quickTaskEscape(dashboardUserDisplayName || dashboardUserEmail || "Me") + '</option>';
+        defaultValue = dashboardUserEmail || "";
+      }
+      quickTaskAssigneeSelect.disabled = false;
+      quickTaskAssigneeSelect.value = defaultValue;
+    }
+
+    function quickTaskEnsureBootstrapReady() {
+      var store = quickTaskDashboardStore();
+      if (store) return Promise.resolve(store);
+      if (typeof window.__refreshDashboardBootstrapStore === "function") {
+        return window.__refreshDashboardBootstrapStore();
+      }
+      return Promise.resolve(null);
+    }
+
+    function quickTaskEnsureSelfProject() {
+      var existing = quickTaskFindSelfDirectProject();
+      if (existing) {
+        markQuickTaskProjectManageable(existing.id);
+        return Promise.resolve(existing);
+      }
+      return fetch("/api/direct-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ user_id: dashboardUserId }),
+      })
+        .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok || !result.data || !result.data.project) {
+            throw new Error((result.data && result.data.error) || "Could not prepare your direct project");
+          }
+          var project = result.data.project;
+          mergeDashboardEntity("projects", project);
+          markQuickTaskProjectManageable(project.id);
+          return project;
+        });
+    }
+
+    function openQuickTaskModal() {
+      if (!quickTaskModal) return;
+      quickTaskModal.style.display = "flex";
+      if (quickTaskTitleInput) quickTaskTitleInput.value = "";
+      quickTaskSetStatus("");
+      quickTaskSetDueMode("asap");
+      if (quickTaskSubmit) quickTaskSubmit.disabled = false;
+      if (quickTaskAssigneeSelect) {
+        quickTaskAssigneeSelect.innerHTML = '<option>Loading…</option>';
+        quickTaskAssigneeSelect.disabled = true;
+      }
+      quickTaskEnsureBootstrapReady()
+        .then(function () { return quickTaskEnsureSelfProject(); })
+        .then(function (project) {
+          quickTaskRenderProjectPicker();
+          quickTaskSetSelection(project.id, "", { keepPickerOpen: false });
+          if (quickTaskTitleInput) quickTaskTitleInput.focus();
+        })
+        .catch(function (error) {
+          console.error("openQuickTaskModal failed", error);
+          quickTaskRenderProjectPicker();
+          var manageableIds = quickTaskManageableProjectIds();
+          if (manageableIds.length) {
+            quickTaskSetSelection(manageableIds[0], "", { keepPickerOpen: false });
+          }
+          quickTaskSetStatus(error && error.message ? error.message : "Unable to prepare quick add.", true);
+          if (quickTaskTitleInput) quickTaskTitleInput.focus();
+        });
+    }
+
+    function closeQuickTaskModal() {
+      if (!quickTaskModal) return;
+      quickTaskModal.style.display = "none";
+      quickTaskSetProjectPickerOpen(false);
+      quickTaskSetStatus("");
+    }
+
+    function quickTaskCreate(event) {
+      if (event) event.preventDefault();
+      if (!quickTaskSelection.projectId) {
+        quickTaskSetStatus("Choose a project first.", true);
+        return;
+      }
+      var title = quickTaskTitleInput ? String(quickTaskTitleInput.value || "").trim() : "";
+      if (!title) {
+        quickTaskSetStatus("Title is required.", true);
+        if (quickTaskTitleInput) quickTaskTitleInput.focus();
+        return;
+      }
+      if (quickTaskDueModeValue === "date" && quickTaskDateInput && !quickTaskDateInput.value) {
+        quickTaskSetStatus("Choose a due date or switch back to ASAP.", true);
+        quickTaskDateInput.focus();
+        return;
+      }
+      var payload = {
+        project_id: Number(quickTaskSelection.projectId),
+        group_id: quickTaskSelection.groupId ? Number(quickTaskSelection.groupId) : null,
+        title: title,
+        assignee_email: quickTaskAssigneeSelect ? String(quickTaskAssigneeSelect.value || "").trim() : "",
+        due_mode: quickTaskDueModeValue,
+        due_at: quickTaskDueModeValue === "date" && quickTaskDateInput ? quickTaskDateInput.value : null,
+      };
+      if (quickTaskSubmit) quickTaskSubmit.disabled = true;
+      quickTaskSetStatus("Creating…");
+      fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+      })
+        .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, status: res.status, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok || !result.data || !result.data.task || !result.data.task.id) {
+            throw new Error((result.data && result.data.error) || "Unable to create task");
+          }
+          var task = result.data.task;
+          rememberRecentTaskSnapshot(task);
+          mergeDashboardTask(task);
+          if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+            window.__upsertTodoItemFromSnapshot(task);
+          }
+          if (typeof window.__upsertTaskRowFromSnapshot === "function") {
+            window.__upsertTaskRowFromSnapshot(task);
+          }
+          if (typeof window.__renderTaskAssignments === "function") {
+            window.__renderTaskAssignments(task.id, task.assignments || []);
+          }
+          if (typeof refreshDashboardHomeFromTodo === "function") {
+            refreshDashboardHomeFromTodo();
+          }
+          closeQuickTaskModal();
+        })
+        .catch(function (error) {
+          quickTaskSetStatus(error && error.message ? error.message : "Unable to create task.", true);
+        })
+        .finally(function () {
+          if (quickTaskSubmit) quickTaskSubmit.disabled = false;
+        });
+    }
+    window.__openQuickTaskModal = openQuickTaskModal;
 
     const submitDirectProject = (item) => {
       if (!item || !item.id) return;
@@ -9909,6 +10742,102 @@
         if (event.target === directProjectModal) closeDirectProjectModal();
       });
     }
+
+    function updateQuickTaskFabVisibility(nextView) {
+      if (!dashboardQuickTaskFab) return;
+      var view = String(nextView || "").trim().toLowerCase();
+      dashboardQuickTaskFab.hidden = view !== "dashboard";
+      if (view !== "dashboard") {
+        closeQuickTaskModal();
+      }
+    }
+
+    if (dashboardQuickTaskFab) {
+      dashboardQuickTaskFab.addEventListener("click", function (event) {
+        event.preventDefault();
+        openQuickTaskModal();
+      });
+    }
+
+    if (quickTaskProjectTrigger) {
+      quickTaskProjectTrigger.addEventListener("click", function (event) {
+        event.preventDefault();
+        if (!quickTaskDashboardStore()) {
+          quickTaskEnsureBootstrapReady().then(function () {
+            quickTaskRenderProjectPicker();
+            quickTaskSetProjectPickerOpen(!quickTaskProjectPicker.classList.contains("is-open"));
+          });
+          return;
+        }
+        quickTaskRenderProjectPicker();
+        quickTaskSetProjectPickerOpen(!quickTaskProjectPicker.classList.contains("is-open"));
+      });
+    }
+
+    if (quickTaskProjectList) {
+      quickTaskProjectList.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-quick-task-select-project]");
+        if (!button) return;
+        event.preventDefault();
+        quickTaskSetSelection(
+          button.getAttribute("data-quick-task-select-project"),
+          button.getAttribute("data-quick-task-select-group") || "",
+          { keepPickerOpen: false }
+        );
+      });
+    }
+
+    if (quickTaskDueMode) {
+      quickTaskDueMode.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-quick-task-due-mode]");
+        if (!button) return;
+        event.preventDefault();
+        quickTaskSetDueMode(button.getAttribute("data-quick-task-due-mode"));
+      });
+    }
+
+    if (quickTaskForm) {
+      quickTaskForm.addEventListener("submit", quickTaskCreate);
+    }
+
+    if (quickTaskCancel) {
+      quickTaskCancel.addEventListener("click", function () {
+        closeQuickTaskModal();
+      });
+    }
+
+    if (quickTaskModal) {
+      quickTaskModal.addEventListener("click", function (event) {
+        if (event.target === quickTaskModal) {
+          closeQuickTaskModal();
+        }
+      });
+    }
+
+    document.addEventListener("click", function (event) {
+      if (!quickTaskProjectPicker || !quickTaskProjectTrigger) return;
+      if (!quickTaskProjectPicker.classList.contains("is-open")) return;
+      if (quickTaskProjectPicker.contains(event.target) || quickTaskProjectTrigger.contains(event.target)) return;
+      quickTaskSetProjectPickerOpen(false);
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+      if (quickTaskProjectPicker && quickTaskProjectPicker.classList.contains("is-open")) {
+        quickTaskSetProjectPickerOpen(false);
+        return;
+      }
+      if (quickTaskModal && quickTaskModal.style.display === "flex") {
+        closeQuickTaskModal();
+      }
+    });
+
+    document.addEventListener("termin:dashboard-view-change", function (event) {
+      var nextView = event && event.detail ? event.detail.currentView : "";
+      updateQuickTaskFabVisibility(nextView);
+    });
+
+    updateQuickTaskFabVisibility({{ current_view|tojson }});
 
     if (groupTemplateCancel) {
       groupTemplateCancel.addEventListener("click", closeGroupTemplateModal);
