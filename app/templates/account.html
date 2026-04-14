@@ -1,10 +1,227 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
+  .account-avatar-panel {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .account-avatar-preview {
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--panel-alt) 78%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 20px;
+    font-weight: 700;
+    flex: 0 0 auto;
+  }
+
+  .account-avatar-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .account-avatar-actions {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .account-avatar-field {
+    display: grid;
+    grid-template-columns: 196px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+
+  .account-avatar-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .account-avatar-mode-list {
+    justify-self: start;
+  }
+
+  .account-avatar-mode-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.2;
+    padding: 2px 0;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+  }
+
+  .account-avatar-mode-button::before {
+    content: "";
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    border: 1.5px solid color-mix(in srgb, var(--border) 88%, transparent);
+    background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  }
+
+  .account-avatar-mode-button.is-active {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .account-avatar-mode-button.is-active::before {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .account-avatar-mode-button:hover {
+    color: var(--ink);
+  }
+
+  .account-avatar-choices {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .account-avatar-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .account-avatar-choice-preview {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    overflow: hidden;
+    flex: 0 0 auto;
+    background: color-mix(in srgb, var(--panel-alt) 78%, transparent);
+  }
+
+  .account-avatar-choice-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .account-avatar-pane[hidden] {
+    display: block !important;
+  }
+
+  .account-avatar-pane {
+    opacity: 0.48;
+    transition: opacity 140ms ease;
+  }
+
+  .account-avatar-pane.is-active {
+    opacity: 1;
+  }
+
+  .account-avatar-pane.is-active .account-avatar-input,
+  .account-avatar-pane.is-active .account-avatar-choice,
+  .account-avatar-pane.is-active input {
+    pointer-events: auto;
+  }
+
+  .account-avatar-pane .account-avatar-input,
+  .account-avatar-pane .account-avatar-choice,
+  .account-avatar-pane input {
+    pointer-events: none;
+  }
+
+  .account-avatar-input {
+    width: 100%;
+    max-width: 360px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+    color: var(--ink);
+    font: inherit;
+    box-sizing: border-box;
+    min-height: 36px;
+    font-size: 14px;
+  }
+
+  .account-avatar-input[type="file"] {
+    padding: 6px 8px;
+    line-height: 1.35;
+  }
+
+  .account-avatar-input[type="url"] {
+    padding: 6px 8px;
+  }
+
+  .account-avatar-input::file-selector-button {
+    margin-right: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--panel-alt) 68%, var(--panel) 32%);
+    color: var(--ink);
+    font: inherit;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+
+  .account-avatar-input::-webkit-file-upload-button {
+    margin-right: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--panel-alt) 68%, var(--panel) 32%);
+    color: var(--ink);
+    font: inherit;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+
   @media (max-width: 900px) {
     .admin-layout > .admin-content.content {
       height: auto;
       min-height: 0;
+    }
+
+    .account-avatar-panel {
+      grid-template-columns: 1fr;
+    }
+
+    .account-avatar-field {
+      grid-template-columns: 1fr;
+      align-items: start;
+      gap: 6px;
     }
 
     .settings-mobile-toolbar {
@@ -135,6 +352,145 @@
           </div>
         </form>
       </div>
+
+      <div class="panel">
+        <h3>Profile Picture</h3>
+        <p class="footer-note">Use an uploaded image or a direct image URL for your account avatar.</p>
+        <div class="account-avatar-panel" style="margin-top: 14px;">
+          <div class="account-avatar-preview" id="account-avatar-preview" data-avatar-initial="{{ user.avatar_url or '' }}">
+            {% if user.avatar_url %}
+              <img src="{{ user.avatar_url }}" alt="Profile picture" referrerpolicy="no-referrer" />
+            {% else %}
+              <span id="account-avatar-fallback">{{ (user.display_name or user.email or 'U')[0]|upper }}</span>
+            {% endif %}
+          </div>
+          <div class="account-avatar-actions">
+            <form method="post" action="{{ url_for('ui.update_account_avatar') }}" enctype="multipart/form-data">
+              {% set avatar_identities = identities | selectattr('avatar_url') | list %}
+              <input type="hidden" name="avatar_mode" id="account-avatar-mode" value="{% if avatar_identities %}connected{% else %}upload{% endif %}" />
+              {% if avatar_identities %}
+                <div class="account-avatar-pane is-active" data-avatar-pane="connected">
+                  <div class="account-avatar-field">
+                    <button class="account-avatar-mode-button is-active" type="button" data-avatar-mode-button="connected">Connected account avatar</button>
+                    <div class="account-avatar-choices">
+                      {% for identity in avatar_identities %}
+                        <button class="account-avatar-choice" type="submit" name="avatar_url" value="{{ identity.avatar_url }}" data-avatar-choice="{{ identity.avatar_url }}">
+                          <span class="account-avatar-choice-preview">
+                            <img src="{{ identity.avatar_url }}" alt="{{ identity.provider|title }} avatar" referrerpolicy="no-referrer" />
+                          </span>
+                          <span>{{ identity.provider|title }}</span>
+                        </button>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+              <div class="account-avatar-pane{% if not avatar_identities %} is-active{% endif %}" data-avatar-pane="upload">
+                <div class="account-avatar-field">
+                  <button class="account-avatar-mode-button{% if not avatar_identities %} is-active{% endif %}" type="button" data-avatar-mode-button="upload">Upload image</button>
+                  <input class="account-avatar-input" id="account-avatar-file" type="file" name="avatar_file" accept="image/*" />
+                </div>
+              </div>
+              <div class="account-avatar-pane" data-avatar-pane="url">
+                <div class="account-avatar-field">
+                  <button class="account-avatar-mode-button" type="button" data-avatar-mode-button="url">Image URL</button>
+                  <input class="account-avatar-input" id="account-avatar-url" type="url" name="avatar_url" value="{{ user.avatar_url or '' }}" placeholder="https://example.com/avatar.png" />
+                </div>
+              </div>
+              <div class="account-avatar-row">
+                <button class="btn" type="submit">Save picture</button>
+              </div>
+            </form>
+            {% if user.avatar_url %}
+              <form method="post" action="{{ url_for('ui.update_account_avatar') }}">
+                <input type="hidden" name="action" value="remove" />
+                <button class="btn secondary" type="submit">Remove picture</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <script>
+        (function () {
+          var previewHost = document.getElementById('account-avatar-preview');
+          if (!previewHost) return;
+          var fileInput = document.getElementById('account-avatar-file');
+          var modeInput = document.getElementById('account-avatar-mode');
+          var modeButtons = Array.prototype.slice.call(document.querySelectorAll('[data-avatar-mode-button]'));
+          var panes = Array.prototype.slice.call(document.querySelectorAll('[data-avatar-pane]'));
+          var modeStorageKey = 'termin.account.avatar_mode';
+          var initialUrl = String(previewHost.getAttribute('data-avatar-initial') || '').trim();
+          var fallbackHtml = previewHost.innerHTML;
+
+          function renderPreview(url) {
+            var nextUrl = String(url || '').trim();
+            if (nextUrl) {
+              previewHost.innerHTML = '<img src="' + nextUrl.replace(/"/g, '&quot;') + '" alt="Profile picture preview" referrerpolicy="no-referrer" />';
+              return;
+            }
+            previewHost.innerHTML = fallbackHtml;
+          }
+
+          function syncAvatarMode() {
+            var selected = modeInput ? String(modeInput.value || '').trim() : '';
+            modeButtons.forEach(function (button) {
+              button.classList.toggle('is-active', button.getAttribute('data-avatar-mode-button') === selected);
+            });
+            panes.forEach(function (pane) {
+              var isActive = pane.getAttribute('data-avatar-pane') === selected;
+              pane.classList.toggle('is-active', isActive);
+              Array.prototype.forEach.call(pane.querySelectorAll('input, button'), function (control) {
+                if (control.hasAttribute('data-avatar-mode-button')) return;
+                if (control.classList.contains('account-avatar-input')) {
+                  control.disabled = !isActive;
+                  return;
+                }
+                if (control.classList.contains('account-avatar-choice')) {
+                  control.disabled = !isActive;
+                }
+              });
+            });
+            try {
+              if (selected) {
+                window.sessionStorage.setItem(modeStorageKey, selected);
+              }
+            } catch (_error) {}
+          }
+
+          try {
+            var storedMode = window.sessionStorage.getItem(modeStorageKey);
+            if (storedMode && panes.some(function (pane) { return pane.getAttribute('data-avatar-pane') === storedMode; })) {
+              modeInput.value = storedMode;
+            }
+          } catch (_error) {}
+
+          modeButtons.forEach(function (button) {
+            button.addEventListener('click', function () {
+              if (modeInput) {
+                modeInput.value = button.getAttribute('data-avatar-mode-button') || '';
+              }
+              syncAvatarMode();
+            });
+          });
+          syncAvatarMode();
+
+          if (!fileInput) return;
+          fileInput.addEventListener('change', function () {
+            var file = fileInput.files && fileInput.files[0];
+            if (!file) {
+              renderPreview(initialUrl);
+              return;
+            }
+            if (typeof FileReader !== 'function') return;
+            var reader = new FileReader();
+            reader.onload = function (event) {
+              renderPreview(event && event.target ? event.target.result : '');
+            };
+            reader.readAsDataURL(file);
+          });
+        })();
+      </script>
 
       <div class="panel">
         <h3>Connected Accounts</h3>
@@ -1889,4 +2245,41 @@
     {% endif %}
   </section>
 </div>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script>
+    (function () {
+      var previewHost = document.getElementById('account-avatar-preview');
+      var fileInput = document.getElementById('account-avatar-file');
+      if (!previewHost || !fileInput) return;
+      var initialUrl = String(previewHost.getAttribute('data-avatar-initial') || '').trim();
+      var fallbackHtml = previewHost.innerHTML;
+
+      function renderPreview(url) {
+        var nextUrl = String(url || '').trim();
+        if (nextUrl) {
+          previewHost.innerHTML = '<img src="' + nextUrl.replace(/"/g, '&quot;') + '" alt="Profile picture preview" referrerpolicy="no-referrer" />';
+          return;
+        }
+        previewHost.innerHTML = fallbackHtml;
+      }
+
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) {
+          renderPreview(initialUrl);
+          return;
+        }
+        if (typeof FileReader !== 'function') {
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function (event) {
+          renderPreview(event && event.target ? event.target.result : '');
+        };
+        reader.readAsDataURL(file);
+      });
+    })();
+  </script>
 {% endblock %}

@@ -87,6 +87,11 @@ def create_app() -> Flask:
         response.headers["Cache-Control"] = "no-cache"
         return response
 
+    @app.get("/uploads/<path:filename>")
+    def uploaded_file(filename: str):
+        uploads_root = os.path.join(app.instance_path, "uploads")
+        return send_from_directory(uploads_root, filename)
+
     @app.get("/link-favicon")
     def link_favicon():
         target = (request.args.get("url") or "").strip()

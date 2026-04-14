@@ -38,7 +38,7 @@ from app.identity import (
     remove_user_email,
     set_primary_user_email,
 )
-from app.info_utils import load_info_payload, normalize_info_payload
+from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file
 from app.notification_preferences import (
     GENERAL_NOTIFICATION_DEFINITIONS,
     NOTIFICATION_EVENT_DEFINITIONS,
@@ -789,6 +789,20 @@ def _render_account_page(user: User, *, section: str = "emails", error: str | No
         error=error,
         merge_message=message,
     )
+
+
+def _account_upload_root() -> Path:
+    return Path(current_app.instance_path) / "uploads"
+
+
+def _is_allowed_avatar_upload(file_storage) -> bool:
+    if not file_storage or not getattr(file_storage, "filename", None):
+        return False
+    mimetype = str(getattr(file_storage, "mimetype", "") or "").strip().lower()
+    if mimetype.startswith("image/"):
+        return True
+    suffix = Path(file_storage.filename or "").suffix.strip().lower()
+    return suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 
 
 def _build_github_task_meta(user_id: int, task_ids: list[int], user_map: dict[int, User]) -> tuple[dict[int, dict], int | None]:
@@ -2472,6 +2486,38 @@ def add_account_email():
         db.session.rollback()
         return _render_account_page(user, error=f"Could not send verification email: {exc}")
     return _render_account_page(user, message=f"Verification email sent to {verification.email}.")
+
+
+@ui_bp.post("/account/avatar")
+@login_required
+def update_account_avatar():
+    user = current_user()
+    action = str(request.form.get("action") or "save").strip().lower()
+    if action == "remove":
+        user.avatar_url = None
+        db.session.commit()
+        return _render_account_page(user, message="Profile picture removed.")
+
+    avatar_url = (request.form.get("avatar_url") or "").strip()
+    avatar_upload = request.files.get("avatar_file")
+    next_avatar_url = None
+
+    if avatar_upload and getattr(avatar_upload, "filename", ""):
+        if not _is_allowed_avatar_upload(avatar_upload):
+            return _render_account_page(user, error="Profile picture must be an image file.")
+        upload = save_uploaded_file(avatar_upload, _account_upload_root(), "avatars", user.id)
+        next_avatar_url = upload.get("url")
+    elif avatar_url:
+        normalized = avatar_url.strip()
+        if not normalized.startswith(("http://", "https://", "/uploads/")):
+            return _render_account_page(user, error="Profile picture URL must start with http://, https://, or /uploads/.")
+        next_avatar_url = normalized
+    else:
+        return _render_account_page(user, error="Choose an image file or provide an image URL.")
+
+    user.avatar_url = next_avatar_url
+    db.session.commit()
+    return _render_account_page(user, message="Profile picture updated.")
 
 
 @ui_bp.post("/account/emails/<int:email_id>/primary")
