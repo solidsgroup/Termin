@@ -250,6 +250,8 @@ def task_status_meta_map(tasks: list[Task], *, viewer_user_id: int | None = None
 
 def effective_task_status_for_user(task: Task, *, viewer_user_id: int | None = None, viewer_email: str | None = None, status_meta: dict | None = None) -> str:
     meta = status_meta or task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email)
+    if normalize_task_status_mode(meta.get("mode"), default="single") == "percent":
+        return "complete" if int(meta.get("percentage_complete") or 0) >= 100 else "open"
     if meta.get("enabled"):
         return normalize_task_status(meta.get("my_status"))
     return normalize_task_status(task.status)

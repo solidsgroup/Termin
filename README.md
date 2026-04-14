@@ -30,6 +30,22 @@
 
 The app will check the database on startup and apply migrations if needed.
 
+## Running Tests
+Termin currently has an end-to-end Playwright suite.
+
+1. Activate the project virtualenv: `source .venv/bin/activate`
+2. Install Node dependencies: `npm install`
+3. Install the Playwright browser once: `npx playwright install chromium`
+4. Run the full e2e suite: `npm run test:e2e`
+5. Re-run only the last failed tests: `npm run test:e2e:failed`
+
+Useful for focused debugging:
+- Run a specific test by grep: `npm run test:e2e -- --grep "dashboard action items"`
+
+Notes:
+- The test runner starts its own local app server; you do not need to run `python3 app.py` separately.
+- Run the tests from the activated `.venv` so the test server can import the Flask app and its Python dependencies.
+
 ## Environment Variables
 - `SECRET_KEY`
 - `DATABASE_URL` (default: `sqlite:///instance/app.db`)

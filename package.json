@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@openai/codex": "^0.118.0",
-    "codex": "^0.2.3"
+    "codex": "^0.2.3",
+    "tests": "^0.4.2"
   }
 }

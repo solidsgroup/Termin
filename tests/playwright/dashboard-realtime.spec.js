@@ -341,6 +341,105 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Refresh the page and verify the URL stays on /dashboard with the Owner greeting visible.', page);
   });
 
+  test('dashboard action items remove a completed task without refresh', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'status', 'regression']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await page.goto('/dashboard');
+
+    const actionList = page.locator('.dashboard-action-list');
+    const taskTitle = page.locator('.dashboard-action-title', { hasText: 'Realtime Task' });
+
+    await expect(actionList).toContainText('Realtime Task');
+    await steps.step(`Open /dashboard with Realtime Task due ${today} so it appears in Action Items.`, page);
+
+    await patchTask(page, state.task.id, { status: 'complete' });
+    await steps.step('Mark Realtime Task complete while staying on the dashboard.', page);
+
+    await expect(taskTitle).toHaveCount(0);
+    await steps.step('Verify the completed task disappears from Action Items without a refresh.', page);
+  });
+
+  test('dashboard action items remove a per-user completed task without refresh', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'multi-status', 'regression']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status_mode: 'multi' });
+    await page.goto('/dashboard');
+
+    const actionList = page.locator('.dashboard-action-list');
+    const taskTitle = page.locator('.dashboard-action-title', { hasText: 'Realtime Task' });
+
+    await expect(actionList).toContainText('Realtime Task');
+    await steps.step(`Open /dashboard with Realtime Task in multi-status mode due ${today} so it appears in Action Items.`, page);
+
+    await patchTask(page, state.task.id, { user_status: 'complete', status_user_id: state.owner.id });
+    await steps.step('Mark only the owner status complete while staying on the dashboard.', page);
+
+    await expect(taskTitle).toHaveCount(0);
+    await steps.step('Verify the task disappears from Action Items when the viewer-specific status becomes complete.', page);
+  });
+
+  test('dashboard action items remove a 100 percent progress task without refresh', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'percent-status', 'regression']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status_mode: 'percent', status_percentage: 25 });
+    await page.goto('/dashboard');
+
+    const actionList = page.locator('.dashboard-action-list');
+    const taskTitle = page.locator('.dashboard-action-title', { hasText: 'Realtime Task' });
+
+    await expect(actionList).toContainText('Realtime Task');
+    await steps.step(`Open /dashboard with Realtime Task at 25% progress due ${today} so it appears in Action Items.`, page);
+
+    await patchTask(page, state.task.id, { status_mode: 'percent', status_percentage: 100 });
+    await steps.step('Update the same task to 100% progress while staying on the dashboard.', page);
+
+    await expect(taskTitle).toHaveCount(0);
+    await steps.step('Verify the task disappears from Action Items when progress reaches 100% without a refresh.', page);
+  });
+
+  test('dashboard action items remove a converted collaborator task without refresh', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'action-items', 'converted-collaborator', 'regression']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+    const conversion = await convertCollaborator(request);
+    const convertedUser = conversion.user;
+
+    const convertedContext = await browser.newContext();
+    const convertedPage = await convertedContext.newPage();
+
+    await login(convertedPage, convertedUser.email, convertedUser.password);
+    await patchTask(convertedPage, state.collaborator_dated_task.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await convertedPage.goto('/dashboard');
+
+    const actionList = convertedPage.locator('.dashboard-action-list');
+    const taskTitle = convertedPage.locator('.dashboard-action-title', { hasText: 'Email Collaborator Due Soon' });
+
+    await expect(actionList).toContainText('Email Collaborator Due Soon');
+    await steps.step(`Open /dashboard as the converted collaborator with Email Collaborator Due Soon due ${today} so it appears in Action Items.`, convertedPage);
+
+    await patchTask(convertedPage, state.collaborator_dated_task.id, { status: 'complete' });
+    await steps.step('Mark the converted collaborator task complete while staying on the dashboard.', convertedPage);
+
+    await expect(taskTitle).toHaveCount(0);
+    await steps.step('Verify the converted collaborator dashboard removes the completed task from Action Items without a refresh.', convertedPage);
+
+    await convertedContext.close();
+  });
+
   test('tree updates live when another user changes task title', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'tree', 'title']);

@@ -172,7 +172,7 @@
 {% endmacro %}
 {% macro render_dashboard_action_item(item, now_utc) %}
   {% set task = item.task %}
-  <div class="dashboard-action-item" style="--dashboard-accent: {{ item.division_color }};">
+  <div class="dashboard-action-item" data-dashboard-action-task-id="{{ task.id }}" data-dashboard-action-date-key="{{ item.date_key }}" style="--dashboard-accent: {{ item.division_color }};">
     <div class="dashboard-action-icon">
       <i class="fa-solid fa-bolt" aria-hidden="true"></i>
     </div>
@@ -1187,32 +1187,32 @@
         <section class="dashboard-home-stats">
           <div class="dashboard-stat-card">
             <div class="dashboard-stat-label">Overdue</div>
-            <div class="dashboard-stat-value">{{ dashboard_stats.overdue }}</div>
+            <div class="dashboard-stat-value" data-dashboard-stat="overdue">{{ dashboard_stats.overdue }}</div>
           </div>
           <div class="dashboard-stat-card">
             <div class="dashboard-stat-label">Today / ASAP</div>
-            <div class="dashboard-stat-value">{{ dashboard_stats.today }}</div>
+            <div class="dashboard-stat-value" data-dashboard-stat="today">{{ dashboard_stats.today }}</div>
           </div>
           <div class="dashboard-stat-card">
             <div class="dashboard-stat-label">Unread Messages</div>
-            <div class="dashboard-stat-value">{{ dashboard_stats.unread_messages }}</div>
+            <div class="dashboard-stat-value" data-dashboard-stat="unread-messages">{{ dashboard_stats.unread_messages }}</div>
           </div>
           <div class="dashboard-stat-card">
             <div class="dashboard-stat-label">Projects</div>
-            <div class="dashboard-stat-value">{{ dashboard_stats.projects }}</div>
+            <div class="dashboard-stat-value" data-dashboard-stat="projects">{{ dashboard_stats.projects }}</div>
           </div>
         </section>
         <div class="dashboard-home-grid">
           <section class="dashboard-home-panel">
             <h3>Action Items</h3>
             {% if dashboard_action_items %}
-              <div class="dashboard-action-list">
+              <div class="dashboard-action-list" data-dashboard-action-list>
                 {% for item in dashboard_action_items %}
                   {{ render_dashboard_action_item(item, now_utc) }}
                 {% endfor %}
               </div>
             {% else %}
-              <div class="dashboard-home-empty">Nothing urgent right now.</div>
+              <div class="dashboard-home-empty" data-dashboard-action-empty>Nothing urgent right now.</div>
             {% endif %}
           </section>
           <section class="dashboard-home-panel">
@@ -11767,6 +11767,126 @@
       }).join("");
     }
 
+    function dashboardActionItemsFromTodo() {
+      var myAssigneeKey = "user:" + String(currentUserId || "");
+      var myEmailKey = currentUserEmail ? "email:" + String(currentUserEmail || "").trim().toLowerCase() : "";
+      var rows = Array.from(document.querySelectorAll('.todo-item[data-task-id]'));
+      return rows.map(function (row, index) {
+        var assigneeKeys = String(row.getAttribute("data-assignee-keys") || "")
+          .split(",")
+          .map(function (value) { return value.trim(); })
+          .filter(Boolean);
+        var isAssignedToMe = assigneeKeys.indexOf(myAssigneeKey) >= 0 || (myEmailKey && assigneeKeys.indexOf(myEmailKey) >= 0);
+        if (!isAssignedToMe) return null;
+        var statusState = String(row.getAttribute("data-status-state") || "").trim().toLowerCase();
+        if (statusState === "complete") return null;
+        var dueValue = String(row.getAttribute("data-due-at") || "").trim();
+        var dueMode = String(row.getAttribute("data-due-mode") || "").trim().toLowerCase();
+        var createdValue = String(row.getAttribute("data-created-at") || "").trim();
+        var bucket = todoBucketFor(dueValue, createdValue, dueMode);
+        var projectLink = row.querySelector(".todo-project-name");
+        var groupLink = row.querySelector(".todo-group-name");
+        var titleLink = row.querySelector(".todo-item-title");
+        return {
+          taskId: String(row.getAttribute("data-task-id") || ""),
+          divisionColor: row.style.getPropertyValue("--todo-color") || "#4cc9f0",
+          dateKey: bucket.key,
+          dateLabel: bucket.label,
+          dueValue: dueValue,
+          createdValue: createdValue,
+          projectName: projectLink ? String(projectLink.textContent || "").trim() : "",
+          projectHref: projectLink ? String(projectLink.getAttribute("href") || "") : "",
+          groupName: groupLink ? String(groupLink.textContent || "").trim() : "",
+          groupHref: groupLink ? String(groupLink.getAttribute("href") || "") : "",
+          title: titleLink ? String(titleLink.textContent || "").trim() : "",
+          titleHref: titleLink ? String(titleLink.getAttribute("href") || "") : "",
+          dueSummary: row.querySelector("[data-due-summary]") ? String(row.querySelector("[data-due-summary]").textContent || "").trim() : "",
+          projectId: String(row.getAttribute("data-project-id") || ""),
+          sortIndex: index,
+        };
+      }).filter(Boolean).sort(function (a, b) {
+        var rankDelta = todoBucketRank(a.dateKey) - todoBucketRank(b.dateKey);
+        if (rankDelta !== 0) return rankDelta;
+        return a.sortIndex - b.sortIndex;
+      });
+    }
+
+    function renderDashboardActionItems() {
+      var panel = document.querySelector("[data-dashboard-view=\"dashboard\"]");
+      if (!panel) return;
+      var list = panel.querySelector("[data-dashboard-action-list]");
+      var empty = panel.querySelector("[data-dashboard-action-empty]");
+      var rows = dashboardActionItemsFromTodo().slice(0, 8);
+      if (!rows.length) {
+        if (list) {
+          list.innerHTML = "";
+          list.style.display = "none";
+        }
+        if (empty) {
+          empty.hidden = false;
+        } else {
+          var emptyNode = document.createElement("div");
+          emptyNode.className = "dashboard-home-empty";
+          emptyNode.setAttribute("data-dashboard-action-empty", "");
+          emptyNode.textContent = "Nothing urgent right now.";
+          panel.querySelector(".dashboard-home-panel").appendChild(emptyNode);
+        }
+        return;
+      }
+      if (!list) {
+        var hostPanel = panel.querySelector(".dashboard-home-panel");
+        if (!hostPanel) return;
+        list = document.createElement("div");
+        list.className = "dashboard-action-list";
+        list.setAttribute("data-dashboard-action-list", "");
+        hostPanel.appendChild(list);
+      }
+      if (empty) empty.hidden = true;
+      list.style.display = "";
+      list.innerHTML = rows.map(function (item) {
+        var groupHtml = item.groupName
+          ? '<a href="' + escapeHtml(item.groupHref || "#") + '" class="dashboard-action-group">' + escapeHtml(item.groupName) + '</a>'
+          : "";
+        var titleHref = item.titleHref || (item.taskId ? ("/todo#task-" + encodeURIComponent(item.taskId)) : "#");
+        return (
+          '<div class="dashboard-action-item" data-dashboard-action-task-id="' + escapeHtml(item.taskId) + '" data-dashboard-action-date-key="' + escapeHtml(item.dateKey) + '" style="--dashboard-accent: ' + escapeHtml(item.divisionColor) + ';">' +
+            '<div class="dashboard-action-icon"><i class="fa-solid fa-bolt" aria-hidden="true"></i></div>' +
+            '<div class="dashboard-action-meta">' +
+              '<div class="dashboard-action-projects">' +
+                '<a href="' + escapeHtml(item.projectHref || "#") + '" class="dashboard-action-project">' + escapeHtml(item.projectName || "Project") + '</a>' +
+                groupHtml +
+              '</div>' +
+              '<a href="' + escapeHtml(titleHref) + '" class="dashboard-action-title">' + escapeHtml(item.title || "Task") + '</a>' +
+              '<div class="dashboard-action-due">' + escapeHtml(item.dueSummary || "") + '</div>' +
+            '</div>' +
+            '<div class="dashboard-action-status">' +
+              '<span class="dashboard-action-pill is-' + escapeHtml(String(item.dateKey || "").replace(/_/g, "-")) + '">' + escapeHtml(item.dateLabel || "") + '</span>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    function renderDashboardStatsFromTodo() {
+      var stats = {
+        overdue: 0,
+        today: 0,
+      };
+      dashboardActionItemsFromTodo().forEach(function (item) {
+        if (item.dateKey === "overdue") stats.overdue += 1;
+        if (item.dateKey === "today" || item.dateKey === "asap") stats.today += 1;
+      });
+      var overdueEl = document.querySelector('[data-dashboard-stat="overdue"]');
+      var todayEl = document.querySelector('[data-dashboard-stat="today"]');
+      if (overdueEl) overdueEl.textContent = String(stats.overdue);
+      if (todayEl) todayEl.textContent = String(stats.today);
+    }
+
+    function refreshDashboardHomeFromTodo() {
+      renderDashboardActionItems();
+      renderDashboardStatsFromTodo();
+    }
+
     function mergeInboxFeedItems(existing, incoming) {
       var next = [];
       var seen = new Set();
@@ -13404,6 +13524,10 @@
     }
 
     function taskMyStatusState(task) {
+      var meta = taskStatusMeta(task);
+      if (meta.mode === "percent") {
+        return Number(meta.percentage_complete || 0) >= 100 ? "complete" : "open";
+      }
       return getStatusState(taskMyStatus(task));
     }
 
@@ -14835,6 +14959,7 @@
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
+      refreshDashboardHomeFromTodo();
       return updated;
     }
 
@@ -15039,6 +15164,7 @@
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
+      refreshDashboardHomeFromTodo();
       return matched;
     }
     window.__applyTaskRowUpdate = applyTaskRowUpdate;
