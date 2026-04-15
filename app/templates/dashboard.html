@@ -19449,6 +19449,70 @@
       setDrawerTab(nextTab);
     });
 
+    function openNotificationInline(payload) {
+      if (!payload) return false;
+      if (payload.kind === "comment") {
+        if (payload.task_id) {
+          var discussionButton = document.querySelector('[data-open-discussion="' + payload.task_id + '"]');
+          loadEntityComments(
+            "task",
+            payload.task_id,
+            discussionButton ? discussionButton.getAttribute("data-task-title") : (payload.task_title || notificationEntityName("task", payload.task_id) || "Task"),
+            discussionButton ? discussionButton.getAttribute("data-project-name") : (payload.project_name || notificationEntityName("project", payload.project_id) || "")
+          );
+          return true;
+        }
+        if (payload.group_id) {
+          loadEntityComments(
+            "group",
+            payload.group_id,
+            payload.task_title || notificationEntityName("group", payload.group_id) || "Group",
+            payload.project_name || notificationEntityName("project", payload.project_id) || ""
+          );
+          return true;
+        }
+        if (payload.project_id) {
+          loadEntityComments(
+            "project",
+            payload.project_id,
+            payload.project_name || notificationEntityName("project", payload.project_id) || "Project",
+            ""
+          );
+          return true;
+        }
+        return false;
+      }
+      if (payload.task_id) {
+        openSettings(
+          payload.task_id,
+          payload.task_title || notificationEntityName("task", payload.task_id) || "Task",
+          payload.project_name || notificationEntityName("project", payload.project_id) || ""
+        );
+        return true;
+      }
+      if (payload.group_id) {
+        openEntity(
+          "settings",
+          "group",
+          payload.group_id,
+          payload.task_title || notificationEntityName("group", payload.group_id) || "Group",
+          payload.project_name || notificationEntityName("project", payload.project_id) || ""
+        );
+        return true;
+      }
+      if (payload.project_id) {
+        openEntity(
+          "settings",
+          "project",
+          payload.project_id,
+          payload.project_name || notificationEntityName("project", payload.project_id) || "Project",
+          ""
+        );
+        return true;
+      }
+      return false;
+    }
+
     document.querySelectorAll('.notifications-menu').forEach(function (notificationsMenu) {
       notificationsMenu.addEventListener('click', function (event) {
         var dismissBtn = event.target.closest('[data-notification-dismiss]');
@@ -19493,7 +19557,6 @@
         try {
           payload = JSON.parse(link.getAttribute('data-notification-open') || '{}');
         } catch (err) {}
-        var href = payload ? notificationTargetForPayload(payload) : (link.getAttribute('data-notification-href') || '/');
         closeDrawer();
         if (payload) {
           storePendingNotificationFocus(payload);
@@ -19506,44 +19569,16 @@
             }).catch(function () {});
           }
         }
-        var currentUrl = window.location.pathname + window.location.search;
-        if (payload && payload.kind === 'comment') {
-          if (!canOpenNotificationInline(payload) && href !== currentUrl) {
-            window.location.href = href;
-            return;
-          }
-          if (payload.task_id) {
-            var button = document.querySelector('[data-open-discussion="' + payload.task_id + '"]');
-            loadEntityComments(
-              "task",
-              payload.task_id,
-              button ? button.getAttribute('data-task-title') : (payload.task_title || "Task"),
-              button ? button.getAttribute('data-project-name') : (payload.project_name || notificationEntityName("project", payload.project_id) || "")
-            );
-          } else if (payload.group_id) {
-            loadEntityComments(
-              "group",
-              payload.group_id,
-              payload.task_title || notificationEntityName("group", payload.group_id) || "Group",
-              payload.project_name || notificationEntityName("project", payload.project_id) || ""
-            );
-          } else if (payload.project_id) {
-            loadEntityComments(
-              "project",
-              payload.project_id,
-              payload.project_name || notificationEntityName("project", payload.project_id) || "Project",
-              ""
-            );
-          }
+        if (openNotificationInline(payload)) {
+          document.querySelectorAll(".notifications-shell.is-open").forEach(function (shell) {
+            shell.classList.remove("is-open");
+          });
           return;
         }
-        if (href === currentUrl) {
-          if (payload && payload.task_id) {
-            pulseTask(payload.task_id);
-          }
-          return;
+        var href = payload ? notificationTargetForPayload(payload) : (link.getAttribute('data-notification-href') || '/');
+        if (href) {
+          window.location.href = href;
         }
-        window.location.href = href;
       });
     });
 
