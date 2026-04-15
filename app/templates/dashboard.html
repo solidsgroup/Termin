@@ -371,6 +371,14 @@
     visibility: visible;
   }
 
+  .todo-board.is-pending {
+    visibility: hidden;
+  }
+
+  .todo-board.is-ready {
+    visibility: visible;
+  }
+
   @keyframes dashboardFadeLift {
     from {
       opacity: 0;
@@ -379,6 +387,42 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  .todo-board.is-ready .todo-date-group {
+    opacity: 0;
+    transform: translateY(10px);
+    animation: dashboardFadeLift 380ms cubic-bezier(.22,.84,.24,1) forwards;
+  }
+
+  .todo-board.is-ready .todo-date-group:nth-child(1) { animation-delay: 0ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(2) { animation-delay: 36ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(3) { animation-delay: 72ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(4) { animation-delay: 108ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(5) { animation-delay: 144ms; }
+
+  .todo-board.is-ready .todo-item {
+    opacity: 0;
+    transform: translateY(6px);
+    animation: dashboardFadeLift 320ms cubic-bezier(.22,.84,.24,1) forwards;
+  }
+
+  .todo-board.is-ready .todo-date-group:nth-child(1) .todo-item:nth-child(1) { animation-delay: 40ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(1) .todo-item:nth-child(2) { animation-delay: 60ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(1) .todo-item:nth-child(3) { animation-delay: 80ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(1) .todo-item:nth-child(4) { animation-delay: 100ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(2) .todo-item:nth-child(1) { animation-delay: 76ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(2) .todo-item:nth-child(2) { animation-delay: 96ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(2) .todo-item:nth-child(3) { animation-delay: 116ms; }
+  .todo-board.is-ready .todo-date-group:nth-child(2) .todo-item:nth-child(4) { animation-delay: 136ms; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .todo-board.is-ready .todo-date-group,
+    .todo-board.is-ready .todo-item {
+      opacity: 1;
+      transform: none;
+      animation: none;
     }
   }
 
@@ -718,6 +762,585 @@
     text-overflow: clip;
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+
+  .todo-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    transition:
+      background 260ms cubic-bezier(.22,.84,.24,1),
+      box-shadow 260ms cubic-bezier(.22,.84,.24,1),
+      opacity 320ms cubic-bezier(.22,.84,.24,1),
+      transform 320ms cubic-bezier(.22,.84,.24,1);
+  }
+
+  .todo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .todo-list .todo-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .todo-item-leading {
+    flex: 0 0 40px;
+    width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .todo-item-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    gap: 0;
+  }
+
+  .todo-item-title-row {
+    min-width: 0;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .todo-item-title-row .editable[data-field="title"] {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .todo-item-title-row .task-link-badges,
+  .todo-item-title-row .todo-main-spacer {
+    flex: 0 0 auto;
+  }
+
+  .todo-item-controls {
+    flex: 0 0 340px;
+    width: 340px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .todo-control-cluster,
+  .todo-control-assignees {
+    flex: 0 0 auto;
+    justify-self: auto;
+  }
+
+  .todo-control-cluster {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .todo-item-controls [data-task-status-host] {
+    position: relative;
+    top: -1px;
+  }
+
+  @media (max-width: 900px) {
+    .todo-item {
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .todo-item-leading {
+      flex: 0 0 32px;
+      width: 32px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 2px;
+    }
+
+    .todo-item-main {
+      min-width: 0;
+      flex: 1 1 auto;
+      align-items: flex-start;
+    }
+
+    .todo-item-main .editable[data-field="title"] {
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: default;
+    }
+
+    .todo-item:not(.github-task-row) {
+      cursor: pointer;
+    }
+
+    .todo-item-title-row {
+      display: block;
+      margin-top: 3px;
+    }
+
+    .todo-item-title-row .todo-item-title,
+    .todo-item-title-row .editable[data-field="title"] {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      white-space: normal;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.25;
+    }
+
+    .todo-project-meta {
+      width: 100%;
+      max-width: 100%;
+      flex: 1 1 auto;
+      margin-bottom: 6px;
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+
+    .todo-project-meta-links {
+      display: flex;
+      flex-wrap: wrap;
+      width: 100%;
+      max-width: 100%;
+      flex: 1 1 auto;
+      gap: 2px 12px;
+      white-space: normal;
+    }
+
+    .todo-group-name::before {
+      content: "•";
+      margin-right: 8px;
+      color: color-mix(in srgb, var(--muted) 85%, transparent);
+    }
+
+    .todo-project-meta a,
+    .todo-project-name,
+    .todo-group-name {
+      max-width: none;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+
+    .todo-item-title-row .task-link-badges,
+    .todo-item-title-row .todo-main-spacer {
+      display: none;
+    }
+
+    .todo-item-controls {
+      flex: 0 0 104px;
+      width: 104px;
+      min-width: 104px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      align-self: stretch;
+      justify-content: flex-start;
+      gap: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+    }
+
+    .todo-control-cluster {
+      width: 100%;
+      margin-left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0;
+    }
+
+    .todo-control-cluster .task-pill,
+    .todo-control-cluster .todo-control-status {
+      display: none;
+    }
+
+    .todo-control-cluster .todo-control-due {
+      margin-left: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      min-height: 0;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .todo-control-cluster .todo-control-due .due-summary {
+      display: inline-flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      padding: 0;
+      margin: 0;
+      width: auto;
+      max-width: none;
+      min-height: auto;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1;
+      white-space: nowrap;
+      box-shadow: none;
+    }
+
+    .todo-control-cluster .todo-control-due .todo-mobile-due-text {
+      display: inline;
+      color: inherit;
+      font: inherit;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .todo-control-cluster .todo-control-due .due-summary-label {
+      display: none !important;
+    }
+
+    .todo-control-cluster .todo-control-due .due-input {
+      display: none !important;
+    }
+
+    .todo-control-assignees {
+      width: 100%;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      min-height: 0;
+      line-height: 0;
+      margin-top: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+    }
+
+    .todo-control-assignees .assign-action,
+    .todo-control-assignees .assign-input,
+    .todo-control-assignees .assign-suggestions {
+      display: none !important;
+    }
+
+    .todo-control-assignees .badge.user {
+      margin-left: -6px;
+      margin-top: 0;
+      margin-bottom: 0;
+    }
+
+    .todo-control-assignees .badge.user:first-child {
+      margin-left: 0;
+    }
+
+    .todo-control-assignees .badge-label {
+      display: none;
+    }
+
+    .todo-control-assignees .badge-icon {
+      width: 22px;
+      height: 22px;
+    }
+
+    .todo-resize-overlay {
+      display: none !important;
+    }
+  }
+
+  .todo-project-meta {
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    margin-bottom: 4px;
+    padding-left: 0;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    color: var(--muted);
+  }
+
+  .todo-project-meta-links {
+    min-width: 0;
+    max-width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px 8px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+
+  .todo-project-meta a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0;
+    color: inherit;
+    text-align: left;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .todo-project-name,
+  .todo-group-name {
+    display: inline-flex;
+    width: auto;
+    max-width: 100%;
+    vertical-align: middle;
+  }
+
+  .todo-project-meta a:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+
+  .todo-check-toggle {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    border: 2px solid color-mix(in srgb, var(--text) 36%, var(--line));
+    background: color-mix(in srgb, var(--panel) 98%, white 2%);
+    color: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .todo-check-toggle:hover {
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+    box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .todo-check-toggle:active {
+    transform: scale(0.97);
+  }
+
+  .todo-check-toggle.is-animating {
+    animation: todo-check-pop 240ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .todo-check-toggle:disabled {
+    opacity: 0.38;
+    cursor: default;
+    box-shadow: none;
+  }
+
+  .todo-check-toggle.is-complete {
+    border-color: color-mix(in srgb, #22c55e 82%, var(--accent));
+    background: linear-gradient(180deg, color-mix(in srgb, #34d399 92%, white 8%), color-mix(in srgb, #16a34a 88%, #052e16 12%));
+    color: #fff;
+    box-shadow:
+      0 10px 24px color-mix(in srgb, #22c55e 24%, transparent),
+      inset 0 1px 0 rgba(255,255,255,0.22);
+  }
+
+  .todo-item.is-completion-preview {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #22c55e 24%, transparent);
+  }
+
+  .todo-item.is-completion-preview::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, color-mix(in srgb, #22c55e 18%, transparent), color-mix(in srgb, #34d399 12%, transparent));
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: todo-complete-fill 520ms cubic-bezier(.22,.84,.24,1) forwards;
+    pointer-events: none;
+  }
+
+  .todo-item.is-completion-preview > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .todo-item.is-completion-preview .todo-item-main,
+  .todo-item.is-completion-preview .todo-item-controls {
+    opacity: 0.96;
+  }
+
+  .todo-item.is-completion-preview .todo-item-title,
+  .todo-item.is-completion-preview .todo-item-title .editable[data-field="title"],
+  .todo-item.is-completion-preview .todo-project-meta {
+    color: color-mix(in srgb, #166534 72%, var(--ink));
+  }
+
+  .todo-item.is-completion-preview .todo-item-title .editable[data-field="title"] {
+    text-decoration: line-through;
+    text-decoration-thickness: 2px;
+    text-decoration-color: color-mix(in srgb, #22c55e 78%, transparent);
+  }
+
+  .todo-item.is-completion-preview .todo-check-toggle {
+    transform: scale(1.05);
+  }
+
+  body[data-theme="light"] .todo-check-toggle.is-complete {
+    border-color: color-mix(in srgb, #16a34a 88%, #166534 12%);
+    background: linear-gradient(180deg, #34d399, #16a34a);
+    box-shadow:
+      0 10px 24px rgba(34, 197, 94, 0.22),
+      inset 0 1px 0 rgba(255,255,255,0.38);
+  }
+
+  body[data-theme="light"] .todo-check-toggle:not(.is-complete):not(.is-percent) {
+    border-color: rgba(71, 85, 105, 0.9);
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow:
+      inset 0 0 0 1px rgba(148, 163, 184, 0.3),
+      0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+
+  body[data-theme="light"] .todo-item.is-completion-preview {
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.26);
+  }
+
+  body[data-theme="light"] .todo-item.is-completion-preview::before {
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.20), rgba(16, 185, 129, 0.14));
+  }
+
+  body[data-theme="light"] .todo-item.is-completion-preview .todo-item-title,
+  body[data-theme="light"] .todo-item.is-completion-preview .todo-item-title .editable[data-field="title"],
+  body[data-theme="light"] .todo-item.is-completion-preview .todo-project-meta {
+    color: #166534;
+  }
+
+  body[data-theme="light"] .todo-item.is-completion-preview .todo-item-title .editable[data-field="title"] {
+    text-decoration-color: rgba(34, 197, 94, 0.72);
+  }
+
+  .todo-item.is-completing {
+    pointer-events: none;
+    overflow: hidden;
+    transform-origin: center top;
+    will-change: transform, opacity, height;
+    transition:
+      opacity 320ms cubic-bezier(.22,.84,.24,1),
+      transform 320ms cubic-bezier(.22,.84,.24,1),
+      height 320ms cubic-bezier(.22,.84,.24,1),
+      margin-top 320ms cubic-bezier(.22,.84,.24,1),
+      margin-bottom 320ms cubic-bezier(.22,.84,.24,1),
+      padding-top 320ms cubic-bezier(.22,.84,.24,1),
+      padding-bottom 320ms cubic-bezier(.22,.84,.24,1);
+  }
+
+  .todo-item.is-completing .todo-item-main,
+  .todo-item.is-completing .todo-item-controls {
+    opacity: 0.82;
+  }
+
+  .todo-item.is-completing .todo-check-toggle {
+    transform: scale(1.05);
+    animation: todo-check-pop 260ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .todo-item.is-completing.is-collapsing {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+    height: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  @keyframes todo-check-pop {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 color-mix(in srgb, #22c55e 0%, transparent);
+    }
+    40% {
+      transform: scale(1.18);
+      box-shadow:
+        0 0 0 12px color-mix(in srgb, #22c55e 18%, transparent),
+        0 12px 26px color-mix(in srgb, #22c55e 28%, transparent);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 color-mix(in srgb, #22c55e 0%, transparent);
+    }
+  }
+
+  @keyframes todo-complete-fill {
+    0% {
+      transform: scaleX(0);
+      opacity: 0.35;
+    }
+    35% {
+      opacity: 1;
+    }
+    100% {
+      transform: scaleX(1);
+      opacity: 1;
+    }
+  }
+
+  .todo-check-toggle.is-percent {
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--text) 36%, var(--line));
+    background: color-mix(in srgb, var(--panel) 98%, white 2%);
+    color: color-mix(in srgb, var(--muted) 88%, var(--text));
+    box-shadow: none;
+  }
+
+  .todo-mobile-due-text {
+    display: none;
+  }
+
+  .todo-check-toggle-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 0.85rem;
+    line-height: 1;
+    font-weight: 800;
+  }
+
+  .todo-check-toggle.is-percent .todo-check-toggle-icon {
+    font-size: 0.66rem;
+    font-weight: 700;
+    opacity: 0.78;
+  }
+
+  body[data-theme="light"] .todo-check-toggle.is-percent {
+    border-color: rgba(71, 85, 105, 0.9);
+    background: rgba(255, 255, 255, 0.98);
+    color: rgba(71, 85, 105, 0.82);
+    box-shadow:
+      inset 0 0 0 1px rgba(148, 163, 184, 0.22),
+      0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  .todo-check-toggle-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .dashboard-action-due,
@@ -2957,6 +3580,7 @@
             return result.data || {};
           });
       }
+      window.__patchInlineTaskStatus = patchInlineTaskStatus;
 
       function closeStatusMenu() {
         if (!statusMenu) return;
@@ -3019,7 +3643,9 @@
         }
         var taskId = statusCell.getAttribute("data-task-id");
         if (taskId) {
-          var previousTaskSnapshot = taskSnapshotForUndo(taskId);
+          var previousTaskSnapshot = typeof window.__taskSnapshotForUndo === "function"
+            ? window.__taskSnapshotForUndo(taskId)
+            : null;
           if (pendingInlineStatusTaskIds[String(taskId)] === true) return;
           pendingInlineStatusTaskIds[String(taskId)] = true;
           statusCell.dataset.inlineStatusSaving = "1";
@@ -6836,6 +7462,14 @@
 
 <script>
   (function () {
+    function formatCompactCalendarDate(value) {
+      var raw = String(value || "").slice(0, 10);
+      if (!raw) return "";
+      var date = new Date(raw + "T00:00:00");
+      if (Number.isNaN(date.getTime())) return raw;
+      return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+
     function formatDueSummary(dueValue, createdValue, dueMode) {
       if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
       var today = new Date();
@@ -6860,10 +7494,12 @@
 
     function formatDueCompactLabel(dueValue, createdValue, dueMode) {
       if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
-      if (dueValue) return dueValue;
-      if (createdValue) return createdValue;
-      return "Today";
+      if (dueValue) return formatCompactCalendarDate(dueValue);
+      if (createdValue) return formatCompactCalendarDate(createdValue);
+      return formatCompactCalendarDate(new Date().toISOString().slice(0, 10)) || "Today";
     }
+
+    window.__formatDueCompactLabel = formatDueCompactLabel;
 
     function dueProgressPercent(startValue, dueValue) {
       if (!startValue || !dueValue) return null;
@@ -6886,6 +7522,7 @@
       var cell = input.closest("[data-due-cell]");
       var summary = cell ? cell.querySelector("[data-due-summary]") : null;
       var label = summary ? summary.querySelector(".due-summary-label") : null;
+      var mobileText = summary ? summary.querySelector(".todo-mobile-due-text") : null;
       var dueValue = (input.value || "").trim();
       var createdValue = input.getAttribute("data-created-at");
       var startValue = input.getAttribute("data-start-date");
@@ -6893,16 +7530,13 @@
       var isTodo = !!(cell && cell.closest(".todo-item"));
       if (label) {
         if (isTodo) {
-          if (String(dueMode || "").toLowerCase() === "asap") {
-            label.innerHTML = '<span>S</span>';
-          } else {
-            label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i><span></span>';
-            var compactText = label.querySelector("span");
-            if (compactText) compactText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode);
-          }
+          label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
         } else {
           label.textContent = formatDueSummary(dueValue, createdValue, dueMode);
         }
+      }
+      if (mobileText && isTodo) {
+        mobileText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode);
       }
       if (summary) {
         summary.title = String(dueMode || "").toLowerCase() === "asap"
@@ -7052,7 +7686,7 @@
           window.__openNameModal({ mode: "create", type: "group", targetId: projectId });
         }
       }
-    });
+    }, true);
   })();
 </script>
 
@@ -7081,7 +7715,7 @@
       if (kind === "group") {
         submitTreeQuickCreate("group", quickAdd.getAttribute("data-tree-project-id") || "");
       }
-    });
+    }, true);
     window.__submitTreeQuickCreate = submitTreeQuickCreate;
   })();
 </script>
@@ -13689,6 +14323,15 @@
       return panel;
     }
 
+    function createTodoGroupElement(bucket) {
+      if (!bucket) return null;
+      var panel = document.createElement("div");
+      panel.className = "panel todo-date-group";
+      panel.setAttribute("data-todo-date-key", bucket.key);
+      panel.innerHTML = '<div class="todo-date-heading">' + bucket.label + '</div><div class="todo-list"></div>';
+      return panel;
+    }
+
     function moveTodoItemIfNeeded(taskId, dueValue, createdValue, dueMode) {
       var item = document.querySelector('.todo-item[data-task-id="' + taskId + '"]');
       if (!item) return;
@@ -14496,6 +15139,34 @@
       return getStatusState(taskMyStatus(task));
     }
 
+    function renderTodoChecklistControl(task) {
+      if (!task || !task.id) return "";
+      var meta = taskStatusMeta(task);
+      var state = taskMyStatusState(task);
+      var isComplete = state === "complete";
+      var isPercent = meta.mode === "percent";
+      var title = isPercent
+        ? "Adjust percent complete"
+        : (isComplete ? "Mark incomplete" : "Mark complete");
+      var iconHtml = isPercent
+        ? '<i class="fa-solid fa-percent" aria-hidden="true"></i>'
+        : (isComplete
+          ? '<i class="fa-solid fa-check" aria-hidden="true"></i>'
+          : '<span aria-hidden="true"></span>');
+      return '' +
+        '<button class="todo-check-toggle' + (isComplete ? ' is-complete' : '') + (isPercent ? ' is-percent' : '') + '"' +
+          ' type="button"' +
+          ' data-todo-check-toggle="' + escapeHtml(task.id) + '"' +
+          ' data-task-id="' + escapeHtml(task.id) + '"' +
+          ' aria-pressed="' + (isComplete ? "true" : "false") + '"' +
+          ' title="' + escapeHtml(title) + '"' +
+          (task.locked ? ' disabled' : '') +
+        '>' +
+          '<span class="todo-check-toggle-icon">' + iconHtml + '</span>' +
+          '<span class="todo-check-toggle-label">' + escapeHtml(title) + '</span>' +
+        '</button>';
+    }
+
     function taskAggregateStatusState(task) {
       var meta = taskStatusMeta(task);
       if (!meta.enabled) return meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open");
@@ -14599,6 +15270,108 @@
           rememberRecentTaskSnapshot(result.data || {});
           return result.data || {};
         });
+    }
+
+    var pendingTodoCompletionHides = Object.create(null);
+    var pendingTodoCompletionHideTimers = Object.create(null);
+
+    function todoTaskWouldRemainVisibleWhenComplete(task) {
+      var showCompletedToggle = document.querySelector("[data-todo-show-completed-master]");
+      var showCompleted = showCompletedToggle ? !!showCompletedToggle.checked : true;
+      if (!showCompleted) return false;
+      var dueValue = task && task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var dueMode = task && task.due_mode ? String(task.due_mode) : (dueValue ? "date" : "none");
+      var completedWindow = todoCompletedWindowFor(dueValue, dueMode);
+      var selectedWindows = Array.from(document.querySelectorAll("[data-todo-show-completed-window]:checked")).map(function (cb) {
+        return String(cb.getAttribute("data-todo-show-completed-window") || "");
+      });
+      return selectedWindows.indexOf(completedWindow) >= 0;
+    }
+
+    function startTodoCompletionAnimation(row) {
+      if (!row || !row.isConnected || row.classList.contains("is-completing")) return;
+      row.style.height = Math.round(row.getBoundingClientRect().height) + "px";
+      row.offsetHeight;
+      row.classList.add("is-completing");
+      var checkbox = row.querySelector("[data-todo-check-toggle]");
+      if (checkbox) {
+        checkbox.classList.add("is-animating");
+      }
+      window.requestAnimationFrame(function () {
+        window.requestAnimationFrame(function () {
+          if (row && row.isConnected) {
+            row.classList.add("is-collapsing");
+          }
+        });
+      });
+    }
+
+    function queuePendingTodoCompletionHide(task, delayMs) {
+      if (!task || !task.id) return;
+      var taskId = String(task.id);
+      if (!pendingTodoCompletionHides[taskId]) return;
+      if (pendingTodoCompletionHideTimers[taskId]) {
+        window.clearTimeout(pendingTodoCompletionHideTimers[taskId]);
+      }
+      pendingTodoCompletionHideTimers[taskId] = window.setTimeout(function () {
+        delete pendingTodoCompletionHideTimers[taskId];
+        delete pendingTodoCompletionHides[taskId];
+        applyTodoChecklistTaskUpdate(task);
+      }, typeof delayMs === "number" ? delayMs : 1200);
+    }
+
+    function removeTodoItemOnly(taskId) {
+      var normalizedTaskId = String(taskId || "");
+      if (!normalizedTaskId) return;
+      var item = document.querySelector('.todo-item[data-task-id="' + normalizedTaskId + '"]');
+      if (!item) return;
+      var group = item.closest(".todo-date-group");
+      item.remove();
+      if (group && !group.querySelector(".todo-item")) {
+        group.remove();
+      }
+    }
+
+    function setTodoChecklistButtonCompleteState(button, isComplete) {
+      if (!button) return;
+      button.classList.toggle("is-complete", !!isComplete);
+      button.setAttribute("aria-pressed", isComplete ? "true" : "false");
+      button.setAttribute("title", isComplete ? "Mark incomplete" : "Mark complete");
+      var icon = button.querySelector(".todo-check-toggle-icon");
+      if (icon) {
+        icon.innerHTML = isComplete
+          ? '<i class="fa-solid fa-check" aria-hidden="true"></i>'
+          : '<span aria-hidden="true"></span>';
+      }
+      var label = button.querySelector(".todo-check-toggle-label");
+      if (label) {
+        label.textContent = isComplete ? "Mark incomplete" : "Mark complete";
+      }
+    }
+
+    function applyTodoChecklistTaskUpdate(task) {
+      if (!task || !task.id) return;
+      mergeDashboardTask(task);
+      if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
+        window.__updateCachedTreeSnapshotsForTask(task, { action: "updated" });
+      }
+      if (taskMyStatusState(task) === "complete" && !todoTaskWouldRemainVisibleWhenComplete(task)) {
+        removeTodoItemOnly(task.id);
+        if (typeof window.__refreshDashboardHomeFromTodo === "function") {
+          window.__refreshDashboardHomeFromTodo();
+        }
+        return;
+      }
+      if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+        window.__upsertTodoItemFromSnapshot(task);
+      }
+      syncTaskStatusUi(task);
+      if (typeof window.__renderTaskAssignments === "function") {
+        window.__renderTaskAssignments(task.id, task.assignments || []);
+      }
+      if (typeof window.__refreshDashboardHomeFromTodo === "function") {
+        window.__refreshDashboardHomeFromTodo();
+      }
     }
 
     function renderTaskStatusCellHtml(task, opts) {
@@ -16728,6 +17501,7 @@
       }
       return null;
     }
+    window.__taskSnapshotForUndo = taskSnapshotForUndo;
 
     function removeTaskLocal(taskId, options) {
       var normalizedTaskId = String(taskId || "");
@@ -17072,14 +17846,45 @@
       return "/?" + params.toString();
     }
 
+    var todoProjectNodeCache = Object.create(null);
+    var todoGroupInputCache = Object.create(null);
+    var todoDivisionNodeCache = Object.create(null);
+
+    function todoProjectNodeFor(projectId) {
+      var key = String(projectId || "");
+      if (!key) return null;
+      if (!Object.prototype.hasOwnProperty.call(todoProjectNodeCache, key)) {
+        todoProjectNodeCache[key] = document.querySelector('.todo-tree-node.is-project[data-project-id="' + key + '"]') || null;
+      }
+      return todoProjectNodeCache[key];
+    }
+
+    function todoGroupInputFor(groupId) {
+      var key = String(groupId || "");
+      if (!key) return null;
+      if (!Object.prototype.hasOwnProperty.call(todoGroupInputCache, key)) {
+        todoGroupInputCache[key] = document.querySelector('[data-todo-group="' + key + '"]') || null;
+      }
+      return todoGroupInputCache[key];
+    }
+
+    function todoDivisionNodeFor(divisionId) {
+      var key = String(divisionId || "");
+      if (!key) return null;
+      if (!Object.prototype.hasOwnProperty.call(todoDivisionNodeCache, key)) {
+        todoDivisionNodeCache[key] = document.querySelector('.todo-tree-node[data-division-id="' + key + '"]') || null;
+      }
+      return todoDivisionNodeCache[key];
+    }
+
     function todoMetaFor(projectId, groupId) {
       var projectData = dashboardProjectEntity(projectId);
       var groupData = dashboardGroupEntity(groupId);
-      var projectNode = document.querySelector('.todo-tree-node.is-project[data-project-id="' + projectId + '"]');
+      var projectNode = todoProjectNodeFor(projectId);
       var projectLabel = projectNode ? projectNode.querySelector(".todo-tree-label") : null;
-      var projectName = projectLabel
-        ? projectLabel.textContent.trim()
-        : (projectData ? String(projectData.display_name || projectData.name || "Project") : "Project");
+      var projectName = projectData
+        ? String(projectData.display_name || projectData.name || "Project")
+        : (projectLabel ? projectLabel.textContent.trim() : "Project");
       var divisionId = projectNode ? projectNode.getAttribute("data-division-id") : "none";
       var divisionColor = projectNode ? projectNode.style.getPropertyValue("--division-color") : "";
       if ((!projectNode || !divisionColor) && projectData) {
@@ -17090,7 +17895,7 @@
         }
       }
       if (!divisionColor && divisionId) {
-        var divisionNode = document.querySelector('.todo-tree-node[data-division-id="' + divisionId + '"]');
+        var divisionNode = todoDivisionNodeFor(divisionId);
         divisionColor = divisionNode ? divisionNode.style.getPropertyValue("--division-color") : "";
       }
       if (!divisionColor && divisionId === "direct") {
@@ -17100,7 +17905,7 @@
       }
       var groupName = "";
       if (groupId) {
-        var groupInput = document.querySelector('[data-todo-group="' + groupId + '"]');
+        var groupInput = todoGroupInputFor(groupId);
         if (groupInput) {
           var groupRow = groupInput.closest(".todo-tree-row");
           var groupLabel = groupRow ? groupRow.querySelector(".todo-tree-label") : null;
@@ -17157,6 +17962,10 @@
       var statusState = taskMyStatusState(task);
       var githubMeta = task.github_meta || null;
       var isGithub = !!(githubMeta && githubMeta.issue_url);
+      var todoCheckHtml = isGithub ? "" : renderTodoChecklistControl(task);
+      var dueCompactLabel = typeof window.__formatDueCompactLabel === "function"
+        ? window.__formatDueCompactLabel(dueValue, createdValue, dueMode)
+        : (dueMode === "asap" ? "ASAP" : (dueValue || createdValue || "Today"));
       var commentCount = Number(task.comment_count || 0);
       var hasUnreadComments = !!task.has_unread_comments;
       var assigneeClass = isGithub ? "todo-control todo-control-assignees" : "todo-control todo-control-assignees assignments todo-assignments no-assign-actions";
@@ -17177,6 +17986,7 @@
       var item = document.createElement("div");
       item.className = "todo-item" + (isGithub ? " github-task-row" : "");
       item.id = "task-" + String(task.id);
+      item._taskPayload = task;
       item.style.setProperty("--todo-color", meta.divisionColor);
       item.setAttribute("data-task-id", String(task.id));
       item.setAttribute("data-project-id", String(task.project_id));
@@ -17190,26 +18000,33 @@
       item.setAttribute("data-completed-window", todoCompletedWindowFor(dueValue, dueMode));
       item.setAttribute("data-assignee-keys", taskAssigneeKeys(task));
       item.innerHTML = `
-        <span class="todo-resize-handle meta" data-resize-handle="meta"></span>
-        <div class="todo-project-meta">
-          <a class="todo-project-name" href="${escapeHtml(projectUrl)}" title="Open ${escapeHtml(meta.projectName)}">${escapeHtml(meta.projectName)}</a>
-          ${task.group_id && meta.groupName ? `<a class="todo-group-name" href="${escapeHtml(groupUrl)}" title="Open ${escapeHtml(meta.groupName)}">${escapeHtml(meta.groupName)}</a>` : ""}
+        <div class="todo-item-leading">
+          ${todoCheckHtml}
         </div>
         <div class="todo-item-main">
-          ${titleHtml}
-          <span class="task-link-badges" data-task-link-badges="${task.id}">${linksHtml}</span>
-          <span class="todo-main-spacer" aria-hidden="true"></span>
-          <span class="task-pill">
-            <button class="task-pill-segment" type="button" data-open-settings="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openSettings(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
-            <button class="task-pill-segment" type="button" data-open-links="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openLinks(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-link" aria-hidden="true"></i></button>
-            <button class="task-pill-segment comment-button${hasUnreadComments ? " has-unread" : ""}" type="button" data-open-discussion="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openDiscussion(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="${task.id}">${commentCount}</span></button>
-          </span>
+          <div class="todo-project-meta">
+            <span class="todo-project-meta-links">
+              <a class="todo-project-name" href="${escapeHtml(projectUrl)}" title="Open ${escapeHtml(meta.projectName)}">${escapeHtml(meta.projectName)}</a>
+              ${task.group_id && meta.groupName ? `<a class="todo-group-name" href="${escapeHtml(groupUrl)}" title="Open ${escapeHtml(meta.groupName)}">${escapeHtml(meta.groupName)}</a>` : ""}
+            </span>
+          </div>
+          <div class="todo-item-title-row">
+            ${titleHtml}
+            <span class="task-link-badges" data-task-link-badges="${task.id}">${linksHtml}</span>
+            <span class="todo-main-spacer" aria-hidden="true"></span>
+          </div>
         </div>
         <div class="todo-item-controls">
           <div class="todo-control-cluster">
+            <span class="task-pill">
+              <button class="task-pill-segment" type="button" data-open-settings="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openSettings(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+              <button class="task-pill-segment" type="button" data-open-links="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName)}" onclick='return window.__openLinks(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+              <button class="task-pill-segment comment-button${hasUnreadComments ? " has-unread" : ""}" type="button" data-open-discussion="${task.id}" data-task-title="${title}" data-project-name="${escapeHtml(meta.projectName || "")}" onclick='return window.__openDiscussion(${task.id}, ${JSON.stringify(task.title || "")}, ${JSON.stringify(meta.projectName || "")});'><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="${task.id}">${commentCount}</span></button>
+            </span>
             <div class="todo-control todo-control-due due-cell todo-due-cell" data-due-cell data-todo-due="1" onclick="return window.__openDueInput(this);">
               <div class="due-summary${dueValue ? "" : " is-fallback"}" data-due-summary title="${dueValue ? "Due " + dueValue : "Created " + createdValue}">
-                <span class="due-summary-label">${dueMode === "asap" ? "<span>S</span>" : '<i class="fa-regular fa-calendar" aria-hidden="true"></i>'}</span>
+                <span class="todo-mobile-due-text">${escapeHtml(dueCompactLabel)}</span>
+                <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
               </div>
               <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" value="${dueValue}" ${task.locked ? "disabled" : ""} />
             </div>
@@ -17268,6 +18085,8 @@
       var opts = options || {};
       var board = document.querySelector(".todo-board[data-todo-client-board='1']");
       if (!board) return false;
+      board.classList.remove("is-ready");
+      board.classList.add("is-pending");
       if (opts.showLoading !== false) {
         setDashboardPaneLoading("todo", true);
       }
@@ -17280,20 +18099,82 @@
       if (!taskIds.length) {
         board.innerHTML = '<div class="panel" data-todo-empty-panel><h3>No tasks</h3><p class="footer-note">No visible tasks yet.</p></div>';
         board.setAttribute("data-todo-board-ready", "1");
+        board.classList.remove("is-pending");
+        board.classList.add("is-ready");
         recordClientPerf("todo-render", startedAt, { task_count: 0 });
         return true;
       }
+      var bucketsInOrder = [];
+      var bucketPanels = Object.create(null);
+      var bucketLists = Object.create(null);
+      var fragment = document.createDocumentFragment();
+      var assignmentHydrationTaskIds = [];
       taskIds.forEach(function (taskId) {
         var task = taskMap[String(taskId)];
         if (!task) return;
-        upsertTodoItemFromSnapshot(task);
+        var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
+        var dueMode = task.due_mode || (dueValue ? "date" : "none");
+        var bucket = todoBucketFor(dueValue, createdValue, dueMode);
+        var bucketKey = String(bucket.key || "none");
+        if (!bucketPanels[bucketKey]) {
+          bucketPanels[bucketKey] = createTodoGroupElement(bucket);
+          bucketLists[bucketKey] = bucketPanels[bucketKey]
+            ? bucketPanels[bucketKey].querySelector(".todo-list")
+            : null;
+          bucketsInOrder.push(bucket);
+        }
+        var item = buildTodoItem(task);
+        if (!item || !bucketLists[bucketKey]) return;
+        bucketLists[bucketKey].appendChild(item);
+        assignmentHydrationTaskIds.push(String(task.id));
       });
+      bucketsInOrder
+        .slice()
+        .sort(function (a, b) {
+          return todoBucketRank(a && a.key ? a.key : "") - todoBucketRank(b && b.key ? b.key : "");
+        })
+        .forEach(function (bucket) {
+          var key = String(bucket && bucket.key ? bucket.key : "none");
+          if (bucketPanels[key]) {
+            fragment.appendChild(bucketPanels[key]);
+          }
+        });
+      board.appendChild(fragment);
       board.setAttribute("data-todo-board-ready", "1");
+      var revealTodoBoard = function () {
+        board.classList.remove("is-pending");
+        board.classList.add("is-ready");
+      };
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(revealTodoBoard);
+      } else {
+        revealTodoBoard();
+      }
       if (opts.showLoading !== false) {
         setDashboardPaneLoading("todo", false);
       }
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
+      }
+      if (assignmentHydrationTaskIds.length && typeof window.__renderTaskAssignments === "function") {
+        var hydrateAssignmentsBatch = function (startIndex) {
+          var endIndex = Math.min(startIndex + 18, assignmentHydrationTaskIds.length);
+          for (var index = startIndex; index < endIndex; index += 1) {
+            var batchTaskId = assignmentHydrationTaskIds[index];
+            var batchTask = taskMap[String(batchTaskId)];
+            if (!batchTask) continue;
+            window.__renderTaskAssignments(batchTask.id, batchTask.assignments || []);
+          }
+          if (endIndex < assignmentHydrationTaskIds.length) {
+            window.requestAnimationFrame(function () {
+              hydrateAssignmentsBatch(endIndex);
+            });
+          }
+        };
+        window.requestAnimationFrame(function () {
+          hydrateAssignmentsBatch(0);
+        });
       }
       recordClientPerf("todo-render", startedAt, { task_count: taskIds.length });
       return true;
@@ -17325,8 +18206,9 @@
       }
     }
 
-    function upsertTodoItemFromSnapshot(task) {
+    function upsertTodoItemFromSnapshot(task, options) {
       if (!task || !task.id) return false;
+      var opts = options || {};
       var board = document.querySelector(".todo-board");
       if (!board) return false;
       var existing = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
@@ -17355,7 +18237,7 @@
       if (typeof window.__renderTaskAssignments === "function") {
         window.__renderTaskAssignments(task.id, task.assignments || []);
       }
-      if (typeof window.__applyTodoFilters === "function") {
+      if (!opts.skipFilters && typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
       return true;
@@ -17626,6 +18508,7 @@
           return result.data || {};
         });
     }
+    window.__patchTaskUserStatus = patchTaskUserStatus;
 
     function openSettingsStatusMenu() {
       if (currentEntityType !== "task") return;
@@ -20518,6 +21401,10 @@
           : fetchTaskSnapshot(task.id, { preferCache: false });
         taskSnapshotPromise.then(function (freshTask) {
           var resolvedTask = freshTask && freshTask.id ? freshTask : task;
+          if (pendingTodoCompletionHides[String(resolvedTask.id)] && taskMyStatusState(resolvedTask) === "complete") {
+            queuePendingTodoCompletionHide(resolvedTask, 1200);
+            return;
+          }
           mergeDashboardTask(resolvedTask);
           if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
             window.__updateCachedTreeSnapshotsForTask(resolvedTask, {
@@ -20552,6 +21439,10 @@
             window.__ensureTreeTaskVisible(resolvedTask);
           }
         }).catch(function () {
+          if (pendingTodoCompletionHides[String(task.id)] && taskMyStatusState(task) === "complete") {
+            queuePendingTodoCompletionHide(task, 1200);
+            return;
+          }
           var todoUpdated = false;
           if (typeof window.__upsertTodoItemFromSnapshot === "function") {
             todoUpdated = !!window.__upsertTodoItemFromSnapshot(task);
@@ -22150,408 +23041,24 @@
     (function () {
       var board = document.querySelector(".todo-board");
       if (!board) return;
-      var storageKey = "termin:todo-cols:" + String(currentUserId || "0");
-
-      function sanitizePx(value) {
-        if (typeof value !== "string") return null;
-        if (value.indexOf("minmax") !== -1 || value.indexOf("fr") !== -1) return null;
-        if (!value.trim().endsWith("px")) return null;
-        var num = parseFloat(value);
-        if (!Number.isFinite(num) || num <= 0) return null;
-        return Math.round(num) + "px";
-      }
-
-      function applyCols(cols) {
-        if (!cols) return;
-        var meta = sanitizePx(cols.meta);
-        var main = sanitizePx(cols.main);
-        var controls = sanitizePx(cols.controls);
-        var controlDue = sanitizePx(cols.control_due);
-        var controlStatus = sanitizePx(cols.control_status);
-        var controlAssignees = sanitizePx(cols.control_assignees);
-        if (meta) board.style.setProperty("--todo-col-meta", meta);
-        if (main) board.style.setProperty("--todo-col-main", main);
-        if (controls) board.style.setProperty("--todo-col-controls", controls);
-        if (controlDue) board.style.setProperty("--todo-control-due", controlDue);
-        if (controlStatus) board.style.setProperty("--todo-control-status", controlStatus);
-        if (controlAssignees) board.style.setProperty("--todo-control-assignees", controlAssignees);
-      }
-
-      function loadCols() {
-        try {
-          return JSON.parse(localStorage.getItem(storageKey) || "{}");
-        } catch (err) {
-          return {};
-        }
-      }
-
-      function saveCols(cols) {
-        try {
-          localStorage.setItem(storageKey, JSON.stringify(cols));
-        } catch (err) {}
-      }
-
-      function visibleTodoRows() {
-        return Array.from(document.querySelectorAll(".todo-item")).filter(function (row) {
-          return row && row.offsetParent !== null && row.style.display !== "none";
-        });
-      }
-
-      function controlContentWidth(row) {
-        if (!row) return 0;
-        var controlsEl = row.querySelector(".todo-item-controls");
-        if (!controlsEl) return 0;
-        var cluster = controlsEl.querySelector(".todo-control-cluster");
-        var assignees = controlsEl.querySelector(".todo-control-assignees");
-        var clusterWidth = cluster ? cluster.scrollWidth : 0;
-        var assigneeWidth = assignees ? assignees.scrollWidth : 0;
-        return Math.ceil(clusterWidth + assigneeWidth);
-      }
-
-      function getReferenceRow() {
-        var rows = visibleTodoRows();
-        if (!rows.length) return document.querySelector(".todo-item");
-        return rows.reduce(function (best, row) {
-          if (!best) return row;
-          var bestWidth = controlContentWidth(best);
-          var rowWidth = controlContentWidth(row);
-          if (rowWidth !== bestWidth) return rowWidth > bestWidth ? row : best;
-          return (row.clientWidth || 0) > (best.clientWidth || 0) ? row : best;
-        }, null);
-      }
-
-      function getRow() {
-        return getReferenceRow();
-      }
-
-      function clampToRow(widths, rowWidth, minControlsOverride) {
-        var minMeta = 90;
-        var minMain = 200;
-        var minControls = minControlsOverride || 100;
-        var meta = Math.max(minMeta, widths.meta);
-        var main = Math.max(minMain, widths.main);
-        var controls = Math.max(minControls, widths.controls);
-        var maxRow = Math.max(rowWidth, minMeta + minMain + minControls);
-        var total = meta + main + controls;
-        if (total < maxRow) {
-          main = Math.max(minMain, maxRow - meta - minControls);
-          controls = Math.max(minControls, maxRow - meta - main);
-        } else if (total > maxRow) {
-          main = Math.max(minMain, maxRow - meta - minControls);
-          controls = Math.max(minControls, maxRow - meta - main);
-          if (main < minMain) {
-            main = minMain;
-            meta = Math.max(minMeta, maxRow - main - minControls);
-            controls = Math.max(minControls, maxRow - meta - main);
-          }
-        }
-        return { meta: meta, main: main, controls: controls };
-      }
-
-      function clampControls(widths, controlsWidth) {
-        var minDue = 18;
-        var minStatus = 60;
-        var minAssignees = 36;
-        var due = Math.max(minDue, widths.control_due);
-        var status = Math.max(minStatus, widths.control_status);
-        var assignees = Math.max(minAssignees, widths.control_assignees);
-        var maxControls = Math.max(controlsWidth, minDue + minStatus + minAssignees);
-        var total = due + status + assignees;
-        if (total < maxControls) {
-          assignees = Math.max(minAssignees, maxControls - due - status);
-        } else if (total > maxControls) {
-          status = Math.max(minStatus, maxControls - due - minAssignees);
-          assignees = Math.max(minAssignees, maxControls - due - status);
-        }
-        return { due: due, status: status, assignees: assignees };
-      }
-
-      function getControlMinWidth() {
-        var row = getReferenceRow();
-        var controlsEl = row ? row.querySelector(".todo-item-controls") : null;
-        if (!controlsEl) return 100;
-        var total = controlContentWidth(row);
-        return Math.max(60, total || controlsEl.scrollWidth);
-      }
-
-      function applyClampedWidths(source) {
-        var row = getRow();
-        if (!row) return;
-        var widths = source || getColWidths();
-        var rowWidth = row.clientWidth || (widths.meta + widths.main + widths.controls);
-        var controlsEl = row.querySelector(".todo-item-controls");
-        var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
-        var minControls = getControlMinWidth();
-        widths.controls = Math.max(minControls, widths.controls);
-        var outer = clampToRow(widths, rowWidth, minControls);
-        var inner = clampControls(widths, controlsWidth);
-        applyCols({
-          meta: Math.round(outer.meta) + "px",
-          main: Math.round(outer.main) + "px",
-          controls: Math.round(outer.controls) + "px",
-          control_due: Math.round(inner.due) + "px",
-          control_status: Math.round(inner.status) + "px",
-          control_assignees: Math.round(inner.assignees) + "px",
-        });
-        updateControlOffsets();
-      }
-
-      function updateControlOffsets() {
-        var due = parseFloat(board.style.getPropertyValue("--todo-control-due")) || 0;
-        var status = parseFloat(board.style.getPropertyValue("--todo-control-status")) || 0;
-        var assignees = parseFloat(board.style.getPropertyValue("--todo-control-assignees")) || 0;
-        var total = due + status + assignees;
+      function applyFixedTodoLayout() {
+        board.style.setProperty("--todo-col-meta", "38px");
+        board.style.setProperty("--todo-col-main", "minmax(0, 1fr)");
+        board.style.setProperty("--todo-col-controls", "176px");
+        board.style.setProperty("--todo-control-due", "24px");
+        board.style.setProperty("--todo-control-status", "76px");
+        board.style.setProperty("--todo-control-assignees", "76px");
         document.querySelectorAll(".todo-item-controls").forEach(function (controls) {
-          var width = controls.clientWidth || 0;
-          var offset = Math.max(0, width - total);
-          controls.style.setProperty("--todo-control-offset", Math.round(offset) + "px");
+          controls.style.setProperty("--todo-control-offset", "0px");
         });
-      }
-
-      function computeRatios(widths, rowWidth, controlsWidth) {
-        if (!rowWidth || !controlsWidth) return null;
-        var total = widths.meta + widths.main + widths.controls;
-        if (!total) return null;
-        return {
-          meta: widths.meta / total,
-          main: widths.main / total,
-          controls: widths.controls / total,
-          due: widths.control_due / controlsWidth,
-          status: widths.control_status / controlsWidth,
-          assignees: widths.control_assignees / controlsWidth,
-        };
-      }
-
-      function applyRatios(ratios) {
-        if (!ratios) return;
-        var row = getReferenceRow();
-        if (!row) return;
-        var rowWidth = row.clientWidth;
-        var controlsEl = row.querySelector(".todo-item-controls");
-        var controlsWidth = controlsEl ? controlsEl.clientWidth : 0;
-        var minMeta = 90;
-        var minMain = 200;
-        var minControls = getControlMinWidth();
-        var minDue = 18;
-        var minStatus = 60;
-        var minAssignees = 36;
-        var totalMin = minMeta + minMain + minControls;
-        var usable = Math.max(rowWidth, totalMin);
-        var meta = Math.max(minMeta, Math.round(usable * ratios.meta));
-        var controls = minControls;
-        var main = Math.max(minMain, usable - meta - controls);
-        if (meta + main + controls > usable) {
-          main = Math.max(minMain, usable - meta - controls);
-        }
-        var ctrlMin = minDue + minStatus + minAssignees;
-        var ctrlUsable = Math.max(controlsWidth || controls, ctrlMin);
-        var due = Math.max(minDue, Math.round(ctrlUsable * ratios.due));
-        var status = Math.max(minStatus, Math.round(ctrlUsable * ratios.status));
-        var assignees = Math.max(minAssignees, ctrlUsable - due - status);
-        if (due + status + assignees > ctrlUsable) {
-          assignees = Math.max(minAssignees, ctrlUsable - due - status);
-        }
-        applyCols({
-          meta: meta + "px",
-          main: main + "px",
-          controls: controls + "px",
-          control_due: due + "px",
-          control_status: status + "px",
-          control_assignees: assignees + "px",
-        });
-        applyClampedWidths();
       }
 
       function refreshTodoBoardLayout() {
-        window.requestAnimationFrame(function () {
-          var row = getReferenceRow();
-          if (!row || row.offsetParent === null) return;
-          applyClampedWidths();
-          var widths = getColWidths();
-          var controlsEl = row.querySelector(".todo-item-controls");
-          var rowWidth = row.clientWidth || (widths.meta + widths.main + widths.controls);
-          var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
-          colRatios = computeRatios(widths, rowWidth, controlsWidth) || colRatios;
-          updateControlOffsets();
-        });
+        window.requestAnimationFrame(applyFixedTodoLayout);
       }
       window.__refreshTodoBoardLayout = refreshTodoBoardLayout;
 
-      var colRatios = null;
-
-      var initial = loadCols();
-      applyCols(initial);
-      refreshTodoBoardLayout();
-      (function initRatios() {
-        var row = getReferenceRow();
-        if (!row) return;
-        var widths = getColWidths();
-        var controlsEl = row.querySelector(".todo-item-controls");
-        var rowWidth = row.clientWidth || (widths.meta + widths.main + widths.controls);
-        var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
-        colRatios = computeRatios(widths, rowWidth, controlsWidth);
-      })();
-
-      var activeHandle = null;
-      var startX = 0;
-      var startMeta = 0;
-      var startMain = 0;
-      var startControls = 0;
-      var startControlDue = 0;
-      var startControlStatus = 0;
-      var startControlAssignees = 0;
-      var activeRow = null;
-      var activeControls = null;
-      var startRowWidth = 0;
-      var startControlsWidth = 0;
-
-      function toPx(value, fallback) {
-        var num = parseFloat(value);
-        if (!Number.isFinite(num) || num <= 0) return fallback;
-        return num;
-      }
-
-      function clamp(value, min, max) {
-        return Math.min(Math.max(value, min), max);
-      }
-
-      function getColWidths() {
-        var sample = document.querySelector(".todo-item");
-        if (!sample) return { meta: 160, main: 360, controls: 240, control_due: 24, control_status: 90, control_assignees: 140 };
-        var rect = sample.getBoundingClientRect();
-        var styles = getComputedStyle(sample);
-        var cols = styles.gridTemplateColumns.split(" ");
-        if (cols.length >= 3) {
-          var meta = toPx(cols[0], 160);
-          var main = toPx(cols[1], 360);
-          var controls = toPx(cols[2], 240);
-          var controlsEl = sample.querySelector(".todo-item-controls");
-          var controlCols = controlsEl ? getComputedStyle(controlsEl).gridTemplateColumns.split(" ") : [];
-          var controlDue = controlCols[0] ? toPx(controlCols[0], 24) : 24;
-          var controlStatus = controlCols[1] ? toPx(controlCols[1], 90) : 90;
-          var controlAssignees = controlCols[2] ? toPx(controlCols[2], 140) : 140;
-          return {
-            meta: meta,
-            main: main,
-            controls: controls,
-            control_due: controlDue,
-            control_status: controlStatus,
-            control_assignees: controlAssignees,
-          };
-        }
-        return { meta: rect.width * 0.3, main: rect.width * 0.4, controls: rect.width * 0.3, control_due: 24, control_status: 90, control_assignees: 140 };
-      }
-
-      function onMove(event) {
-        if (!activeHandle) return;
-        var dx = event.clientX - startX;
-        var cols = { meta: startMeta, main: startMain, controls: startControls };
-        var controlCols = {
-          due: startControlDue,
-          status: startControlStatus,
-          assignees: startControlAssignees,
-        };
-        var rowWidth = startRowWidth || (startMeta + startMain + startControls);
-        var controlsWidth = startControlsWidth || startControls;
-        var minMeta = 90;
-        var minMain = 200;
-        var minControls = Math.max(60, startControlsWidth || startControls);
-        var minDue = 18;
-        var minStatus = 60;
-        var minAssignees = 36;
-        if (activeHandle === "meta") {
-          var sumMetaMain = Math.max(minMeta + minMain, rowWidth - startControls);
-          cols.meta = clamp(startMeta + dx, minMeta, sumMetaMain - minMain);
-          cols.main = sumMetaMain - cols.meta;
-        } else if (activeHandle === "main") {
-          var sumMainControls = Math.max(minMain + minControls, rowWidth - startMeta);
-          cols.main = clamp(startMain + dx, minMain, sumMainControls - minControls);
-          cols.controls = sumMainControls - cols.main;
-        } else if (activeHandle === "control-due") {
-          var sumDueStatus = Math.max(minDue + minStatus, controlsWidth - startControlAssignees);
-          controlCols.due = clamp(startControlDue + dx, minDue, sumDueStatus - minStatus);
-          controlCols.status = sumDueStatus - controlCols.due;
-        } else if (activeHandle === "control-status") {
-          var sumStatusAssignees = Math.max(minStatus + minAssignees, controlsWidth - startControlDue);
-          controlCols.status = clamp(startControlStatus + dx, minStatus, sumStatusAssignees - minAssignees);
-          controlCols.assignees = sumStatusAssignees - controlCols.status;
-        }
-        var next = {
-          meta: Math.round(cols.meta) + "px",
-          main: Math.round(cols.main) + "px",
-          controls: Math.round(cols.controls) + "px",
-          control_due: Math.round(controlCols.due) + "px",
-          control_status: Math.round(controlCols.status) + "px",
-          control_assignees: Math.round(controlCols.assignees) + "px",
-        };
-        applyCols(next);
-        updateControlOffsets();
-      }
-
-      function onUp() {
-        if (!activeHandle) return;
-        var widths = getColWidths();
-        var row = getReferenceRow() || activeRow || getRow();
-        var rowWidth = row ? row.clientWidth : widths.meta + widths.main + widths.controls;
-        var controlsEl = row ? row.querySelector(".todo-item-controls") : (activeControls || null);
-        var controlsWidth = controlsEl ? controlsEl.clientWidth : widths.controls;
-        var minControls = getControlMinWidth();
-        var outer = clampToRow(widths, rowWidth, minControls);
-        var inner = clampControls(widths, controlsWidth);
-        var next = {
-          meta: Math.round(outer.meta) + "px",
-          main: Math.round(outer.main) + "px",
-          controls: Math.round(outer.controls) + "px",
-          control_due: Math.round(inner.due) + "px",
-          control_status: Math.round(inner.status) + "px",
-          control_assignees: Math.round(inner.assignees) + "px",
-        };
-        applyCols(next);
-        updateControlOffsets();
-        saveCols(next);
-        colRatios = computeRatios(outer, rowWidth, controlsWidth) || colRatios;
-        activeHandle = null;
-        activeRow = null;
-        activeControls = null;
-        document.body.classList.remove("is-resizing");
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      }
-
-      document.addEventListener("mousedown", function (event) {
-        var handle = event.target.closest("[data-resize-handle]");
-        if (!handle || !board.contains(handle)) return;
-        event.preventDefault();
-        document.body.classList.add("is-resizing");
-        activeHandle = handle.getAttribute("data-resize-handle");
-        activeRow = getReferenceRow() || handle.closest(".todo-item");
-        activeControls = activeRow ? activeRow.querySelector(".todo-item-controls") : null;
-        var widths = getColWidths();
-        startX = event.clientX;
-        var rowWidth = activeRow ? activeRow.clientWidth : widths.meta + widths.main + widths.controls;
-        var controlsWidth = activeControls ? activeControls.clientWidth : widths.controls;
-        var outer = clampToRow(widths, rowWidth, getControlMinWidth());
-        var inner = clampControls(widths, controlsWidth);
-        startMeta = outer.meta;
-        startMain = outer.main;
-        startControls = outer.controls;
-        startControlDue = inner.due;
-        startControlStatus = inner.status;
-        startControlAssignees = inner.assignees;
-        startRowWidth = rowWidth;
-        startControlsWidth = controlsWidth;
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-      });
-
-      var resizeFrame = null;
-      window.addEventListener("resize", function () {
-        if (resizeFrame) return;
-        resizeFrame = window.requestAnimationFrame(function () {
-          resizeFrame = null;
-          applyRatios(colRatios);
-        });
-      });
+      applyFixedTodoLayout();
       document.addEventListener("termin:dashboard-view-change", function (event) {
         var detail = event && event.detail ? event.detail : null;
         if (!detail || detail.currentView !== "todo") return;
@@ -22615,6 +23122,137 @@
     {% endif %}
 
     document.addEventListener("click", function (event) {
+      if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(max-width: 900px)").matches
+      ) {
+        var mobileTodoItem = event.target.closest(".todo-item[data-task-id]");
+        if (mobileTodoItem && !event.target.closest("[data-todo-check-toggle]")) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (typeof event.stopImmediatePropagation === "function") {
+            event.stopImmediatePropagation();
+          }
+          var mobileTaskId = Number(mobileTodoItem.getAttribute("data-task-id") || 0);
+          if (mobileTaskId && typeof window.__openSettings === "function") {
+            var mobileTask = mobileTodoItem._taskPayload || taskById(mobileTaskId) || null;
+            var mobileMeta = todoMetaFor(
+              mobileTodoItem.getAttribute("data-project-id") || "",
+              mobileTodoItem.getAttribute("data-group-id") || ""
+            );
+            window.__openSettings(
+              mobileTaskId,
+              mobileTask && mobileTask.title ? mobileTask.title : "",
+              mobileMeta.projectName || "Project"
+            );
+          }
+          return;
+        }
+      }
+      var todoCheckButton = event.target.closest("[data-todo-check-toggle]");
+      if (todoCheckButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (todoCheckButton.disabled || todoCheckButton.dataset.pending === "1") return;
+        var taskId = String(todoCheckButton.getAttribute("data-task-id") || "").trim();
+        if (!taskId || window.__taskIdIsLocked(taskId)) return;
+        var todoRow = todoCheckButton.closest(".todo-item");
+        var statusHost = todoRow ? todoRow.querySelector('[data-task-status-host="' + taskId + '"]') : null;
+        var task = (todoRow && todoRow._taskPayload) || (statusHost && statusHost._taskPayload) || null;
+        if (!task) return;
+        var meta = taskStatusMeta(task);
+        if (meta.mode === "percent") {
+          var trigger = todoRow ? todoRow.querySelector('[data-task-multi-status-trigger="' + taskId + '"]') : null;
+          if (trigger) {
+            trigger.click();
+          }
+          return;
+        }
+        var nextStatus = taskMyStatusState(task) === "complete" ? "open" : "complete";
+        var completing = nextStatus === "complete";
+        var hideCompletedAfterToggle = completing && !todoTaskWouldRemainVisibleWhenComplete(task);
+        if (completing) {
+          if (todoRow) {
+            todoRow.classList.add("is-completion-preview");
+          }
+          setTodoChecklistButtonCompleteState(todoCheckButton, true);
+          todoCheckButton.classList.add("is-animating");
+          if (hideCompletedAfterToggle) {
+            pendingTodoCompletionHides[taskId] = true;
+            window.setTimeout(function () {
+              if (todoRow && todoRow.isConnected) {
+                startTodoCompletionAnimation(todoRow);
+              }
+            }, 900);
+          }
+        }
+        if (!completing) {
+          if (todoRow) {
+            todoRow.classList.remove("is-completion-preview");
+          }
+          setTodoChecklistButtonCompleteState(todoCheckButton, false);
+          todoCheckButton.classList.add("is-animating");
+          window.setTimeout(function () {
+            if (todoCheckButton && todoCheckButton.isConnected) {
+              todoCheckButton.classList.remove("is-animating");
+            }
+          }, 260);
+        }
+        todoCheckButton.dataset.pending = "1";
+        var request = meta.mode === "multi"
+          ? (typeof window.__patchTaskUserStatus === "function"
+              ? window.__patchTaskUserStatus(taskId, currentUserId, nextStatus)
+              : Promise.reject(new Error("Task user status helper unavailable")))
+          : (typeof window.__patchInlineTaskStatus === "function"
+              ? window.__patchInlineTaskStatus(taskId, nextStatus)
+              : Promise.reject(new Error("Inline task status helper unavailable")));
+        request
+          .then(function () {
+            return fetchTaskSnapshot(taskId, { preferCache: false }).then(function (freshTask) {
+              if (freshTask) {
+                if (hideCompletedAfterToggle) {
+                  queuePendingTodoCompletionHide(freshTask, 1200);
+                  return freshTask;
+                }
+                applyTodoChecklistTaskUpdate(freshTask);
+              }
+              return freshTask;
+            });
+          })
+          .catch(function (error) {
+            console.error("todo checklist toggle failed", error);
+            delete pendingTodoCompletionHides[taskId];
+            if (pendingTodoCompletionHideTimers[taskId]) {
+              window.clearTimeout(pendingTodoCompletionHideTimers[taskId]);
+              delete pendingTodoCompletionHideTimers[taskId];
+            }
+            setTodoChecklistButtonCompleteState(todoCheckButton, !completing);
+            if (todoRow && todoRow.isConnected) {
+              todoRow.classList.remove("is-completion-preview");
+              todoRow.classList.remove("is-completing", "is-collapsing");
+              todoRow.style.height = "";
+            }
+          })
+          .finally(function () {
+            delete todoCheckButton.dataset.pending;
+            if (todoRow && todoRow.isConnected) {
+              if (!completing) {
+                todoRow.classList.remove("is-completion-preview");
+                todoRow.classList.remove("is-completing");
+                todoRow.classList.remove("is-collapsing");
+                todoRow.style.height = "";
+              } else if (!hideCompletedAfterToggle) {
+                todoRow.classList.remove("is-completing");
+                todoRow.classList.remove("is-collapsing");
+                todoRow.style.height = "";
+              }
+            }
+            if (todoCheckButton && todoCheckButton.isConnected) {
+              todoCheckButton.classList.remove("is-animating");
+            }
+          });
+        return;
+      }
       var treeLink = event.target.closest(".todo-project-name, .todo-group-name");
       if (!treeLink) return;
       if (event.defaultPrevented) return;
@@ -22632,7 +23270,7 @@
           window.__syncTreeSelectionFromLocation();
         });
       }
-    });
+    }, true);
 
     document.addEventListener("click", function (event) {
       var dashboardLink = event.target.closest(".dashboard-action-project, .dashboard-action-group, .dashboard-action-title");
