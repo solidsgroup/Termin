@@ -2126,7 +2126,7 @@
     </div>
   </aside>
 
-  <section class="content dashboard-content{% if selected_project and current_view != 'tree' %} project-content{% endif %}"{% if selected_project %} style="--accent: {{ selected_project_color }}; --accent-strong: {{ selected_project_color }};"{% endif %} data-dashboard-content>
+  <section class="content dashboard-content{% if selected_project and current_view != 'tree' %} project-content{% endif %}"{% if selected_project %} style="--project-accent: {{ selected_project_color }}; --project-accent-strong: {{ selected_project_color }};"{% endif %} data-dashboard-content>
     {% if dashboard_notice %}
       <div class="dashboard-notice" role="alert">{{ dashboard_notice }}</div>
     {% endif %}
@@ -12594,6 +12594,7 @@
       }
       window.__dashboardBootstrapStore = dashboardBootstrapStore;
       scheduleDashboardBootstrapStorePersist();
+      refreshDashboardHomeFromTodo();
       if (typeof window.__renderTodoBoardFromStore === "function") {
         window.__renderTodoBoardFromStore();
       }
@@ -12616,12 +12617,16 @@
         nextPayload
       );
       scheduleDashboardBootstrapStorePersist();
+      refreshDashboardHomeFromTodo();
     }
 
     function removeDashboardEntity(entityType, entityId) {
       if (!dashboardBootstrapStore || !dashboardBootstrapStore.entities || !dashboardBootstrapStore.entities[entityType]) return;
       delete dashboardBootstrapStore.entities[entityType][String(entityId)];
       scheduleDashboardBootstrapStorePersist();
+      if (entityType === "tasks" || entityType === "projects" || entityType === "groups") {
+        refreshDashboardHomeFromTodo();
+      }
     }
 
     function mergeDashboardTask(task) {
@@ -12640,6 +12645,7 @@
         dashboardBootstrapStore.views.todo.task_ids = taskIds;
       }
       scheduleDashboardBootstrapStorePersist();
+      refreshDashboardHomeFromTodo();
     }
 
     function removeDashboardTask(taskId) {
@@ -12649,6 +12655,7 @@
         return String(value) !== String(taskId);
       });
       scheduleDashboardBootstrapStorePersist();
+      refreshDashboardHomeFromTodo();
     }
 
     function applyDashboardChangesPayload(payload) {
@@ -12696,6 +12703,7 @@
       });
 
       scheduleDashboardBootstrapStorePersist();
+      refreshDashboardHomeFromTodo();
       if (typeof window.__renderTodoBoardFromStore === "function") {
         window.__renderTodoBoardFromStore();
       }
@@ -13369,38 +13377,76 @@
     function dashboardActionItemsFromTodo() {
       var myAssigneeKey = "user:" + String(currentUserId || "");
       var myEmailKey = currentUserEmail ? "email:" + String(currentUserEmail || "").trim().toLowerCase() : "";
-      var rows = Array.from(document.querySelectorAll('.todo-item[data-task-id]'));
-      return rows.map(function (row, index) {
-        var assigneeKeys = String(row.getAttribute("data-assignee-keys") || "")
+      function dashboardAccentColorForProject(project) {
+        if (project) {
+          var directColor = String(project.division_color || project.color || "").trim();
+          if (directColor) return directColor;
+          if (project.is_direct) return "#9aa6b2";
+          if (project.division_id !== null && project.division_id !== undefined && project.division_id !== "") {
+            var divisionId = String(project.division_id);
+            var divisionMap = dashboardEntityMap("divisions");
+            var division = divisionMap ? divisionMap[divisionId] : null;
+            if (division && String(division.color || "").trim()) {
+              return String(division.color).trim();
+            }
+          }
+        }
+        return "#4cc9f0";
+      }
+
+      function dashboardDueSummaryForTask(task) {
+        if (!task) return "";
+        var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        var dueMode = String(task.due_mode || (dueValue ? "date" : "none")).toLowerCase();
+        var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
+        if (dueMode === "asap") return "ASAP";
+        if (typeof window.__formatDueCompactLabel === "function") {
+          return window.__formatDueCompactLabel(dueValue, createdValue, dueMode);
+        }
+        return dueValue || createdValue || "";
+      }
+
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) {
+        return [];
+      }
+      var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+        ? dashboardBootstrapStore.views.todo.task_ids
+        : [];
+      var taskMap = dashboardEntityMap("tasks");
+      return taskIds.map(function (taskId, index) {
+        var task = taskMap[String(taskId)];
+        if (!task) return null;
+        var assigneeKeys = taskAssigneeKeys(task)
           .split(",")
           .map(function (value) { return value.trim(); })
           .filter(Boolean);
         var isAssignedToMe = assigneeKeys.indexOf(myAssigneeKey) >= 0 || (myEmailKey && assigneeKeys.indexOf(myEmailKey) >= 0);
         if (!isAssignedToMe) return null;
-        var statusState = String(row.getAttribute("data-status-state") || "").trim().toLowerCase();
+        var statusState = String(taskMyStatusState(task) || "").trim().toLowerCase();
         if (statusState === "complete") return null;
-        var dueValue = String(row.getAttribute("data-due-at") || "").trim();
-        var dueMode = String(row.getAttribute("data-due-mode") || "").trim().toLowerCase();
-        var createdValue = String(row.getAttribute("data-created-at") || "").trim();
+        var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        var dueMode = String(task.due_mode || (dueValue ? "date" : "none")).trim().toLowerCase();
+        var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
         var bucket = todoBucketFor(dueValue, createdValue, dueMode);
-        var projectLink = row.querySelector(".todo-project-name");
-        var groupLink = row.querySelector(".todo-group-name");
-        var titleLink = row.querySelector(".todo-item-title");
+        var project = dashboardProjectEntity(task.project_id);
+        var group = task.group_id ? dashboardGroupEntity(task.group_id) : null;
+        var projectName = project ? String(project.display_name || project.name || "Project") : "Project";
+        var groupName = group ? String(group.name || "") : "";
         return {
-          taskId: String(row.getAttribute("data-task-id") || ""),
-          divisionColor: row.style.getPropertyValue("--todo-color") || "#4cc9f0",
+          taskId: String(task.id || ""),
+          divisionColor: dashboardAccentColorForProject(project),
           dateKey: bucket.key,
           dateLabel: bucket.label,
           dueValue: dueValue,
           createdValue: createdValue,
-          projectName: projectLink ? String(projectLink.textContent || "").trim() : "",
-          projectHref: projectLink ? String(projectLink.getAttribute("href") || "") : "",
-          groupName: groupLink ? String(groupLink.textContent || "").trim() : "",
-          groupHref: groupLink ? String(groupLink.getAttribute("href") || "") : "",
-          title: titleLink ? String(titleLink.textContent || "").trim() : "",
-          titleHref: titleLink ? String(titleLink.getAttribute("href") || "") : "",
-          dueSummary: row.querySelector("[data-due-summary]") ? String(row.querySelector("[data-due-summary]").textContent || "").trim() : "",
-          projectId: String(row.getAttribute("data-project-id") || ""),
+          projectName: projectName,
+          projectHref: task.project_id ? ("/tree/project/" + encodeURIComponent(String(task.project_id))) : "",
+          groupName: groupName,
+          groupHref: (task.project_id && task.group_id) ? ("/tree/project/" + encodeURIComponent(String(task.project_id)) + "/group/" + encodeURIComponent(String(task.group_id))) : "",
+          title: String(task.title || "").trim(),
+          titleHref: task.id ? ("/todo#task-" + encodeURIComponent(String(task.id))) : "",
+          dueSummary: dashboardDueSummaryForTask(task),
+          projectId: String(task.project_id || ""),
           sortIndex: index,
         };
       }).filter(Boolean).sort(function (a, b) {
@@ -17886,7 +17932,10 @@
         ? String(projectData.display_name || projectData.name || "Project")
         : (projectLabel ? projectLabel.textContent.trim() : "Project");
       var divisionId = projectNode ? projectNode.getAttribute("data-division-id") : "none";
-      var divisionColor = projectNode ? projectNode.style.getPropertyValue("--division-color") : "";
+      var divisionColor = projectData ? String(projectData.division_color || projectData.color || "").trim() : "";
+      if (!divisionColor) {
+        divisionColor = projectNode ? projectNode.style.getPropertyValue("--division-color") : "";
+      }
       if ((!projectNode || !divisionColor) && projectData) {
         if (projectData.is_direct) {
           divisionId = "direct";
