@@ -5448,12 +5448,14 @@
         flex: 0 0 auto;
         justify-content: flex-start;
         padding: 0;
+        overflow: visible;
       }
 
       .todo-control-status.todo-status-cell,
       .todo-control-status > .todo-status-cell {
         width: 84px;
         padding-right: 0;
+        overflow: visible;
       }
 
       .task-status-split {
@@ -5738,6 +5740,7 @@
         width: 84px;
         max-width: 84px;
         padding: 2px;
+        box-sizing: border-box;
         justify-content: center;
         font-size: 0;
         color: transparent;
@@ -7329,6 +7332,31 @@
         background: rgba(255, 255, 255, 0.03);
       }
 
+      .prereq-glyph {
+        width: 12px;
+        height: 12px;
+        display: inline-block;
+        flex: 0 0 auto;
+        color: currentColor;
+        opacity: 1;
+        visibility: visible;
+        line-height: 0;
+      }
+
+      .prereq-glyph svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+        fill: currentColor;
+        color: inherit;
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .prereq-glyph svg path {
+        fill: currentColor;
+      }
+
       .status-editable::before {
         content: "\f192";
         position: absolute;
@@ -7366,6 +7394,23 @@
         color: var(--success);
       }
 
+      .status-editable[data-status-state="prereq"] {
+        color: #d6a117;
+        font-weight: 700;
+        border-color: color-mix(in srgb, #d6a117 44%, var(--border));
+        background: color-mix(in srgb, #d6a117 12%, var(--panel));
+      }
+
+      .status-editable[data-status-state="prereq"]::before {
+        content: "";
+        width: 12px;
+        height: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: no-repeat center / contain url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><path fill='%23d6a117' d='M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z'/></svg>");
+        color: transparent;
+      }
+
       body[data-theme="light"] .status-editable[data-status-state="complete"] {
         color: color-mix(in srgb, var(--success) 82%, #14532d 18%);
         border-color: color-mix(in srgb, var(--success) 38%, white 62%);
@@ -7385,6 +7430,16 @@
       body[data-theme="light"] .status-editable[data-status-state="critical"] {
         border-color: color-mix(in srgb, #f87171 34%, white 66%);
         background: color-mix(in srgb, #f87171 12%, white 88%);
+      }
+
+      body[data-theme="light"] .status-editable[data-status-state="prereq"] {
+        color: color-mix(in srgb, #d6a117 82%, #7c5b00 18%);
+        border-color: color-mix(in srgb, #d6a117 34%, white 66%);
+        background: color-mix(in srgb, #d6a117 12%, white 88%);
+      }
+
+      body[data-theme="light"] .status-editable[data-status-state="prereq"]::before {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><path fill='%23926b00' d='M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z'/></svg>");
       }
 
       .status-menu > button {
@@ -7820,6 +7875,26 @@
         border-color: rgba(110, 231, 183, 0.35);
         background: rgba(110, 231, 183, 0.1);
         color: var(--success);
+      }
+
+      .table .status-editable[data-status-state="prereq"] {
+        border-color: color-mix(in srgb, #d6a117 44%, var(--border));
+        background: color-mix(in srgb, #d6a117 12%, var(--panel));
+        color: #d6a117;
+        justify-content: flex-start;
+        text-align: left;
+      }
+
+      .todo-status-cell.status-editable[data-status-state="prereq"] {
+        color: #d6a117;
+        border-color: transparent;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, #d6a117 44%, var(--border));
+      }
+
+      .status-editable[data-status-state="prereq"] .prereq-glyph,
+      .table .status-editable[data-status-state="prereq"] .prereq-glyph,
+      .todo-status-cell.status-editable[data-status-state="prereq"] .prereq-glyph {
+        display: none !important;
       }
 
       .github-status-readonly {
@@ -9965,6 +10040,7 @@
         .todo-item-controls .todo-control-status .status-editable {
           min-height: 22px;
           height: 22px;
+          box-sizing: border-box;
           align-items: center;
         }
 

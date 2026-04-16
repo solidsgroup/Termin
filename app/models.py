@@ -300,6 +300,18 @@ class TaskFollower(db.Model):
     )
 
 
+class TaskPrerequisite(db.Model):
+    __tablename__ = "task_prerequisites"
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    prerequisite_task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("task_id", "prerequisite_task_id", name="uq_task_prerequisites_task_prerequisite"),
+    )
+
+
 class Invite(db.Model):
     __tablename__ = "invites"
     id = db.Column(db.Integer, primary_key=True)

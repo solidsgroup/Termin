@@ -111,6 +111,7 @@ from app.models import (
     DiscussionEvent,
     TaskComment,
     TaskFollower,
+    TaskPrerequisite,
     TaskNotification,
     CollaboratorProfile,
     GroupTemplate,
@@ -1410,6 +1411,64 @@ def _serialize_follower_row(follower: TaskFollower) -> dict:
     }
 
 
+def _serialize_task_prerequisite_row(prerequisite: TaskPrerequisite) -> dict | None:
+    task = Task.query.get(prerequisite.prerequisite_task_id)
+    if not task:
+        return None
+    return {
+        "id": prerequisite.id,
+        "task_id": prerequisite.task_id,
+        "prerequisite_task_id": prerequisite.prerequisite_task_id,
+        "title": task.title,
+        "project_id": task.project_id,
+        "group_id": task.group_id,
+        "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
+        "locked": bool(task.locked),
+    }
+
+
+def _serialize_task_prerequisites(task_id: int) -> list[dict]:
+    rows = (
+        TaskPrerequisite.query.filter_by(task_id=task_id)
+        .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+        .all()
+    )
+    serialized: list[dict] = []
+    for row in rows:
+        payload = _serialize_task_prerequisite_row(row)
+        if payload:
+            serialized.append(payload)
+    return serialized
+
+
+def _task_prerequisite_would_create_cycle(task_id: int, prerequisite_task_id: int) -> bool:
+    if int(task_id) == int(prerequisite_task_id):
+        return True
+    pending = [int(prerequisite_task_id)]
+    seen: set[int] = set()
+    while pending:
+        current_id = pending.pop()
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        if current_id == int(task_id):
+            return True
+        next_ids = [
+            int(next_id)
+            for (next_id,) in db.session.query(TaskPrerequisite.prerequisite_task_id)
+            .filter(TaskPrerequisite.task_id == current_id)
+            .all()
+            if next_id
+        ]
+        pending.extend(next_ids)
+    return False
+
+
 def _project_access_user_ids(project_id: int) -> list[int]:
     return sorted(
         int(user_id)
@@ -1559,6 +1618,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "info": info,
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "followers": [_serialize_follower_row(row) for row in followers],
+        "prerequisites": _serialize_task_prerequisites(task.id),
     }
 
 
@@ -2100,6 +2160,7 @@ def update_task(task_id: int):
         "links": info_payload.get("links", []),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "followers": [_serialize_follower_row(row) for row in followers],
+        "prerequisites": _serialize_task_prerequisites(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "start_date": _task_start_date(task),
@@ -2147,6 +2208,7 @@ def get_task(task_id: int):
         "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "followers": [_serialize_follower_row(row) for row in followers],
+        "prerequisites": _serialize_task_prerequisites(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "start_date": _task_start_date(task),
@@ -3369,6 +3431,13 @@ def delete_project(project_id: int):
     recipient_user_ids = sorted({user_id for user_id in recipient_user_ids if user_id})
     group_ids = [g.id for g in Group.query.filter_by(project_id=project.id).all()]
     task_ids = [t.id for t in Task.query.filter_by(project_id=project.id).all()]
+    if task_ids:
+        TaskPrerequisite.query.filter(
+            or_(
+                TaskPrerequisite.task_id.in_(task_ids),
+                TaskPrerequisite.prerequisite_task_id.in_(task_ids),
+            )
+        ).delete(synchronize_session=False)
     Assignment.query.filter(Assignment.task_id.in_(task_ids)).delete(synchronize_session=False)
     Invite.query.filter(Invite.task_id.in_(task_ids)).delete(synchronize_session=False)
     Task.query.filter(Task.project_id == project.id).delete(synchronize_session=False)
@@ -3473,6 +3542,24 @@ def duplicate_project(project_id: int):
         db.session.flush()
         task_map[task.id] = new_task.id
 
+    if task_map:
+        source_prerequisites = (
+            TaskPrerequisite.query.filter(TaskPrerequisite.task_id.in_(list(task_map.keys())))
+            .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+            .all()
+        )
+        for prerequisite in source_prerequisites:
+            new_task_id = task_map.get(prerequisite.task_id)
+            new_prerequisite_task_id = task_map.get(prerequisite.prerequisite_task_id)
+            if not new_task_id or not new_prerequisite_task_id:
+                continue
+            db.session.add(
+                TaskPrerequisite(
+                    task_id=new_task_id,
+                    prerequisite_task_id=new_prerequisite_task_id,
+                )
+            )
+
     db.session.commit()
     copy_pref = ProjectSidebarPreference.query.filter_by(user_id=user.id, project_id=copy.id).first()
     log_project_history(copy, actor=user, action="created")
@@ -3498,6 +3585,13 @@ def delete_group(group_id: int):
 
     project_id = group.project_id
     task_ids = [t.id for t in Task.query.filter_by(group_id=group.id).all()]
+    if task_ids:
+        TaskPrerequisite.query.filter(
+            or_(
+                TaskPrerequisite.task_id.in_(task_ids),
+                TaskPrerequisite.prerequisite_task_id.in_(task_ids),
+            )
+        ).delete(synchronize_session=False)
     Assignment.query.filter(Assignment.task_id.in_(task_ids)).delete(synchronize_session=False)
     Invite.query.filter(Invite.task_id.in_(task_ids)).delete(synchronize_session=False)
     Task.query.filter(Task.group_id == group.id).delete(synchronize_session=False)
@@ -3545,6 +3639,24 @@ def duplicate_group(group_id: int):
         db.session.add(new_task)
         db.session.flush()
         task_map[task.id] = new_task.id
+
+    if task_map:
+        source_prerequisites = (
+            TaskPrerequisite.query.filter(TaskPrerequisite.task_id.in_(list(task_map.keys())))
+            .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+            .all()
+        )
+        for prerequisite in source_prerequisites:
+            new_task_id = task_map.get(prerequisite.task_id)
+            new_prerequisite_task_id = task_map.get(prerequisite.prerequisite_task_id)
+            if not new_task_id or not new_prerequisite_task_id:
+                continue
+            db.session.add(
+                TaskPrerequisite(
+                    task_id=new_task_id,
+                    prerequisite_task_id=new_prerequisite_task_id,
+                )
+            )
 
     db.session.commit()
     tasks = Task.query.filter_by(group_id=new_group.id).order_by(Task.position.asc(), Task.id.asc()).all()
@@ -3736,6 +3848,14 @@ def user_card(user_id: int):
 def search_tasks():
     user = current_user()
     q = (request.args.get("q") or "").strip()
+    entity_type_filter = (request.args.get("entity_type") or request.args.get("type") or "").strip().lower()
+    exclude_task_id_raw = (request.args.get("exclude_task_id") or "").strip()
+    exclude_task_id = None
+    if exclude_task_id_raw:
+        try:
+            exclude_task_id = int(exclude_task_id_raw)
+        except ValueError:
+            exclude_task_id = None
     if len(q) < 2:
         return {"results": []}
     active_theme_name = normalize_theme_name(getattr(user, "theme_name", None) or DEFAULT_THEME_NAME)
@@ -3768,6 +3888,8 @@ def search_tasks():
         .limit(12)
         .all()
     )
+    if exclude_task_id is not None:
+        tasks = [task for task in tasks if int(task.id) != int(exclude_task_id)]
     groups = (
         Group.query
         .join(Project, Project.id == Group.project_id)
@@ -3855,6 +3977,8 @@ def search_tasks():
             }
         )
     type_rank = {"project": 0, "group": 1, "task": 2}
+    if entity_type_filter in {"task", "group", "project"}:
+        results = [item for item in results if item.get("entity_type") == entity_type_filter]
     deduped = []
     seen: set[tuple[str, int]] = set()
     for item in sorted(results, key=lambda item: (type_rank.get(item["entity_type"], 9), str(item["title"] or "").lower(), -int(item["id"]))):
@@ -4325,6 +4449,12 @@ def delete_task(task_id: int):
         # No confirm needed; proceed with delete
 
     Assignment.query.filter_by(task_id=task.id).delete()
+    TaskPrerequisite.query.filter(
+        or_(
+            TaskPrerequisite.task_id == task.id,
+            TaskPrerequisite.prerequisite_task_id == task.id,
+        )
+    ).delete(synchronize_session=False)
     Invite.query.filter_by(task_id=task.id).delete()
     log_task_history(task, actor=user, action="deleted")
     db.session.delete(task)
@@ -4623,6 +4753,102 @@ def delete_task_follower(follower_id: int):
         followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
     )
     log_task_history(task, actor=user, action="updated", changed_fields=["followers"], task_body=history_task_body, scoped_body=history_scoped_body)
+    db.session.commit()
+    emit_task_updated(task, actor_user_id=user.id)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
+    return {"status": "deleted"}, 200
+
+
+@api_bp.post("/tasks/<int:task_id>/prerequisites")
+@login_required
+def create_task_prerequisite(task_id: int):
+    payload = request.get_json(silent=True) or {}
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
+
+    prerequisite_task_id = payload.get("prerequisite_task_id")
+    try:
+        prerequisite_task_id = int(prerequisite_task_id)
+    except (TypeError, ValueError):
+        return {"error": "prerequisite_task_id is required"}, 400
+    prerequisite_task = Task.query.get(prerequisite_task_id)
+    if not prerequisite_task:
+        return {"error": "prerequisite task not found"}, 404
+    if not _can_access_task(user, prerequisite_task):
+        return {"error": "unauthorized"}, 403
+    if int(prerequisite_task.id) == int(task.id):
+        return {"error": "task cannot depend on itself"}, 400
+    if _task_prerequisite_would_create_cycle(task.id, prerequisite_task.id):
+        return {"error": "prerequisite would create a cycle"}, 400
+
+    existing = TaskPrerequisite.query.filter_by(
+        task_id=task.id,
+        prerequisite_task_id=prerequisite_task.id,
+    ).first()
+    if existing:
+        serialized_existing = _serialize_task_prerequisite_row(existing)
+        return serialized_existing or {"status": "ok"}, 200
+
+    prerequisite = TaskPrerequisite(
+        task_id=task.id,
+        prerequisite_task_id=prerequisite_task.id,
+    )
+    db.session.add(prerequisite)
+    db.session.commit()
+
+    actor_name = display_name_for_user(user) or user.email or "Someone"
+    history_task_body = actor_name + " added prerequisite " + _quoted_history_value(prerequisite_task.title, "Task") + "."
+    history_scoped_body = actor_name + " added prerequisite " + _quoted_history_value(prerequisite_task.title, "Task") + " to task " + _quoted_history_value(task.title, "Task") + "."
+    log_task_history(
+        task,
+        actor=user,
+        action="updated",
+        changed_fields=["prerequisites"],
+        task_body=history_task_body,
+        scoped_body=history_scoped_body,
+    )
+    db.session.commit()
+    emit_task_updated(task, actor_user_id=user.id)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
+    return _serialize_task_prerequisite_row(prerequisite) or {"status": "ok"}, 201
+
+
+@api_bp.delete("/task-prerequisites/<int:prerequisite_id>")
+@login_required
+def delete_task_prerequisite(prerequisite_id: int):
+    user = current_user()
+    prerequisite = TaskPrerequisite.query.get(prerequisite_id)
+    if not prerequisite:
+        return {"error": "task prerequisite not found"}, 404
+    task = Task.query.get(prerequisite.task_id)
+    prerequisite_task = Task.query.get(prerequisite.prerequisite_task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
+
+    prerequisite_title = prerequisite_task.title if prerequisite_task else "Task"
+    db.session.delete(prerequisite)
+    db.session.commit()
+    actor_name = display_name_for_user(user) or user.email or "Someone"
+    history_task_body = actor_name + " removed prerequisite " + _quoted_history_value(prerequisite_title, "Task") + "."
+    history_scoped_body = actor_name + " removed prerequisite " + _quoted_history_value(prerequisite_title, "Task") + " from task " + _quoted_history_value(task.title, "Task") + "."
+    log_task_history(
+        task,
+        actor=user,
+        action="updated",
+        changed_fields=["prerequisites"],
+        task_body=history_task_body,
+        scoped_body=history_scoped_body,
+    )
     db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)

@@ -32,6 +32,7 @@ from app.models import (
     Task,
     TaskComment,
     TaskFollower,
+    TaskPrerequisite,
     TaskNotification,
     UserDiscussionActivity,
     User,
@@ -678,7 +679,39 @@ def _task_summary(task: Task | None) -> dict | None:
         "due_mode": _task_due_mode(task),
         "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
+        "prerequisites": _serialize_task_prerequisites(task.id),
     }
+
+
+def _serialize_task_prerequisites(task_id: int) -> list[dict]:
+    rows = (
+        TaskPrerequisite.query.filter_by(task_id=task_id)
+        .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+        .all()
+    )
+    payload: list[dict] = []
+    for row in rows:
+        prerequisite_task = Task.query.get(row.prerequisite_task_id)
+        if not prerequisite_task:
+            continue
+        payload.append(
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "prerequisite_task_id": row.prerequisite_task_id,
+                "title": prerequisite_task.title,
+                "project_id": prerequisite_task.project_id,
+                "group_id": prerequisite_task.group_id,
+                "status": prerequisite_task.status,
+                "status_mode": normalize_task_status_mode(getattr(prerequisite_task, "status_mode", None), default="single"),
+                "status_percentage": task_status_percentage(prerequisite_task),
+                "due_at": prerequisite_task.due_at.isoformat() if prerequisite_task.due_at else None,
+                "due_mode": _task_due_mode(prerequisite_task),
+                "start_date": _task_start_date(prerequisite_task),
+                "locked": bool(prerequisite_task.locked),
+            }
+        )
+    return payload
 
 
 def project_access_map(project_id: int) -> dict[int, dict]:
@@ -1356,6 +1389,7 @@ def _serialize_task_payload(
                 }
                 for row in followers
             ],
+            "prerequisites": _serialize_task_prerequisites(task.id),
             "status_meta": task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email),
             "created_at": task.created_at.isoformat() if task.created_at else None,
         },

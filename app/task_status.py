@@ -2,7 +2,7 @@ from collections import Counter
 
 from app.extensions import db
 from app.info_utils import load_info_payload
-from app.models import Assignment, Task, TaskCollaboratorStatus, TaskUserStatus, User
+from app.models import Assignment, Task, TaskCollaboratorStatus, TaskPrerequisite, TaskUserStatus, User
 
 
 COMPLETE_STATUS_VALUES = {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
@@ -100,6 +100,20 @@ def aggregate_status_state(values: list[str]) -> str:
     return "open"
 
 
+def load_task_prerequisite_ids(task_ids: list[int]) -> dict[int, list[int]]:
+    rows_by_task: dict[int, list[int]] = {}
+    if not task_ids:
+        return rows_by_task
+    rows = (
+        TaskPrerequisite.query.filter(TaskPrerequisite.task_id.in_(task_ids))
+        .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+        .all()
+    )
+    for row in rows:
+        rows_by_task.setdefault(int(row.task_id), []).append(int(row.prerequisite_task_id))
+    return rows_by_task
+
+
 def task_status_mode(task: Task | None) -> str:
     if not task:
         return "single"
@@ -128,7 +142,7 @@ def task_status_percentage(task: Task | None) -> int:
     return max(0, min(100, value))
 
 
-def task_status_meta(
+def _base_task_status_meta(
     task: Task,
     *,
     viewer_user_id: int | None = None,
@@ -218,6 +232,7 @@ def task_status_meta(
     return {
         "mode": mode,
         "enabled": enabled,
+        "prereq_blocked": False,
         "task_status": base_status,
         "task_status_state": task_status_state(base_status),
         "aggregate_state": ("complete" if percentage_complete >= 100 else "open") if mode == "percent" else (aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status)),
@@ -232,20 +247,123 @@ def task_status_meta(
 
 
 def task_status_meta_map(tasks: list[Task], *, viewer_user_id: int | None = None, viewer_email: str | None = None) -> dict[int, dict]:
-    task_ids = [task.id for task in tasks if task and task.id]
-    rows_by_task = load_task_user_status_rows(task_ids)
-    collaborator_rows_by_task = load_task_collaborator_status_rows(task_ids)
-    return {
-        task.id: task_status_meta(
+    task_map: dict[int, Task] = {
+        int(task.id): task
+        for task in tasks
+        if task and task.id
+    }
+    pending_ids = list(task_map.keys())
+    seen_ids = set(pending_ids)
+    prerequisite_ids_by_task: dict[int, list[int]] = {}
+    while pending_ids:
+        prerequisite_rows = load_task_prerequisite_ids(pending_ids)
+        prerequisite_ids_by_task.update(prerequisite_rows)
+        next_ids = sorted(
+            {
+                int(prerequisite_id)
+                for prerequisite_ids in prerequisite_rows.values()
+                for prerequisite_id in prerequisite_ids
+                if prerequisite_id and int(prerequisite_id) not in seen_ids
+            }
+        )
+        if not next_ids:
+            break
+        for prerequisite_task in Task.query.filter(Task.id.in_(next_ids)).all():
+            task_map[int(prerequisite_task.id)] = prerequisite_task
+        seen_ids.update(next_ids)
+        pending_ids = next_ids
+
+    all_task_ids = list(task_map.keys())
+    rows_by_task = load_task_user_status_rows(all_task_ids)
+    collaborator_rows_by_task = load_task_collaborator_status_rows(all_task_ids)
+    base_meta_map = {
+        task_id: _base_task_status_meta(
             task,
             viewer_user_id=viewer_user_id,
             viewer_email=viewer_email,
             rows_by_task=rows_by_task,
             collaborator_rows_by_task=collaborator_rows_by_task,
         )
+        for task_id, task in task_map.items()
+    }
+    decorated_meta_map: dict[int, dict] = {}
+
+    def final_state_for_task(task_id: int) -> str:
+        task = task_map.get(int(task_id))
+        meta = base_meta_map.get(int(task_id)) or {}
+        if not task:
+            return "open"
+        if int(task_id) in decorated_meta_map:
+            return str(decorated_meta_map[int(task_id)].get("aggregate_state") or "open")
+        mode = normalize_task_status_mode(meta.get("mode"), default="single")
+        base_state = (
+            str(meta.get("aggregate_state") or "open")
+            if mode != "single"
+            else str(meta.get("task_status_state") or task_status_state(task.status))
+        )
+        prerequisite_ids = prerequisite_ids_by_task.get(int(task_id), [])
+        blocked = any(final_state_for_task(prerequisite_id) != "complete" for prerequisite_id in prerequisite_ids)
+        final_state = "prereq" if blocked else base_state
+        decorated = dict(meta)
+        decorated["prereq_blocked"] = blocked
+        decorated["task_status_state"] = "prereq" if blocked else str(meta.get("task_status_state") or task_status_state(task.status))
+        decorated["aggregate_state"] = final_state
+        my_status_state = meta.get("my_status_state")
+        decorated["my_status_state"] = "prereq" if blocked else (str(my_status_state) if my_status_state else None)
+        decorated_meta_map[int(task_id)] = decorated
+        return final_state
+
+    for task_id in list(task_map.keys()):
+        if task_id not in decorated_meta_map:
+            final_state_for_task(task_id)
+
+    return {
+        int(task.id): decorated_meta_map.get(int(task.id), base_meta_map.get(int(task.id), {}))
         for task in tasks
         if task and task.id
     }
+
+
+def task_status_meta(
+    task: Task,
+    *,
+    viewer_user_id: int | None = None,
+    viewer_email: str | None = None,
+    rows_by_task: dict[int, list[TaskUserStatus]] | None = None,
+    collaborator_rows_by_task: dict[int, list[TaskCollaboratorStatus]] | None = None,
+) -> dict:
+    if not task or not task.id:
+        return {}
+    if rows_by_task is not None or collaborator_rows_by_task is not None:
+        base_meta = _base_task_status_meta(
+            task,
+            viewer_user_id=viewer_user_id,
+            viewer_email=viewer_email,
+            rows_by_task=rows_by_task,
+            collaborator_rows_by_task=collaborator_rows_by_task,
+        )
+        prerequisite_ids = load_task_prerequisite_ids([int(task.id)]).get(int(task.id), [])
+        if not prerequisite_ids:
+            return base_meta
+        prerequisite_tasks = Task.query.filter(Task.id.in_(prerequisite_ids)).all() if prerequisite_ids else []
+        prerequisite_meta_map = task_status_meta_map(
+            prerequisite_tasks,
+            viewer_user_id=viewer_user_id,
+            viewer_email=viewer_email,
+        )
+        blocked = any(
+            str((prerequisite_meta_map.get(int(prerequisite_id)) or {}).get("aggregate_state") or "open") != "complete"
+            for prerequisite_id in prerequisite_ids
+        )
+        if not blocked:
+            return base_meta
+        decorated = dict(base_meta)
+        decorated["prereq_blocked"] = True
+        decorated["task_status_state"] = "prereq"
+        decorated["aggregate_state"] = "prereq"
+        decorated["my_status_state"] = "prereq" if decorated.get("my_status_state") else None
+        return decorated
+    return task_status_meta_map([task], viewer_user_id=viewer_user_id, viewer_email=viewer_email).get(int(task.id), {})
 
 
 def effective_task_status_for_user(task: Task, *, viewer_user_id: int | None = None, viewer_email: str | None = None, status_meta: dict | None = None) -> str:

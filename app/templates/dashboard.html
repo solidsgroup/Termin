@@ -118,7 +118,9 @@
     {% if summary %}
       {% for item in summary %}
         <span class="task-status-count status-{{ item.state }}" data-status="{{ item.status }}" data-count="{{ item.count }}" data-state="{{ item.state }}">
-          {% if item.state == 'complete' %}
+          {% if item.state == 'prereq' %}
+            <span class="prereq-glyph" aria-hidden="true"></span>
+          {% elif item.state == 'complete' %}
             <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
           {% elif item.state == 'critical' %}
             <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
@@ -158,7 +160,13 @@
 {% endmacro %}
 {% macro render_task_status_cell(task, status_payload, todo=False) %}
   {% set status_mode = status_payload.get('mode', 'multi' if status_payload and status_payload.get('enabled') else 'single') if status_payload else 'single' %}
-  {% if status_mode == 'percent' %}
+  {% set prereq_blocked = 1 if status_payload and status_payload.get('prereq_blocked') else 0 %}
+  {% set aggregate_state = status_payload.get('aggregate_state') or status_payload.get('my_status_state') or status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) %}
+  {% if prereq_blocked or aggregate_state == 'prereq' %}
+    <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">
+      <span class="prereq-glyph" aria-hidden="true"><svg viewBox="0 0 512 512" aria-hidden="true" focusable="false"><path d="M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z"></path></svg></span>
+    </div>
+  {% elif status_mode == 'percent' %}
     <button class="task-status-multi-button task-status-percentage-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
       <div class="task-status-percentage" data-task-status-percentage="{{ task.id }}">{{ status_payload.get('percentage_complete', 0) if status_payload else 0 }}%</div>
     </button>
@@ -167,7 +175,19 @@
       {{ render_status_summary(status_payload.get('summary', []), task.id) }}
     </button>
   {% else %}
-    <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) }}">{{ status_payload.get('task_status', task.status) if status_payload else task.status }}</div>
+    {% set single_state = status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) %}
+    <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="{{ single_state }}">
+      {% if single_state == 'prereq' %}
+        <span class="prereq-glyph" aria-hidden="true"></span>
+      {% elif single_state == 'complete' %}
+        <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+      {% elif single_state == 'critical' %}
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+      {% else %}
+        <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+      {% endif %}
+      <span>{{ status_payload.get('task_status', task.status) if status_payload else task.status }}</span>
+    </div>
   {% endif %}
 {% endmacro %}
 {% macro render_dashboard_action_item(item, now_utc) %}
@@ -629,6 +649,285 @@
     color: var(--ink);
     font-size: 0.9rem;
     font-weight: 700;
+  }
+
+  .discussion-setting-group--relationship {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    align-items: start;
+    column-gap: 12px;
+    row-gap: 0;
+  }
+
+  .discussion-settings {
+    --discussion-setting-label-width: 96px;
+  }
+
+  .discussion-setting-field.is-inline,
+  .discussion-setting-field--description,
+  .discussion-setting-group--relationship {
+    display: grid;
+    align-items: start;
+    column-gap: 12px;
+    row-gap: 0;
+    grid-template-columns: var(--discussion-setting-label-width) minmax(0, 1fr);
+  }
+
+  #discussion-settings .discussion-setting-label--row {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 36px;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    text-align: left;
+    font-family: inherit;
+    font-style: normal;
+    text-transform: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .discussion-setting-label,
+  .discussion-setting-group--relationship > .discussion-setting-label {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .discussion-setting-group-body {
+    min-width: 0;
+    display: grid;
+    gap: 8px;
+  }
+
+  .discussion-setting-field-body {
+    min-width: 0;
+    display: grid;
+    gap: 8px;
+  }
+
+  .discussion-setting-group-body > input[type="text"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .discussion-assignment-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .discussion-drawer {
+    overflow: hidden;
+  }
+
+  .discussion-loading-overlay {
+    position: absolute;
+    inset: 74px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+    z-index: 2;
+  }
+
+  .discussion-loading-overlay-inner {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+
+  .discussion-loading-spinner {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+    border-top-color: var(--accent);
+    animation: termin-page-spinner 720ms linear infinite;
+  }
+
+  .discussion-drawer .discussion-presence,
+  .discussion-drawer .discussion-pane {
+    transition: opacity 180ms ease, transform 220ms cubic-bezier(.22,.84,.24,1);
+  }
+
+  .discussion-drawer.is-loading .discussion-presence,
+  .discussion-drawer.is-loading .discussion-pane {
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+  }
+
+  .discussion-drawer.is-loading .discussion-loading-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .discussion-drawer.is-ready .discussion-presence,
+  .discussion-drawer.is-ready .discussion-pane {
+    animation: discussionDrawerContentSettle 220ms cubic-bezier(.22,.84,.24,1);
+  }
+
+  @keyframes discussionDrawerContentSettle {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .discussion-assignment-user {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .discussion-assignment-meta {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .discussion-assignment-name,
+  .discussion-assignment-email {
+    max-width: none;
+    width: 100%;
+  }
+
+  .discussion-prerequisite-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .discussion-prerequisite-user {
+    gap: 12px;
+  }
+
+  .discussion-prerequisite-pill-slot {
+    flex: 0 0 28px;
+    width: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .discussion-prerequisite-status-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.88rem;
+    line-height: 1;
+    flex: 0 0 auto;
+  }
+
+  .prereq-glyph {
+    width: 0.95em;
+    height: 0.95em;
+    display: inline-block;
+    flex: 0 0 auto;
+    background: currentColor;
+    -webkit-mask: url("{{ url_for('static', filename='icons/diagram-predecessor.svg') }}") center / contain no-repeat;
+    mask: url("{{ url_for('static', filename='icons/diagram-predecessor.svg') }}") center / contain no-repeat;
+  }
+
+  .discussion-prerequisite-status-icon[data-status-state="open"] {
+    color: color-mix(in srgb, var(--ink) 64%, var(--muted));
+  }
+
+  .discussion-prerequisite-status-icon[data-status-state="critical"] {
+    color: #d9485f;
+  }
+
+  .discussion-prerequisite-status-icon[data-status-state="prereq"] {
+    color: #d6a117;
+  }
+
+  .discussion-prerequisite-status-icon[data-status-state="complete"] {
+    color: #2f9e44;
+  }
+
+  .discussion-prerequisite-status-icon[data-status-state="partial"] {
+    color: #d6a117;
+  }
+
+  .status-editable[data-status-state="prereq"],
+  .discussion-setting-status[data-status-state="prereq"],
+  .task-status-multi-button[data-status-state="prereq"],
+  .task-status-percentage-button[data-status-state="prereq"] {
+    border-color: color-mix(in srgb, #d6a117 44%, var(--line));
+    background: color-mix(in srgb, #d6a117 16%, var(--panel));
+    color: color-mix(in srgb, #d6a117 76%, var(--ink));
+  }
+
+  .status-editable[data-status-state="prereq"] .prereq-glyph,
+  .discussion-setting-status[data-status-state="prereq"] .prereq-glyph,
+  .task-status-multi-button[data-status-state="prereq"] .prereq-glyph,
+  .task-status-percentage-button[data-status-state="prereq"] .prereq-glyph {
+    display: inline-block;
+    margin-right: 6px;
+  }
+
+  .discussion-prerequisite-remove {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel-alt) 84%, transparent);
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+  }
+
+  .discussion-prerequisite-remove:hover {
+    color: var(--ink);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel-alt));
+  }
+
+  .discussion-settings-assignments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  @media (max-width: 720px) {
+    .discussion-setting-field.is-inline,
+    .discussion-setting-field--description,
+    .discussion-setting-group--relationship {
+      grid-template-columns: 1fr;
+      row-gap: 6px;
+    }
+
+    #discussion-settings .discussion-setting-label--row,
+    .discussion-setting-label,
+    .discussion-setting-group--relationship > .discussion-setting-label {
+      min-height: 0;
+    }
   }
 
   .dashboard-pane-spinner {
@@ -1102,6 +1401,56 @@
   .todo-project-meta a:hover {
     color: var(--ink);
     text-decoration: underline;
+  }
+
+  .assign-suggest-loading {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    text-align: left;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  .assign-suggest-avatar.is-loading {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .assign-suggest-avatar--task-status {
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+  }
+
+  .assign-suggest-avatar--task-status .discussion-prerequisite-status-icon {
+    width: 18px;
+    height: 18px;
+    font-size: 0.82rem;
+  }
+
+  .assign-suggest-spinner {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--line) 82%, transparent);
+    border-top-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+    animation: assign-suggest-spin 700ms linear infinite;
+  }
+
+  @keyframes assign-suggest-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .todo-check-toggle {
@@ -2514,6 +2863,12 @@
       <button class="icon-button" type="button" id="discussion-close" title="Close discussion">×</button>
     </div>
   </div>
+  <div class="discussion-loading-overlay" id="discussion-loading-overlay" aria-hidden="true">
+    <div class="discussion-loading-overlay-inner">
+      <div class="discussion-loading-spinner" aria-hidden="true"></div>
+      <div>Loading…</div>
+    </div>
+  </div>
   <div class="discussion-presence" id="discussion-presence"></div>
   <div class="discussion-pane is-active" id="discussion-messages-pane" data-drawer-pane="messages">
     <div class="discussion-list" id="discussion-list">
@@ -2534,7 +2889,9 @@
   </div>
   <div class="discussion-pane" id="discussion-settings-pane" data-drawer-pane="settings">
     <div class="discussion-settings" id="discussion-settings">
-      <label class="discussion-setting-field discussion-setting-field--description" aria-live="polite">
+      <div class="discussion-setting-field discussion-setting-field--description" aria-live="polite">
+        <span class="discussion-setting-label discussion-setting-label--row">Description</span>
+        <div class="discussion-setting-field-body">
         <div class="discussion-description-wrapper" data-description-wrapper>
           <div
             class="discussion-description-display"
@@ -2548,7 +2905,7 @@
           </div>
           <div class="discussion-description-editor" data-description-editor>
             <div class="discussion-description-format">
-              <span>Description format</span>
+              <span class="discussion-setting-label discussion-setting-label--row">Description format</span>
               <select id="task-settings-description-format" autocomplete="termin-nope-description-format">
                 <option value="markdown">Markdown</option>
                 <option value="plain">Plain text</option>
@@ -2559,33 +2916,34 @@
           <textarea id="task-settings-description" rows="4" autocomplete="termin-nope-description" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
         </div>
       </div>
-    </label>
-      <label class="discussion-setting-field is-inline" data-settings-title-field>
-        <span class="discussion-setting-label" data-settings-title-label>Title</span>
-        <input id="task-settings-title" type="text" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
-      </label>
-      <label class="discussion-setting-field is-inline" data-task-only>
-        <span class="discussion-setting-label">Creator</span>
+        </div>
+      </div>
+      <div class="discussion-setting-field is-inline" data-settings-title-field>
+        <span class="discussion-setting-label discussion-setting-label--row" data-settings-title-label>Title</span>
+        <input id="task-settings-title" type="text" aria-label="Title" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="discussion-setting-field is-inline" data-task-only>
+        <span class="discussion-setting-label discussion-setting-label--row">Creator</span>
         <div id="task-settings-creator" class="discussion-setting-readonly discussion-setting-identity">Unknown</div>
-      </label>
+      </div>
 	      <div class="discussion-settings-grid" data-task-only>
-	        <label class="discussion-setting-field is-inline">
-	          <span class="discussion-setting-label">Due</span>
+	        <div class="discussion-setting-field is-inline">
+	          <span class="discussion-setting-label discussion-setting-label--row">Due</span>
 	          <div class="discussion-setting-due-wrap">
-	            <select id="task-settings-due-mode">
+	            <select id="task-settings-due-mode" aria-label="Due mode">
               <option value="none">No Date</option>
               <option value="asap">ASAP</option>
               <option value="date">Date</option>
             </select>
-	            <input id="task-settings-due" type="date" />
+	            <input id="task-settings-due" type="date" aria-label="Due date" />
 	          </div>
-	        </label>
-	        <label class="discussion-setting-field is-inline" id="task-settings-start-field">
-	          <span class="discussion-setting-label">Start</span>
-	          <input id="task-settings-start-date" type="date" />
-	        </label>
+	        </div>
+	        <div class="discussion-setting-field is-inline" id="task-settings-start-field">
+	          <span class="discussion-setting-label discussion-setting-label--row">Start</span>
+	          <input id="task-settings-start-date" type="date" aria-label="Start date" />
+	        </div>
 	        <div class="discussion-setting-field is-inline discussion-setting-status-row" data-task-only>
-	          <span class="discussion-setting-label" id="task-settings-status-label">Status</span>
+	          <span class="discussion-setting-label discussion-setting-label--row" id="task-settings-status-label">Status</span>
             <div class="discussion-setting-status-controls">
 	            <button id="task-settings-status" class="discussion-setting-status" type="button">
                 <span class="discussion-setting-status-label">open</span>
@@ -2611,31 +2969,34 @@
           </div>
       </div>
 	      <div class="discussion-settings-grid" data-project-only>
-	        <label class="discussion-setting-field is-inline">
-	          <span class="discussion-setting-label">Start</span>
-	          <input id="project-settings-start-date" type="date" />
-	        </label>
-	        <label class="discussion-setting-field is-inline" id="project-settings-end-field">
-	          <span class="discussion-setting-label">End</span>
-	          <input id="project-settings-end-date" type="date" />
-	        </label>
+	        <div class="discussion-setting-field is-inline">
+	          <span class="discussion-setting-label discussion-setting-label--row">Start</span>
+	          <input id="project-settings-start-date" type="date" aria-label="Project start date" />
+	        </div>
+	        <div class="discussion-setting-field is-inline" id="project-settings-end-field">
+	          <span class="discussion-setting-label discussion-setting-label--row">End</span>
+	          <input id="project-settings-end-date" type="date" aria-label="Project end date" />
+	        </div>
 	      </div>
-      <div class="discussion-setting-group" data-task-only>
-        <div class="discussion-setting-group-header">
-          <span>Assign</span>
-        </div>
-        <div class="discussion-settings-assignments" id="task-settings-assignments"></div>
-        <div class="discussion-settings-assign-add">
-          <input id="task-settings-assignee" type="text" placeholder="assignee@email" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      <div class="discussion-setting-group discussion-setting-group--relationship" data-task-only>
+        <span class="discussion-setting-label discussion-setting-label--row">Assign</span>
+        <div class="discussion-setting-group-body">
+          <input id="task-settings-assignee" type="text" placeholder="assignee@email" aria-label="Assign" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <div class="discussion-settings-assignments" id="task-settings-assignments"></div>
         </div>
       </div>
-      <div class="discussion-setting-group" data-task-only>
-        <div class="discussion-setting-group-header">
-          <span>Follow</span>
+      <div class="discussion-setting-group discussion-setting-group--relationship" data-task-only>
+        <span class="discussion-setting-label discussion-setting-label--row">Follow</span>
+        <div class="discussion-setting-group-body">
+          <input id="task-settings-follower" type="text" placeholder="name or email" aria-label="Follow" autocomplete="termin-nope-follow" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <div class="discussion-settings-assignments" id="task-settings-followers"></div>
         </div>
-        <div class="discussion-settings-assignments" id="task-settings-followers"></div>
-        <div class="discussion-settings-assign-add">
-          <input id="task-settings-follower" type="text" placeholder="name or email" autocomplete="termin-nope-follow" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="discussion-setting-group discussion-setting-group--relationship" data-task-only>
+        <span class="discussion-setting-label discussion-setting-label--row">Prereqs</span>
+        <div class="discussion-setting-group-body">
+          <input id="task-settings-prerequisite" type="text" placeholder="search tasks" aria-label="Prerequisites" autocomplete="termin-nope-prerequisites" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <div class="discussion-settings-assignments" id="task-settings-prerequisites"></div>
         </div>
       </div>
       <div class="discussion-settings-meta" id="task-settings-meta"></div>
@@ -3172,6 +3533,34 @@
       return "open";
     }
 
+    function taskHasIncompletePrerequisites(task) {
+      var prerequisites = Array.isArray(task && task.prerequisites) ? task.prerequisites : [];
+      if (!prerequisites.length) return false;
+      return prerequisites.some(function (prerequisite) {
+        if (!prerequisite) return false;
+        var prerequisiteMode = String(prerequisite.status_mode || "").toLowerCase();
+        var prerequisiteState = "open";
+        if (prerequisiteMode === "percent") {
+          prerequisiteState = Number(prerequisite.status_percentage || 0) >= 100 ? "complete" : "open";
+        } else if (prerequisite.status_meta && prerequisite.status_meta.aggregate_state) {
+          prerequisiteState = String(prerequisite.status_meta.aggregate_state || "open").trim().toLowerCase();
+        } else if (prerequisite.status_meta && prerequisite.status_meta.task_status_state) {
+          prerequisiteState = String(prerequisite.status_meta.task_status_state || "open").trim().toLowerCase();
+        } else {
+          prerequisiteState = getStatusState(prerequisite.status || "open");
+        }
+        return prerequisiteState !== "complete";
+      });
+    }
+
+    function decorateStatusStateWithPrerequisites(task, baseState) {
+      var normalized = String(baseState || "open").trim().toLowerCase();
+      if (normalized === "complete" || normalized === "critical") return normalized;
+      return taskHasIncompletePrerequisites(task) ? "prereq" : normalized;
+    }
+    window.__taskHasIncompletePrerequisites = taskHasIncompletePrerequisites;
+    window.__decorateStatusStateWithPrerequisites = decorateStatusStateWithPrerequisites;
+
     function normalizeStatusModeValue(value, fallback) {
       var normalized = String(value || "").trim().toLowerCase();
       if (normalized === "per_user" || normalized === "multi") return "multi";
@@ -3183,8 +3572,31 @@
 
     function applyStatusState(cell, value) {
       if (!cell || cell.getAttribute("data-field") !== "status") return;
-      var state = getStatusState(value != null ? value : cell.textContent);
+      var renderStatusGlyph = (typeof renderStatusGlyphHtml === "function")
+        ? renderStatusGlyphHtml
+        : (typeof window.__renderStatusGlyphHtml === "function"
+          ? window.__renderStatusGlyphHtml
+          : function (stateValue) {
+              var normalizedState = String(stateValue || "open").trim().toLowerCase();
+              if (normalizedState === "prereq") return '<span class="prereq-glyph" aria-hidden="true"></span>';
+              if (normalizedState === "complete") return '<i class="fa-solid fa-circle-check" aria-hidden="true"></i>';
+              if (normalizedState === "critical") return '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>';
+              return '<i class="fa-solid fa-circle-dot" aria-hidden="true"></i>';
+            });
+      var rawValue = String(value != null ? value : cell.textContent || "").trim();
+      var existingState = String(cell.getAttribute("data-status-state") || "").trim().toLowerCase();
+      var state = existingState === "prereq"
+        ? "prereq"
+        : (rawValue.toLowerCase() === "prereq" ? "prereq" : getStatusState(rawValue));
       cell.setAttribute("data-status-state", state);
+      var statusText = rawValue;
+      if (cell.classList.contains("status-editable")) {
+        if (state === "prereq") {
+          cell.innerHTML = renderStatusGlyph("prereq") + '<span>Prereq</span>';
+        } else if (cell.querySelector(".prereq-glyph")) {
+          cell.innerHTML = renderStatusGlyph(state) + '<span>' + escapeHtml(statusText || "open") + '</span>';
+        }
+      }
       var row = cell.closest("tr") || cell.closest(".todo-item");
       if (row) {
         row.setAttribute("data-status-state", state);
@@ -12426,6 +12838,8 @@
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
     var taskSettingsFollowersEl = document.getElementById("task-settings-followers");
     var taskSettingsFollowerEl = document.getElementById("task-settings-follower");
+    var taskSettingsPrerequisitesEl = document.getElementById("task-settings-prerequisites");
+    var taskSettingsPrerequisiteEl = document.getElementById("task-settings-prerequisite");
     var descriptionWrapperEl = drawer.querySelector("[data-description-wrapper]");
     var descriptionDisplayEl = drawer.querySelector("[data-description-display]");
     var descriptionRenderedEl = drawer.querySelector("[data-description-rendered]");
@@ -12469,8 +12883,8 @@
     var dashboardBootstrapStore = null;
     var dashboardStorePersistTimer = null;
     var dashboardBootstrapCacheDisabled = false;
-    var dashboardBootstrapCacheSchemaVersion = 3;
-    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v3.user." + String(currentUserId);
+    var dashboardBootstrapCacheSchemaVersion = 4;
+    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v4.user." + String(currentUserId);
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
     var terminClientPerfEvents = [];
 
@@ -14058,72 +14472,102 @@
       }
     }
 
-	    function showLocalAssignSuggest(input, results) {
-	      hideLocalAssignSuggest(input);
-	      if (typeof window.__withAssignSpecialSuggestions === "function") {
-	        results = window.__withAssignSpecialSuggestions(input, results);
-	      }
-	      if (!results || !results.length) return;
+    function showLocalAssignSuggest(input, results, options) {
+      var opts = options || {};
+      hideLocalAssignSuggest(input);
+      if (typeof window.__withAssignSpecialSuggestions === "function" && !opts.loading && !opts.disableSpecialSuggestions) {
+        results = window.__withAssignSpecialSuggestions(input, results);
+      }
+      var items = Array.isArray(results) ? results.slice() : [];
+      if (!opts.loading && !items.length) return;
       var rect = input.getBoundingClientRect();
       var menu = document.createElement("div");
       menu.className = "assign-suggest";
       menu.style.left = rect.left + window.scrollX + "px";
       menu.style.top = rect.bottom + window.scrollY + 4 + "px";
-      input._suggestItems = results;
-	      input._suggestButtons = [];
-	      input._suggestActiveIndex = 0;
-	      results.forEach(function (item) {
-	        var btn = document.createElement("button");
-	        btn.type = "button";
-	        var label = item.is_add_me ? "Add me" : item.is_add_all ? "Add all in project" : (item.type === "user" ? (item.display_name || item.email) : item.email);
-	        var initial = escapeHtml(label.charAt(0).toUpperCase());
-	        var meta = (item.is_add_me || item.is_add_all) ? "" : '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
-	        var avatar = item.is_add_me
-	          ? '<span class="assign-suggest-avatar is-add-me">+</span>'
+      input._suggestItems = items;
+      input._suggestButtons = [];
+      input._suggestActiveIndex = 0;
+      if (opts.loading) {
+        var loadingBtn = document.createElement("button");
+        loadingBtn.type = "button";
+        loadingBtn.className = "assign-suggest-loading";
+        loadingBtn.disabled = true;
+        loadingBtn.setAttribute("aria-label", opts.loadingLabel || "Loading suggestions");
+        loadingBtn.innerHTML =
+          '<span class="assign-suggest-avatar is-loading"><span class="assign-suggest-spinner" aria-hidden="true"></span></span>' +
+          '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(opts.loadingLabel || "Loading…") + '</span></span>';
+        menu.appendChild(loadingBtn);
+      } else {
+        items.forEach(function (item) {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          var label = item.label || (item.is_add_me ? "Add me" : item.is_add_all ? "Add all in project" : (item.type === "user" ? (item.display_name || item.email) : item.email));
+          var initial = escapeHtml(label.charAt(0).toUpperCase());
+          var meta = "";
+          if (!(item.is_add_me || item.is_add_all)) {
+            if (item.meta_label) {
+              meta = '<span class="assign-meta">' + escapeHtml(item.meta_label) + '</span>';
+            } else {
+              meta = '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
+            }
+          }
+          var avatar = item.is_add_me
+            ? '<span class="assign-suggest-avatar is-add-me">+</span>'
             : item.is_add_all
             ? '<span class="assign-suggest-avatar is-add-me">++</span>'
-	          : item.avatar_url
-	          ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(item.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
-	          : '<span class="assign-suggest-avatar">' + initial + "</span>";
-	        btn.innerHTML = avatar + '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + "</span>" + meta + "</span>";
-	        btn.addEventListener("mousedown", function (event) {
-	          event.preventDefault();
-	          input.dataset.assignSelecting = "1";
-        });
-	        btn.addEventListener("mouseenter", function () {
-	          var index = input._suggestButtons.indexOf(btn);
-	          if (index >= 0 && typeof window.__setSuggestActiveIndex === "function") {
-	            window.__setSuggestActiveIndex(input, index);
-	          }
-	        });
-        btn.addEventListener("click", function (event) {
-          event.preventDefault();
-          input.dataset.assignSelecting = "0";
-          if (typeof input._submitSuggestItem === "function") {
-            input._submitSuggestItem(item);
-          } else if (item.is_add_all) {
-            createSettingsAssignmentsForGroup()
-              .then(function (result) {
-                if (!result || !result.ok || !result.data) return;
-                return refreshCurrentTaskMeta();
-              });
-          } else {
-            input.value = item.email;
-            submitSettingsAssignment();
-          }
-          hideLocalAssignSuggest(input);
-          setTimeout(function () {
+            : item.suggest_icon_html
+            ? '<span class="assign-suggest-avatar assign-suggest-avatar--task-status">' + item.suggest_icon_html + '</span>'
+            : item.avatar_url
+            ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(item.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
+            : '<span class="assign-suggest-avatar">' + initial + "</span>";
+          btn.innerHTML = avatar + '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + "</span>" + meta + "</span>";
+          btn.addEventListener("mousedown", function (event) {
+            event.preventDefault();
+            input.dataset.assignSelecting = "1";
+          });
+          btn.addEventListener("mouseenter", function () {
+            var index = input._suggestButtons.indexOf(btn);
+            if (index >= 0 && typeof window.__setSuggestActiveIndex === "function") {
+              window.__setSuggestActiveIndex(input, index);
+            }
+          });
+          btn.addEventListener("click", function (event) {
+            event.preventDefault();
             input.dataset.assignSelecting = "0";
-          }, 50);
+            if (typeof input._submitSuggestItem === "function") {
+              input._submitSuggestItem(item);
+            } else if (item.is_add_all) {
+              createSettingsAssignmentsForGroup()
+                .then(function (result) {
+                  if (!result || !result.ok || !result.data) return;
+                  return refreshCurrentTaskMeta();
+                });
+            } else {
+              input.value = item.email;
+              submitSettingsAssignment();
+            }
+            hideLocalAssignSuggest(input);
+            setTimeout(function () {
+              input.dataset.assignSelecting = "0";
+            }, 50);
+          });
+          input._suggestButtons.push(btn);
+          menu.appendChild(btn);
         });
-	        input._suggestButtons.push(btn);
-        menu.appendChild(btn);
-      });
+      }
       document.body.appendChild(menu);
       input._suggestEl = menu;
-	      if (typeof window.__setSuggestActiveIndex === "function") {
-	        window.__setSuggestActiveIndex(input, 0);
-	      }
+      if (!opts.loading && typeof window.__setSuggestActiveIndex === "function") {
+        window.__setSuggestActiveIndex(input, 0);
+      }
+    }
+
+    function showLocalAssignSuggestLoading(input, label) {
+      showLocalAssignSuggest(input, [], {
+        loading: true,
+        loadingLabel: label || "Loading…",
+      });
     }
 
     function autoLinkText(value) {
@@ -14967,6 +15411,91 @@
       }).join("");
     }
 
+    function prerequisiteMetaLabel(item) {
+      if (!item) return "";
+      var project = dashboardProjectEntity(item.project_id);
+      var group = dashboardGroupEntity(item.group_id);
+      var bits = [];
+      if (project && (project.display_name || project.name)) {
+        bits.push(project.display_name || project.name);
+      }
+      if (group && group.name) {
+        bits.push(group.name);
+      }
+      return bits.join(" · ");
+    }
+
+    function renderPrereqGlyphHtml() {
+      return '' +
+        '<span class="prereq-glyph" aria-hidden="true">' +
+          '<svg viewBox="0 0 512 512" aria-hidden="true" focusable="false">' +
+            '<path d="M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z"></path>' +
+          '</svg>' +
+        '</span>';
+    }
+
+    function renderStatusGlyphHtml(state) {
+      var normalized = String(state || "open").trim().toLowerCase();
+      if (normalized === "prereq") return renderPrereqGlyphHtml();
+      if (normalized === "complete") return '<i class="fa-solid fa-circle-check" aria-hidden="true"></i>';
+      if (normalized === "critical") return '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>';
+      return '<i class="fa-solid fa-circle-dot" aria-hidden="true"></i>';
+    }
+    window.__renderStatusGlyphHtml = renderStatusGlyphHtml;
+
+    function renderReadonlyTaskStatusIconHtml(task) {
+      var meta = taskStatusMeta(task || {});
+      var state = "partial";
+      var iconHtml = '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
+      if (meta.prereq_blocked) {
+        state = "prereq";
+        iconHtml = renderStatusGlyphHtml("prereq");
+      } else if (meta.mode === "single") {
+        state = String(meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open") || "open");
+        if (state === "open") {
+          state = "open";
+        }
+        iconHtml = renderStatusGlyphHtml(state);
+      } else {
+        var aggregateState = String(taskAggregateStatusState(task || {}) || "open");
+        if (aggregateState === "open") {
+          state = "partial";
+          iconHtml = '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
+        } else {
+          state = aggregateState;
+          iconHtml = renderStatusGlyphHtml(aggregateState);
+        }
+      }
+      return '<span class="discussion-prerequisite-status-icon" data-status-state="' + escapeHtml(state) + '" aria-hidden="true">' + iconHtml + '</span>';
+    }
+
+    function renderSettingsPrerequisiteRows(prerequisites) {
+      var rows = Array.isArray(prerequisites) ? prerequisites : [];
+      if (!rows.length) {
+        return '<div class="footer-note">No prerequisites yet.</div>';
+      }
+      return rows.map(function (prerequisite) {
+        var label = prerequisite.title || "Task";
+        var secondary = prerequisiteMetaLabel(prerequisite);
+        return (
+          '<div class="discussion-assignment-row discussion-prerequisite-row" data-prerequisite-id="' + prerequisite.id + '">' +
+            '<div class="discussion-assignment-user discussion-prerequisite-user">' +
+              '<div class="discussion-prerequisite-pill-slot">' +
+                renderReadonlyTaskStatusIconHtml(prerequisite) +
+              '</div>' +
+              '<div class="discussion-assignment-meta">' +
+                '<div class="discussion-assignment-name">' + escapeHtml(label) + '</div>' +
+                (secondary ? '<div class="discussion-assignment-email">' + escapeHtml(secondary) + '</div>' : '') +
+              '</div>' +
+            '</div>' +
+            '<div class="discussion-assignment-status discussion-prerequisite-actions">' +
+              '<button class="discussion-prerequisite-remove" type="button" data-remove-prerequisite="' + prerequisite.id + '" aria-label="Remove prerequisite ' + escapeHtml(label) + '">×</button>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join("");
+    }
+
     function syncTaskLinkBadges(taskId, links) {
       document.querySelectorAll('[data-task-link-badges="' + taskId + '"]').forEach(function (container) {
         container.innerHTML = renderTaskLinkBadges(links);
@@ -15101,6 +15630,11 @@
     }
 
     function taskStatusMeta(task) {
+      var decorateStatusState = (typeof decorateStatusStateWithPrerequisites === "function")
+        ? decorateStatusStateWithPrerequisites
+        : (typeof window.__decorateStatusStateWithPrerequisites === "function"
+          ? window.__decorateStatusStateWithPrerequisites
+          : function (_task, state) { return state; });
       var normalizeMode = (typeof normalizeStatusModeValue === "function")
         ? normalizeStatusModeValue
         : (typeof window.__normalizeStatusModeValue === "function"
@@ -15147,11 +15681,16 @@
       return {
         mode: mode,
         enabled: mode !== "single",
+        prereq_blocked: !!meta.prereq_blocked,
         task_status: baseStatus,
-        task_status_state: getStatusState(baseStatus),
+        task_status_state: decorateStatusState(task, getStatusState(baseStatus)),
         aggregate_state: meta.aggregate_state || null,
         my_status: mode === "single" ? baseStatus : (meta.my_status || null),
-        my_status_state: mode === "single" ? getStatusState(baseStatus) : (meta.my_status_state || null),
+        my_status_state: mode === "single"
+          ? decorateStatusState(task, getStatusState(baseStatus))
+          : ((meta.my_status_state || null)
+              ? decorateStatusState(task, meta.my_status_state || null)
+              : null),
         viewer_can_set: derivedCanSet !== false,
         percentage_complete: Number(
           localOverride && localOverride.percentage != null
@@ -15178,11 +15717,16 @@
     }
 
     function taskMyStatusState(task) {
+      var decorateStatusState = (typeof decorateStatusStateWithPrerequisites === "function")
+        ? decorateStatusStateWithPrerequisites
+        : (typeof window.__decorateStatusStateWithPrerequisites === "function"
+          ? window.__decorateStatusStateWithPrerequisites
+          : function (_task, state) { return state; });
       var meta = taskStatusMeta(task);
       if (meta.mode === "percent") {
-        return Number(meta.percentage_complete || 0) >= 100 ? "complete" : "open";
+        return decorateStatusState(task, Number(meta.percentage_complete || 0) >= 100 ? "complete" : "open");
       }
-      return getStatusState(taskMyStatus(task));
+      return decorateStatusState(task, getStatusState(taskMyStatus(task)));
     }
 
     function renderTodoChecklistControl(task) {
@@ -15214,9 +15758,14 @@
     }
 
     function taskAggregateStatusState(task) {
+      var decorateStatusState = (typeof decorateStatusStateWithPrerequisites === "function")
+        ? decorateStatusStateWithPrerequisites
+        : (typeof window.__decorateStatusStateWithPrerequisites === "function"
+          ? window.__decorateStatusStateWithPrerequisites
+          : function (_task, state) { return state; });
       var meta = taskStatusMeta(task);
-      if (!meta.enabled) return meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open");
-      if (meta.aggregate_state) return meta.aggregate_state;
+      if (!meta.enabled) return decorateStatusState(task, meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open"));
+      if (meta.aggregate_state) return decorateStatusState(task, meta.aggregate_state);
       var summary = Array.isArray(meta.summary) ? meta.summary : [];
       if (summary.length) {
         var total = summary.reduce(function (sum, item) {
@@ -15228,16 +15777,16 @@
         var hasCritical = summary.some(function (item) { return item && item.state === "critical" && Number(item.count || 0) > 0; });
         if (total > 0 && completeCount === total) return "complete";
         if (hasCritical) return "critical";
-        return "open";
+        return decorateStatusState(task, "open");
       }
       var assignees = Array.isArray(meta.assignees) ? meta.assignees : [];
-      if (!assignees.length) return "open";
+      if (!assignees.length) return decorateStatusState(task, "open");
       var states = assignees.map(function (assignee) {
         return getStatusState(assignee && assignee.status ? assignee.status : "open");
       });
       if (states.length && states.every(function (state) { return state === "complete"; })) return "complete";
       if (states.some(function (state) { return state === "critical"; })) return "critical";
-      return "open";
+      return decorateStatusState(task, "open");
     }
 
     function renderTaskStatusSummary(summary) {
@@ -15249,10 +15798,7 @@
         var state = escapeHtml(item && item.state ? item.state : getStatusState(item && item.status ? item.status : ""));
         var count = escapeHtml(item && item.count != null ? String(item.count) : "0");
         var status = escapeHtml(item && item.status ? item.status : "open");
-        var icon = state === "complete"
-          ? "fa-circle-check"
-          : (state === "critical" ? "fa-triangle-exclamation" : "fa-circle-dot");
-        return '<span class="task-status-count status-' + state + '" data-status="' + status + '" data-count="' + count + '" data-state="' + state + '"><i class="fa-solid ' + icon + '" aria-hidden="true"></i><span>' + count + '</span></span>';
+        return '<span class="task-status-count status-' + state + '" data-status="' + status + '" data-count="' + count + '" data-state="' + state + '">' + renderStatusGlyphHtml(state) + '<span>' + count + '</span></span>';
       }).join("");
     }
 
@@ -15264,6 +15810,14 @@
         var status = item && item.status ? item.status : "open";
         return count + " " + status;
       }).join(" · ");
+    }
+
+    function renderPrereqBlockedStatusCellHtml(task, opts) {
+      var options = opts || {};
+      var taskId = escapeHtml(task && task.id);
+      return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">' +
+        renderStatusGlyphHtml("prereq") +
+      '</div>';
     }
 
     function openPercentageStatusMenu(task, anchor, source) {
@@ -15423,20 +15977,24 @@
     function renderTaskStatusCellHtml(task, opts) {
       var options = opts || {};
       var meta = taskStatusMeta(task);
+      var aggregateStateValue = String(taskAggregateStatusState(task) || meta.task_status_state || "open");
+      if (meta.prereq_blocked || aggregateStateValue === "prereq") {
+        return renderPrereqBlockedStatusCellHtml(task, options);
+      }
       if (meta.mode === "single") {
         var status = escapeHtml(meta.task_status || (task && task.status) || "open");
-        var state = escapeHtml(meta.task_status_state || getStatusState(status));
-        return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="' + escapeHtml(task.id) + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="' + state + '">' + status + '</div>';
+        var state = escapeHtml(aggregateStateValue || getStatusState(status));
+        return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="' + escapeHtml(task.id) + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="' + state + '">' + renderStatusGlyphHtml(state) + '<span>' + status + '</span></div>';
       }
       if (meta.mode === "percent") {
         var percent = Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
         return '' +
-          '<button class="task-status-multi-button task-status-percentage-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(percent + "% complete") + '" style="--status-progress:' + escapeHtml(percent.toFixed(2) + "%") + ';">' +
+          '<button class="task-status-multi-button task-status-percentage-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" data-status-state="' + escapeHtml(aggregateStateValue) + '" aria-label="' + escapeHtml(percent + "% complete") + '" style="--status-progress:' + escapeHtml(percent.toFixed(2) + "%") + ';">' +
             '<div class="task-status-percentage" data-task-status-percentage="' + escapeHtml(task.id) + '">' + escapeHtml(String(percent)) + '%</div>' +
           '</button>';
       }
       return '' +
-        '<button class="task-status-multi-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" aria-label="' + escapeHtml(renderTaskStatusSummaryLabel(meta.summary)) + '">' +
+        '<button class="task-status-multi-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" data-status-state="' + escapeHtml(aggregateStateValue) + '" aria-label="' + escapeHtml(renderTaskStatusSummaryLabel(meta.summary)) + '">' +
           '<div class="task-status-summary" data-task-status-summary="' + escapeHtml(task.id) + '">' + renderTaskStatusSummary(meta.summary) + '</div>' +
         '</button>';
     }
@@ -15449,9 +16007,16 @@
       var meta = taskStatusMeta(task);
       var renderedCell = host.querySelector("[data-status-cell='1']");
       if (!renderedCell) return meta;
+      var renderedState = taskAggregateStatusState(task) || meta.task_status_state || getStatusState(meta.task_status || task.status || "open");
+      if (meta.prereq_blocked || renderedState === "prereq") {
+        renderedCell.setAttribute("data-status-state", "prereq");
+        renderedCell.setAttribute("aria-label", "Prerequisites incomplete");
+        return meta;
+      }
       if (meta.mode === "single") {
-        renderedCell.setAttribute("data-status-state", meta.task_status_state || getStatusState(meta.task_status || task.status || "open"));
-        renderedCell.textContent = meta.task_status || task.status || "open";
+        var renderedStatus = escapeHtml(meta.task_status || task.status || "open");
+        renderedCell.setAttribute("data-status-state", renderedState);
+        renderedCell.innerHTML = renderStatusGlyphHtml(renderedState) + '<span>' + renderedStatus + '</span>';
       } else if (meta.mode === "percent") {
         renderedCell.setAttribute("aria-label", String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "% complete");
       } else {
@@ -15708,13 +16273,26 @@
         taskSettingsStatusEl.dataset.statusMode = meta.mode || "single";
         taskSettingsStatusEl.dataset.statusModeBaseline = meta.mode || "single";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
+        var chevron = taskSettingsStatusEl.querySelector(".fa-chevron-down");
+        var blockedByPrereq = !!meta.prereq_blocked || taskAggregateStatusState(task) === "prereq";
         if (label) {
-          label.textContent = meta.mode === "percent"
-            ? (String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%")
-            : (meta.mode === "multi" ? renderTaskStatusSummaryLabel(meta.summary) : effectiveStatus);
+          if (blockedByPrereq) {
+            label.innerHTML = renderStatusGlyphHtml("prereq") + '<span>Prereq</span>';
+          } else if (meta.mode === "single") {
+            label.innerHTML = renderStatusGlyphHtml(taskAggregateStatusState(task)) + '<span>' + escapeHtml(effectiveStatus) + '</span>';
+          } else {
+            label.textContent = meta.mode === "percent"
+              ? (String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%")
+              : renderTaskStatusSummaryLabel(meta.summary);
+          }
         }
+        if (chevron) {
+          taskSettingsStatusEl.appendChild(chevron);
+        }
+        taskSettingsStatusEl.setAttribute("data-status-state", taskAggregateStatusState(task));
         if (meta.mode === "single" && typeof window.__applyStatusState === "function") {
           window.__applyStatusState(taskSettingsStatusEl, effectiveStatus);
+          taskSettingsStatusEl.setAttribute("data-status-state", taskAggregateStatusState(task));
         }
       }
       if (taskSettingsStatusLabelEl) {
@@ -15746,6 +16324,18 @@
       }
       if (taskSettingsFollowerEl) {
         taskSettingsFollowerEl.setAttribute("data-follow-task-id", currentTaskId || "");
+      }
+      if (taskSettingsPrerequisitesEl) {
+        var prerequisites = Array.isArray(task.prerequisites) ? task.prerequisites : [];
+        taskSettingsPrerequisitesEl.style.display = prerequisites.length ? "" : "none";
+        taskSettingsPrerequisitesEl.innerHTML = renderSettingsPrerequisiteRows(prerequisites);
+        taskSettingsPrerequisitesEl.querySelectorAll("[data-remove-prerequisite]").forEach(function (button) {
+          button.disabled = locked;
+        });
+      }
+      if (taskSettingsPrerequisiteEl) {
+        taskSettingsPrerequisiteEl.setAttribute("data-task-prerequisite-input", currentTaskId || "");
+        taskSettingsPrerequisiteEl.disabled = locked;
       }
       if (taskSettingsDescriptionEl) {
         taskSettingsDescriptionEl.value = task.description || "";
@@ -15892,6 +16482,40 @@
     };
     window.__renderTaskSettings = renderTaskSettings;
 
+    var drawerLoadingTokens = { meta: 0, comments: 0 };
+    var drawerLoadingState = { meta: 0, comments: 0 };
+
+    function updateDrawerLoadingUi() {
+      if (!drawer) return;
+      var isLoading = !!drawerLoadingState.meta || !!drawerLoadingState.comments;
+      drawer.classList.toggle("is-loading", isLoading);
+      if (isLoading) {
+        drawer.classList.remove("is-ready");
+        return;
+      }
+      drawer.classList.remove("is-ready");
+      window.requestAnimationFrame(function () {
+        if (!drawer || drawerLoadingState.meta || drawerLoadingState.comments) return;
+        drawer.classList.add("is-ready");
+      });
+    }
+
+    function beginDrawerLoading(part) {
+      if (!part) return 0;
+      var token = (drawerLoadingTokens[part] || 0) + 1;
+      drawerLoadingTokens[part] = token;
+      drawerLoadingState[part] = token;
+      updateDrawerLoadingUi();
+      return token;
+    }
+
+    function endDrawerLoading(part, token) {
+      if (!part) return;
+      if (drawerLoadingState[part] !== token) return;
+      drawerLoadingState[part] = 0;
+      updateDrawerLoadingUi();
+    }
+
     function createSettingsAssignment(email) {
       if (!currentTaskId) return Promise.resolve(null);
       return fetch("/api/assignments", {
@@ -16014,6 +16638,18 @@
 
     function deleteTaskFollower(followerId) {
       return fetch("/api/task-followers/" + followerId, {
+        method: "DELETE",
+        credentials: "same-origin",
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, status: res.status, data: data };
+          });
+        });
+    }
+
+    function deleteTaskPrerequisite(prerequisiteId) {
+      return fetch("/api/task-prerequisites/" + prerequisiteId, {
         method: "DELETE",
         credentials: "same-origin",
       })
@@ -16478,6 +17114,7 @@
       if (window.__terminDebugFetchTrace) {
         console.log("[task-fetch]", "loadTaskMeta", String(taskId || ""));
       }
+      var metaLoadToken = beginDrawerLoading("meta");
       var requestToken = ++currentDrawerEntityRequestToken;
       setDrawerEntityType("task");
       currentEntityId = taskId;
@@ -16502,6 +17139,7 @@
       fetch("/api/tasks/" + taskId, { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
+          endDrawerLoading("meta", metaLoadToken);
           if (requestToken !== currentDrawerEntityRequestToken) return;
           if (String(currentTaskId || "") !== String(taskId)) return;
           currentTaskData = data || null;
@@ -16512,6 +17150,7 @@
           renderEntityLinkState();
         })
         .catch(function () {
+          endDrawerLoading("meta", metaLoadToken);
           if (requestToken !== currentDrawerEntityRequestToken) return;
           if (String(currentTaskId || "") !== String(taskId)) return;
           currentTaskData = null;
@@ -16524,6 +17163,7 @@
     }
 
     function loadEntityMeta(entityType, entityId, entityTitle, projectName) {
+      var metaLoadToken = beginDrawerLoading("meta");
       var requestToken = ++currentDrawerEntityRequestToken;
       setDrawerEntityType(entityType);
       currentEntityId = entityId;
@@ -16555,6 +17195,7 @@
       fetch(endpoint, { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
+          endDrawerLoading("meta", metaLoadToken);
           if (requestToken !== currentDrawerEntityRequestToken) return;
           if (String(currentEntityId || "") !== String(entityId)) return;
           if (String(currentEntityType || "") !== String(entityType)) return;
@@ -16570,6 +17211,7 @@
           renderEntityLinkState();
         })
         .catch(function () {
+          endDrawerLoading("meta", metaLoadToken);
           if (requestToken !== currentDrawerEntityRequestToken) return;
           if (String(currentEntityId || "") !== String(entityId)) return;
           if (String(currentEntityType || "") !== String(entityType)) return;
@@ -18650,10 +19292,51 @@
         });
     }
 
+    function submitTaskPrerequisite(prerequisiteTaskId) {
+      if (!taskSettingsPrerequisiteEl || !currentTaskId) return;
+      if (window.__taskIdIsLocked(currentTaskId)) return;
+      var targetTaskId = Number(prerequisiteTaskId || taskSettingsPrerequisiteEl.dataset.selectedTaskId || 0);
+      if (!targetTaskId) return;
+      if (taskSettingsPrerequisiteEl.dataset.prerequisiteSubmitting === "1") return;
+      taskSettingsPrerequisiteEl.dataset.prerequisiteSubmitting = "1";
+      fetch("/api/tasks/" + currentTaskId + "/prerequisites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ prerequisite_task_id: targetTaskId }),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result || !result.ok || !result.data || !result.data.id) {
+            console.error("submitTaskPrerequisite failed", result && result.data ? result.data : result);
+            return;
+          }
+          var data = result.data;
+          taskSettingsPrerequisiteEl.value = "";
+          taskSettingsPrerequisiteEl.dataset.selectedTaskId = "";
+          var existing = Array.isArray((currentTaskData || {}).prerequisites) ? currentTaskData.prerequisites.slice() : [];
+          existing = existing.filter(function (row) { return String(row.id) !== String(data.id); });
+          existing.push(data);
+          currentTaskData = Object.assign({}, currentTaskData || {}, { prerequisites: existing });
+          renderTaskSettings();
+          return refreshCurrentTaskMeta();
+        })
+        .finally(function () {
+          if (taskSettingsPrerequisiteEl) {
+            taskSettingsPrerequisiteEl.dataset.prerequisiteSubmitting = "0";
+          }
+        });
+    }
+
     function bindSettingsAssignmentInput() {
       if (!taskSettingsAssigneeEl || taskSettingsAssigneeEl.dataset.boundSettingsAssign === "1") return;
       taskSettingsAssigneeEl.dataset.boundSettingsAssign = "1";
       disableLocalInputSuggestions(taskSettingsAssigneeEl);
+      taskSettingsAssigneeEl._suggestRequestToken = 0;
       taskSettingsAssigneeEl._submitSuggestItem = function (item) {
         if (!item) return;
         if (item.is_add_all) {
@@ -18670,22 +19353,29 @@
         submitSettingsAssignment();
       };
 
-	      taskSettingsAssigneeEl.addEventListener("input", function () {
-	        var value = taskSettingsAssigneeEl.value.trim();
-	        fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
-	          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
-	          .then(function (data) {
-	            showLocalAssignSuggest(taskSettingsAssigneeEl, data.results || []);
-	          });
-	      });
-	      taskSettingsAssigneeEl.addEventListener("focus", function () {
-	        var value = taskSettingsAssigneeEl.value.trim();
-	        fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
-	          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
-	          .then(function (data) {
-	            showLocalAssignSuggest(taskSettingsAssigneeEl, data.results || []);
-	          });
-	      });
+      function loadSettingsAssignmentSuggestions() {
+        var value = taskSettingsAssigneeEl.value.trim();
+        var requestToken = (Number(taskSettingsAssigneeEl._suggestRequestToken || 0) + 1);
+        taskSettingsAssigneeEl._suggestRequestToken = requestToken;
+        showLocalAssignSuggestLoading(taskSettingsAssigneeEl, "Loading assignees…");
+        fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+          .then(function (data) {
+            if (!taskSettingsAssigneeEl || Number(taskSettingsAssigneeEl._suggestRequestToken || 0) !== requestToken) return;
+            showLocalAssignSuggest(taskSettingsAssigneeEl, data.results || []);
+          })
+          .catch(function () {
+            if (!taskSettingsAssigneeEl || Number(taskSettingsAssigneeEl._suggestRequestToken || 0) !== requestToken) return;
+            hideLocalAssignSuggest(taskSettingsAssigneeEl);
+          });
+      }
+
+      taskSettingsAssigneeEl.addEventListener("input", function () {
+        loadSettingsAssignmentSuggestions();
+      });
+      taskSettingsAssigneeEl.addEventListener("focus", function () {
+        loadSettingsAssignmentSuggestions();
+      });
 
       taskSettingsAssigneeEl.addEventListener("keydown", function (event) {
         if (event.key === "Escape") {
@@ -18739,6 +19429,7 @@
       if (!taskSettingsFollowerEl || taskSettingsFollowerEl.dataset.boundTaskFollower === "1") return;
       taskSettingsFollowerEl.dataset.boundTaskFollower = "1";
       disableLocalInputSuggestions(taskSettingsFollowerEl);
+      taskSettingsFollowerEl._suggestRequestToken = 0;
       taskSettingsFollowerEl._submitSuggestItem = function (item) {
         if (!item) return;
         if (item.is_add_all) {
@@ -18759,13 +19450,21 @@
 
       function loadFollowerSuggestions() {
         var value = taskSettingsFollowerEl.value.trim();
+        var requestToken = (Number(taskSettingsFollowerEl._suggestRequestToken || 0) + 1);
+        taskSettingsFollowerEl._suggestRequestToken = requestToken;
+        showLocalAssignSuggestLoading(taskSettingsFollowerEl, "Loading followers…");
         fetch("/api/assignees?q=" + encodeURIComponent(value), { credentials: "same-origin" })
           .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
           .then(function (data) {
+            if (!taskSettingsFollowerEl || Number(taskSettingsFollowerEl._suggestRequestToken || 0) !== requestToken) return;
             var results = Array.isArray(data.results) ? data.results.filter(function (item) {
               return item && item.type === "user" && item.email;
             }) : [];
             showLocalAssignSuggest(taskSettingsFollowerEl, results);
+          })
+          .catch(function () {
+            if (!taskSettingsFollowerEl || Number(taskSettingsFollowerEl._suggestRequestToken || 0) !== requestToken) return;
+            hideLocalAssignSuggest(taskSettingsFollowerEl);
           });
       }
 
@@ -18820,6 +19519,110 @@
       });
     }
 
+    function bindTaskPrerequisiteInput() {
+      if (!taskSettingsPrerequisiteEl || taskSettingsPrerequisiteEl.dataset.boundTaskPrerequisite === "1") return;
+      taskSettingsPrerequisiteEl.dataset.boundTaskPrerequisite = "1";
+      disableLocalInputSuggestions(taskSettingsPrerequisiteEl);
+      taskSettingsPrerequisiteEl._suggestRequestToken = 0;
+      taskSettingsPrerequisiteEl._submitSuggestItem = function (item) {
+        if (!item || !item.id) return;
+        taskSettingsPrerequisiteEl.dataset.selectedTaskId = String(item.id);
+        taskSettingsPrerequisiteEl.value = item.title || "";
+        submitTaskPrerequisite(item.id);
+      };
+
+      function loadTaskPrerequisiteSuggestions() {
+        var value = taskSettingsPrerequisiteEl.value.trim();
+        var requestToken = (Number(taskSettingsPrerequisiteEl._suggestRequestToken || 0) + 1);
+        taskSettingsPrerequisiteEl._suggestRequestToken = requestToken;
+        showLocalAssignSuggestLoading(taskSettingsPrerequisiteEl, "Loading tasks…");
+        fetch(
+          "/api/tasks/search?q=" + encodeURIComponent(value) +
+          "&entity_type=task" +
+          "&exclude_task_id=" + encodeURIComponent(String(currentTaskId || "")),
+          { credentials: "same-origin" }
+        )
+          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+          .then(function (data) {
+            if (!taskSettingsPrerequisiteEl || Number(taskSettingsPrerequisiteEl._suggestRequestToken || 0) !== requestToken) return;
+            var existingIds = new Set(
+              (Array.isArray((currentTaskData || {}).prerequisites) ? currentTaskData.prerequisites : [])
+                .map(function (item) { return String(item && item.prerequisite_task_id || ""); })
+                .filter(Boolean)
+            );
+            var results = Array.isArray(data.results) ? data.results.filter(function (item) {
+              return item
+                && item.entity_type === "task"
+                && String(item.id || "") !== String(currentTaskId || "")
+                && !existingIds.has(String(item.id || ""));
+            }).map(function (item) {
+              var metaBits = [];
+              if (item.project_name) metaBits.push(item.project_name);
+              if (item.group_name) metaBits.push(item.group_name);
+              return Object.assign({}, item, {
+                label: item.title || "Task",
+                meta_label: metaBits.join(" · "),
+                suggest_icon_html: renderReadonlyTaskStatusIconHtml(item),
+              });
+            }) : [];
+            showLocalAssignSuggest(taskSettingsPrerequisiteEl, results, {
+              disableSpecialSuggestions: true,
+            });
+          })
+          .catch(function () {
+            if (!taskSettingsPrerequisiteEl || Number(taskSettingsPrerequisiteEl._suggestRequestToken || 0) !== requestToken) return;
+            hideLocalAssignSuggest(taskSettingsPrerequisiteEl);
+          });
+      }
+
+      taskSettingsPrerequisiteEl.addEventListener("input", function () {
+        taskSettingsPrerequisiteEl.dataset.selectedTaskId = "";
+        loadTaskPrerequisiteSuggestions();
+      });
+      taskSettingsPrerequisiteEl.addEventListener("focus", function () {
+        loadTaskPrerequisiteSuggestions();
+      });
+      taskSettingsPrerequisiteEl.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          hideLocalAssignSuggest(taskSettingsPrerequisiteEl);
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsPrerequisiteEl, 1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsPrerequisiteEl, -1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key !== "Enter" && event.key !== "Tab") return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (taskSettingsPrerequisiteEl._suggestItems && taskSettingsPrerequisiteEl._suggestItems.length) {
+          var active = typeof window.__getActiveSuggestItem === "function"
+            ? window.__getActiveSuggestItem(taskSettingsPrerequisiteEl)
+            : taskSettingsPrerequisiteEl._suggestItems[0];
+          if (active && typeof taskSettingsPrerequisiteEl._submitSuggestItem === "function") {
+            taskSettingsPrerequisiteEl._submitSuggestItem(active);
+            hideLocalAssignSuggest(taskSettingsPrerequisiteEl);
+          }
+        }
+      });
+      taskSettingsPrerequisiteEl.addEventListener("blur", function () {
+        window.setTimeout(function () {
+          if (!taskSettingsPrerequisiteEl) return;
+          if (taskSettingsPrerequisiteEl.dataset.assignSelecting === "1") return;
+          hideLocalAssignSuggest(taskSettingsPrerequisiteEl);
+        }, 120);
+      });
+    }
+
     function markRead(taskId) {
       fetch("/api/tasks/" + taskId + "/notifications/read", {
         method: "POST",
@@ -18868,6 +19671,7 @@
     }
 
     function loadEntityComments(entityType, entityId, entityTitle, projectName) {
+      var commentsLoadToken = beginDrawerLoading("comments");
       if (entityType === "task") {
         loadTaskMeta(entityId, entityTitle, projectName);
       } else {
@@ -18880,6 +19684,7 @@
       fetch(commentBaseUrl(entityType, entityId) + "/comments", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
+          endDrawerLoading("comments", commentsLoadToken);
           var comments = data.comments || [];
           commentSnapshot = JSON.stringify(comments);
           if (!comments.length) {
@@ -18897,6 +19702,7 @@
           scrollDiscussionToBottom();
         })
         .catch(function (err) {
+          endDrawerLoading("comments", commentsLoadToken);
           console.error("loadComments failed", err);
           listEl.innerHTML = '<div class="footer-note">Could not load comments.</div>';
         });
@@ -18913,6 +19719,11 @@
       if (taskSettingsAssigneeEl) {
         taskSettingsAssigneeEl.value = "";
         taskSettingsAssigneeEl.dataset.assignSelecting = "0";
+      }
+      if (taskSettingsPrerequisiteEl) {
+        taskSettingsPrerequisiteEl.value = "";
+        taskSettingsPrerequisiteEl.dataset.assignSelecting = "0";
+        taskSettingsPrerequisiteEl.dataset.selectedTaskId = "";
       }
       loadTaskMeta(taskId, taskTitle, projectName);
       drawer.classList.add("open");
@@ -20295,6 +21106,27 @@
     if (taskSettingsFollowerEl) {
       bindTaskFollowerInput();
     }
+    if (taskSettingsPrerequisiteEl) {
+      bindTaskPrerequisiteInput();
+    }
+    document.addEventListener("click", function (event) {
+      var removePrerequisiteButton = event.target.closest("[data-remove-prerequisite]");
+      if (!removePrerequisiteButton) return;
+      var prerequisiteId = removePrerequisiteButton.getAttribute("data-remove-prerequisite");
+      if (!prerequisiteId || !currentTaskId || window.__taskIdIsLocked(currentTaskId)) return;
+      deleteTaskPrerequisite(prerequisiteId)
+        .then(function (result) {
+          if (!result || !result.ok) return;
+          var existing = Array.isArray((currentTaskData || {}).prerequisites) ? currentTaskData.prerequisites.slice() : [];
+          existing = existing.filter(function (row) { return String(row.id) !== String(prerequisiteId); });
+          currentTaskData = Object.assign({}, currentTaskData || {}, { prerequisites: existing });
+          renderTaskSettings();
+          return refreshCurrentTaskMeta();
+        })
+        .catch(function (error) {
+          console.error("deleteTaskPrerequisite failed", error);
+        });
+    });
     if (discussionLockToggleEl) {
       discussionLockToggleEl.addEventListener("click", function () {
         if (!currentTaskId || currentEntityType !== "task") return;
