@@ -1,5 +1,33 @@
 const { test, expect } = require('@playwright/test');
-const { createStepRecorder, captureFailureSnapshot } = require('./test-helpers');
+const {
+  createStepRecorder,
+  captureFailureSnapshot,
+  installBrowserErrorCollectorOnContext,
+} = require('./test-helpers');
+
+test.beforeEach(async ({ page, browser }, testInfo) => {
+  const assertions = [];
+  assertions.push(installBrowserErrorCollectorOnContext(page.context(), testInfo));
+
+  const originalNewContext = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => {
+    const context = await originalNewContext(...args);
+    assertions.push(installBrowserErrorCollectorOnContext(context, testInfo));
+    return context;
+  };
+
+  testInfo.__assertNoBrowserErrors = async function assertNoBrowserErrors() {
+    for (const assertContextErrors of assertions) {
+      await assertContextErrors();
+    }
+  };
+});
+
+test.afterEach(async ({}, testInfo) => {
+  if (typeof testInfo.__assertNoBrowserErrors === 'function') {
+    await testInfo.__assertNoBrowserErrors();
+  }
+});
 
 function isoDateWithOffset(days) {
   const date = new Date();
@@ -110,6 +138,42 @@ async function createTaskPrerequisite(page, taskId, prerequisiteTaskId) {
     }
     return { ok: response.ok, status: response.status, data };
   }, { taskId, prerequisiteTaskId });
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
+async function deleteTaskPrerequisite(page, prerequisiteId) {
+  const result = await page.evaluate(async (rowId) => {
+    const response = await fetch(`/api/task-prerequisites/${rowId}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data };
+  }, prerequisiteId);
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
+async function deleteTask(page, taskId) {
+  const result = await page.evaluate(async (rowTaskId) => {
+    const response = await fetch(`/api/tasks/${rowTaskId}?confirm=1`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data };
+  }, taskId);
   expect(result.ok).toBeTruthy();
   return result.data;
 }
@@ -319,9 +383,23 @@ async function waitForTreeTaskUiToSettle(page, taskId, ms = 1400) {
 async function waitForTreeProjectReady(page, projectId, taskId) {
   const board = page.locator(`[data-tree-project-board="${projectId}"]`).first();
   await expect(board).toHaveCount(1);
-  await expect(board.locator('[data-tree-project-loading-panel]')).toHaveCount(0, { timeout: 15000 });
   if (taskId != null) {
     await expect(page.locator(`[data-task-row-id="${taskId}"]`)).toHaveCount(1, { timeout: 15000 });
+    await page.waitForFunction(({ projectId: targetProjectId, taskId: targetTaskId }) => {
+      const boardEl = document.querySelector(`[data-tree-project-board="${targetProjectId}"]`);
+      if (!boardEl) return false;
+      const taskRow = document.querySelector(`[data-task-row-id="${targetTaskId}"]`);
+      if (!taskRow) return false;
+      const loadingPanel = boardEl.querySelector('[data-tree-project-loading-panel]');
+      return !loadingPanel || loadingPanel.hidden || loadingPanel.style.display === 'none' || loadingPanel.getAttribute('aria-hidden') === 'true';
+    }, { projectId, taskId }, { timeout: 15000 }).catch(() => {});
+  } else {
+    await page.waitForFunction((targetProjectId) => {
+      const boardEl = document.querySelector(`[data-tree-project-board="${targetProjectId}"]`);
+      if (!boardEl) return false;
+      const loadingPanel = boardEl.querySelector('[data-tree-project-loading-panel]');
+      return !loadingPanel || loadingPanel.hidden || loadingPanel.style.display === 'none' || loadingPanel.getAttribute('aria-hidden') === 'true';
+    }, projectId, { timeout: 15000 }).catch(() => {});
   }
 }
 
@@ -386,6 +464,16 @@ async function expectContainsTextWithFailure(page, testInfo, selector, expected,
       note,
     });
     throw error;
+  }
+}
+
+async function expectPrereqHoverCard(page, triggerSelector, expectedTitle) {
+  await page.locator(triggerSelector).first().hover();
+  const hoverCard = page.locator('#prereq-hover-card');
+  await expect(hoverCard).toBeVisible();
+  await expect(hoverCard).toContainText('Prerequisites');
+  if (expectedTitle) {
+    await expect(hoverCard).toContainText(expectedTitle);
   }
 }
 
@@ -707,33 +795,467 @@ test.describe('dashboard and realtime flows', () => {
     await patchTask(page, state.linked_todo_task.id, { status: 'open' });
     await createTaskPrerequisite(page, state.task.id, state.linked_todo_task.id);
 
-    await page.goto(`/?project_id=${state.project.id}&view=tree&show_completed=1`);
+    await page.goto(`/tree/project/${state.project.id}`);
     await waitForTreeProjectReady(page, state.project.id, state.task.id);
     const treeStatusCell = page.locator(`[data-task-row-id="${state.task.id}"] [data-status-cell="1"]`).first();
     await expect(treeStatusCell).toHaveAttribute('data-status-state', 'prereq');
-    await expect(treeStatusCell.locator('.prereq-glyph')).toHaveCount(1);
     await expect(treeStatusCell).not.toHaveAttribute('role', 'button');
     await expect(treeStatusCell).not.toHaveAttribute('data-field', 'status');
-    await steps.step('Verify the Tree row renders the prereq glyph with a readonly, non-button status cell.', page);
+    await expect(treeStatusCell).toHaveClass(/status-editable/);
+    await steps.step('Verify the Tree row renders a readonly prereq-blocked status cell.', page);
 
     await page.goto('/todo');
     const todoStatusCell = page.locator(`.todo-item[data-task-id="${state.task.id}"] [data-status-cell="1"]`).first();
     await expect(todoStatusCell).toHaveAttribute('data-status-state', 'prereq');
-    await expect(todoStatusCell.locator('.prereq-glyph')).toHaveCount(1);
     await expect(todoStatusCell).not.toHaveAttribute('role', 'button');
     await expect(todoStatusCell).not.toHaveAttribute('data-field', 'status');
-    await steps.step('Verify the Todo row renders the same prereq readonly status treatment.', page);
+    await expect(todoStatusCell).toHaveClass(/status-editable/);
+    await steps.step('Verify the Todo row renders the same readonly prereq-blocked status treatment.', page);
 
-    await page.goto(`/?project_id=${state.project.id}&view=tree&show_completed=1`);
+    await page.goto(`/tree/project/${state.project.id}`);
     await page.locator(`[data-task-row-id="${state.task.id}"] [data-open-settings="${state.task.id}"]`).click();
     await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
     await expect(page.locator('#task-settings-status')).toBeHidden();
-    await expect(page.locator('#task-settings-status-mode-picker')).toBeHidden();
+    await expect(page.locator('#task-settings-status-mode-picker')).toBeVisible();
     const drawerReadonly = page.locator('#task-settings-status-readonly');
     await expect(drawerReadonly).toBeVisible();
-    await expect(drawerReadonly).toContainText('Prereq');
-    await expect(drawerReadonly.locator('.prereq-glyph')).toHaveCount(1);
-    await steps.step('Verify the drawer hides the interactive status controls and shows a readonly prereq status indicator.', page);
+    await expect(drawerReadonly).toHaveAttribute('data-status-state', 'prereq');
+    await steps.step('Verify the drawer hides the interactive status control, keeps the mode picker available, and shows a readonly prereq status indicator.', page);
+  });
+
+  test('blocked prereq status hover shows the prerequisite list in tree and todo', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'hover', 'tree', 'todo']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const prerequisiteTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Hover Source Task',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Hover Dependent Task',
+      assignee_email: state.owner.email,
+    });
+    await createTaskPrerequisite(page, dependentTask.id, prerequisiteTask.id);
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, dependentTask.id);
+    await expect(page.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expectPrereqHoverCard(page, `[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`, 'Hover Source Task');
+    await steps.step('Hover the blocked Tree status badge and verify the prereq hover card shows the prerequisite task.', page);
+
+    await page.goto('/todo');
+    await expect(page.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expectPrereqHoverCard(page, `.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`, 'Hover Source Task');
+    await steps.step('Hover the blocked Todo status badge and verify the same prereq hover card appears there as well.', page);
+  });
+
+  test('adding and removing a prerequisite updates the dependent live in tree', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'socket', 'tree', 'add-remove']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const prerequisiteTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Live Prerequisite Source',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Live Dependent Task',
+      assignee_email: state.owner.email,
+    });
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, dependentTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, dependentTask.id);
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await steps.step('Open the same Tree project in both browsers with a fresh prerequisite source task and dependent task starting as open.', ownerPage);
+
+    const prerequisiteRow = await createTaskPrerequisite(memberPage, dependentTask.id, prerequisiteTask.id);
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await focusTreeTask(ownerPage, dependentTask.id, 'Dependent task after prerequisite add', ['The dependent should switch into prereq-blocked state without a refresh.']);
+    await steps.step('Add the prerequisite in one browser and verify the dependent task turns prereq-blocked live in the other browser.', ownerPage);
+
+    await deleteTaskPrerequisite(memberPage, prerequisiteRow.id);
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await focusTreeTask(ownerPage, dependentTask.id, 'Dependent task after prerequisite removal', ['Removing the prerequisite should restore the normal open status live.']);
+    await steps.step('Remove the prerequisite in one browser and verify the dependent task returns to normal open state live in the other browser.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('prerequisite completion updates dependent status live in tree', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'socket', 'tree', 'status-propagation']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const prerequisiteTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Status Source Task',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Status Dependent Task',
+      assignee_email: state.owner.email,
+    });
+    await createTaskPrerequisite(memberPage, dependentTask.id, prerequisiteTask.id);
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, dependentTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, dependentTask.id);
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await steps.step('Start both browsers on the same Tree project with a dependent task blocked by an incomplete prerequisite.', ownerPage);
+
+    await patchTask(memberPage, prerequisiteTask.id, { status: 'complete' });
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await focusTreeTask(ownerPage, dependentTask.id, 'Dependent task after prerequisite completion', ['Completing the prerequisite should unblock the dependent immediately.']);
+    await steps.step('Complete the prerequisite in one browser and verify the dependent task unblocks live in the other browser.', ownerPage);
+
+    await patchTask(memberPage, prerequisiteTask.id, { status: 'open' });
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await focusTreeTask(ownerPage, dependentTask.id, 'Dependent task after prerequisite reopen', ['Reopening the prerequisite should block the dependent again live.']);
+    await steps.step('Reopen the prerequisite and verify the dependent task returns to prereq-blocked live in the other browser.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('recursive prerequisite changes propagate to downstream dependents live', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'socket', 'tree', 'recursive']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const taskA = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Chain Task A',
+      assignee_email: state.owner.email,
+    });
+    const taskB = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Chain Task B',
+      assignee_email: state.owner.email,
+    });
+    const taskC = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Chain Task C',
+      assignee_email: state.owner.email,
+    });
+    await createTaskPrerequisite(memberPage, taskB.id, taskA.id);
+    await createTaskPrerequisite(memberPage, taskC.id, taskB.id);
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, taskC.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, taskC.id);
+
+    await expect(ownerPage.locator(`[data-task-row-id="${taskB.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expect(ownerPage.locator(`[data-task-row-id="${taskC.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await steps.step('Start with a three-task dependency chain where both downstream tasks begin blocked.', ownerPage);
+
+    await patchTask(memberPage, taskA.id, { status: 'complete' });
+    await expect(ownerPage.locator(`[data-task-row-id="${taskB.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerPage.locator(`[data-task-row-id="${taskC.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await focusTreeTask(ownerPage, taskB.id, 'Middle task after upstream completion', ['Task B should unblock once Task A completes.']);
+    await focusTreeTask(ownerPage, taskC.id, 'Downstream task remains blocked', ['Task C should stay blocked because Task B is still incomplete.']);
+    await steps.step('Complete the root prerequisite and verify the middle task unblocks while the downstream task stays blocked.', ownerPage);
+
+    await patchTask(memberPage, taskB.id, { status: 'complete' });
+    await expect(ownerPage.locator(`[data-task-row-id="${taskC.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerPage.locator(`[data-task-row-id="${taskC.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await focusTreeTask(ownerPage, taskC.id, 'Downstream task after middle completion', ['Task C should unblock once Task B completes.']);
+    await steps.step('Complete the middle task and verify the downstream dependent unblocks live as well.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('deleting a prerequisite task clears dependent blocked status live', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'socket', 'tree', 'delete-cleanup']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const prerequisiteTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Delete Source Task',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Delete Dependent Task',
+      assignee_email: state.owner.email,
+    });
+    await createTaskPrerequisite(memberPage, dependentTask.id, prerequisiteTask.id);
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, dependentTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, dependentTask.id);
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await steps.step('Start with a dependent task blocked by a prerequisite task that still exists in the Tree board.', ownerPage);
+
+    await deleteTask(memberPage, prerequisiteTask.id);
+    await expect(ownerPage.locator(`[data-task-row-id="${prerequisiteTask.id}"]`)).toHaveCount(0);
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await focusTreeTask(ownerPage, dependentTask.id, 'Dependent task after prerequisite deletion', ['Deleting the prerequisite task should clear the blocked state live.']);
+    await steps.step('Delete the prerequisite task in one browser and verify the blocked dependent task immediately returns to normal open state in the other browser.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('adding and removing a prerequisite updates the dependent live in todo', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'socket', 'todo', 'add-remove']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const prerequisiteTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Prerequisite Source',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Dependent Task',
+      assignee_email: state.owner.email,
+    });
+
+    await ownerPage.goto('/todo');
+    await memberPage.goto('/todo');
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveCount(1);
+    await expect(memberPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveCount(1);
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await steps.step('Open Todo in both browsers with a fresh dependent task starting in the normal open state.', ownerPage);
+
+    const prerequisiteRow = await createTaskPrerequisite(memberPage, dependentTask.id, prerequisiteTask.id);
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await focusTodoTask(ownerPage, dependentTask.id, 'Todo dependent after prerequisite add', ['The Todo row should turn prereq-blocked without a refresh.']);
+    await steps.step('Add the prerequisite in one browser and verify the dependent Todo row turns prereq-blocked live in the other browser.', ownerPage);
+
+    await deleteTaskPrerequisite(memberPage, prerequisiteRow.id);
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await focusTodoTask(ownerPage, dependentTask.id, 'Todo dependent after prerequisite removal', ['Removing the prerequisite should restore the Todo row to open live.']);
+    await steps.step('Remove the prerequisite in one browser and verify the dependent Todo row returns to open live in the other browser.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('prerequisite completion updates dependent status live in todo', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'socket', 'todo', 'status-propagation']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const prerequisiteTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Status Source Task',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Status Dependent Task',
+      assignee_email: state.owner.email,
+    });
+    await createTaskPrerequisite(memberPage, dependentTask.id, prerequisiteTask.id);
+
+    await ownerPage.goto('/todo');
+    await memberPage.goto('/todo');
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expect(memberPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await steps.step('Open Todo in both browsers with a dependent task initially blocked by an incomplete prerequisite.', ownerPage);
+
+    await patchTask(memberPage, prerequisiteTask.id, { status: 'complete' });
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await focusTodoTask(ownerPage, dependentTask.id, 'Todo dependent after prerequisite completion', ['Completing the prerequisite should unblock the Todo row immediately.']);
+    await steps.step('Complete the prerequisite in one browser and verify the dependent Todo row unblocks live in the other browser.', ownerPage);
+
+    await patchTask(memberPage, prerequisiteTask.id, { status: 'open' });
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await focusTodoTask(ownerPage, dependentTask.id, 'Todo dependent after prerequisite reopen', ['Reopening the prerequisite should block the Todo row again live.']);
+    await steps.step('Reopen the prerequisite and verify the dependent Todo row returns to prereq-blocked live in the other browser.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('open drawer updates live when prerequisites are added and cleared remotely', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'socket', 'drawer', 'live-update']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const prerequisiteTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Drawer Prerequisite Source',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Drawer Dependent Task',
+      assignee_email: state.owner.email,
+    });
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, dependentTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, dependentTask.id);
+
+    await ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-open-settings="${dependentTask.id}"]`).click();
+    await expect(ownerPage.locator('#discussion-drawer')).toHaveClass(/open/);
+    await expect(ownerPage.locator('#task-settings-status')).toBeVisible();
+    await expect(ownerPage.locator('#task-settings-status-readonly')).toBeHidden();
+    await expect(ownerPage.locator('#task-settings-prerequisites')).not.toContainText('Drawer Prerequisite Source');
+    await steps.step('Open the dependent task drawer before any prerequisites exist, with the normal status control still visible.', ownerPage);
+
+    const prerequisiteRow = await createTaskPrerequisite(memberPage, dependentTask.id, prerequisiteTask.id);
+    const readonlyStatus = ownerPage.locator('#task-settings-status-readonly');
+    await expect(readonlyStatus).toBeVisible();
+    await expect(readonlyStatus).toHaveAttribute('data-status-state', 'prereq');
+    await expect(ownerPage.locator('#task-settings-status')).toBeHidden();
+    await expect(ownerPage.locator('#task-settings-prerequisites')).toContainText('Drawer Prerequisite Source');
+    await steps.step('Add the prerequisite remotely and verify the open drawer switches into readonly prereq-blocked state and lists the prerequisite live.', ownerPage);
+
+    await patchTask(memberPage, prerequisiteTask.id, { status: 'complete' });
+    await expect(ownerPage.locator('#task-settings-status-readonly')).toBeHidden();
+    await expect(ownerPage.locator('#task-settings-status')).toBeVisible();
+    await expect(ownerPage.locator('#task-settings-prerequisites')).toContainText('Drawer Prerequisite Source');
+    await steps.step('Complete the prerequisite remotely and verify the open drawer unlocks the normal status control while keeping the prerequisite list visible.', ownerPage);
+
+    await deleteTaskPrerequisite(memberPage, prerequisiteRow.id);
+    await expect(ownerPage.locator('#task-settings-prerequisites')).not.toContainText('Drawer Prerequisite Source');
+    await expect(ownerPage.locator('#task-settings-status')).toBeVisible();
+    await expect(ownerPage.locator('#task-settings-status-readonly')).toBeHidden();
+    await steps.step('Remove the prerequisite remotely and verify the open drawer removes the prerequisite row and stays on the normal status control.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('blocked prereq hover updates live after remote prerequisite add in tree', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'hover', 'socket', 'tree']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const prerequisiteTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Hover Live Source',
+      assignee_email: state.owner.email,
+    });
+    const dependentTask = await createTask(memberPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Hover Live Dependent',
+      assignee_email: state.owner.email,
+    });
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, dependentTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, dependentTask.id);
+    await expect(ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await steps.step('Open the same Tree board in both browsers with a dependent task that starts unblocked.', ownerPage);
+
+    const prerequisiteRow = await createTaskPrerequisite(memberPage, dependentTask.id, prerequisiteTask.id);
+    const ownerStatusCell = ownerPage.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`).first();
+    await expect(ownerStatusCell).toHaveAttribute('data-status-state', 'prereq');
+    await expectPrereqHoverCard(ownerPage, `[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`, 'Hover Live Source');
+    await steps.step('Add the prerequisite remotely and verify the blocked Tree status hover card appears with the new prerequisite.', ownerPage);
+
+    await deleteTaskPrerequisite(memberPage, prerequisiteRow.id);
+    await expect(ownerStatusCell).toHaveAttribute('data-status-state', 'open');
+    await steps.step('Remove the prerequisite remotely and verify the Tree row itself returns to open after the hover-based blocked state had been exercised.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
   });
 
   test('tree updates live when another user changes task title', async ({ browser, request }) => {

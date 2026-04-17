@@ -705,6 +705,8 @@ def _serialize_task_prerequisites(task_id: int) -> list[dict]:
                 "status": prerequisite_task.status,
                 "status_mode": normalize_task_status_mode(getattr(prerequisite_task, "status_mode", None), default="single"),
                 "status_percentage": task_status_percentage(prerequisite_task),
+                "status_meta": task_status_meta(prerequisite_task),
+                "prereq_blocked": bool((task_status_meta(prerequisite_task) or {}).get("prereq_blocked")),
                 "due_at": prerequisite_task.due_at.isoformat() if prerequisite_task.due_at else None,
                 "due_mode": _task_due_mode(prerequisite_task),
                 "start_date": _task_start_date(prerequisite_task),
@@ -712,6 +714,116 @@ def _serialize_task_prerequisites(task_id: int) -> list[dict]:
             }
         )
     return payload
+
+
+def _serialize_task_dependents(task_id: int) -> list[dict]:
+    rows = (
+        TaskPrerequisite.query.filter_by(prerequisite_task_id=task_id)
+        .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+        .all()
+    )
+    payload: list[dict] = []
+    for row in rows:
+        dependent_task = Task.query.get(row.task_id)
+        if not dependent_task:
+            continue
+        status_meta = task_status_meta(dependent_task)
+        payload.append(
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "prerequisite_task_id": row.prerequisite_task_id,
+                "dependent_task_id": row.task_id,
+                "title": dependent_task.title,
+                "project_id": dependent_task.project_id,
+                "group_id": dependent_task.group_id,
+                "status": dependent_task.status,
+                "status_mode": normalize_task_status_mode(getattr(dependent_task, "status_mode", None), default="single"),
+                "status_percentage": task_status_percentage(dependent_task),
+                "status_meta": status_meta,
+                "prereq_blocked": bool((status_meta or {}).get("prereq_blocked")),
+                "due_at": dependent_task.due_at.isoformat() if dependent_task.due_at else None,
+                "due_mode": _task_due_mode(dependent_task),
+                "start_date": _task_start_date(dependent_task),
+                "locked": bool(dependent_task.locked),
+            }
+        )
+    return payload
+
+
+def _serialize_task_data(
+    task: Task,
+    *,
+    viewer_user_id: int | None = None,
+    viewer_email: str | None = None,
+) -> dict:
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
+    assignments = (
+        Assignment.query.filter_by(task_id=task.id)
+        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
+        .all()
+    )
+    followers = (
+        TaskFollower.query.filter_by(task_id=task.id)
+        .order_by(TaskFollower.created_at.asc(), TaskFollower.id.asc())
+        .all()
+    )
+    assignment_users = {
+        user_id: User.query.get(user_id)
+        for user_id in {row.user_id for row in assignments if row.user_id}
+    }
+    follower_users = {
+        user_id: User.query.get(user_id)
+        for user_id in {row.user_id for row in followers if row.user_id}
+    }
+    return {
+        "id": task.id,
+        "project_id": task.project_id,
+        "group_id": task.group_id,
+        "locked": bool(task.locked),
+        "title": task.title,
+        "link": task.link,
+        "links": info_payload.get("links", []),
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
+        "status": task.status,
+        "status_mode": normalize_task_status_mode(getattr(task, "status_mode", None), default="single"),
+        "status_percentage": task_status_percentage(task),
+        "per_user_status_enabled": normalize_task_status_mode(getattr(task, "status_mode", None), default="single") == "multi",
+        "assign_group_members": bool(task.assign_group_members),
+        "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
+        "follow_project_members": follow_project_members,
+        "project_follower_members": list(project_access_map(task.project_id).values()) if follow_project_members else [],
+        "assignments": [
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "user_id": row.user_id,
+                "email": row.email,
+                "status": row.status,
+                "display_name": (assignment_users.get(row.user_id).display_name if row.user_id and assignment_users.get(row.user_id) else None),
+                "display_email": (assignment_users.get(row.user_id).email if row.user_id and assignment_users.get(row.user_id) else row.email),
+                "avatar_url": (assignment_users.get(row.user_id).avatar_url if row.user_id and assignment_users.get(row.user_id) else None),
+            }
+            for row in assignments
+        ],
+        "followers": [
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "user_id": row.user_id,
+                "display_name": (follower_users.get(row.user_id).display_name if row.user_id and follower_users.get(row.user_id) else None),
+                "display_email": (follower_users.get(row.user_id).email if row.user_id and follower_users.get(row.user_id) else None),
+                "avatar_url": (follower_users.get(row.user_id).avatar_url if row.user_id and follower_users.get(row.user_id) else None),
+            }
+            for row in followers
+        ],
+        "prerequisites": _serialize_task_prerequisites(task.id),
+        "dependents": _serialize_task_dependents(task.id),
+        "status_meta": task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email),
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+    }
 
 
 def project_access_map(project_id: int) -> dict[int, dict]:
@@ -1324,75 +1436,10 @@ def _serialize_task_payload(
     viewer_user_id: int | None = None,
     viewer_email: str | None = None,
 ) -> dict:
-    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
-    follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
-    assignments = (
-        Assignment.query.filter_by(task_id=task.id)
-        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
-        .all()
-    )
-    followers = (
-        TaskFollower.query.filter_by(task_id=task.id)
-        .order_by(TaskFollower.created_at.asc(), TaskFollower.id.asc())
-        .all()
-    )
-    assignment_users = {
-        user_id: User.query.get(user_id)
-        for user_id in {row.user_id for row in assignments if row.user_id}
-    }
-    follower_users = {
-        user_id: User.query.get(user_id)
-        for user_id in {row.user_id for row in followers if row.user_id}
-    }
     return {
         "action": action,
         "actor_user_id": actor_user_id,
-        "task": {
-            "id": task.id,
-            "project_id": task.project_id,
-            "group_id": task.group_id,
-            "locked": bool(task.locked),
-            "title": task.title,
-            "link": task.link,
-            "links": info_payload.get("links", []),
-            "due_at": task.due_at.isoformat() if task.due_at else None,
-            "due_mode": _task_due_mode(task),
-            "status": task.status,
-            "status_mode": normalize_task_status_mode(getattr(task, "status_mode", None), default="single"),
-            "status_percentage": task_status_percentage(task),
-            "per_user_status_enabled": normalize_task_status_mode(getattr(task, "status_mode", None), default="single") == "multi",
-            "assign_group_members": bool(task.assign_group_members),
-            "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
-            "follow_project_members": follow_project_members,
-            "project_follower_members": list(project_access_map(task.project_id).values()) if follow_project_members else [],
-            "assignments": [
-                {
-                    "id": row.id,
-                    "task_id": row.task_id,
-                    "user_id": row.user_id,
-                    "email": row.email,
-                    "status": row.status,
-                    "display_name": (assignment_users.get(row.user_id).display_name if row.user_id and assignment_users.get(row.user_id) else None),
-                    "display_email": (assignment_users.get(row.user_id).email if row.user_id and assignment_users.get(row.user_id) else row.email),
-                    "avatar_url": (assignment_users.get(row.user_id).avatar_url if row.user_id and assignment_users.get(row.user_id) else None),
-                }
-                for row in assignments
-            ],
-            "followers": [
-                {
-                    "id": row.id,
-                    "task_id": row.task_id,
-                    "user_id": row.user_id,
-                    "display_name": (follower_users.get(row.user_id).display_name if row.user_id and follower_users.get(row.user_id) else None),
-                    "display_email": (follower_users.get(row.user_id).email if row.user_id and follower_users.get(row.user_id) else None),
-                    "avatar_url": (follower_users.get(row.user_id).avatar_url if row.user_id and follower_users.get(row.user_id) else None),
-                }
-                for row in followers
-            ],
-            "prerequisites": _serialize_task_prerequisites(task.id),
-            "status_meta": task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email),
-            "created_at": task.created_at.isoformat() if task.created_at else None,
-        },
+        "task": _serialize_task_data(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email),
         "old_project_id": old_project_id,
         "old_group_id": old_group_id,
     }
@@ -1447,6 +1494,53 @@ def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: in
             payload_cache[cache_key] = payload
         _debug_socket_emit("task_updated", payload, sid=sid)
         socketio.emit("task_updated", payload, room=sid)
+
+
+def emit_tasks_updated(tasks: list[Task], *, action: str = "updated", actor_user_id: int | None = None) -> None:
+    normalized_tasks = [task for task in (tasks or []) if task and getattr(task, "id", None)]
+    if not normalized_tasks:
+        return
+    relevant_project_ids = {int(task.project_id) for task in normalized_tasks if getattr(task, "project_id", None)}
+    recipient_sids: set[str] = set()
+    for sid, project_ids in _sid_projects.items():
+        if any(int(project_id) in relevant_project_ids for project_id in project_ids):
+            recipient_sids.add(sid)
+    for project_id in relevant_project_ids:
+        for recipient_id in project_access_map(int(project_id)).keys():
+            recipient_sids.update(_user_sids(recipient_id))
+    collaborator_ids: set[int] = set()
+    for task in normalized_tasks:
+        for recipient_id in _task_notification_user_ids(task):
+            recipient_sids.update(_user_sids(recipient_id))
+        collaborator_ids.update(_task_collaborator_ids(task))
+    for collaborator_id in collaborator_ids:
+        recipient_sids.update(_collaborator_sids(collaborator_id))
+    collaborator_emails = {
+        row.id: (row.email or "").strip()
+        for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(list(collaborator_ids))).all()
+    } if collaborator_ids else {}
+    payload_cache: dict[tuple[str, str], dict] = {}
+    for sid in recipient_sids:
+        viewer_user_id = _sid_user.get(sid)
+        viewer_collaborator_id = _sid_collaborator.get(sid)
+        viewer_email = collaborator_emails.get(viewer_collaborator_id, "") if viewer_collaborator_id is not None else ""
+        cache_key = (
+            f"user:{int(viewer_user_id)}" if viewer_user_id is not None else "",
+            f"email:{viewer_email.strip().lower()}" if viewer_email else "",
+        )
+        payload = payload_cache.get(cache_key)
+        if payload is None:
+            payload = {
+                "action": action,
+                "actor_user_id": actor_user_id,
+                "tasks": [
+                    _serialize_task_data(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email)
+                    for task in normalized_tasks
+                ],
+            }
+            payload_cache[cache_key] = payload
+        _debug_socket_emit("tasks_updated", payload, sid=sid)
+        socketio.emit("tasks_updated", payload, room=sid)
 
 def queue_task_notifications(
     task: Task,

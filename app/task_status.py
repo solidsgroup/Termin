@@ -105,7 +105,9 @@ def load_task_prerequisite_ids(task_ids: list[int]) -> dict[int, list[int]]:
     if not task_ids:
         return rows_by_task
     rows = (
-        TaskPrerequisite.query.filter(TaskPrerequisite.task_id.in_(task_ids))
+        db.session.query(TaskPrerequisite)
+        .join(Task, Task.id == TaskPrerequisite.prerequisite_task_id)
+        .filter(TaskPrerequisite.task_id.in_(task_ids))
         .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
         .all()
     )

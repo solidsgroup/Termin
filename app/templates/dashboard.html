@@ -15548,7 +15548,7 @@
       var meta = taskStatusMeta(task || {});
       var state = "partial";
       var iconHtml = '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
-      if (meta.prereq_blocked) {
+      if (taskStatusBlockedByPrereq(task || {})) {
         state = "prereq";
         iconHtml = renderStatusGlyphHtml("prereq");
       } else if (meta.mode === "single") {
@@ -22592,7 +22592,7 @@
         }
       });
 
-      socket.on("task_updated", function (data) {
+      function processTaskSocketUpdate(data) {
         if (!data || !data.task) return;
         var task = data.task;
         var isLocalActor = !!(data && data.actor_user_id && String(data.actor_user_id) === String(currentUserId));
@@ -22742,6 +22742,22 @@
           if (typeof window.__ensureTreeTaskVisible === "function") {
             window.__ensureTreeTaskVisible(task);
           }
+        });
+      }
+
+      socket.on("task_updated", function (data) {
+        processTaskSocketUpdate(data);
+      });
+
+      socket.on("tasks_updated", function (data) {
+        if (!data || !Array.isArray(data.tasks) || !data.tasks.length) return;
+        data.tasks.forEach(function (task) {
+          if (!task || !task.id) return;
+          processTaskSocketUpdate({
+            action: data.action || "updated",
+            actor_user_id: data.actor_user_id,
+            task: task,
+          });
         });
       });
 

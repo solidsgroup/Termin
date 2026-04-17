@@ -182,10 +182,96 @@ function createStepRecorder(testInfo) {
   };
 }
 
+function normalizeConsoleLocation(location) {
+  if (!location) return '';
+  const url = location.url ? String(location.url) : '';
+  const line = Number.isFinite(location.lineNumber) ? `:${location.lineNumber}` : '';
+  const column = Number.isFinite(location.columnNumber) ? `:${location.columnNumber}` : '';
+  return `${url}${line}${column}`.replace(/^:+$/, '');
+}
+
+function shouldIgnoreConsoleMessage(type, text) {
+  const normalizedType = String(type || '').toLowerCase();
+  const normalizedText = String(text || '');
+  if (normalizedType !== 'error') return true;
+  return [
+    'WebSocket transport not available. Install simple-websocket for improved performance.',
+    'The WebSocket transport is not available, you must install a WebSocket server that is compatible with your async mode to enable it.',
+    "WebSocket connection to 'ws://127.0.0.1:5010/socket.io/?EIO=4&transport=websocket' failed: Error during WebSocket handshake: Unexpected response code: 400",
+  ].some((fragment) => normalizedText.includes(fragment));
+}
+
+function installBrowserErrorCollector(page, testInfo) {
+  const failures = [];
+  const seen = new Set();
+
+  function record(kind, message, details = '') {
+    const normalizedMessage = String(message || '').trim();
+    const normalizedDetails = String(details || '').trim();
+    const key = `${kind}::${normalizedMessage}::${normalizedDetails}`;
+    if (!normalizedMessage || seen.has(key)) return;
+    seen.add(key);
+    failures.push({
+      kind,
+      message: normalizedMessage,
+      details: normalizedDetails,
+    });
+  }
+
+  page.on('pageerror', (error) => {
+    const message = error && error.stack ? error.stack : (error && error.message ? error.message : String(error || 'Unknown page error'));
+    record('pageerror', message);
+  });
+
+  page.on('console', (msg) => {
+    const type = msg.type();
+    const text = msg.text();
+    if (shouldIgnoreConsoleMessage(type, text)) return;
+    record(`console.${type}`, text, normalizeConsoleLocation(msg.location && msg.location()));
+  });
+
+  return async function assertNoBrowserErrors() {
+    if (!failures.length) return;
+    const lines = failures.map((entry, index) => {
+      const suffix = entry.details ? `\n   at ${entry.details}` : '';
+      return `${index + 1}. [${entry.kind}] ${entry.message}${suffix}`;
+    });
+    await testInfo.attach('browser-errors', {
+      body: Buffer.from(lines.join('\n\n'), 'utf8'),
+      contentType: 'text/plain',
+    });
+    throw new Error(`Unexpected browser errors:\n\n${lines.join('\n\n')}`);
+  };
+}
+
+function installBrowserErrorCollectorOnContext(context, testInfo) {
+  const assertions = [];
+  const installedPages = new WeakSet();
+
+  function installOnPage(page) {
+    if (!page || installedPages.has(page)) return;
+    installedPages.add(page);
+    assertions.push(installBrowserErrorCollector(page, testInfo));
+  }
+
+  if (typeof context.pages === 'function') {
+    context.pages().forEach(installOnPage);
+  }
+  context.on('page', installOnPage);
+
+  return async function assertNoBrowserErrorsOnContext() {
+    for (const assertNoErrors of assertions) {
+      await assertNoErrors();
+    }
+  };
+}
+
 module.exports = {
   captureCheckpoint,
   captureFailureSnapshot,
   captureMultiCheckpoint,
   attachReproSteps,
   createStepRecorder,
+  installBrowserErrorCollector,
+  installBrowserErrorCollectorOnContext,
 };

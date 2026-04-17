@@ -11166,14 +11166,6 @@
         }
 
         if (taskSearchShell && taskSearchTrigger && taskSearchInput && taskSearchResults) {
-          const escapeHtml = (value) =>
-            String(value || "")
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;")
-              .replace(/"/g, "&quot;")
-              .replace(/'/g, "&#39;");
-
           const closeTaskSearch = () => {
             taskSearchShell.classList.remove("is-open");
             taskSearchTrigger.setAttribute("aria-expanded", "false");
@@ -11387,6 +11379,15 @@
           if (item.group_id) return "comment|group|" + String(item.group_id);
           if (item.project_id) return "comment|project|" + String(item.project_id);
           return "comment|misc|" + String(item.id || "");
+        }
+
+        function escapeHtml(value) {
+          return String(value || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
         }
 
         function renderHeaderNotificationMenu(kind, items) {

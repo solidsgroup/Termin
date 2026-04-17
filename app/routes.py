@@ -76,6 +76,7 @@ from app.realtime import (
     emit_task_comment_deleted,
     emit_task_comment_updated,
     emit_task_notification_updates,
+    emit_tasks_updated,
     emit_task_updated,
     notification_payload_for_user,
     emit_user_notification_preview,
@@ -1415,6 +1416,7 @@ def _serialize_task_prerequisite_row(prerequisite: TaskPrerequisite) -> dict | N
     task = Task.query.get(prerequisite.prerequisite_task_id)
     if not task:
         return None
+    status_meta = task_status_meta(task)
     return {
         "id": prerequisite.id,
         "task_id": prerequisite.task_id,
@@ -1425,6 +1427,8 @@ def _serialize_task_prerequisite_row(prerequisite: TaskPrerequisite) -> dict | N
         "status": task.status,
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
+        "status_meta": status_meta,
+        "prereq_blocked": bool(status_meta.get("prereq_blocked")) if isinstance(status_meta, dict) else False,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "start_date": _task_start_date(task),
@@ -1441,6 +1445,45 @@ def _serialize_task_prerequisites(task_id: int) -> list[dict]:
     serialized: list[dict] = []
     for row in rows:
         payload = _serialize_task_prerequisite_row(row)
+        if payload:
+            serialized.append(payload)
+    return serialized
+
+
+def _serialize_task_dependent_row(prerequisite: TaskPrerequisite) -> dict | None:
+    task = Task.query.get(prerequisite.task_id)
+    if not task:
+        return None
+    status_meta = task_status_meta(task)
+    return {
+        "id": prerequisite.id,
+        "task_id": prerequisite.task_id,
+        "prerequisite_task_id": prerequisite.prerequisite_task_id,
+        "dependent_task_id": prerequisite.task_id,
+        "title": task.title,
+        "project_id": task.project_id,
+        "group_id": task.group_id,
+        "status": task.status,
+        "status_mode": _task_status_mode(task),
+        "status_percentage": _task_status_percentage(task),
+        "status_meta": status_meta,
+        "prereq_blocked": bool(status_meta.get("prereq_blocked")) if isinstance(status_meta, dict) else False,
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "due_mode": _task_due_mode(task),
+        "start_date": _task_start_date(task),
+        "locked": bool(task.locked),
+    }
+
+
+def _serialize_task_dependents(task_id: int) -> list[dict]:
+    rows = (
+        TaskPrerequisite.query.filter_by(prerequisite_task_id=task_id)
+        .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+        .all()
+    )
+    serialized: list[dict] = []
+    for row in rows:
+        payload = _serialize_task_dependent_row(row)
         if payload:
             serialized.append(payload)
     return serialized
@@ -1467,6 +1510,30 @@ def _task_prerequisite_would_create_cycle(task_id: int, prerequisite_task_id: in
         ]
         pending.extend(next_ids)
     return False
+
+
+def _task_dependent_ids(task_id: int) -> list[int]:
+    return [
+        int(next_id)
+        for (next_id,) in db.session.query(TaskPrerequisite.task_id)
+        .filter(TaskPrerequisite.prerequisite_task_id == task_id)
+        .all()
+        if next_id
+    ]
+
+
+def _task_impacted_ids(seed_task_ids) -> list[int]:
+    pending = [int(task_id) for task_id in (seed_task_ids or []) if task_id]
+    seen: set[int] = set()
+    ordered: list[int] = []
+    while pending:
+        current_id = pending.pop(0)
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        ordered.append(current_id)
+        pending.extend(_task_dependent_ids(current_id))
+    return ordered
 
 
 def _project_access_user_ids(project_id: int) -> list[int]:
@@ -1619,6 +1686,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "followers": [_serialize_follower_row(row) for row in followers],
         "prerequisites": _serialize_task_prerequisites(task.id),
+        "dependents": _serialize_task_dependents(task.id),
     }
 
 
@@ -2134,7 +2202,10 @@ def update_task(task_id: int):
     )
     log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
-    emit_task_updated(task, actor_user_id=user.id)
+    impacted_ids = _task_impacted_ids([task.id])
+    impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
+    if impacted_tasks:
+        emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     info_payload = _info_payload_for(task)
     status_meta = task_status_meta(task, viewer_user_id=user.id)
@@ -2161,6 +2232,7 @@ def update_task(task_id: int):
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "followers": [_serialize_follower_row(row) for row in followers],
         "prerequisites": _serialize_task_prerequisites(task.id),
+        "dependents": _serialize_task_dependents(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "start_date": _task_start_date(task),
@@ -2209,6 +2281,7 @@ def get_task(task_id: int):
         "assignments": [_serialize_assignment_row(row) for row in assignments],
         "followers": [_serialize_follower_row(row) for row in followers],
         "prerequisites": _serialize_task_prerequisites(task.id),
+        "dependents": _serialize_task_dependents(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "start_date": _task_start_date(task),
@@ -2941,6 +3014,11 @@ def move_task(task_id: int):
     )
     db.session.commit()
     emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=source_group_id, actor_user_id=user.id)
+    impacted_ids = [task_id for task_id in _task_impacted_ids([task.id]) if int(task_id) != int(task.id)]
+    if impacted_ids:
+        impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
+        if impacted_tasks:
+            emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {
         "status": "ok",
@@ -3920,6 +3998,7 @@ def search_tasks():
         pref = pref_map.get(task.project_id)
         division = division_map.get(pref.division_id) if pref and pref.division_id else None
         show_project_label = bool(project and not project.is_direct and division)
+        status_meta = task_status_meta(task, viewer_user_id=user.id)
         results.append(
             {
                 "entity_type": "task",
@@ -3933,6 +4012,10 @@ def search_tasks():
                 "show_project_label": show_project_label,
                 "project_color": division_effective_color(division, active_theme_name) if show_project_label and division else None,
                 "status": task.status,
+                "status_mode": _task_status_mode(task),
+                "status_percentage": _task_status_percentage(task),
+                "status_meta": status_meta,
+                "prereq_blocked": bool(status_meta.get("prereq_blocked")) if isinstance(status_meta, dict) else False,
             }
         )
     for group in groups:
@@ -4448,6 +4531,7 @@ def delete_task(task_id: int):
             }, 200
         # No confirm needed; proceed with delete
 
+    impacted_ids = [next_task_id for next_task_id in _task_impacted_ids([task.id]) if int(next_task_id) != int(task.id)]
     Assignment.query.filter_by(task_id=task.id).delete()
     TaskPrerequisite.query.filter(
         or_(
@@ -4460,6 +4544,12 @@ def delete_task(task_id: int):
     db.session.delete(task)
     db.session.commit()
     emit_task_updated(task, action="deleted", old_project_id=task.project_id, old_group_id=task.group_id, actor_user_id=user.id)
+    if impacted_ids:
+        impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
+        if impacted_tasks:
+            emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
+            for impacted_task in impacted_tasks:
+                emit_task_updated(impacted_task, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -4665,7 +4755,10 @@ def create_task_follower(task_id: int):
     )
     log_task_history(task, actor=user, action="updated", changed_fields=["followers"], task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
-    emit_task_updated(task, actor_user_id=user.id)
+    impacted_ids = _task_impacted_ids([task.id, prerequisite_task.id])
+    impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
+    if impacted_tasks:
+        emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return _serialize_follower_row(follower), 201
 
@@ -4754,7 +4847,10 @@ def delete_task_follower(follower_id: int):
     )
     log_task_history(task, actor=user, action="updated", changed_fields=["followers"], task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
-    emit_task_updated(task, actor_user_id=user.id)
+    impacted_ids = _task_impacted_ids([task.id, prerequisite_task.id if prerequisite_task else None])
+    impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
+    if impacted_tasks:
+        emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"status": "deleted"}, 200
 
