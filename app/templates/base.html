@@ -4324,7 +4324,6 @@
       }
 
       .prereq-status-readonly {
-        pointer-events: none;
         cursor: default;
       }
 
@@ -7424,7 +7423,7 @@
         height: 12px;
         top: 50%;
         transform: translateY(-50%);
-        background: no-repeat center / contain url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><path fill='%23d6a117' d='M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z'/></svg>");
+        background: no-repeat center / contain url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><path fill='%23d6a117' d='M256 48a208 208 0 1 1 0 416 208 208 0 1 1 0-416zm0 48 0 320A160 160 0 1 0 256 96z'/></svg>");
         color: transparent;
       }
 
@@ -7456,7 +7455,7 @@
       }
 
       body[data-theme="light"] .status-editable[data-status-state="prereq"]::before {
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><path fill='%23926b00' d='M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z'/></svg>");
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><path fill='%23926b00' d='M256 48a208 208 0 1 1 0 416 208 208 0 1 1 0-416zm0 48 0 320A160 160 0 1 0 256 96z'/></svg>");
       }
 
       .status-menu > button {
@@ -7900,12 +7899,93 @@
         color: #d6a117;
         justify-content: flex-start;
         text-align: left;
+        font-size: 11px;
+      }
+
+      .table .prereq-status-readonly.status-editable[data-status-state="prereq"] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        min-width: 0;
+        min-height: 26px;
+        height: 26px;
+        padding: 0 10px;
+        box-sizing: border-box;
+        text-align: center;
+        border-color: color-mix(in srgb, #d6a117 44%, var(--border));
+        background: color-mix(in srgb, #d6a117 12%, var(--panel));
+        color: #d6a117;
+      }
+
+      .tasks-table td [data-task-status-host] > .prereq-status-readonly.status-editable[data-status-state="prereq"],
+      .task-row [data-task-status-host] > .prereq-status-readonly.status-editable[data-status-state="prereq"],
+      .subtasks-row [data-task-status-host] > .prereq-status-readonly.status-editable[data-status-state="prereq"] {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 26px !important;
+        height: 26px !important;
+        padding: 0 10px !important;
+        box-sizing: border-box !important;
+        border-radius: 999px !important;
+        border: 1px solid color-mix(in srgb, #d6a117 44%, var(--border)) !important;
+        background: color-mix(in srgb, #d6a117 12%, var(--panel)) !important;
+        color: #d6a117 !important;
+        text-align: center !important;
+        line-height: 1 !important;
+        box-shadow: none !important;
+      }
+
+      .table .prereq-status-readonly.status-editable[data-status-state="prereq"] .prereq-glyph {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 12px;
+        width: 12px;
+        height: 12px;
+        margin: 0;
+      }
+
+      .table .prereq-status-readonly.status-editable[data-status-state="prereq"] .prereq-status-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        margin: 0;
       }
 
       .todo-status-cell.status-editable[data-status-state="prereq"] {
         color: #d6a117;
         border-color: transparent;
         box-shadow: inset 0 0 0 1px color-mix(in srgb, #d6a117 44%, var(--border));
+        font-size: 11px;
+      }
+
+      .prereq-status-readonly.status-editable[data-status-state="prereq"]::before {
+        content: none;
+        display: none;
+      }
+
+      .status-editable[data-status-state="prereq"] .prereq-status-label,
+      .todo-status-cell.status-editable[data-status-state="prereq"] .prereq-status-label,
+      .prereq-status-readonly .prereq-status-label {
+        display: inline-flex;
+        align-items: center;
+        color: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .prereq-status-readonly.status-editable[data-status-state="prereq"] .prereq-glyph {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
       }
 
       .status-editable[data-status-state="prereq"] .prereq-glyph,

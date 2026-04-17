@@ -163,8 +163,9 @@
   {% set prereq_blocked = 1 if status_payload and status_payload.get('prereq_blocked') else 0 %}
   {% set aggregate_state = status_payload.get('aggregate_state') or status_payload.get('my_status_state') or status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) %}
   {% if prereq_blocked or aggregate_state == 'prereq' %}
-    <div class="{% if todo %}todo-status-cell {% endif %}status-readonly prereq-status-readonly" data-task-id="{{ task.id }}" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">
-      <span class="prereq-glyph" aria-hidden="true"><svg viewBox="0 0 512 512" aria-hidden="true" focusable="false"><path d="M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z"></path></svg></span>
+    <div class="{% if todo %}todo-status-cell {% endif %}status-editable status-readonly prereq-status-readonly" data-task-id="{{ task.id }}" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">
+      <span class="prereq-glyph" aria-hidden="true"><i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i></span>
+      <span class="prereq-status-label">{{ status_payload.get('prereq_met_count', 0) }}/{{ status_payload.get('prereq_total_count', 0) }}</span>
     </div>
   {% elif status_mode == 'percent' %}
     <button class="task-status-multi-button task-status-percentage-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
@@ -513,6 +514,40 @@
   .dashboard-home-panel h3 {
     margin: 0 0 10px;
     font-size: 0.95rem;
+  }
+
+  .prereq-hover-card {
+    position: fixed;
+    z-index: 1400;
+    width: min(340px, calc(100vw - 24px));
+    padding: 12px;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--panel) 96%, #000 4%);
+    border: 1px solid var(--line);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+  }
+
+  .prereq-hover-card-title {
+    margin: 0 0 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .prereq-hover-card-body {
+    display: grid;
+    gap: 8px;
+  }
+
+  .prereq-hover-card .discussion-prerequisite-row {
+    margin: 0;
+  }
+
+  .prereq-hover-card .discussion-assignment-name {
+    white-space: normal;
   }
 
   .project-board-description,
@@ -872,6 +907,7 @@
 
   .status-editable[data-status-state="prereq"],
   .discussion-setting-status[data-status-state="prereq"],
+  .discussion-setting-status-readonly[data-status-state="prereq"],
   .task-status-multi-button[data-status-state="prereq"],
   .task-status-percentage-button[data-status-state="prereq"] {
     border-color: color-mix(in srgb, #d6a117 44%, var(--line));
@@ -879,11 +915,38 @@
     color: color-mix(in srgb, #d6a117 76%, var(--ink));
   }
 
+  .discussion-setting-status-readonly[data-status-state="prereq"] {
+    justify-content: flex-start;
+    gap: 8px;
+    cursor: default;
+  }
+
+  .prereq-status-label {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+
   .status-editable[data-status-state="prereq"] .prereq-glyph,
   .discussion-setting-status[data-status-state="prereq"] .prereq-glyph,
+  .discussion-setting-status-readonly[data-status-state="prereq"] .prereq-glyph,
   .task-status-multi-button[data-status-state="prereq"] .prereq-glyph,
   .task-status-percentage-button[data-status-state="prereq"] .prereq-glyph {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 12px;
+    width: 12px;
+    height: 12px;
+    line-height: 1;
+    vertical-align: middle;
+    transform: translateX(1px);
     margin-right: 6px;
   }
 
@@ -3014,6 +3077,7 @@
   </div>
 </aside>
 <div class="person-hover-card" id="person-hover-card" hidden aria-hidden="true"></div>
+<div class="prereq-hover-card" id="prereq-hover-card" hidden aria-hidden="true"></div>
 
 <div id="context-menu" class="context-menu">
   <button data-action="add-project">Add Project</button>
@@ -3616,9 +3680,11 @@
       var isPrereq = normalizedState === "prereq";
       cell.classList.toggle("status-readonly", isPrereq);
       cell.classList.toggle("prereq-status-readonly", isPrereq);
+      if (!cell.classList.contains("status-editable")) {
+        cell.classList.add("status-editable");
+      }
       if (isPrereq) {
         cell.classList.remove("editable");
-        cell.classList.remove("status-editable");
         cell.setAttribute("contenteditable", "false");
         cell.removeAttribute("tabindex");
         cell.removeAttribute("role");
@@ -3638,6 +3704,7 @@
       cell.setAttribute("data-field", "status");
       cell.setAttribute("data-col", "3");
     }
+    window.__syncStatusCellInteractivity = syncStatusCellInteractivity;
 
     window.__taskIdIsLocked = function taskIdIsLocked(taskId) {
       var normalizedTaskId = String(taskId || "").trim();
@@ -15470,7 +15537,7 @@
 
     function renderStatusGlyphHtml(state) {
       var normalized = String(state || "open").trim().toLowerCase();
-      if (normalized === "prereq") return renderPrereqGlyphHtml();
+      if (normalized === "prereq") return '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
       if (normalized === "complete") return '<i class="fa-solid fa-circle-check" aria-hidden="true"></i>';
       if (normalized === "critical") return '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>';
       return '<i class="fa-solid fa-circle-dot" aria-hidden="true"></i>';
@@ -15503,16 +15570,18 @@
       return '<span class="discussion-prerequisite-status-icon" data-status-state="' + escapeHtml(state) + '" aria-hidden="true">' + iconHtml + '</span>';
     }
 
-    function renderSettingsPrerequisiteRows(prerequisites) {
+    function renderSettingsPrerequisiteRows(prerequisites, options) {
+      var opts = options || {};
+      var readOnly = !!opts.readOnly;
       var rows = Array.isArray(prerequisites) ? prerequisites : [];
       if (!rows.length) {
-        return '<div class="footer-note">No prerequisites yet.</div>';
+        return '<div class="footer-note">' + escapeHtml(opts.emptyLabel || "No prerequisites yet.") + '</div>';
       }
       return rows.map(function (prerequisite) {
         var label = prerequisite.title || "Task";
         var secondary = prerequisiteMetaLabel(prerequisite);
         return (
-          '<div class="discussion-assignment-row discussion-prerequisite-row" data-prerequisite-id="' + prerequisite.id + '">' +
+          '<div class="discussion-assignment-row discussion-prerequisite-row' + (readOnly ? ' is-readonly' : '') + '" data-prerequisite-id="' + prerequisite.id + '">' +
             '<div class="discussion-assignment-user discussion-prerequisite-user">' +
               '<div class="discussion-prerequisite-pill-slot">' +
                 renderReadonlyTaskStatusIconHtml(prerequisite) +
@@ -15522,9 +15591,11 @@
                 (secondary ? '<div class="discussion-assignment-email">' + escapeHtml(secondary) + '</div>' : '') +
               '</div>' +
             '</div>' +
-            '<div class="discussion-assignment-status discussion-prerequisite-actions">' +
-              '<button class="discussion-prerequisite-remove" type="button" data-remove-prerequisite="' + prerequisite.id + '" aria-label="Remove prerequisite ' + escapeHtml(label) + '">×</button>' +
-            '</div>' +
+            (readOnly
+              ? ''
+              : '<div class="discussion-assignment-status discussion-prerequisite-actions">' +
+                  '<button class="discussion-prerequisite-remove" type="button" data-remove-prerequisite="' + prerequisite.id + '" aria-label="Remove prerequisite ' + escapeHtml(label) + '">×</button>' +
+                '</div>') +
           '</div>'
         );
       }).join("");
@@ -15716,6 +15787,8 @@
         mode: mode,
         enabled: mode !== "single",
         prereq_blocked: !!meta.prereq_blocked,
+        prereq_total_count: Math.max(0, Number(meta.prereq_total_count || 0)),
+        prereq_met_count: Math.max(0, Number(meta.prereq_met_count || 0)),
         task_status: baseStatus,
         task_status_state: decorateStatusState(task, getStatusState(baseStatus)),
         aggregate_state: meta.aggregate_state || null,
@@ -15737,6 +15810,15 @@
         user_statuses: Array.isArray(meta.user_statuses) ? meta.user_statuses : [],
         assignees: assignees,
       };
+    }
+
+    function prereqStatusCountLabel(taskOrMeta) {
+      var meta = (taskOrMeta && typeof taskOrMeta === "object" && Object.prototype.hasOwnProperty.call(taskOrMeta, "prereq_total_count"))
+        ? taskOrMeta
+        : taskStatusMeta(taskOrMeta);
+      var total = Math.max(0, Number(meta && meta.prereq_total_count || 0));
+      var met = Math.max(0, Number(meta && meta.prereq_met_count || 0));
+      return String(met) + "/" + String(total);
     }
 
     function taskMyStatus(task) {
@@ -15769,9 +15851,10 @@
       var state = taskMyStatusState(task);
       var isComplete = state === "complete";
       var isPercent = meta.mode === "percent";
+      var isPrereqBlocked = !!meta.prereq_blocked;
       var title = isPercent
         ? "Adjust percent complete"
-        : (isComplete ? "Mark incomplete" : "Mark complete");
+        : (isPrereqBlocked ? "Prerequisites incomplete" : (isComplete ? "Mark incomplete" : "Mark complete"));
       var iconHtml = isPercent
         ? '<i class="fa-solid fa-percent" aria-hidden="true"></i>'
         : (isComplete
@@ -15784,7 +15867,7 @@
           ' data-task-id="' + escapeHtml(task.id) + '"' +
           ' aria-pressed="' + (isComplete ? "true" : "false") + '"' +
           ' title="' + escapeHtml(title) + '"' +
-          (task.locked ? ' disabled' : '') +
+          ((task.locked || isPrereqBlocked) ? ' disabled' : '') +
         '>' +
           '<span class="todo-check-toggle-icon">' + iconHtml + '</span>' +
           '<span class="todo-check-toggle-label">' + escapeHtml(title) + '</span>' +
@@ -15825,8 +15908,13 @@
 
     function taskStatusBlockedByPrereq(task) {
       var meta = taskStatusMeta(task);
+      var hasIncompletePrerequisites = (typeof taskHasIncompletePrerequisites === "function")
+        ? taskHasIncompletePrerequisites
+        : (typeof window.__taskHasIncompletePrerequisites === "function"
+          ? window.__taskHasIncompletePrerequisites
+          : function () { return false; });
       return !!(meta && meta.prereq_blocked)
-        || taskHasIncompletePrerequisites(task)
+        || hasIncompletePrerequisites(task)
         || taskAggregateStatusState(task) === "prereq";
     }
 
@@ -15856,8 +15944,10 @@
     function renderPrereqBlockedStatusCellHtml(task, opts) {
       var options = opts || {};
       var taskId = escapeHtml(task && task.id);
-      return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'status-readonly prereq-status-readonly" data-task-id="' + taskId + '" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">' +
+      var label = escapeHtml(prereqStatusCountLabel(task));
+      return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'status-editable status-readonly prereq-status-readonly" data-task-id="' + taskId + '" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">' +
         renderStatusGlyphHtml("prereq") +
+        '<span class="prereq-status-label">' + label + '</span>' +
       '</div>';
     }
 
@@ -16043,6 +16133,11 @@
     function renderTaskStatusHost(host, task, opts) {
       if (!host || !task || !task.id) return null;
       var options = opts || {};
+      var syncStatusInteractivity = (typeof syncStatusCellInteractivity === "function")
+        ? syncStatusCellInteractivity
+        : (typeof window.__syncStatusCellInteractivity === "function"
+          ? window.__syncStatusCellInteractivity
+          : function () {});
       host._taskPayload = task;
       host.innerHTML = renderTaskStatusCellHtml(task, options);
       var meta = taskStatusMeta(task);
@@ -16052,10 +16147,10 @@
       if (taskStatusBlockedByPrereq(task) || renderedState === "prereq") {
         renderedCell.setAttribute("data-status-state", "prereq");
         renderedCell.setAttribute("aria-label", "Prerequisites incomplete");
-        syncStatusCellInteractivity(renderedCell, "prereq");
+        syncStatusInteractivity(renderedCell, "prereq");
         return meta;
       }
-      syncStatusCellInteractivity(renderedCell, renderedState);
+      syncStatusInteractivity(renderedCell, renderedState);
       if (meta.mode === "single") {
         var renderedStatus = escapeHtml(meta.task_status || task.status || "open");
         renderedCell.setAttribute("data-status-state", renderedState);
@@ -16347,8 +16442,13 @@
       if (taskSettingsStatusReadonlyEl) {
         taskSettingsStatusReadonlyEl.hidden = !blockedByPrereq;
         taskSettingsStatusReadonlyEl.style.setProperty("display", blockedByPrereq ? "flex" : "none", "important");
+        if (blockedByPrereq) {
+          taskSettingsStatusReadonlyEl.setAttribute("data-status-state", "prereq");
+        } else {
+          taskSettingsStatusReadonlyEl.removeAttribute("data-status-state");
+        }
         taskSettingsStatusReadonlyEl.innerHTML = blockedByPrereq
-          ? (renderStatusGlyphHtml("prereq") + '<span class="discussion-setting-status-label">Prereq</span>')
+          ? (renderStatusGlyphHtml("prereq") + '<span class="discussion-setting-status-label">' + escapeHtml(prereqStatusCountLabel(meta)) + '</span>')
           : "";
       }
       if (taskSettingsStatusLabelEl) {
@@ -16357,15 +16457,15 @@
       }
       if (taskSettingsStatusModeEl) {
         taskSettingsStatusModeEl.value = meta.mode || "single";
-        taskSettingsStatusModeEl.disabled = locked || taskStatusBlockedByPrereq(task);
+        taskSettingsStatusModeEl.disabled = locked;
       }
       if (taskSettingsStatusModePickerEl) {
-        taskSettingsStatusModePickerEl.hidden = taskStatusBlockedByPrereq(task);
-        taskSettingsStatusModePickerEl.style.setProperty("display", taskStatusBlockedByPrereq(task) ? "none" : "inline-flex", "important");
+        taskSettingsStatusModePickerEl.hidden = false;
+        taskSettingsStatusModePickerEl.style.setProperty("display", "inline-flex", "important");
       }
       syncTaskStatusModeButtons();
       taskSettingsStatusModeButtons.forEach(function (button) {
-        button.disabled = locked || taskStatusBlockedByPrereq(task);
+        button.disabled = locked;
       });
       if (taskSettingsAssignmentsEl) {
         var assignments = Array.isArray(task.assignments) ? task.assignments : [];
@@ -16483,6 +16583,7 @@
       if (taskSettingsStatusReadonlyEl) {
         taskSettingsStatusReadonlyEl.hidden = true;
         taskSettingsStatusReadonlyEl.style.setProperty("display", "none", "important");
+        taskSettingsStatusReadonlyEl.removeAttribute("data-status-state");
         taskSettingsStatusReadonlyEl.innerHTML = "";
       }
       if (taskSettingsStatusLabelEl) {
@@ -17120,6 +17221,174 @@
         })
         .catch(function () {});
     }
+
+    var prereqHoverCardEl = document.getElementById("prereq-hover-card");
+    var prereqHoverState = {
+      activeTarget: null,
+      hideTimer: 0,
+      requestId: 0,
+    };
+
+    function cancelHidePrereqHoverCard() {
+      if (prereqHoverState.hideTimer) {
+        window.clearTimeout(prereqHoverState.hideTimer);
+        prereqHoverState.hideTimer = 0;
+      }
+    }
+
+    function hidePrereqHoverCard() {
+      cancelHidePrereqHoverCard();
+      prereqHoverState.activeTarget = null;
+      if (!prereqHoverCardEl) return;
+      prereqHoverCardEl.hidden = true;
+      prereqHoverCardEl.setAttribute("aria-hidden", "true");
+      prereqHoverCardEl.innerHTML = "";
+    }
+
+    function scheduleHidePrereqHoverCard() {
+      cancelHidePrereqHoverCard();
+      prereqHoverState.hideTimer = window.setTimeout(hidePrereqHoverCard, 90);
+    }
+
+    function prereqHoverTargetForNode(node) {
+      if (!node || !node.closest) return null;
+      var target = node.closest('[data-status-cell="1"][data-status-state="prereq"]');
+      if (!target) return null;
+      if (target.closest("#discussion-drawer")) return null;
+      if (!target.closest(".todo-item, .task-row, .subtasks-row, .tasks-table")) return null;
+      return target;
+    }
+
+    function taskForPrereqHoverTarget(target) {
+      if (!target) return null;
+      var statusHost = target.closest("[data-task-status-host]");
+      if (statusHost && statusHost._taskPayload) return statusHost._taskPayload;
+      var todoItem = target.closest(".todo-item[data-task-id]");
+      if (todoItem && todoItem._taskPayload) return todoItem._taskPayload;
+      var taskId = statusHost
+        ? String(statusHost.getAttribute("data-task-status-host") || "").trim()
+        : "";
+      if (!taskId) return null;
+      return taskById(taskId) || null;
+    }
+
+    function renderPrereqHoverCard(task) {
+      if (!prereqHoverCardEl || !task) return;
+      var prerequisites = Array.isArray(task.prerequisites) ? task.prerequisites : [];
+      if (!prerequisites.length) {
+        hidePrereqHoverCard();
+        return;
+      }
+      prereqHoverCardEl.innerHTML =
+        '<div class="prereq-hover-card-title">Prerequisites</div>' +
+        '<div class="prereq-hover-card-body">' +
+          renderSettingsPrerequisiteRows(prerequisites, {
+            readOnly: true,
+            emptyLabel: "No prerequisites yet.",
+          }) +
+        '</div>';
+      prereqHoverCardEl.hidden = false;
+      prereqHoverCardEl.setAttribute("aria-hidden", "false");
+    }
+
+    function renderPrereqHoverCardLoading() {
+      if (!prereqHoverCardEl) return;
+      prereqHoverCardEl.innerHTML =
+        '<div class="prereq-hover-card-title">Prerequisites</div>' +
+        '<div class="prereq-hover-card-body"><div class="footer-note">Loading prerequisites…</div></div>';
+      prereqHoverCardEl.hidden = false;
+      prereqHoverCardEl.setAttribute("aria-hidden", "false");
+    }
+
+    function positionPrereqHoverCard(target) {
+      if (!prereqHoverCardEl || !target || prereqHoverCardEl.hidden) return;
+      var rect = target.getBoundingClientRect();
+      var cardRect = prereqHoverCardEl.getBoundingClientRect();
+      var left = rect.left + (rect.width / 2) - (cardRect.width / 2);
+      left = Math.max(12, Math.min(left, window.innerWidth - cardRect.width - 12));
+      var top = rect.bottom + 10;
+      if (top + cardRect.height > window.innerHeight - 12) {
+        top = rect.top - cardRect.height - 10;
+      }
+      if (top < 12) {
+        top = Math.max(12, window.innerHeight - cardRect.height - 12);
+      }
+      prereqHoverCardEl.style.left = Math.round(left) + "px";
+      prereqHoverCardEl.style.top = Math.round(top) + "px";
+    }
+
+    function showPrereqHoverCard(target) {
+      if (!prereqHoverCardEl || !target) return;
+      var task = taskForPrereqHoverTarget(target);
+      if (!task || !task.id) {
+        hidePrereqHoverCard();
+        return;
+      }
+      cancelHidePrereqHoverCard();
+      prereqHoverState.activeTarget = target;
+      var prerequisites = Array.isArray(task.prerequisites) ? task.prerequisites : null;
+      if (prerequisites && prerequisites.length) {
+        renderPrereqHoverCard(task);
+        positionPrereqHoverCard(target);
+        return;
+      }
+      var requestId = ++prereqHoverState.requestId;
+      renderPrereqHoverCardLoading();
+      positionPrereqHoverCard(target);
+      fetchTaskSnapshot(task.id, { preferCache: false })
+        .then(function (freshTask) {
+          if (!freshTask || prereqHoverState.requestId !== requestId) return;
+          if (prereqHoverState.activeTarget !== target) return;
+          if (!Array.isArray(freshTask.prerequisites) || !freshTask.prerequisites.length) {
+            hidePrereqHoverCard();
+            return;
+          }
+          renderPrereqHoverCard(freshTask);
+          positionPrereqHoverCard(target);
+        })
+        .catch(function () {
+          if (prereqHoverState.requestId !== requestId) return;
+          hidePrereqHoverCard();
+        });
+    }
+
+    document.addEventListener("mouseover", function (event) {
+      var target = prereqHoverTargetForNode(event.target);
+      if (!target) return;
+      showPrereqHoverCard(target);
+    });
+
+    document.addEventListener("mouseout", function (event) {
+      var from = prereqHoverTargetForNode(event.target);
+      if (!from || from !== prereqHoverState.activeTarget) return;
+      var to = prereqHoverTargetForNode(event.relatedTarget);
+      if (to === from) return;
+      scheduleHidePrereqHoverCard();
+    });
+
+    document.addEventListener("focusin", function (event) {
+      var target = prereqHoverTargetForNode(event.target);
+      if (!target) return;
+      showPrereqHoverCard(target);
+    });
+
+    document.addEventListener("focusout", function (event) {
+      var from = prereqHoverTargetForNode(event.target);
+      if (!from || from !== prereqHoverState.activeTarget) return;
+      var to = prereqHoverTargetForNode(event.relatedTarget);
+      if (to === from) return;
+      scheduleHidePrereqHoverCard();
+    });
+
+    window.addEventListener("scroll", function () {
+      if (!prereqHoverState.activeTarget || !prereqHoverCardEl || prereqHoverCardEl.hidden) return;
+      positionPrereqHoverCard(prereqHoverState.activeTarget);
+    }, true);
+
+    window.addEventListener("resize", function () {
+      if (!prereqHoverState.activeTarget || !prereqHoverCardEl || prereqHoverCardEl.hidden) return;
+      positionPrereqHoverCard(prereqHoverState.activeTarget);
+    });
 
     function openDirectChatForUser(userId) {
       if (!userId) return Promise.resolve();

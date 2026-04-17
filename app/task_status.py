@@ -233,6 +233,8 @@ def _base_task_status_meta(
         "mode": mode,
         "enabled": enabled,
         "prereq_blocked": False,
+        "prereq_total_count": 0,
+        "prereq_met_count": 0,
         "task_status": base_status,
         "task_status_state": task_status_state(base_status),
         "aggregate_state": ("complete" if percentage_complete >= 100 else "open") if mode == "percent" else (aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status)),
@@ -302,10 +304,14 @@ def task_status_meta_map(tasks: list[Task], *, viewer_user_id: int | None = None
             else str(meta.get("task_status_state") or task_status_state(task.status))
         )
         prerequisite_ids = prerequisite_ids_by_task.get(int(task_id), [])
-        blocked = any(final_state_for_task(prerequisite_id) != "complete" for prerequisite_id in prerequisite_ids)
+        prereq_total_count = len(prerequisite_ids)
+        prereq_met_count = sum(1 for prerequisite_id in prerequisite_ids if final_state_for_task(prerequisite_id) == "complete")
+        blocked = prereq_met_count < prereq_total_count
         final_state = "prereq" if blocked else base_state
         decorated = dict(meta)
         decorated["prereq_blocked"] = blocked
+        decorated["prereq_total_count"] = prereq_total_count
+        decorated["prereq_met_count"] = prereq_met_count
         decorated["task_status_state"] = "prereq" if blocked else str(meta.get("task_status_state") or task_status_state(task.status))
         decorated["aggregate_state"] = final_state
         my_status_state = meta.get("my_status_state")
@@ -355,6 +361,14 @@ def task_status_meta(
             str((prerequisite_meta_map.get(int(prerequisite_id)) or {}).get("aggregate_state") or "open") != "complete"
             for prerequisite_id in prerequisite_ids
         )
+        prereq_total_count = len(prerequisite_ids)
+        prereq_met_count = sum(
+            1
+            for prerequisite_id in prerequisite_ids
+            if str((prerequisite_meta_map.get(int(prerequisite_id)) or {}).get("aggregate_state") or "open") == "complete"
+        )
+        base_meta["prereq_total_count"] = prereq_total_count
+        base_meta["prereq_met_count"] = prereq_met_count
         if not blocked:
             return base_meta
         decorated = dict(base_meta)
