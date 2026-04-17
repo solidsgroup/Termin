@@ -94,6 +94,26 @@ async function patchGroup(page, groupId, payload) {
   return result.data;
 }
 
+async function createTaskPrerequisite(page, taskId, prerequisiteTaskId) {
+  const result = await page.evaluate(async ({ taskId: targetTaskId, prerequisiteTaskId: requiredTaskId }) => {
+    const response = await fetch(`/api/tasks/${targetTaskId}/prerequisites`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prerequisite_task_id: requiredTaskId }),
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data };
+  }, { taskId, prerequisiteTaskId });
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
 async function convertCollaborator(request) {
   const response = await request.post('/_e2e/convert-collaborator');
   expect(response.ok()).toBeTruthy();
@@ -299,8 +319,9 @@ async function waitForTreeTaskUiToSettle(page, taskId, ms = 1400) {
 async function waitForTreeProjectReady(page, projectId, taskId) {
   const board = page.locator(`[data-tree-project-board="${projectId}"]`).first();
   await expect(board).toHaveCount(1);
+  await expect(board.locator('[data-tree-project-loading-panel]')).toHaveCount(0, { timeout: 15000 });
   if (taskId != null) {
-    await expect(page.locator(`[data-task-row-id="${taskId}"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-task-row-id="${taskId}"]`)).toHaveCount(1, { timeout: 15000 });
   }
 }
 
@@ -673,6 +694,46 @@ test.describe('dashboard and realtime flows', () => {
 
     await ownerContextA.close();
     await ownerContextB.close();
+  });
+
+  test('prereq-blocked tasks render as readonly prereq status in tree todo and drawer', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'status', 'tree', 'todo', 'drawer']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { due_at: today, due_mode: 'date', status: 'open' });
+    await patchTask(page, state.linked_todo_task.id, { status: 'open' });
+    await createTaskPrerequisite(page, state.task.id, state.linked_todo_task.id);
+
+    await page.goto(`/?project_id=${state.project.id}&view=tree&show_completed=1`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const treeStatusCell = page.locator(`[data-task-row-id="${state.task.id}"] [data-status-cell="1"]`).first();
+    await expect(treeStatusCell).toHaveAttribute('data-status-state', 'prereq');
+    await expect(treeStatusCell.locator('.prereq-glyph')).toHaveCount(1);
+    await expect(treeStatusCell).not.toHaveAttribute('role', 'button');
+    await expect(treeStatusCell).not.toHaveAttribute('data-field', 'status');
+    await steps.step('Verify the Tree row renders the prereq glyph with a readonly, non-button status cell.', page);
+
+    await page.goto('/todo');
+    const todoStatusCell = page.locator(`.todo-item[data-task-id="${state.task.id}"] [data-status-cell="1"]`).first();
+    await expect(todoStatusCell).toHaveAttribute('data-status-state', 'prereq');
+    await expect(todoStatusCell.locator('.prereq-glyph')).toHaveCount(1);
+    await expect(todoStatusCell).not.toHaveAttribute('role', 'button');
+    await expect(todoStatusCell).not.toHaveAttribute('data-field', 'status');
+    await steps.step('Verify the Todo row renders the same prereq readonly status treatment.', page);
+
+    await page.goto(`/?project_id=${state.project.id}&view=tree&show_completed=1`);
+    await page.locator(`[data-task-row-id="${state.task.id}"] [data-open-settings="${state.task.id}"]`).click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await expect(page.locator('#task-settings-status')).toBeHidden();
+    await expect(page.locator('#task-settings-status-mode-picker')).toBeHidden();
+    const drawerReadonly = page.locator('#task-settings-status-readonly');
+    await expect(drawerReadonly).toBeVisible();
+    await expect(drawerReadonly).toContainText('Prereq');
+    await expect(drawerReadonly.locator('.prereq-glyph')).toHaveCount(1);
+    await steps.step('Verify the drawer hides the interactive status controls and shows a readonly prereq status indicator.', page);
   });
 
   test('tree updates live when another user changes task title', async ({ browser, request }) => {

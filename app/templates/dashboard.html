@@ -163,7 +163,7 @@
   {% set prereq_blocked = 1 if status_payload and status_payload.get('prereq_blocked') else 0 %}
   {% set aggregate_state = status_payload.get('aggregate_state') or status_payload.get('my_status_state') or status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) %}
   {% if prereq_blocked or aggregate_state == 'prereq' %}
-    <div class="{% if todo %}todo-status-cell {% endif %}editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="{{ task.id }}" data-field="status" data-col="3" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">
+    <div class="{% if todo %}todo-status-cell {% endif %}status-readonly prereq-status-readonly" data-task-id="{{ task.id }}" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">
       <span class="prereq-glyph" aria-hidden="true"><svg viewBox="0 0 512 512" aria-hidden="true" focusable="false"><path d="M448 416l0-64L64 352l0 64 384 0zm0 64L64 480c-35.3 0-64-28.7-64-64l0-64c0-35.3 28.7-64 64-64l384 0c35.3 0 64 28.7 64 64l0 64c0 35.3-28.7 64-64 64zM288 160c0 35.3-28.7 64-64 64L64 224c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l144 0 16 0 144 0c44.2 0 80 35.8 80 80l0 16 38.1 0c21.4 0 32.1 25.9 17 41L433 239c-9.4 9.4-24.6 9.4-33.9 0L329 169c-15.1-15.1-4.4-41 17-41l38.1 0 0-16c0-8.8-7.2-16-16-16l-80 0 0 64z"></path></svg></span>
     </div>
   {% elif status_mode == 'percent' %}
@@ -2949,6 +2949,7 @@
                 <span class="discussion-setting-status-label">open</span>
                 <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
               </button>
+              <div id="task-settings-status-readonly" class="discussion-setting-status discussion-setting-status-readonly" hidden aria-label="Prerequisites incomplete"></div>
               <div class="discussion-setting-mode-picker" id="task-settings-status-mode-picker" role="group" aria-label="Status mode">
                 <button class="discussion-setting-mode-button" type="button" data-status-mode-option="single" aria-label="Single status" title="Single status">
                   <i class="fa-solid fa-user" aria-hidden="true"></i>
@@ -3571,7 +3572,7 @@
     window.__normalizeStatusModeValue = normalizeStatusModeValue;
 
     function applyStatusState(cell, value) {
-      if (!cell || cell.getAttribute("data-field") !== "status") return;
+      if (!cell || (!cell.hasAttribute("data-status-cell") && cell.getAttribute("data-field") !== "status")) return;
       var renderStatusGlyph = (typeof renderStatusGlyphHtml === "function")
         ? renderStatusGlyphHtml
         : (typeof window.__renderStatusGlyphHtml === "function"
@@ -3589,6 +3590,7 @@
         ? "prereq"
         : (rawValue.toLowerCase() === "prereq" ? "prereq" : getStatusState(rawValue));
       cell.setAttribute("data-status-state", state);
+      syncStatusCellInteractivity(cell, state);
       var statusText = rawValue;
       if (cell.classList.contains("status-editable")) {
         if (state === "prereq") {
@@ -3607,6 +3609,35 @@
     }
 
     window.__applyStatusState = applyStatusState;
+
+    function syncStatusCellInteractivity(cell, state) {
+      if (!cell) return;
+      var normalizedState = String(state || "").trim().toLowerCase();
+      var isPrereq = normalizedState === "prereq";
+      cell.classList.toggle("status-readonly", isPrereq);
+      cell.classList.toggle("prereq-status-readonly", isPrereq);
+      if (isPrereq) {
+        cell.classList.remove("editable");
+        cell.classList.remove("status-editable");
+        cell.setAttribute("contenteditable", "false");
+        cell.removeAttribute("tabindex");
+        cell.removeAttribute("role");
+        cell.removeAttribute("data-field");
+        cell.removeAttribute("data-col");
+        return;
+      }
+      if (!cell.classList.contains("status-editable")) {
+        cell.classList.add("status-editable");
+      }
+      if (!cell.classList.contains("editable")) {
+        cell.classList.add("editable");
+      }
+      cell.setAttribute("contenteditable", "false");
+      cell.setAttribute("tabindex", "0");
+      cell.setAttribute("role", "button");
+      cell.setAttribute("data-field", "status");
+      cell.setAttribute("data-col", "3");
+    }
 
     window.__taskIdIsLocked = function taskIdIsLocked(taskId) {
       var normalizedTaskId = String(taskId || "").trim();
@@ -4003,6 +4034,7 @@
 
       function openStatusMenu(cell) {
         if (!statusMenu || !cell) return;
+        if (String(cell.getAttribute("data-status-state") || "").trim().toLowerCase() === "prereq") return;
         if (cell.dataset.originalValue === undefined) {
           cell.dataset.originalValue = normalizeEditableText(cell);
         }
@@ -12830,9 +12862,11 @@
 	    var projectSettingsEndDateEl = document.getElementById("project-settings-end-date");
 	    var projectSettingsStartFieldEl = projectSettingsStartDateEl ? projectSettingsStartDateEl.closest(".discussion-setting-field") : null;
 	    var projectSettingsEndFieldEl = projectSettingsEndDateEl ? projectSettingsEndDateEl.closest(".discussion-setting-field") : null;
-	    var taskSettingsStatusEl = document.getElementById("task-settings-status");
+    var taskSettingsStatusEl = document.getElementById("task-settings-status");
+    var taskSettingsStatusReadonlyEl = document.getElementById("task-settings-status-readonly");
     var taskSettingsStatusLabelEl = document.getElementById("task-settings-status-label");
     var taskSettingsStatusModeEl = document.getElementById("task-settings-status-mode");
+    var taskSettingsStatusModePickerEl = document.getElementById("task-settings-status-mode-picker");
     var taskSettingsStatusModeButtons = Array.prototype.slice.call(drawer.querySelectorAll("[data-status-mode-option]"));
     var taskSettingsAssignmentsEl = document.getElementById("task-settings-assignments");
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
@@ -15789,6 +15823,13 @@
       return decorateStatusState(task, "open");
     }
 
+    function taskStatusBlockedByPrereq(task) {
+      var meta = taskStatusMeta(task);
+      return !!(meta && meta.prereq_blocked)
+        || taskHasIncompletePrerequisites(task)
+        || taskAggregateStatusState(task) === "prereq";
+    }
+
     function renderTaskStatusSummary(summary) {
       var items = Array.isArray(summary) ? summary : [];
       if (!items.length) {
@@ -15815,7 +15856,7 @@
     function renderPrereqBlockedStatusCellHtml(task, opts) {
       var options = opts || {};
       var taskId = escapeHtml(task && task.id);
-      return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'editable status-editable" contenteditable="false" tabindex="0" role="button" data-task-id="' + taskId + '" data-field="status" data-col="3" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">' +
+      return '<div class="' + (options.todo ? 'todo-status-cell ' : '') + 'status-readonly prereq-status-readonly" data-task-id="' + taskId + '" data-status-cell="1" data-status-state="prereq" aria-label="Prerequisites incomplete">' +
         renderStatusGlyphHtml("prereq") +
       '</div>';
     }
@@ -15978,7 +16019,7 @@
       var options = opts || {};
       var meta = taskStatusMeta(task);
       var aggregateStateValue = String(taskAggregateStatusState(task) || meta.task_status_state || "open");
-      if (meta.prereq_blocked || aggregateStateValue === "prereq") {
+      if (taskStatusBlockedByPrereq(task) || aggregateStateValue === "prereq") {
         return renderPrereqBlockedStatusCellHtml(task, options);
       }
       if (meta.mode === "single") {
@@ -16008,11 +16049,13 @@
       var renderedCell = host.querySelector("[data-status-cell='1']");
       if (!renderedCell) return meta;
       var renderedState = taskAggregateStatusState(task) || meta.task_status_state || getStatusState(meta.task_status || task.status || "open");
-      if (meta.prereq_blocked || renderedState === "prereq") {
+      if (taskStatusBlockedByPrereq(task) || renderedState === "prereq") {
         renderedCell.setAttribute("data-status-state", "prereq");
         renderedCell.setAttribute("aria-label", "Prerequisites incomplete");
+        syncStatusCellInteractivity(renderedCell, "prereq");
         return meta;
       }
+      syncStatusCellInteractivity(renderedCell, renderedState);
       if (meta.mode === "single") {
         var renderedStatus = escapeHtml(meta.task_status || task.status || "open");
         renderedCell.setAttribute("data-status-state", renderedState);
@@ -16274,7 +16317,7 @@
         taskSettingsStatusEl.dataset.statusModeBaseline = meta.mode || "single";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
         var chevron = taskSettingsStatusEl.querySelector(".fa-chevron-down");
-        var blockedByPrereq = !!meta.prereq_blocked || taskAggregateStatusState(task) === "prereq";
+        var blockedByPrereq = taskStatusBlockedByPrereq(task);
         if (label) {
           if (blockedByPrereq) {
             label.innerHTML = renderStatusGlyphHtml("prereq") + '<span>Prereq</span>';
@@ -16287,13 +16330,26 @@
           }
         }
         if (chevron) {
+          chevron.hidden = blockedByPrereq;
           taskSettingsStatusEl.appendChild(chevron);
         }
         taskSettingsStatusEl.setAttribute("data-status-state", taskAggregateStatusState(task));
+        taskSettingsStatusEl.disabled = locked || blockedByPrereq;
+        taskSettingsStatusEl.setAttribute("aria-disabled", (locked || blockedByPrereq) ? "true" : "false");
+        taskSettingsStatusEl.classList.toggle("is-disabled", locked || blockedByPrereq);
+        taskSettingsStatusEl.hidden = blockedByPrereq;
+        taskSettingsStatusEl.style.setProperty("display", blockedByPrereq ? "none" : "flex", "important");
         if (meta.mode === "single" && typeof window.__applyStatusState === "function") {
           window.__applyStatusState(taskSettingsStatusEl, effectiveStatus);
           taskSettingsStatusEl.setAttribute("data-status-state", taskAggregateStatusState(task));
         }
+      }
+      if (taskSettingsStatusReadonlyEl) {
+        taskSettingsStatusReadonlyEl.hidden = !blockedByPrereq;
+        taskSettingsStatusReadonlyEl.style.setProperty("display", blockedByPrereq ? "flex" : "none", "important");
+        taskSettingsStatusReadonlyEl.innerHTML = blockedByPrereq
+          ? (renderStatusGlyphHtml("prereq") + '<span class="discussion-setting-status-label">Prereq</span>')
+          : "";
       }
       if (taskSettingsStatusLabelEl) {
         taskSettingsStatusLabelEl.textContent = meta.mode === "percent" ? "Progress" : (meta.mode === "multi" ? "Statuses" : "Status");
@@ -16301,9 +16357,16 @@
       }
       if (taskSettingsStatusModeEl) {
         taskSettingsStatusModeEl.value = meta.mode || "single";
-        taskSettingsStatusModeEl.disabled = locked;
+        taskSettingsStatusModeEl.disabled = locked || taskStatusBlockedByPrereq(task);
+      }
+      if (taskSettingsStatusModePickerEl) {
+        taskSettingsStatusModePickerEl.hidden = taskStatusBlockedByPrereq(task);
+        taskSettingsStatusModePickerEl.style.setProperty("display", taskStatusBlockedByPrereq(task) ? "none" : "inline-flex", "important");
       }
       syncTaskStatusModeButtons();
+      taskSettingsStatusModeButtons.forEach(function (button) {
+        button.disabled = locked || taskStatusBlockedByPrereq(task);
+      });
       if (taskSettingsAssignmentsEl) {
         var assignments = Array.isArray(task.assignments) ? task.assignments : [];
         taskSettingsAssignmentsEl.style.display = assignments.length ? "" : "none";
@@ -16413,8 +16476,14 @@
         taskSettingsStatusEl.dataset.statusModeBaseline = "single";
         taskSettingsStatusEl.hidden = false;
         taskSettingsStatusEl.disabled = false;
+        taskSettingsStatusEl.style.setProperty("display", "flex", "important");
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
         if (label) label.textContent = "";
+      }
+      if (taskSettingsStatusReadonlyEl) {
+        taskSettingsStatusReadonlyEl.hidden = true;
+        taskSettingsStatusReadonlyEl.style.setProperty("display", "none", "important");
+        taskSettingsStatusReadonlyEl.innerHTML = "";
       }
       if (taskSettingsStatusLabelEl) {
         taskSettingsStatusLabelEl.textContent = "Status";
@@ -16423,6 +16492,10 @@
       if (taskSettingsStatusModeEl) {
         taskSettingsStatusModeEl.value = "single";
         taskSettingsStatusModeEl.disabled = false;
+      }
+      if (taskSettingsStatusModePickerEl) {
+        taskSettingsStatusModePickerEl.hidden = false;
+        taskSettingsStatusModePickerEl.style.setProperty("display", "inline-flex", "important");
       }
       syncTaskStatusModeButtons();
       if (taskSettingsAssignmentsEl) {
@@ -19204,6 +19277,7 @@
     function openSettingsStatusMenu() {
       if (currentEntityType !== "task") return;
       if (currentTaskData && taskIsLocked(currentTaskData)) return;
+      if (currentTaskData && taskStatusBlockedByPrereq(currentTaskData)) return;
       if (taskSettingsStatusEl && (function (value, fallback) {
         var normalized = String(value || "").trim().toLowerCase();
         if (normalized === "per_user" || normalized === "multi") return "multi";
@@ -20054,8 +20128,10 @@
         var taskId = trigger.getAttribute("data-task-id") || trigger.getAttribute("data-task-multi-status-trigger");
         if (!taskId) return;
         if (window.__taskIdIsLocked(taskId)) return;
+        if (String(trigger.getAttribute("data-status-state") || "").trim().toLowerCase() === "prereq") return;
         var statusHost = trigger.closest("[data-task-status-host]") || document.querySelector('[data-task-status-host="' + taskId + '"]');
         var hostTask = statusHost && statusHost._taskPayload ? statusHost._taskPayload : null;
+        if (hostTask && taskStatusBlockedByPrereq(hostTask)) return;
         if (!hostTask && statusHost) {
           var percentageNode = statusHost.querySelector("[data-task-status-percentage]");
           if (percentageNode) {
@@ -21063,6 +21139,10 @@
           renderTaskSettings();
           return;
         }
+        if (currentTaskData && taskStatusBlockedByPrereq(currentTaskData)) {
+          renderTaskSettings();
+          return;
+        }
         if (currentTaskData) {
           var nextMode = taskSettingsStatusModeEl.value || "single";
           var currentMeta = taskStatusMeta(currentTaskData);
@@ -21093,6 +21173,7 @@
       button.addEventListener("click", function () {
         if (!taskSettingsStatusModeEl) return;
         if (currentTaskData && taskIsLocked(currentTaskData)) return;
+        if (currentTaskData && taskStatusBlockedByPrereq(currentTaskData)) return;
         var nextMode = String(button.getAttribute("data-status-mode-option") || "single");
         if (taskSettingsStatusModeEl.value === nextMode) return;
         taskSettingsStatusModeEl.value = nextMode;
