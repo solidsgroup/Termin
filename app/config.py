@@ -82,3 +82,4 @@ class Config:
     WEB_PUSH_PUBLIC_KEY = _env("WEB_PUSH_PUBLIC_KEY")
     WEB_PUSH_PRIVATE_KEY = _env("WEB_PUSH_PRIVATE_KEY")
     WEB_PUSH_SUBJECT = _env("WEB_PUSH_SUBJECT", "mailto:admin@example.com")
+    WEB_PUSH_TTL_SECONDS = int(_env("WEB_PUSH_TTL_SECONDS", "21600"))

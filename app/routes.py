@@ -1542,6 +1542,20 @@ def _task_impacted_ids(seed_task_ids) -> list[int]:
     return ordered
 
 
+def _touch_tasks(task_ids) -> list[Task]:
+    normalized_ids = [int(task_id) for task_id in (task_ids or []) if task_id]
+    if not normalized_ids:
+        return []
+    tasks = Task.query.filter(Task.id.in_(normalized_ids)).all()
+    if not tasks:
+        return []
+    touched_at = datetime.utcnow()
+    for task in tasks:
+        task.updated_at = touched_at
+    db.session.commit()
+    return tasks
+
+
 def _project_access_user_ids(project_id: int) -> list[int]:
     return sorted(
         int(user_id)
@@ -2212,7 +2226,7 @@ def update_task(task_id: int):
         log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
         db.session.commit()
     impacted_ids = _task_impacted_ids([task.id])
-    impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
+    impacted_tasks = _touch_tasks(impacted_ids)
     if impacted_tasks:
         emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
@@ -4905,8 +4919,6 @@ def create_task_prerequisite(task_id: int):
         prerequisite_task_id=prerequisite_task.id,
     )
     db.session.add(prerequisite)
-    db.session.commit()
-
     actor_name = display_name_for_user(user) or user.email or "Someone"
     history_task_body = actor_name + " added prerequisite " + _quoted_history_value(prerequisite_task.title, "Task") + "."
     history_scoped_body = actor_name + " added prerequisite " + _quoted_history_value(prerequisite_task.title, "Task") + " to task " + _quoted_history_value(task.title, "Task") + "."
@@ -4919,7 +4931,10 @@ def create_task_prerequisite(task_id: int):
         scoped_body=history_scoped_body,
     )
     db.session.commit()
-    emit_task_updated(task, actor_user_id=user.id)
+    impacted_ids = _task_impacted_ids([task.id, prerequisite_task.id])
+    impacted_tasks = _touch_tasks(impacted_ids)
+    if impacted_tasks:
+        emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return _serialize_task_prerequisite_row(prerequisite) or {"status": "ok"}, 201
 
@@ -4942,7 +4957,6 @@ def delete_task_prerequisite(prerequisite_id: int):
 
     prerequisite_title = prerequisite_task.title if prerequisite_task else "Task"
     db.session.delete(prerequisite)
-    db.session.commit()
     actor_name = display_name_for_user(user) or user.email or "Someone"
     history_task_body = actor_name + " removed prerequisite " + _quoted_history_value(prerequisite_title, "Task") + "."
     history_scoped_body = actor_name + " removed prerequisite " + _quoted_history_value(prerequisite_title, "Task") + " from task " + _quoted_history_value(task.title, "Task") + "."
@@ -4955,7 +4969,10 @@ def delete_task_prerequisite(prerequisite_id: int):
         scoped_body=history_scoped_body,
     )
     db.session.commit()
-    emit_task_updated(task, actor_user_id=user.id)
+    impacted_ids = _task_impacted_ids([task.id, prerequisite_task.id if prerequisite_task else None])
+    impacted_tasks = _touch_tasks(impacted_ids)
+    if impacted_tasks:
+        emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"status": "deleted"}, 200
 

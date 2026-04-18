@@ -105,6 +105,7 @@ def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
     vapid_private_key = current_app.config["WEB_PUSH_PRIVATE_KEY"]
     vapid_claims = {"sub": current_app.config["WEB_PUSH_SUBJECT"]}
     payload_json = json.dumps(payload, sort_keys=True)
+    ttl_seconds = max(300, int(current_app.config.get("WEB_PUSH_TTL_SECONDS") or 21600))
     stale_rows: list[WebPushSubscription] = []
 
     for row in subscriptions:
@@ -120,7 +121,7 @@ def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
                 data=payload_json,
                 vapid_private_key=vapid_private_key,
                 vapid_claims=vapid_claims,
-                ttl=60,
+                ttl=ttl_seconds,
             )
         except WebPushException as exc:
             status_code = getattr(getattr(exc, "response", None), "status_code", None)
@@ -165,6 +166,8 @@ def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
         "send result",
         "user_id=",
         user_id,
+        "ttl=",
+        ttl_seconds,
         "subscriptions=",
         result["subscription_count"],
         "sent=",

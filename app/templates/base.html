@@ -12056,6 +12056,20 @@
               : "Browser push is available but not enabled in this browser yet.";
           }
 
+          let refreshInFlight = null;
+          function scheduleRefreshState() {
+            if (refreshInFlight) return refreshInFlight;
+            refreshInFlight = Promise.resolve()
+              .then(function () {
+                return refreshState();
+              })
+              .catch(function () {})
+              .finally(function () {
+                refreshInFlight = null;
+              });
+            return refreshInFlight;
+          }
+
           async function registerSubscription(subscription) {
             const response = await fetch("/api/web-push", {
               method: "POST",
@@ -12225,6 +12239,13 @@
             testButton.addEventListener("click", handleTestPush);
           }
           await refreshState();
+          window.addEventListener("pageshow", scheduleRefreshState);
+          window.addEventListener("online", scheduleRefreshState);
+          document.addEventListener("visibilitychange", function () {
+            if (!document.hidden) {
+              scheduleRefreshState();
+            }
+          });
         }
 
         if (document.readyState === "loading") {

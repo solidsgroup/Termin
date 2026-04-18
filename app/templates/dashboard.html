@@ -22693,7 +22693,6 @@
       function processTaskSocketUpdate(data) {
         if (!data || !data.task) return;
         var task = data.task;
-        var isLocalActor = !!(data && data.actor_user_id && String(data.actor_user_id) === String(currentUserId));
         updateInboxItemsForTask(task);
         if (activeDrawerTab === "messages" && currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
           refreshOpenDiscussionTimeline();
@@ -22760,9 +22759,7 @@
           });
           return;
         }
-        var taskSnapshotPromise = isLocalActor
-          ? Promise.resolve(task)
-          : fetchTaskSnapshot(task.id, { preferCache: false });
+        var taskSnapshotPromise = fetchTaskSnapshot(task.id, { preferCache: false });
         taskSnapshotPromise.then(function (freshTask) {
           var resolvedTask = freshTask && freshTask.id ? freshTask : task;
           if (pendingTodoCompletionHides[String(resolvedTask.id)] && taskMyStatusState(resolvedTask) === "complete") {
