@@ -375,6 +375,8 @@ def _task_update_history_bodies(
     new_status: str | None,
     new_status_mode: str | None,
     new_status_percentage: int | None,
+    old_locked: bool | None = None,
+    new_locked: bool | None = None,
     assignments: list | None = None,
     followers: list | None = None,
 ) -> tuple[str, str]:
@@ -447,15 +449,19 @@ def _task_update_history_bodies(
         else:
             clauses_task.append("updated the followers")
             clauses_scoped.append("updated the followers for task " + title_label)
+    if "lock" in changed:
+        if bool(new_locked):
+            clauses_task.append("locked the task")
+            clauses_scoped.append("locked task " + title_label)
+        else:
+            clauses_task.append("unlocked the task")
+            clauses_scoped.append("unlocked task " + title_label)
     for simple_label in ["links", "notes", "description", "description format", "assignment mode", "follower mode"]:
         if simple_label not in changed:
             continue
         clause = "updated the " + simple_label
         clauses_task.append(clause)
         clauses_scoped.append(clause + " for task " + title_label)
-    if not clauses_task:
-        clauses_task.append("updated the task")
-        clauses_scoped.append("updated task " + title_label)
     return (
         actor_name + " " + "; ".join(clauses_task) + ".",
         actor_name + " " + "; ".join(clauses_scoped) + ".",
@@ -2164,44 +2170,47 @@ def update_task(task_id: int):
         new_due_mode=new_due_mode,
         user_status=user_status,
     )
-    detail_payload = _task_notification_actor_payload(user)
-    if notification_kind == "task_renamed":
-        detail_payload.update({"old_title": old_title or "", "new_title": task.title or ""})
-    elif notification_kind in {"task_due_changed", "task_due_cleared", "task_due_asap"}:
-        detail_payload.update({
-            "old_due_mode": old_due_mode or "none",
-            "new_due_mode": new_due_mode or "none",
-            "old_due_at": old_due_at.isoformat() if old_due_at else "",
-            "new_due_at": task.due_at.isoformat() if task.due_at else "",
-            "old_due_label": old_due_at.strftime("%Y-%m-%d") if old_due_at else ("ASAP" if old_due_mode == "asap" else ""),
-            "new_due_label": task.due_at.strftime("%Y-%m-%d") if task.due_at else ("ASAP" if new_due_mode == "asap" else ""),
-        })
-    elif notification_kind in {"task_status_changed", "task_completed"}:
-        detail_payload.update({
-            "old_status": old_status or "",
-            "new_status": user_status or task.status or "",
-        })
-    elif notification_kind == "task_update":
-        detail_payload.update({
-            "changed_fields": changed_fields,
-        })
-    queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
-    history_task_body, history_scoped_body = _task_update_history_bodies(
-        actor_name=display_name_for_user(user) or user.email or "Someone",
-        task_title=task.title,
-        changed_fields=changed_fields,
-        new_title=task.title,
-        new_due_mode=new_due_mode,
-        new_due_at=task.due_at,
-        new_start_date=new_start_date,
-        new_status=task.status,
-        new_status_mode=new_status_mode,
-        new_status_percentage=_task_status_percentage(task),
-        assignments=[_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()],
-        followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
-    )
-    log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
-    db.session.commit()
+    if changed_fields or notification_kind != "task_update":
+        detail_payload = _task_notification_actor_payload(user)
+        if notification_kind == "task_renamed":
+            detail_payload.update({"old_title": old_title or "", "new_title": task.title or ""})
+        elif notification_kind in {"task_due_changed", "task_due_cleared", "task_due_asap"}:
+            detail_payload.update({
+                "old_due_mode": old_due_mode or "none",
+                "new_due_mode": new_due_mode or "none",
+                "old_due_at": old_due_at.isoformat() if old_due_at else "",
+                "new_due_at": task.due_at.isoformat() if task.due_at else "",
+                "old_due_label": old_due_at.strftime("%Y-%m-%d") if old_due_at else ("ASAP" if old_due_mode == "asap" else ""),
+                "new_due_label": task.due_at.strftime("%Y-%m-%d") if task.due_at else ("ASAP" if new_due_mode == "asap" else ""),
+            })
+        elif notification_kind in {"task_status_changed", "task_completed"}:
+            detail_payload.update({
+                "old_status": old_status or "",
+                "new_status": user_status or task.status or "",
+            })
+        elif notification_kind == "task_update":
+            detail_payload.update({
+                "changed_fields": changed_fields,
+            })
+        queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
+        history_task_body, history_scoped_body = _task_update_history_bodies(
+            actor_name=display_name_for_user(user) or user.email or "Someone",
+            task_title=task.title,
+            changed_fields=changed_fields,
+            new_title=task.title,
+            new_due_mode=new_due_mode,
+            new_due_at=task.due_at,
+            new_start_date=new_start_date,
+            new_status=task.status,
+            new_status_mode=new_status_mode,
+            new_status_percentage=_task_status_percentage(task),
+            old_locked=old_locked,
+            new_locked=bool(task.locked),
+            assignments=[_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()],
+            followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
+        )
+        log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
+        db.session.commit()
     impacted_ids = _task_impacted_ids([task.id])
     impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
     if impacted_tasks:

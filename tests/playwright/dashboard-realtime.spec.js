@@ -2352,6 +2352,57 @@ test.describe('dashboard and realtime flows', () => {
     await memberContext.close();
   });
 
+  test('tree shows project assignment badge after refresh instead of expanded member badges', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'assignments', 'project-mode', 'refresh']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Project Assignment Badge Task',
+      assignee_email: state.owner.email,
+    });
+
+    const assignAllResult = await page.evaluate(async (taskId) => {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assign_group_members: true }),
+      });
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (_error) {
+        data = {};
+      }
+      return {
+        ok: response.ok,
+        status: response.status,
+        data,
+      };
+    }, task.id);
+    expect(assignAllResult.ok).toBeTruthy();
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, task.id);
+    await page.reload();
+    await waitForTreeProjectReady(page, state.project.id, task.id);
+
+    const assignmentCell = page.locator(`[data-task-row-id="${task.id}"] .assignments`).first();
+    await expect(assignmentCell.locator('[data-group-assignment-badge]')).toHaveCount(1);
+    await expect(assignmentCell).toContainText('Project');
+    await expect(assignmentCell).not.toContainText('Owner');
+    await expect(assignmentCell).not.toContainText('Member');
+    await focusTreeTask(page, task.id, 'Tree project assignment badge after refresh', [
+      'The assignee column should keep the Project badge after reload.',
+      'Expanded individual member badges should not replace project assignment mode.',
+    ]);
+    await steps.step('Enable project assignment mode, hard-reload the Tree view, and verify the assignee column still shows the Project badge rather than expanded member badges.', page);
+  });
+
   test('inbox updates immediately when another user comments while viewing inbox', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'inbox', 'comments', 'notifications']);

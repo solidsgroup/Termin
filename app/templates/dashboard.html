@@ -2291,9 +2291,12 @@
                         <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="{{ division.id }}" checked />
                         <span class="todo-tree-label">{{ project.name }}</span>
                         <button class="todo-tree-only-btn" type="button" data-todo-only="project" data-todo-only-id="{{ project.id }}" aria-label="Show only {{ project.name }}">only</button>
+                        {% if groups_by_project.get(project.id) %}
                         <button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                        {% endif %}
                       </label>
                     </div>
+                    {% if groups_by_project.get(project.id) %}
                     <div class="todo-tree-children todo-tree-groups">
                       {% for group in groups_by_project.get(project.id, []) %}
                         <label class="todo-tree-row todo-tree-group-row todo-tree-label-row">
@@ -2302,10 +2305,8 @@
                           <button class="todo-tree-only-btn" type="button" data-todo-only="group" data-todo-only-id="{{ group.id }}" aria-label="Show only {{ group.name }}">only</button>
                         </label>
                       {% endfor %}
-                      {% if not groups_by_project.get(project.id) %}
-                        <div class="todo-tree-empty">No groups</div>
-                      {% endif %}
                     </div>
+                    {% endif %}
                   </div>
                 {% endfor %}
               </div>
@@ -2330,9 +2331,12 @@
                       <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="none" checked />
                       <span class="todo-tree-label">{{ project.name }}</span>
                       <button class="todo-tree-only-btn" type="button" data-todo-only="project" data-todo-only-id="{{ project.id }}" aria-label="Show only {{ project.name }}">only</button>
+                      {% if groups_by_project.get(project.id) %}
                       <button class="todo-tree-toggle is-project-toggle" type="button" data-toggle-project="{{ project.id }}" aria-label="Toggle project groups">▸</button>
+                      {% endif %}
                     </label>
                   </div>
+                  {% if groups_by_project.get(project.id) %}
                   <div class="todo-tree-children todo-tree-groups">
                     {% for group in groups_by_project.get(project.id, []) %}
                       <label class="todo-tree-row todo-tree-group-row todo-tree-label-row">
@@ -2341,10 +2345,8 @@
                         <button class="todo-tree-only-btn" type="button" data-todo-only="group" data-todo-only-id="{{ group.id }}" aria-label="Show only {{ group.name }}">only</button>
                       </label>
                     {% endfor %}
-                    {% if not groups_by_project.get(project.id) %}
-                      <div class="todo-tree-empty">No groups</div>
-                    {% endif %}
                   </div>
+                  {% endif %}
                 </div>
               {% endfor %}
             </div>
@@ -8809,22 +8811,22 @@
 
     const taskMetaForAssignments = (taskId) => {
       const host = document.querySelector('[data-task-status-host="' + taskId + '"]');
-      if (host && host._taskPayload) {
-        return host._taskPayload;
-      }
+      const hostTask = host && host._taskPayload ? host._taskPayload : null;
       const canonicalTask = typeof window.__dashboardTaskEntity === "function"
         ? window.__dashboardTaskEntity(taskId)
         : null;
-      if (canonicalTask) return canonicalTask;
+      if (canonicalTask) {
+        return Object.assign({}, hostTask || {}, canonicalTask);
+      }
       const discussionDrawer = document.getElementById("discussion-drawer");
       const openTaskId = discussionDrawer ? (discussionDrawer.getAttribute("data-open-task-id") || "") : "";
       const currentTask = typeof window.__getCurrentTaskData === "function"
         ? window.__getCurrentTaskData()
         : null;
       if (String(openTaskId || "") === String(taskId) && currentTask) {
-        return currentTask;
+        return Object.assign({}, hostTask || {}, currentTask);
       }
-      return null;
+      return hostTask;
     };
     window.__taskAssignmentKeysFromData = taskAssignmentKeysFromData;
     window.__taskMetaForAssignments = taskMetaForAssignments;
@@ -14026,8 +14028,10 @@
           dateKey: bucket.key,
           dateLabel: bucket.label,
           dueValue: dueValue,
+          dueSortKey: dueValue || "9999-12-31",
           createdValue: createdValue,
           projectName: projectName,
+          projectSortName: String(projectName || "").trim().toLowerCase(),
           projectHref: task.project_id ? ("/tree/project/" + encodeURIComponent(String(task.project_id))) : "",
           groupName: groupName,
           groupHref: (task.project_id && task.group_id) ? ("/tree/project/" + encodeURIComponent(String(task.project_id)) + "/group/" + encodeURIComponent(String(task.group_id))) : "",
@@ -14035,11 +14039,20 @@
           titleHref: task.id ? ("/todo#task-" + encodeURIComponent(String(task.id))) : "",
           dueSummary: dashboardDueSummaryForTask(task),
           projectId: String(task.project_id || ""),
+          taskPosition: Number(task.position || 0),
           sortIndex: index,
         };
       }).filter(Boolean).sort(function (a, b) {
         var rankDelta = todoBucketRank(a.dateKey) - todoBucketRank(b.dateKey);
         if (rankDelta !== 0) return rankDelta;
+        var dueDelta = String(a.dueSortKey || "").localeCompare(String(b.dueSortKey || ""));
+        if (dueDelta !== 0) return dueDelta;
+        var projectDelta = String(a.projectSortName || "").localeCompare(String(b.projectSortName || ""));
+        if (projectDelta !== 0) return projectDelta;
+        var positionDelta = Number(a.taskPosition || 0) - Number(b.taskPosition || 0);
+        if (positionDelta !== 0) return positionDelta;
+        var taskIdDelta = Number(a.taskId || 0) - Number(b.taskId || 0);
+        if (taskIdDelta !== 0) return taskIdDelta;
         return a.sortIndex - b.sortIndex;
       });
     }

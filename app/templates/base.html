@@ -5,7 +5,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="{{ global_theme_interface.header_bg }}" />
+    <meta id="app-theme-color-meta" name="theme-color" content="{{ global_theme_interface.header_bg }}" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Termin" />
@@ -10498,6 +10498,45 @@
         }
       }
     </style>
+    <script>
+      (function () {
+        function applyAppChromeThemeColor() {
+          var meta = document.getElementById("app-theme-color-meta");
+          if (!meta) return;
+          var root = document.documentElement;
+          var body = document.body;
+          var source = body || root;
+          var computed = window.getComputedStyle(source);
+          var nextColor =
+            (computed.getPropertyValue("--header-bg") || "").trim() ||
+            (computed.getPropertyValue("--bg") || "").trim() ||
+            meta.getAttribute("content") ||
+            "#121d2b";
+          meta.setAttribute("content", nextColor);
+          root.style.backgroundColor = (computed.getPropertyValue("--bg") || "").trim() || nextColor;
+          if (body) {
+            body.style.backgroundColor = (computed.getPropertyValue("--bg") || "").trim() || nextColor;
+          }
+        }
+
+        window.__applyAppChromeThemeColor = applyAppChromeThemeColor;
+
+        document.addEventListener("DOMContentLoaded", function () {
+          applyAppChromeThemeColor();
+          if (typeof MutationObserver !== "function") return;
+          var observer = new MutationObserver(function () {
+            applyAppChromeThemeColor();
+          });
+          [document.documentElement, document.body].forEach(function (target) {
+            if (!target) return;
+            observer.observe(target, {
+              attributes: true,
+              attributeFilter: ["data-theme", "data-theme-family", "style", "class"],
+            });
+          });
+        });
+      })();
+    </script>
   </head>
   <body class="is-page-loading" data-theme="{{ active_theme }}" data-theme-family="{{ active_theme_name }}" data-current-view="{{ current_view or '' }}">
     <header>

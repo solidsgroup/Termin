@@ -77,7 +77,48 @@ def create_app() -> Flask:
 
     @app.get("/manifest.webmanifest")
     def web_manifest():
-        response = send_from_directory(app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json")
+        user = current_user()
+        active_theme_name = normalize_theme_name(getattr(user, "theme_name", None) if user else None)
+        active_theme_mode = normalize_theme_mode(getattr(user, "theme_mode", None) if user else None)
+        ui = theme_interface(active_theme_name, active_theme_mode)
+        response = jsonify({
+            "name": "Termin",
+            "short_name": "Termin",
+            "id": "/",
+            "start_url": "/",
+            "scope": "/",
+            "display": "standalone",
+            "background_color": ui["bg"],
+            "theme_color": ui["header_bg"],
+            "description": "Termin task and discussion workspace.",
+            "icons": [
+                {
+                    "src": "/static/brand/termin-icon-v4-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "any",
+                },
+                {
+                    "src": "/static/brand/termin-icon-v4-512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any",
+                },
+                {
+                    "src": "/static/brand/termin-icon-v4-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "maskable",
+                },
+                {
+                    "src": "/static/brand/termin-icon-v4-512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                },
+            ],
+        })
+        response.mimetype = "application/manifest+json"
         response.headers["Cache-Control"] = "no-cache"
         return response
 
