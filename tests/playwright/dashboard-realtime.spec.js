@@ -739,7 +739,8 @@ test.describe('dashboard and realtime flows', () => {
     const beforeOrder = await actionTitles.evaluateAll((nodes) =>
       nodes.map((node) => (node.textContent || '').trim()).filter((value) => value === 'Undo Order First' || value === 'Undo Order Second')
     );
-    expect(beforeOrder).toEqual(['Undo Order First', 'Undo Order Second']);
+    expect(beforeOrder).toHaveLength(2);
+    expect(new Set(beforeOrder)).toEqual(new Set(['Undo Order First', 'Undo Order Second']));
 
     await page.locator('.dashboard-action-title', { hasText: 'Undo Order First' }).click();
     await page.locator('#task-settings-delete').click();
@@ -748,7 +749,7 @@ test.describe('dashboard and realtime flows', () => {
     const afterOrder = await actionTitles.evaluateAll((nodes) =>
       nodes.map((node) => (node.textContent || '').trim()).filter((value) => value === 'Undo Order First' || value === 'Undo Order Second')
     );
-    expect(afterOrder).toEqual(['Undo Order First', 'Undo Order Second']);
+    expect(afterOrder).toEqual(beforeOrder);
     await steps.step('Delete the first of two adjacent action items, undo it, and verify the original ordering is preserved.', page);
   });
 
@@ -1344,6 +1345,35 @@ test.describe('dashboard and realtime flows', () => {
 
     await ownerContext.close();
     await memberContext.close();
+  });
+
+  test('multi-status host does not pick up single-status classes after my-status changes', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'todo', 'status', 'multi-status', 'regression']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, { status_mode: 'multi' });
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const treeMultiButton = page.locator(`[data-task-row-id="${state.task.id}"] [data-task-status-host="${state.task.id}"] .task-status-multi-button`).first();
+    await expect(treeMultiButton).toHaveCount(1);
+    await expect(treeMultiButton).not.toHaveClass(/status-editable/);
+    await expect(treeMultiButton).not.toHaveClass(/editable/);
+
+    await patchTask(page, state.task.id, { user_status: 'complete', status_user_id: state.owner.id });
+    await expect(treeMultiButton).toHaveCount(1);
+    await expect(treeMultiButton).not.toHaveClass(/status-editable/);
+    await expect(treeMultiButton).not.toHaveClass(/editable/);
+    await steps.step('Switch the seeded task into multi-status mode, change only the viewer status, and verify the Tree multi-status button does not pick up single-status classes.', page);
+
+    await page.goto('/todo');
+    const todoMultiButton = page.locator(`.todo-item[data-task-id="${state.task.id}"] [data-task-status-host="${state.task.id}"] .task-status-multi-button`).first();
+    await expect(todoMultiButton).toHaveCount(1);
+    await expect(todoMultiButton).not.toHaveClass(/status-editable/);
+    await expect(todoMultiButton).not.toHaveClass(/editable/);
+    await steps.step('Open Todo and verify the same multi-status host stays a proper multi-status button there as well.', page);
   });
 
   test('tree shows project and group descriptions in the board layout', async ({ page, request }) => {

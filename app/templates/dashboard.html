@@ -3678,8 +3678,20 @@
       if (!cell) return;
       var normalizedState = String(state || "").trim().toLowerCase();
       var isPrereq = normalizedState === "prereq";
+      var isMultiModeButton = cell.classList.contains("task-status-multi-button");
       cell.classList.toggle("status-readonly", isPrereq);
       cell.classList.toggle("prereq-status-readonly", isPrereq);
+      if (isMultiModeButton) {
+        cell.classList.remove("status-editable");
+        cell.classList.remove("editable");
+        cell.removeAttribute("contenteditable");
+        cell.removeAttribute("tabindex");
+        cell.removeAttribute("role");
+        cell.removeAttribute("data-field");
+        cell.removeAttribute("data-col");
+        cell.disabled = !!isPrereq;
+        return;
+      }
       if (!cell.classList.contains("status-editable")) {
         cell.classList.add("status-editable");
       }
@@ -16903,6 +16915,11 @@
           return data;
         })
         .catch(function (error) {
+          var message = error && error.message ? String(error.message) : "";
+          var name = error && error.name ? String(error.name) : "";
+          if (name === "AbortError" || message === "Failed to fetch") {
+            return null;
+          }
           console.error("fetchTaskSnapshot failed", error);
           return null;
         });
