@@ -2242,6 +2242,102 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Refresh /todo and verify Linked Todo Task still shows the same link favicon badge immediately after reload.', page);
   });
 
+  test('todo shows a compact active tasks section for started future work', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['todo', 'active-tasks', 'start-date']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+    const futureDue = isoDateWithOffset(14);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, {
+      due_at: futureDue,
+      due_mode: 'date',
+      start_date: today,
+      status: 'open',
+    });
+    await page.goto('/todo');
+
+    const activeTasks = page.locator('[data-todo-active-tasks]');
+    const activeRows = activeTasks.locator('.todo-active-task-row');
+    await expect(activeTasks).toBeVisible();
+    await expect(activeRows).toHaveCount(1);
+    await expect(activeRows.first()).toContainText('Realtime Task');
+    await expect(activeRows.first()).toContainText((state.project && (state.project.display_name || state.project.name)) || 'Realtime Project');
+    await steps.step(`Open /todo with a task started on ${today} and due ${futureDue}, then verify the compact Active Tasks section shows a single-line row for Realtime Task.`, page);
+  });
+
+  test('todo active tasks are ordered by nearest due date first', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['todo', 'active-tasks', 'ordering']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+    const soonerDue = isoDateWithOffset(7);
+    const laterDue = isoDateWithOffset(21);
+
+    await login(page, state.owner.email, state.owner.password);
+    const laterTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Later Active Task',
+      due_at: laterDue,
+      due_mode: 'date',
+      start_date: today,
+      assignee_email: state.owner.email,
+    });
+    const soonerTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Sooner Active Task',
+      due_at: soonerDue,
+      due_mode: 'date',
+      start_date: today,
+      assignee_email: state.owner.email,
+    });
+
+    await page.goto('/todo');
+    const activeTaskTitles = page.locator('[data-todo-active-tasks-list] .todo-active-task-title');
+    await expect.poll(async () => {
+      return activeTaskTitles.evaluateAll((nodes) =>
+        nodes.map((node) => (node.textContent || '').trim()).filter(Boolean)
+      );
+    }).toEqual(expect.arrayContaining(['Sooner Active Task', 'Later Active Task']));
+    const labels = await activeTaskTitles.evaluateAll((nodes) =>
+      nodes.map((node) => (node.textContent || '').trim()).filter(Boolean)
+    );
+    expect(labels.indexOf('Sooner Active Task')).toBeGreaterThanOrEqual(0);
+    expect(labels.indexOf('Later Active Task')).toBeGreaterThanOrEqual(0);
+    expect(labels.indexOf('Sooner Active Task')).toBeLessThan(labels.indexOf('Later Active Task'));
+    await steps.step(`Open /todo with two started tasks due on ${soonerDue} and ${laterDue}, then verify the compact Active Tasks section orders the nearer due task first.`, page);
+  });
+
+  test('todo active tasks respect assignee filters', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['todo', 'active-tasks', 'filters']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+    const futureDue = isoDateWithOffset(10);
+
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, {
+      due_at: futureDue,
+      due_mode: 'date',
+      start_date: today,
+      status: 'open',
+    });
+    await page.goto('/todo');
+
+    const activeTasks = page.locator('[data-todo-active-tasks]');
+    const activeRow = activeTasks.locator('.todo-active-task-row', { hasText: 'Realtime Task' });
+    await expect(activeRow).toHaveCount(1);
+
+    await page.locator('[data-todo-assignee-dropdown]').click();
+    await expect(page.locator('[data-todo-assignees-none]')).toBeVisible();
+    await page.locator('[data-todo-assignees-none]').click();
+    await expect(activeRow).toHaveCSS('display', 'none');
+    await steps.step('Switch the Todo assignee filter to no assignees and verify the compact Active Tasks strip hides the assigned active task.', page);
+  });
+
   test('todo rebuckets live when another user changes due date', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'todo', 'due-date', 'buckets']);

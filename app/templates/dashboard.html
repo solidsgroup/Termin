@@ -400,6 +400,107 @@
     visibility: visible;
   }
 
+  .todo-active-tasks {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 14px 16px 12px;
+  }
+
+  .todo-active-tasks[hidden] {
+    display: none;
+  }
+
+  .todo-active-tasks-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0;
+    margin-left: 0;
+  }
+
+  .todo-active-tasks-heading.todo-date-heading {
+    margin: 0;
+  }
+
+  .todo-active-tasks-list {
+    display: grid;
+    gap: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--panel-alt) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+    overflow: hidden;
+    margin-left: 0;
+  }
+
+  .todo-active-task-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 3px 8px 3px 0;
+    background: transparent;
+    border-radius: 0;
+    border-top: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+    color: inherit;
+    text-decoration: none;
+    transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  }
+
+  .todo-active-task-row:first-child {
+    border-top: 0;
+  }
+
+  .todo-active-task-row:hover {
+    background: color-mix(in srgb, var(--panel-alt) 46%, transparent);
+    transform: none;
+  }
+
+  .todo-active-task-accent {
+    width: 6px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--todo-active-task-color, var(--accent));
+    flex: 0 0 auto;
+  }
+
+  .todo-active-task-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .todo-active-task-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.93rem;
+    font-weight: 400;
+    line-height: 1.15;
+    color: var(--ink);
+  }
+
+  .todo-active-task-meta {
+    min-width: 0;
+    flex: 0 1 auto;
+    font-size: 0.76rem;
+    line-height: 1.1;
+    color: color-mix(in srgb, var(--ink) 34%, var(--muted) 66%);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .todo-active-task-arrow {
+    flex: 0 0 auto;
+    color: color-mix(in srgb, var(--ink) 22%, var(--muted) 78%);
+    font-size: 0.68rem;
+  }
+
   @keyframes dashboardFadeLift {
     from {
       opacity: 0;
@@ -444,6 +545,10 @@
       opacity: 1;
       transform: none;
       animation: none;
+    }
+
+    .todo-active-task-row {
+      transition: none;
     }
   }
 
@@ -1164,6 +1269,7 @@
     justify-content: flex-start;
     align-items: flex-start;
     gap: 0;
+    padding-top: 4px;
   }
 
   .todo-item-title-row {
@@ -1230,6 +1336,7 @@
       min-width: 0;
       flex: 1 1 auto;
       align-items: flex-start;
+      padding-top: 0;
     }
 
     .todo-item-main .editable[data-field="title"] {
@@ -2662,6 +2769,10 @@
           <span>Loading Todo…</span>
         </div>
       </div>
+      <section class="panel todo-active-tasks" data-todo-active-tasks hidden>
+        <div class="todo-active-tasks-heading todo-date-heading">Active Tasks</div>
+        <div class="todo-active-tasks-list" data-todo-active-tasks-list></div>
+      </section>
       <div class="todo-board" data-todo-resize data-todo-client-board="1" data-todo-board-ready="0">
         <div class="panel" data-todo-empty-panel>
           <h3>Loading tasks</h3>
@@ -13185,6 +13296,9 @@
       window.__dashboardBootstrapStore = dashboardBootstrapStore;
       scheduleDashboardBootstrapStorePersist();
       refreshDashboardHomeFromTodo();
+      if (typeof window.__renderTodoActiveTasksFromStore === "function") {
+        window.__renderTodoActiveTasksFromStore();
+      }
       if (typeof window.__renderTodoBoardFromStore === "function") {
         window.__renderTodoBoardFromStore();
       }
@@ -13208,12 +13322,18 @@
       );
       scheduleDashboardBootstrapStorePersist();
       refreshDashboardHomeFromTodo();
+      if (typeof window.__renderTodoActiveTasksFromStore === "function") {
+        window.__renderTodoActiveTasksFromStore();
+      }
     }
 
     function removeDashboardEntity(entityType, entityId) {
       if (!dashboardBootstrapStore || !dashboardBootstrapStore.entities || !dashboardBootstrapStore.entities[entityType]) return;
       delete dashboardBootstrapStore.entities[entityType][String(entityId)];
       scheduleDashboardBootstrapStorePersist();
+      if (typeof window.__renderTodoActiveTasksFromStore === "function") {
+        window.__renderTodoActiveTasksFromStore();
+      }
       if (entityType === "tasks" || entityType === "projects" || entityType === "groups") {
         refreshDashboardHomeFromTodo();
       }
@@ -19078,6 +19198,130 @@
       return "future";
     }
 
+    function todoActiveTaskDueLabel(dueValue, dueMode) {
+      var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "asap" && !dueValue) return "ASAP";
+      if (!dueValue) return "";
+      var today = new Date();
+      var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      var dueDate = new Date(String(dueValue).slice(0, 10) + "T00:00:00");
+      var dueDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+      var diffDays = Math.round((dueDay.getTime() - nowDay.getTime()) / 86400000);
+      if (diffDays === 0) return "due today";
+      if (diffDays === 1) return "due tomorrow";
+      if (diffDays === -1) return "1 day overdue";
+      if (diffDays < 0) return String(Math.abs(diffDays)) + " days overdue";
+      if (diffDays % 7 === 0) {
+        var weeks = Math.round(diffDays / 7);
+        return "due in " + String(weeks) + " week" + (weeks === 1 ? "" : "s");
+      }
+      return "due in " + String(diffDays) + " day" + (diffDays === 1 ? "" : "s");
+    }
+
+    function todoActiveTaskEntriesFromStore() {
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return [];
+      var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+        ? dashboardBootstrapStore.views.todo.task_ids
+        : [];
+      var taskMap = dashboardEntityMap("tasks");
+      var projectMap = dashboardEntityMap("projects");
+      var today = new Date();
+      var todayKey = [
+        today.getFullYear(),
+        String(today.getMonth() + 1).padStart(2, "0"),
+        String(today.getDate()).padStart(2, "0")
+      ].join("-");
+      var entries = [];
+
+      taskIds.forEach(function (taskId) {
+        var task = taskMap[String(taskId)];
+        if (!task || !task.project_id) return;
+        if (String(taskMyStatusState(task) || "").toLowerCase() === "complete") return;
+        var startDate = String(task.start_date || "").slice(0, 10);
+        if (!startDate || startDate > todayKey) return;
+        var dueDate = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        var dueMode = String(task.due_mode || (dueDate ? "date" : "none"));
+        if (todoCompletedWindowFor(dueDate, dueMode) === "past") return;
+        var project = projectMap[String(task.project_id)] || {};
+        var meta = todoMetaFor(task.project_id, task.group_id);
+        entries.push({
+          id: String(task.id),
+          projectId: String(task.project_id),
+          groupId: task.group_id ? String(task.group_id) : "",
+          title: String(task.title || "Task"),
+          projectName: String(project.display_name || project.name || meta.projectName || "Project"),
+          groupName: String(meta.groupName || ""),
+          divisionColor: String(project.division_color || project.color || meta.divisionColor || "").trim() || "var(--accent)",
+          divisionId: String(meta.divisionId || "none"),
+          dueDate: dueDate,
+          dueMode: dueMode,
+          dueLabel: todoActiveTaskDueLabel(dueDate, dueMode),
+          startDate: startDate,
+          assigneeKeys: taskAssigneeKeys(task),
+          statusState: String(taskMyStatusState(task) || "").trim().toLowerCase(),
+          completedWindow: todoCompletedWindowFor(dueDate, String(task.due_mode || (dueDate ? "date" : "none"))),
+          position: Number(task.position || 0),
+        });
+      });
+
+      return entries.sort(function (a, b) {
+        var bucketA = todoBucketFor(a.dueDate || "", "", a.dueMode || "none");
+        var bucketB = todoBucketFor(b.dueDate || "", "", b.dueMode || "none");
+        var rankA = todoBucketRank(bucketA && bucketA.key ? bucketA.key : "");
+        var rankB = todoBucketRank(bucketB && bucketB.key ? bucketB.key : "");
+        if (rankA !== rankB) return rankA - rankB;
+        var dueA = a.dueDate || "9999-12-31";
+        var dueB = b.dueDate || "9999-12-31";
+        if (dueA !== dueB) return dueA < dueB ? -1 : 1;
+        if (a.projectName !== b.projectName) return a.projectName.localeCompare(b.projectName);
+        if (a.groupName !== b.groupName) return a.groupName.localeCompare(b.groupName);
+        if (a.position !== b.position) return a.position - b.position;
+        return Number(a.id || 0) - Number(b.id || 0);
+      });
+    }
+
+    function renderTodoActiveTasksFromStore() {
+      var section = document.querySelector("[data-todo-active-tasks]");
+      var list = section ? section.querySelector("[data-todo-active-tasks-list]") : null;
+      if (!section || !list) return false;
+      var entries = todoActiveTaskEntriesFromStore();
+      list.innerHTML = "";
+      if (!entries.length) {
+        section.hidden = true;
+        return true;
+      }
+      var fragment = document.createDocumentFragment();
+      entries.forEach(function (entry) {
+        var row = document.createElement("a");
+        row.className = "todo-active-task-row";
+        row.href = "/task/" + encodeURIComponent(String(entry.id || ""));
+        row.style.setProperty("--todo-active-task-color", String(entry.divisionColor || "var(--accent)"));
+        row.setAttribute("data-task-id", String(entry.id || ""));
+        row.setAttribute("data-project-id", String(entry.projectId || ""));
+        row.setAttribute("data-group-id", String(entry.groupId || ""));
+        row.setAttribute("data-division-id", String(entry.divisionId || "none"));
+        row.setAttribute("data-assignee-keys", String(entry.assigneeKeys || ""));
+        row.setAttribute("data-status-state", String(entry.statusState || "open"));
+        row.setAttribute("data-completed-window", String(entry.completedWindow || "future"));
+        row.innerHTML = '' +
+          '<span class="todo-active-task-accent" aria-hidden="true"></span>' +
+          '<span class="todo-active-task-copy">' +
+            '<span class="todo-active-task-title">' + escapeHtml(entry.title || "Task") + '</span>' +
+            '<span class="todo-active-task-meta">' +
+              escapeHtml(entry.projectName || "Project") +
+              (entry.groupName ? ' · ' + escapeHtml(entry.groupName) : '') +
+              (entry.dueLabel ? ' · ' + escapeHtml(entry.dueLabel) : '') +
+            '</span>' +
+          '</span>' +
+          '<span class="todo-active-task-arrow" aria-hidden="true"><i class="fa-solid fa-arrow-up-right-from-square"></i></span>';
+        fragment.appendChild(row);
+      });
+      list.appendChild(fragment);
+      section.hidden = false;
+      return true;
+    }
+    window.__renderTodoActiveTasksFromStore = renderTodoActiveTasksFromStore;
+
     function buildTodoItem(task) {
       if (!task || !task.id) return null;
       var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
@@ -24024,7 +24268,7 @@
         var showCompleted = showCompletedMaster ? showCompletedMaster.checked : true;
         var assigneeInputs = document.querySelectorAll("[data-todo-assignee]");
         var assigneeFilterActive = assigneeInputs.length > 0;
-        currentTodoItems().forEach(function (item) {
+        function itemVisibility(item) {
           var divisionId = String(item.getAttribute("data-division-id") || "none");
           var projectId = String(item.getAttribute("data-project-id") || "");
           var groupId = String(item.getAttribute("data-group-id") || "");
@@ -24046,7 +24290,15 @@
           var isComplete = effectiveStatusState === "complete";
           var completedWindow = String(item.getAttribute("data-completed-window") || "future");
           var completedOk = !isComplete || (showCompleted && completedSelections.indexOf(completedWindow) >= 0);
-          var visible = divisionOk && projectOk && groupOk && assigneeOk && completedOk;
+          return divisionOk && projectOk && groupOk && assigneeOk && completedOk;
+        }
+        currentTodoItems().forEach(function (item) {
+          var visible = itemVisibility(item);
+          item.classList.toggle("is-filtered", !visible);
+          item.style.display = visible ? "" : "none";
+        });
+        document.querySelectorAll(".todo-active-task-row").forEach(function (item) {
+          var visible = itemVisibility(item);
           item.classList.toggle("is-filtered", !visible);
           item.style.display = visible ? "" : "none";
         });
@@ -24054,6 +24306,11 @@
           var hasVisible = !!group.querySelector(".todo-item:not(.is-filtered)");
           group.style.display = hasVisible ? "" : "none";
         });
+        var activeTasksSection = document.querySelector("[data-todo-active-tasks]");
+        if (activeTasksSection) {
+          var hasVisibleActiveTasks = !!activeTasksSection.querySelector(".todo-active-task-row:not(.is-filtered)");
+          activeTasksSection.hidden = !hasVisibleActiveTasks;
+        }
         updateAssigneeSummary();
       }
       window.__applyTodoFilters = applyFilters;
