@@ -251,6 +251,24 @@ def _serialize_task(
     meta = info.get("meta") or {}
     start_date = str(meta.get("start_date") or "").strip() or None
     due_mode = str(meta.get("due_mode") or "").strip().lower()
+    poll_raw = meta.get("poll") if isinstance(meta.get("poll"), dict) else {}
+    poll_options = []
+    if isinstance(poll_raw.get("options"), list):
+        for item in poll_raw.get("options"):
+            if isinstance(item, dict):
+                label = str(item.get("label") or "").strip()
+                option_id = str(item.get("id") or "").strip()
+            else:
+                label = str(item or "").strip()
+                option_id = ""
+            if label:
+                poll_options.append({
+                    "id": option_id,
+                    "label": label,
+                })
+    task_type = "poll" if (str(poll_raw.get("question") or "").strip() or bool(poll_raw.get("allows_multiple")) or poll_options) else str(meta.get("task_type") or "standard").strip().lower()
+    if task_type not in {"standard", "poll"}:
+        task_type = "standard"
     updated_at = getattr(task, "updated_at", None)
     if due_mode not in {"asap", "date"}:
         due_mode = "date" if task.due_at else "none"
@@ -272,6 +290,13 @@ def _serialize_task(
         "start_date": start_date,
         "locked": bool(task.locked),
         "status": task.status,
+        "task_type": task_type,
+        "poll": {
+            "question": str(poll_raw.get("question") or "").strip(),
+            "allows_multiple": bool(poll_raw.get("allows_multiple")),
+            "results_visibility": "creator" if str(poll_raw.get("results_visibility") or "").strip().lower() == "creator" else "everyone",
+            "options": poll_options,
+        },
         "status_mode": status_meta.get("mode") or "single",
         "status_percentage": status_meta.get("percentage_complete") or 0,
         "per_user_status_enabled": (status_meta.get("mode") or "single") == "multi",

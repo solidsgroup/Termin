@@ -652,6 +652,21 @@ def _task_summary(task: Task | None) -> dict | None:
     follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
     raw_status_mode = normalize_task_status_mode(getattr(task, "status_mode", None) or meta.get("status_mode"), default="")
     status_mode = raw_status_mode if raw_status_mode in {"single", "multi", "percent"} else ("multi" if bool(getattr(task, "per_user_status_enabled", False)) else "single")
+    poll_raw = meta.get("poll") if isinstance(meta.get("poll"), dict) else {}
+    poll_options = []
+    if isinstance(poll_raw.get("options"), list):
+        for item in poll_raw.get("options"):
+            if isinstance(item, dict):
+                label = str(item.get("label") or "").strip()
+                option_id = str(item.get("id") or "").strip()
+            else:
+                label = str(item or "").strip()
+                option_id = ""
+            if label:
+                poll_options.append({"id": option_id, "label": label})
+    task_type = "poll" if (str(poll_raw.get("question") or "").strip() or bool(poll_raw.get("allows_multiple")) or poll_options) else str(meta.get("task_type") or "standard").strip().lower()
+    if task_type not in {"standard", "poll"}:
+        task_type = "standard"
     raw_percentage = str((meta.get("status_percentage") or "")).strip()
     try:
         status_percentage = max(0, min(100, int(float(raw_percentage))))
@@ -666,6 +681,13 @@ def _task_summary(task: Task | None) -> dict | None:
         "link": task.link,
         "links": info_payload.get("links", []),
         "status": task.status,
+        "task_type": task_type,
+        "poll": {
+            "question": str(poll_raw.get("question") or "").strip(),
+            "allows_multiple": bool(poll_raw.get("allows_multiple")),
+            "results_visibility": "creator" if str(poll_raw.get("results_visibility") or "").strip().lower() == "creator" else "everyone",
+            "options": poll_options,
+        },
         "status_mode": status_mode,
         "status_percentage": status_percentage,
         "per_user_status_enabled": status_mode == "multi",
@@ -758,7 +780,23 @@ def _serialize_task_data(
     viewer_email: str | None = None,
 ) -> dict:
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info_payload.get("meta") or {}
     follow_project_members = str(((info_payload.get("meta") or {}).get("follow_project_members") or "")).strip().lower() in {"1", "true", "yes", "on"}
+    poll_raw = meta.get("poll") if isinstance(meta.get("poll"), dict) else {}
+    poll_options = []
+    if isinstance(poll_raw.get("options"), list):
+        for item in poll_raw.get("options"):
+            if isinstance(item, dict):
+                label = str(item.get("label") or "").strip()
+                option_id = str(item.get("id") or "").strip()
+            else:
+                label = str(item or "").strip()
+                option_id = ""
+            if label:
+                poll_options.append({"id": option_id, "label": label})
+    task_type = "poll" if (str(poll_raw.get("question") or "").strip() or bool(poll_raw.get("allows_multiple")) or poll_options) else str(meta.get("task_type") or "standard").strip().lower()
+    if task_type not in {"standard", "poll"}:
+        task_type = "standard"
     assignments = (
         Assignment.query.filter_by(task_id=task.id)
         .order_by(Assignment.created_at.asc(), Assignment.id.asc())
@@ -788,6 +826,12 @@ def _serialize_task_data(
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "status": task.status,
+        "task_type": task_type,
+        "poll": {
+            "question": str(poll_raw.get("question") or "").strip(),
+            "allows_multiple": bool(poll_raw.get("allows_multiple")),
+            "options": poll_options,
+        },
         "status_mode": normalize_task_status_mode(getattr(task, "status_mode", None), default="single"),
         "status_percentage": task_status_percentage(task),
         "per_user_status_enabled": normalize_task_status_mode(getattr(task, "status_mode", None), default="single") == "multi",

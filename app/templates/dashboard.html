@@ -167,6 +167,16 @@
       <span class="prereq-glyph" aria-hidden="true"><i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i></span>
       <span class="prereq-status-label">{{ status_payload.get('prereq_met_count', 0) }}/{{ status_payload.get('prereq_total_count', 0) }}</span>
     </div>
+  {% elif status_mode == 'poll' %}
+    {% set poll_total = status_payload.get('poll_total_count', 0) if status_payload else 0 %}
+    {% set poll_complete = status_payload.get('poll_complete_count', 0) if status_payload else 0 %}
+    {% set poll_percent = ((poll_complete / poll_total) * 100) if poll_total else 0 %}
+    <button class="task-status-multi-button task-status-percentage-button task-status-poll-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-poll-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1" data-status-state="{{ aggregate_state }}" aria-label="{{ poll_complete }}/{{ poll_total }} responses" style="--status-progress:{{ '%.2f'|format(poll_percent) }}%;">
+      <div class="task-status-poll" data-task-status-poll="{{ task.id }}">
+        <span class="task-status-poll-icon"><i class="fa-solid fa-square-poll-horizontal" aria-hidden="true"></i></span>
+        <span class="task-status-poll-count">{{ poll_complete }}/{{ poll_total }}</span>
+      </div>
+    </button>
   {% elif status_mode == 'percent' %}
     <button class="task-status-multi-button task-status-percentage-button{% if todo %} is-todo{% endif %}" type="button" data-task-multi-status-trigger="{{ task.id }}" data-task-id="{{ task.id }}" data-status-cell="1">
       <div class="task-status-percentage" data-task-status-percentage="{{ task.id }}">{{ status_payload.get('percentage_complete', 0) if status_payload else 0 }}%</div>
@@ -803,6 +813,11 @@
     --discussion-setting-label-width: 96px;
   }
 
+  .discussion-settings,
+  .discussion-poll-settings {
+    padding: 16px 18px;
+  }
+
   .discussion-setting-field.is-inline,
   .discussion-setting-field--description,
   .discussion-setting-group--relationship {
@@ -843,6 +858,383 @@
     min-width: 0;
     display: grid;
     gap: 8px;
+  }
+
+  .discussion-tab--poll {
+    border-color: color-mix(in srgb, #c99211 28%, var(--line));
+    background: color-mix(in srgb, #c99211 10%, var(--panel));
+    color: color-mix(in srgb, #c99211 78%, var(--ink));
+  }
+
+  .discussion-tab--poll.is-active {
+    border-color: color-mix(in srgb, #c99211 46%, var(--line));
+    background: color-mix(in srgb, #c99211 18%, var(--panel-alt));
+    color: color-mix(in srgb, #c99211 86%, var(--ink));
+  }
+
+  .discussion-tab--poll.is-task-type {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #c99211 22%, transparent);
+  }
+
+  .discussion-poll-settings {
+    display: grid;
+    gap: 14px;
+  }
+
+  .discussion-poll-hero {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, #c99211 24%, var(--line));
+    background:
+      linear-gradient(135deg,
+        color-mix(in srgb, #c99211 14%, var(--panel-alt)) 0%,
+        color-mix(in srgb, var(--panel) 92%, transparent) 100%);
+  }
+
+  .discussion-poll-hero-icon {
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, #c99211 18%, var(--panel));
+    color: color-mix(in srgb, #c99211 82%, var(--ink));
+  }
+
+  .discussion-poll-hero-copy {
+    min-width: 0;
+  }
+
+  .discussion-poll-hero-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .discussion-poll-hero-text {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  .discussion-poll-editor {
+    display: grid;
+    gap: 12px;
+    transition: opacity 160ms ease, filter 160ms ease;
+  }
+
+  .discussion-poll-editor.is-inactive {
+    opacity: 0.52;
+    filter: saturate(0.85);
+  }
+
+  .discussion-poll-checkbox {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink);
+  }
+
+  .discussion-poll-checkbox input {
+    margin: 0;
+  }
+
+  .discussion-poll-options {
+    display: grid;
+    gap: 10px;
+  }
+
+  .discussion-poll-option-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .discussion-poll-option-row {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--line) 94%, transparent);
+    background: color-mix(in srgb, var(--panel-alt) 84%, transparent);
+  }
+
+  .discussion-poll-option-bullet {
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    border: 1.5px solid color-mix(in srgb, #c99211 46%, var(--line));
+    background: color-mix(in srgb, #c99211 12%, var(--panel));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .discussion-poll-option-bullet::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, #c99211 76%, var(--ink));
+  }
+
+  .discussion-poll-option-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .discussion-poll-option-remove {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    color: var(--muted);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .discussion-poll-option-add-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .task-status-poll-button {
+    background:
+      linear-gradient(
+        90deg,
+        color-mix(in srgb, #35d07f 28%, transparent) 0,
+        color-mix(in srgb, #35d07f 28%, transparent) var(--status-progress, 0%),
+        rgba(255, 255, 255, 0.03) var(--status-progress, 0%),
+        rgba(255, 255, 255, 0.03) 100%
+      );
+  }
+
+  body[data-theme="light"] .task-status-poll-button {
+    background:
+      linear-gradient(
+        90deg,
+        color-mix(in srgb, #35d07f 20%, white 80%) 0,
+        color-mix(in srgb, #35d07f 20%, white 80%) var(--status-progress, 0%),
+        color-mix(in srgb, white 96%, var(--panel-alt) 4%) var(--status-progress, 0%),
+        color-mix(in srgb, white 96%, var(--panel-alt) 4%) 100%
+      );
+  }
+
+  .task-status-poll {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .task-status-poll-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+
+  .task-status-poll-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .poll-response-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 2400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: color-mix(in srgb, black 28%, transparent);
+  }
+
+  .poll-response-dialog[hidden] {
+    display: none;
+  }
+
+  .poll-response-card {
+    width: min(520px, calc(100vw - 32px));
+    max-height: min(720px, calc(100vh - 48px));
+    overflow: auto;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.24);
+    padding: 20px 20px 18px;
+    display: grid;
+    gap: 16px;
+  }
+
+  .poll-response-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .poll-response-title {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .poll-response-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, #d6a117 70%, var(--muted));
+  }
+
+  .poll-response-question {
+    font-size: 1rem;
+    line-height: 1.35;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .poll-response-meta {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+
+  .poll-response-options {
+    display: grid;
+    gap: 8px;
+  }
+
+  .poll-response-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 12px 13px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel-alt) 86%, transparent);
+    cursor: pointer;
+    transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+  }
+
+  .poll-response-option:hover {
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+    background: color-mix(in srgb, var(--panel-alt) 74%, transparent);
+  }
+
+  .poll-response-option.is-selected {
+    border-color: color-mix(in srgb, #35d07f 42%, var(--line));
+    background: color-mix(in srgb, #35d07f 12%, var(--panel-alt));
+  }
+
+  .poll-response-option.is-selected .poll-response-option-indicator {
+    border-color: color-mix(in srgb, #35d07f 62%, var(--line));
+    background: color-mix(in srgb, #35d07f 16%, var(--panel));
+    color: color-mix(in srgb, #35d07f 84%, var(--ink));
+  }
+
+  .poll-response-option-indicator {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 0.72rem;
+    line-height: 1;
+  }
+
+  .poll-response-option-text {
+    min-width: 0;
+    font-size: 0.95rem;
+    color: var(--ink);
+  }
+
+  .poll-response-option-body {
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+    flex: 1 1 auto;
+  }
+
+  .poll-response-responders {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .poll-response-responder {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .poll-response-responder.has-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .poll-response-option.is-disabled {
+    opacity: 0.62;
+    cursor: default;
+  }
+
+  .poll-response-option.is-disabled:hover {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--panel-alt) 86%, transparent);
+  }
+
+  .poll-response-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 2px;
+  }
+
+  .poll-response-note {
+    font-size: 0.84rem;
+    color: var(--muted);
+    line-height: 1.35;
+    padding-right: 10px;
   }
 
   .discussion-setting-field-body {
@@ -3076,6 +3468,7 @@
         <button class="discussion-tab" type="button" data-drawer-tab="settings">Settings</button>
         <button class="discussion-tab" type="button" data-drawer-tab="links">Links</button>
         <button class="discussion-tab is-active" type="button" data-drawer-tab="messages">Messages</button>
+        <button class="discussion-tab discussion-tab--poll" type="button" data-drawer-tab="poll" hidden>Poll</button>
       </div>
     </div>
     <div class="discussion-header-actions">
@@ -3140,6 +3533,13 @@
       <div class="discussion-setting-field is-inline" data-settings-title-field>
         <span class="discussion-setting-label discussion-setting-label--row" data-settings-title-label>Title</span>
         <input id="task-settings-title" type="text" aria-label="Title" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="discussion-setting-field is-inline" data-task-only>
+        <span class="discussion-setting-label discussion-setting-label--row">Type</span>
+        <select id="task-settings-type" aria-label="Task type">
+          <option value="standard">Normal</option>
+          <option value="poll">Poll</option>
+        </select>
       </div>
       <div class="discussion-setting-field is-inline" data-task-only>
         <span class="discussion-setting-label discussion-setting-label--row">Creator</span>
@@ -3225,6 +3625,49 @@
       </div>
     </div>
   </div>
+  <div class="discussion-pane" id="discussion-poll-pane" data-drawer-pane="poll">
+    <div class="discussion-poll-settings" id="discussion-poll-settings">
+      <div class="discussion-poll-hero">
+        <div class="discussion-poll-hero-icon" aria-hidden="true">
+          <i class="fa-solid fa-square-poll-vertical"></i>
+        </div>
+        <div class="discussion-poll-hero-copy">
+          <div class="discussion-poll-hero-title">Poll Task</div>
+          <div class="discussion-poll-hero-text">Configure this task as a poll with a question and answer options.</div>
+        </div>
+      </div>
+      <div class="discussion-poll-editor" id="task-settings-poll-editor">
+        <div class="discussion-setting-field is-inline">
+          <span class="discussion-setting-label discussion-setting-label--row">Question</span>
+          <input id="task-settings-poll-question" type="text" aria-label="Poll question" placeholder="What are we deciding?" autocomplete="termin-nope-poll-question" autocorrect="off" autocapitalize="sentences" spellcheck="true" />
+        </div>
+        <div class="discussion-setting-field is-inline">
+          <span class="discussion-setting-label discussion-setting-label--row">Selection</span>
+          <label class="discussion-poll-checkbox">
+            <input id="task-settings-poll-multiple" type="checkbox" />
+            <span>Allow multiple options per person</span>
+          </label>
+        </div>
+        <div class="discussion-setting-field is-inline">
+          <span class="discussion-setting-label discussion-setting-label--row">Results</span>
+          <select id="task-settings-poll-results-visibility" aria-label="Poll results visibility">
+            <option value="everyone">Everyone</option>
+            <option value="creator">Creator only</option>
+          </select>
+        </div>
+        <div class="discussion-setting-group discussion-setting-group--relationship">
+          <span class="discussion-setting-label discussion-setting-label--row">Options</span>
+          <div class="discussion-poll-options">
+            <div class="discussion-poll-option-list" id="task-settings-poll-options"></div>
+            <div class="discussion-poll-option-add-row">
+              <input id="task-settings-poll-new-option" type="text" aria-label="New poll option" placeholder="Add option" autocomplete="termin-nope-poll-option" autocorrect="off" autocapitalize="sentences" spellcheck="true" />
+              <button class="btn secondary" type="button" id="task-settings-poll-add-option">Add</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="discussion-pane" id="discussion-links-pane" data-drawer-pane="links">
     <div class="discussion-links-actions" id="discussion-links-actions" hidden>
       <button class="btn secondary" type="button" id="copy-task-permalink">Copy task permalink</button>
@@ -3234,6 +3677,26 @@
 </aside>
 <div class="person-hover-card" id="person-hover-card" hidden aria-hidden="true"></div>
 <div class="prereq-hover-card" id="prereq-hover-card" hidden aria-hidden="true"></div>
+<div class="poll-response-dialog" id="poll-response-dialog" hidden aria-hidden="true">
+  <div class="poll-response-card" role="dialog" aria-modal="true" aria-labelledby="poll-response-question">
+    <div class="poll-response-header">
+      <div class="poll-response-title">
+        <div class="poll-response-kicker">Poll Response</div>
+        <div class="poll-response-question" id="poll-response-question">Poll</div>
+        <div class="poll-response-meta" id="poll-response-meta"></div>
+      </div>
+      <button class="btn secondary" type="button" id="poll-response-close">Close</button>
+    </div>
+    <div class="poll-response-options" id="poll-response-options"></div>
+    <div class="poll-response-actions">
+      <div class="poll-response-note" id="poll-response-note"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn secondary" type="button" id="poll-response-clear">Clear</button>
+        <button class="btn primary" type="button" id="poll-response-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="context-menu" class="context-menu">
   <button data-action="add-project">Add Project</button>
@@ -3804,6 +4267,7 @@
       var normalized = String(value || "").trim().toLowerCase();
       if (normalized === "per_user" || normalized === "multi") return "multi";
       if (normalized === "percentage" || normalized === "percent") return "percent";
+      if (normalized === "poll") return "poll";
       if (normalized === "single") return "single";
       return fallback || "single";
     }
@@ -4292,9 +4756,15 @@
           cell.dataset.originalValue = normalizeEditableText(cell);
         }
         var taskId = cell.getAttribute("data-task-id");
-        if (taskId) {
+      if (taskId) {
           var host = document.querySelector('[data-task-status-host="' + taskId + '"]');
           var task = host && host._taskPayload ? host._taskPayload : null;
+          if (task && taskStatusMeta(task).mode === "poll") {
+            if (typeof window.__openTaskPollDialog === "function") {
+              window.__openTaskPollDialog(task, { anchor: cell, source: "row" });
+            }
+            return;
+          }
           var isPercentage = !!(host && host.querySelector("[data-task-status-percentage]"));
           if (!isPercentage && task) {
             isPercentage = (function (value, fallback) {
@@ -13121,12 +13591,22 @@
     var taskSettingsStatusModeEl = document.getElementById("task-settings-status-mode");
     var taskSettingsStatusModePickerEl = document.getElementById("task-settings-status-mode-picker");
     var taskSettingsStatusModeButtons = Array.prototype.slice.call(drawer.querySelectorAll("[data-status-mode-option]"));
+    var taskSettingsTypeEl = document.getElementById("task-settings-type");
     var taskSettingsAssignmentsEl = document.getElementById("task-settings-assignments");
     var taskSettingsAssigneeEl = document.getElementById("task-settings-assignee");
     var taskSettingsFollowersEl = document.getElementById("task-settings-followers");
     var taskSettingsFollowerEl = document.getElementById("task-settings-follower");
     var taskSettingsPrerequisitesEl = document.getElementById("task-settings-prerequisites");
     var taskSettingsPrerequisiteEl = document.getElementById("task-settings-prerequisite");
+    var pollTabButtonEl = drawer.querySelector('[data-drawer-tab="poll"]');
+    var pollPaneEl = document.getElementById("discussion-poll-pane");
+    var taskSettingsPollEditorEl = document.getElementById("task-settings-poll-editor");
+    var taskSettingsPollQuestionEl = document.getElementById("task-settings-poll-question");
+    var taskSettingsPollMultipleEl = document.getElementById("task-settings-poll-multiple");
+    var taskSettingsPollResultsVisibilityEl = document.getElementById("task-settings-poll-results-visibility");
+    var taskSettingsPollOptionsEl = document.getElementById("task-settings-poll-options");
+    var taskSettingsPollNewOptionEl = document.getElementById("task-settings-poll-new-option");
+    var taskSettingsPollAddOptionEl = document.getElementById("task-settings-poll-add-option");
     var descriptionWrapperEl = drawer.querySelector("[data-description-wrapper]");
     var descriptionDisplayEl = drawer.querySelector("[data-description-display]");
     var descriptionRenderedEl = drawer.querySelector("[data-description-rendered]");
@@ -13135,6 +13615,14 @@
     var taskSettingsDescriptionFormatEl = document.getElementById("task-settings-description-format");
     var taskSettingsTitleFieldEl = drawer.querySelector("[data-settings-title-field]");
     var taskSettingsMetaEl = document.getElementById("task-settings-meta");
+    var pollResponseDialogEl = document.getElementById("poll-response-dialog");
+    var pollResponseQuestionEl = document.getElementById("poll-response-question");
+    var pollResponseMetaEl = document.getElementById("poll-response-meta");
+    var pollResponseOptionsEl = document.getElementById("poll-response-options");
+    var pollResponseNoteEl = document.getElementById("poll-response-note");
+    var pollResponseCloseEl = document.getElementById("poll-response-close");
+    var pollResponseClearEl = document.getElementById("poll-response-clear");
+    var pollResponseSaveEl = document.getElementById("poll-response-save");
     var taskOnlyEls = Array.prototype.slice.call(drawer.querySelectorAll("[data-task-only]"));
     var settingsTitleLabelEl = drawer.querySelector("[data-settings-title-label]");
     var drawerHeaderTabsEl = document.getElementById("drawer-header-tabs");
@@ -13174,6 +13662,9 @@
     var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v4.user." + String(currentUserId);
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
     var terminClientPerfEvents = [];
+    var pollSettingsPersistTimer = 0;
+    var taskTypeDraft = null;
+    var activePollDialogTask = null;
 
     function recordClientPerf(name, startedAt, extra) {
       var durationMs = Math.max(0, performance.now() - Number(startedAt || 0));
@@ -13227,6 +13718,64 @@
         normalized.link = normalized.links[0];
       }
       return normalized;
+    }
+
+    function normalizeTaskType(value) {
+      var normalized = String(value || "standard").trim().toLowerCase();
+      return normalized === "poll" ? "poll" : "standard";
+    }
+
+    function normalizeTaskPollConfig(poll) {
+      var source = poll && typeof poll === "object" ? poll : {};
+      var options = Array.isArray(source.options) ? source.options : [];
+      var seenIds = Object.create(null);
+      var normalizedOptions = options.map(function (item, index) {
+        var label = "";
+        var optionId = "";
+        if (item && typeof item === "object") {
+          label = String(item.label || "").trim();
+          optionId = String(item.id || "").trim();
+        } else {
+          label = String(item || "").trim();
+        }
+        if (!label) return null;
+        if (!optionId || seenIds[optionId]) {
+          optionId = "option-" + String(index + 1);
+          while (seenIds[optionId]) {
+            optionId += "-x";
+          }
+        }
+        seenIds[optionId] = true;
+        return { id: optionId, label: label };
+      }).filter(Boolean);
+      return {
+        question: String(source.question || "").trim(),
+        allows_multiple: !!source.allows_multiple,
+        results_visibility: (function (value) {
+          var normalized = String(value || "everyone").trim().toLowerCase();
+          return normalized === "creator" ? "creator" : "everyone";
+        })(source.results_visibility),
+        options: normalizedOptions,
+      };
+    }
+
+    function taskIsPoll(task) {
+      var poll = taskPollConfig(task);
+      return normalizeTaskType(task && task.task_type) === "poll"
+        || !!(poll.question || poll.allows_multiple || poll.options.length);
+    }
+
+    function currentTaskTypeValue(task) {
+      return normalizeTaskType(task && task.task_type);
+    }
+
+    function drawerTaskTypeValue(task) {
+      if (taskTypeDraft) return normalizeTaskType(taskTypeDraft);
+      return currentTaskTypeValue(task);
+    }
+
+    function taskPollConfig(task) {
+      return normalizeTaskPollConfig(task && task.poll);
     }
 
     function dashboardStoreRequestUrl(baseUrl) {
@@ -15333,6 +15882,7 @@
         settingsTitleLabelEl.textContent = currentEntityType === "task" ? "Title" : "Name";
       }
       drawer.setAttribute("data-entity-type", currentEntityType);
+      syncPollTabAppearance();
     }
 
     function scrollDiscussionToBottom() {
@@ -15350,7 +15900,7 @@
     }
 
     function setDrawerTab(tab) {
-      activeDrawerTab = (tab === "settings" || tab === "links" || tab === "messages") ? tab : "messages";
+      activeDrawerTab = (tab === "settings" || tab === "poll" || tab === "links" || tab === "messages") ? tab : "messages";
       document.querySelectorAll("[data-drawer-tab]").forEach(function (button) {
         button.classList.toggle("is-active", button.getAttribute("data-drawer-tab") === activeDrawerTab);
       });
@@ -15741,8 +16291,13 @@
         '</span>';
     }
 
+    function renderPollGlyphHtml() {
+      return '<i class="fa-solid fa-square-poll-horizontal" aria-hidden="true"></i>';
+    }
+
     function renderStatusGlyphHtml(state) {
       var normalized = String(state || "open").trim().toLowerCase();
+      if (normalized === "poll") return renderPollGlyphHtml();
       if (normalized === "prereq") return '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
       if (normalized === "complete") return '<i class="fa-solid fa-circle-check" aria-hidden="true"></i>';
       if (normalized === "critical") return '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>';
@@ -15757,6 +16312,9 @@
       if (taskStatusBlockedByPrereq(task || {})) {
         state = "prereq";
         iconHtml = renderStatusGlyphHtml("prereq");
+      } else if (meta.mode === "poll") {
+        state = String(taskAggregateStatusState(task || {}) || "open") === "complete" ? "complete" : "partial";
+        iconHtml = renderPollGlyphHtml();
       } else if (meta.mode === "single") {
         state = String(meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open") || "open");
         if (state === "open") {
@@ -15805,6 +16363,109 @@
           '</div>'
         );
       }).join("");
+    }
+
+    function renderTaskPollOptions() {
+      if (!taskSettingsPollOptionsEl) return;
+      var poll = taskPollConfig(currentTaskData || {});
+      if (!poll.options.length) {
+        taskSettingsPollOptionsEl.innerHTML = '<div class="footer-note">No options yet.</div>';
+        return;
+      }
+      taskSettingsPollOptionsEl.innerHTML = poll.options.map(function (option) {
+        return '' +
+          '<div class="discussion-poll-option-row" data-poll-option-id="' + escapeHtml(option.id) + '">' +
+            '<span class="discussion-poll-option-bullet" aria-hidden="true"></span>' +
+            '<input class="discussion-poll-option-input" type="text" value="' + escapeHtml(option.label) + '" data-poll-option-input="' + escapeHtml(option.id) + '" aria-label="Poll option" autocomplete="termin-nope-poll-option" autocorrect="off" autocapitalize="sentences" spellcheck="true" />' +
+            '<button class="discussion-poll-option-remove" type="button" data-poll-option-remove="' + escapeHtml(option.id) + '" aria-label="Remove option">×</button>' +
+          '</div>';
+      }).join("");
+    }
+
+    function syncPollTabAppearance() {
+      var selectedType = drawerTaskTypeValue(currentTaskData || {});
+      var isPoll = currentEntityType === "task" && selectedType === "poll";
+      if (pollTabButtonEl) {
+        pollTabButtonEl.hidden = !isPoll;
+        pollTabButtonEl.style.display = isPoll ? "" : "none";
+        pollTabButtonEl.classList.toggle("is-task-type", isPoll);
+        pollTabButtonEl.textContent = "Poll";
+      }
+      if (pollPaneEl) {
+        pollPaneEl.hidden = !isPoll;
+      }
+      if (!isPoll && activeDrawerTab === "poll") {
+        setDrawerTab(currentEntityType === "task" ? "settings" : "messages");
+      }
+    }
+
+    function renderTaskPollSettings() {
+      var locked = currentTaskData && taskIsLocked(currentTaskData);
+      var taskType = drawerTaskTypeValue(currentTaskData || {});
+      var poll = taskPollConfig(currentTaskData || {});
+      if (taskSettingsTypeEl) {
+        taskSettingsTypeEl.value = taskType;
+        taskSettingsTypeEl.disabled = !!locked;
+      }
+      syncPollTabAppearance();
+      if (taskSettingsPollEditorEl) {
+        taskSettingsPollEditorEl.classList.toggle("is-inactive", taskType !== "poll");
+      }
+      if (taskSettingsPollQuestionEl) {
+        taskSettingsPollQuestionEl.value = poll.question || "";
+        taskSettingsPollQuestionEl.disabled = !!locked || taskType !== "poll";
+      }
+      if (taskSettingsPollMultipleEl) {
+        taskSettingsPollMultipleEl.checked = !!poll.allows_multiple;
+        taskSettingsPollMultipleEl.disabled = !!locked || taskType !== "poll";
+      }
+      if (taskSettingsPollResultsVisibilityEl) {
+        taskSettingsPollResultsVisibilityEl.value = String(poll.results_visibility || "everyone") === "creator" ? "creator" : "everyone";
+        taskSettingsPollResultsVisibilityEl.disabled = !!locked || taskType !== "poll";
+      }
+      if (taskSettingsPollNewOptionEl) {
+        taskSettingsPollNewOptionEl.disabled = !!locked || taskType !== "poll";
+      }
+      if (taskSettingsPollAddOptionEl) {
+        taskSettingsPollAddOptionEl.disabled = !!locked || taskType !== "poll";
+      }
+      renderTaskPollOptions();
+      if (taskSettingsPollOptionsEl) {
+        taskSettingsPollOptionsEl.querySelectorAll("[data-poll-option-input], [data-poll-option-remove]").forEach(function (node) {
+          if ("disabled" in node) {
+            node.disabled = !!locked || taskType !== "poll";
+          }
+        });
+      }
+    }
+
+    function taskPollPayloadFromInputs() {
+      var options = [];
+      if (taskSettingsPollOptionsEl) {
+        taskSettingsPollOptionsEl.querySelectorAll("[data-poll-option-input]").forEach(function (input) {
+          var label = String(input.value || "").trim();
+          if (!label) return;
+          options.push({
+            id: String(input.getAttribute("data-poll-option-input") || "").trim(),
+            label: label,
+          });
+        });
+      }
+      return normalizeTaskPollConfig({
+        question: taskSettingsPollQuestionEl ? taskSettingsPollQuestionEl.value : "",
+        allows_multiple: !!(taskSettingsPollMultipleEl && taskSettingsPollMultipleEl.checked),
+        results_visibility: taskSettingsPollResultsVisibilityEl ? taskSettingsPollResultsVisibilityEl.value : "everyone",
+        options: options,
+      });
+    }
+
+    function schedulePollSettingsPersist() {
+      if (!currentTaskId) return;
+      if (pollSettingsPersistTimer) window.clearTimeout(pollSettingsPersistTimer);
+      pollSettingsPersistTimer = window.setTimeout(function () {
+        pollSettingsPersistTimer = 0;
+        persistEntitySettings();
+      }, 220);
     }
 
     function syncTaskLinkBadges(taskId, links) {
@@ -15954,6 +16615,7 @@
               var normalized = String(value || "").trim().toLowerCase();
               if (normalized === "per_user" || normalized === "multi") return "multi";
               if (normalized === "percentage" || normalized === "percent") return "percent";
+              if (normalized === "poll") return "poll";
               if (normalized === "single") return "single";
               return fallback || "single";
             });
@@ -15995,6 +16657,11 @@
         prereq_blocked: !!meta.prereq_blocked,
         prereq_total_count: Math.max(0, Number(meta.prereq_total_count || 0)),
         prereq_met_count: Math.max(0, Number(meta.prereq_met_count || 0)),
+        poll_total_count: Math.max(0, Number(meta.poll_total_count || 0)),
+        poll_complete_count: Math.max(0, Number(meta.poll_complete_count || 0)),
+        poll_allows_multiple: !!meta.poll_allows_multiple,
+        poll_question: String(meta.poll_question || ""),
+        poll_viewer_option_ids: Array.isArray(meta.poll_viewer_option_ids) ? meta.poll_viewer_option_ids.slice() : [],
         task_status: baseStatus,
         task_status_state: decorateStatusState(task, getStatusState(baseStatus)),
         aggregate_state: meta.aggregate_state || null,
@@ -16029,6 +16696,7 @@
 
     function taskMyStatus(task) {
       var meta = taskStatusMeta(task);
+      if (meta.mode === "poll") return meta.my_status || "open";
       if (meta.mode === "percent") return String(Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)))) + "%";
       if (!meta.enabled) return meta.task_status || "open";
       if (meta.my_status) return meta.my_status;
@@ -16045,6 +16713,9 @@
           ? window.__decorateStatusStateWithPrerequisites
           : function (_task, state) { return state; });
       var meta = taskStatusMeta(task);
+      if (meta.mode === "poll") {
+        return String(meta.my_status_state || "open");
+      }
       if (meta.mode === "percent") {
         return decorateStatusState(task, Number(meta.percentage_complete || 0) >= 100 ? "complete" : "open");
       }
@@ -16054,6 +16725,22 @@
     function renderTodoChecklistControl(task) {
       if (!task || !task.id) return "";
       var meta = taskStatusMeta(task);
+      if (meta.mode === "poll") {
+        var isResponded = taskMyStatusState(task) === "complete";
+        var title = isResponded ? "Update poll response" : "Respond to poll";
+        return '' +
+          '<button class="todo-check-toggle is-poll' + (isResponded ? ' is-complete' : '') + '"' +
+            ' type="button"' +
+            ' data-todo-check-toggle="' + escapeHtml(task.id) + '"' +
+            ' data-task-id="' + escapeHtml(task.id) + '"' +
+            ' aria-pressed="' + (isResponded ? "true" : "false") + '"' +
+            ' title="' + escapeHtml(title) + '"' +
+            ((task.locked || !!meta.prereq_blocked) ? ' disabled' : '') +
+          '>' +
+            '<span class="todo-check-toggle-icon">' + renderPollGlyphHtml() + '</span>' +
+            '<span class="todo-check-toggle-label">' + escapeHtml(title) + '</span>' +
+          '</button>';
+      }
       var state = taskMyStatusState(task);
       var isComplete = state === "complete";
       var isPercent = meta.mode === "percent";
@@ -16090,6 +16777,9 @@
           : function (_task, state) { return state; });
       var meta = taskStatusMeta(task);
       if (!meta.enabled) return decorateStatusState(task, meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open"));
+      if (meta.mode === "poll") {
+        return decorateStatusState(task, (Number(meta.poll_total_count || 0) > 0 && Number(meta.poll_complete_count || 0) >= Number(meta.poll_total_count || 0)) ? "complete" : "open");
+      }
       if (meta.aggregate_state) return decorateStatusState(task, meta.aggregate_state);
       var summary = Array.isArray(meta.summary) ? meta.summary : [];
       if (summary.length) {
@@ -16154,6 +16844,26 @@
       }).join(" · ");
     }
 
+    function renderPollStatusLabel(meta) {
+      return String(Math.max(0, Number(meta && meta.poll_complete_count || 0))) + "/" + String(Math.max(0, Number(meta && meta.poll_total_count || 0)));
+    }
+
+    function renderPollStatusCellHtml(task, opts) {
+      var options = opts || {};
+      var meta = taskStatusMeta(task);
+      var total = Math.max(0, Number(meta.poll_total_count || 0));
+      var complete = Math.max(0, Number(meta.poll_complete_count || 0));
+      var percent = total ? Math.round((complete / total) * 10000) / 100 : 0;
+      var aggregateStateValue = String(taskAggregateStatusState(task) || "open");
+      return '' +
+        '<button class="task-status-multi-button task-status-percentage-button task-status-poll-button' + (options.todo ? ' is-todo' : '') + '" type="button" data-task-multi-status-trigger="' + escapeHtml(task.id) + '" data-task-poll-trigger="' + escapeHtml(task.id) + '" data-task-id="' + escapeHtml(task.id) + '" data-status-cell="1" data-status-state="' + escapeHtml(aggregateStateValue) + '" aria-label="' + escapeHtml(renderPollStatusLabel(meta) + ' responses') + '" style="--status-progress:' + escapeHtml(percent.toFixed(2) + "%") + ';">' +
+          '<div class="task-status-poll" data-task-status-poll="' + escapeHtml(task.id) + '">' +
+            '<span class="task-status-poll-icon">' + renderPollGlyphHtml() + '</span>' +
+            '<span class="task-status-poll-count">' + escapeHtml(renderPollStatusLabel(meta)) + '</span>' +
+          '</div>' +
+        '</button>';
+    }
+
     function renderPrereqBlockedStatusCellHtml(task, opts) {
       var options = opts || {};
       var taskId = escapeHtml(task && task.id);
@@ -16191,6 +16901,125 @@
     }
     window.__openPercentageStatusMenu = openPercentageStatusMenu;
     window.__closePercentageStatusMenu = closePercentageStatusMenu;
+
+    function closeTaskPollDialog() {
+      if (!pollResponseDialogEl) return;
+      pollResponseDialogEl.hidden = true;
+      pollResponseDialogEl.setAttribute("aria-hidden", "true");
+      activePollDialogTask = null;
+      if (pollResponseOptionsEl) {
+        pollResponseOptionsEl.innerHTML = "";
+      }
+    }
+
+    function renderTaskPollDialog(task) {
+      if (!pollResponseDialogEl || !pollResponseOptionsEl) return;
+      var meta = taskStatusMeta(task || {});
+      var poll = taskPollConfig(task || {});
+      var selectedIds = Array.isArray(meta.poll_viewer_option_ids) ? meta.poll_viewer_option_ids.slice() : [];
+      var allowsMultiple = !!meta.poll_allows_multiple;
+      var canRespond = !!meta.viewer_can_set && !taskStatusBlockedByPrereq(task || {}) && !(task && task.locked);
+      var resultsVisible = !!meta.poll_results_visible;
+      var optionResultsById = {};
+      if (Array.isArray(meta.poll_option_results)) {
+        meta.poll_option_results.forEach(function (item) {
+          if (!item || !item.id) return;
+          optionResultsById[String(item.id)] = Array.isArray(item.responders) ? item.responders.slice() : [];
+        });
+      }
+      if (pollResponseQuestionEl) {
+        pollResponseQuestionEl.textContent = poll.question || (task && task.title) || "Poll";
+      }
+      if (pollResponseMetaEl) {
+        pollResponseMetaEl.textContent = renderPollStatusLabel(meta) + " responses";
+      }
+      if (pollResponseNoteEl) {
+        if (canRespond) {
+          pollResponseNoteEl.textContent = (allowsMultiple ? "Select one or more options." : "Select one option.")
+            + (resultsVisible ? "" : " Results are visible to the creator only.");
+        } else {
+          pollResponseNoteEl.textContent = "You can view this poll, but only assignees can respond."
+            + (resultsVisible ? "" : " Results are visible to the creator only.");
+        }
+      }
+      if (pollResponseClearEl) {
+        pollResponseClearEl.disabled = !canRespond;
+      }
+      if (pollResponseSaveEl) {
+        pollResponseSaveEl.disabled = !canRespond;
+      }
+      if (!poll.options.length) {
+        pollResponseOptionsEl.innerHTML = '<div class="footer-note">No poll options configured yet.</div>';
+      } else {
+        pollResponseOptionsEl.innerHTML = poll.options.map(function (option) {
+          var optionId = String(option && option.id || "");
+          var checked = selectedIds.indexOf(optionId) >= 0;
+          var responders = resultsVisible ? (optionResultsById[optionId] || []) : [];
+          var respondersHtml = responders.length
+            ? (
+                '<div class="poll-response-responders">' +
+                responders.map(function (responder) {
+                  var label = responder && (responder.display_name || responder.email) ? String(responder.display_name || responder.email) : "User";
+                  var initial = label.trim().slice(0, 1).toUpperCase();
+                  var avatarUrl = responder && responder.avatar_url ? String(responder.avatar_url) : "";
+                  return '' +
+                    '<span class="poll-response-responder' + (avatarUrl ? ' has-photo' : '') + '" title="' + escapeHtml(label) + '">' +
+                      (avatarUrl
+                        ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.poll-response-responder&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />'
+                        : escapeHtml(initial)) +
+                    '</span>';
+                }).join("") +
+                '</div>'
+              )
+            : '';
+          return '' +
+            '<button class="poll-response-option' + (checked ? ' is-selected' : '') + (canRespond ? '' : ' is-disabled') + '"' +
+              ' type="button"' +
+              ' data-poll-response-option="' + escapeHtml(optionId) + '"' +
+              ' data-allows-multiple="' + (allowsMultiple ? '1' : '0') + '"' +
+              ' data-selected="' + (checked ? '1' : '0') + '"' +
+              (canRespond ? '' : ' disabled') +
+            '>' +
+              '<span class="poll-response-option-indicator" aria-hidden="true"><i class="fa-solid fa-check"></i></span>' +
+              '<span class="poll-response-option-body">' +
+                '<span class="poll-response-option-text">' + escapeHtml(option && option.label ? option.label : '') + '</span>' +
+                respondersHtml +
+              '</span>' +
+            '</button>';
+        }).join("");
+      }
+    }
+
+    function openTaskPollDialog(task, options) {
+      if (!pollResponseDialogEl || !task || !task.id) return;
+      activePollDialogTask = task;
+      renderTaskPollDialog(task);
+      pollResponseDialogEl.hidden = false;
+      pollResponseDialogEl.setAttribute("aria-hidden", "false");
+    }
+    window.__openTaskPollDialog = openTaskPollDialog;
+
+    function saveTaskPollResponse(task, optionIds) {
+      if (!task || !task.id) return Promise.reject(new Error("Task missing"));
+      return fetch("/api/tasks/" + task.id + "/poll_response", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ option_ids: Array.isArray(optionIds) ? optionIds : [] }),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok) {
+            throw new Error((result.data && result.data.error) || "Could not save poll response");
+          }
+          rememberRecentTaskSnapshot(result.data || {});
+          return result.data || {};
+        });
+    }
 
     function patchTaskPercentageStatus(taskId, percentValue) {
       return fetch("/api/tasks/" + taskId, {
@@ -16325,6 +17154,9 @@
       if (taskStatusBlockedByPrereq(task) || aggregateStateValue === "prereq") {
         return renderPrereqBlockedStatusCellHtml(task, options);
       }
+      if (meta.mode === "poll") {
+        return renderPollStatusCellHtml(task, options);
+      }
       if (meta.mode === "single") {
         var status = escapeHtml(meta.task_status || (task && task.status) || "open");
         var state = escapeHtml(aggregateStateValue || getStatusState(status));
@@ -16364,7 +17196,9 @@
         return meta;
       }
       syncStatusInteractivity(renderedCell, renderedState);
-      if (meta.mode === "single") {
+      if (meta.mode === "poll") {
+        renderedCell.setAttribute("aria-label", renderPollStatusLabel(meta) + " responses");
+      } else if (meta.mode === "single") {
         var renderedStatus = escapeHtml(meta.task_status || task.status || "open");
         renderedCell.setAttribute("data-status-state", renderedState);
         renderedCell.innerHTML = renderStatusGlyphHtml(renderedState) + '<span>' + renderedStatus + '</span>';
@@ -16394,9 +17228,13 @@
         var percentageButton = host.querySelector(".task-status-percentage-button");
         if (percentageButton) {
           var meta = taskStatusMeta(mergedHostTask);
-          var percent = Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
+          var percent = meta.mode === "poll"
+            ? (Math.max(0, Number(meta.poll_total_count || 0))
+                ? Math.max(0, Math.min(100, (Number(meta.poll_complete_count || 0) / Number(meta.poll_total_count || 1)) * 100))
+                : 0)
+            : Math.max(0, Math.min(100, Number(meta.percentage_complete || 0)));
           percentageButton.style.setProperty("--status-progress", percent.toFixed(2) + "%");
-          percentageButton.title = percent + "% complete";
+          percentageButton.title = meta.mode === "poll" ? (renderPollStatusLabel(meta) + " responses") : (percent + "% complete");
         }
       });
       var effectiveTask = document.querySelector('[data-task-status-host="' + task.id + '"]')
@@ -16618,7 +17456,7 @@
       if (taskSettingsStatusEl) {
         taskSettingsStatusEl.dataset.statusValue = effectiveStatus;
         taskSettingsStatusEl.dataset.statusBaseline = effectiveStatus;
-        taskSettingsStatusEl.setAttribute("data-payload-field", meta.mode === "single" ? "status" : "user_status");
+        taskSettingsStatusEl.setAttribute("data-payload-field", meta.mode === "single" ? "status" : (meta.mode === "poll" ? "poll_response" : "user_status"));
         taskSettingsStatusEl.hidden = false;
         taskSettingsStatusEl.disabled = locked;
         taskSettingsStatusEl.dataset.statusMode = meta.mode || "single";
@@ -16629,6 +17467,8 @@
         if (label) {
           if (blockedByPrereq) {
             label.innerHTML = renderStatusGlyphHtml("prereq") + '<span>Prereq</span>';
+          } else if (meta.mode === "poll") {
+            label.innerHTML = '<span class="task-status-poll-icon">' + renderPollGlyphHtml() + '</span><span>' + escapeHtml(renderPollStatusLabel(meta)) + '</span>';
           } else if (meta.mode === "single") {
             label.innerHTML = renderStatusGlyphHtml(taskAggregateStatusState(task)) + '<span>' + escapeHtml(effectiveStatus) + '</span>';
           } else {
@@ -16638,13 +17478,24 @@
           }
         }
         if (chevron) {
-          chevron.hidden = blockedByPrereq;
+          chevron.hidden = blockedByPrereq || meta.mode === "poll";
           taskSettingsStatusEl.appendChild(chevron);
         }
         taskSettingsStatusEl.setAttribute("data-status-state", taskAggregateStatusState(task));
         taskSettingsStatusEl.disabled = locked || blockedByPrereq;
         taskSettingsStatusEl.setAttribute("aria-disabled", (locked || blockedByPrereq) ? "true" : "false");
         taskSettingsStatusEl.classList.toggle("is-disabled", locked || blockedByPrereq);
+        if (meta.mode === "poll") {
+          var pollTotal = Math.max(0, Number(meta.poll_total_count || 0));
+          var pollComplete = Math.max(0, Number(meta.poll_complete_count || 0));
+          var pollPercent = pollTotal ? Math.round((pollComplete / pollTotal) * 10000) / 100 : 0;
+          taskSettingsStatusEl.classList.add("task-status-percentage-button", "task-status-poll-button");
+          taskSettingsStatusEl.style.setProperty("--status-progress", pollPercent.toFixed(2) + "%");
+          taskSettingsStatusEl.setAttribute("aria-label", renderPollStatusLabel(meta) + " responses");
+        } else {
+          taskSettingsStatusEl.classList.remove("task-status-percentage-button", "task-status-poll-button");
+          taskSettingsStatusEl.style.removeProperty("--status-progress");
+        }
         taskSettingsStatusEl.hidden = blockedByPrereq;
         taskSettingsStatusEl.style.setProperty("display", blockedByPrereq ? "none" : "flex", "important");
         if (meta.mode === "single" && typeof window.__applyStatusState === "function") {
@@ -16665,16 +17516,16 @@
           : "";
       }
       if (taskSettingsStatusLabelEl) {
-        taskSettingsStatusLabelEl.textContent = meta.mode === "percent" ? "Progress" : (meta.mode === "multi" ? "Statuses" : "Status");
+        taskSettingsStatusLabelEl.textContent = meta.mode === "percent" ? "Progress" : (meta.mode === "multi" ? "Statuses" : (meta.mode === "poll" ? "Poll" : "Status"));
         taskSettingsStatusLabelEl.hidden = false;
       }
       if (taskSettingsStatusModeEl) {
-        taskSettingsStatusModeEl.value = meta.mode || "single";
-        taskSettingsStatusModeEl.disabled = locked;
+        taskSettingsStatusModeEl.value = meta.mode === "poll" ? "single" : (meta.mode || "single");
+        taskSettingsStatusModeEl.disabled = locked || meta.mode === "poll";
       }
       if (taskSettingsStatusModePickerEl) {
-        taskSettingsStatusModePickerEl.hidden = false;
-        taskSettingsStatusModePickerEl.style.setProperty("display", "inline-flex", "important");
+        taskSettingsStatusModePickerEl.hidden = meta.mode === "poll";
+        taskSettingsStatusModePickerEl.style.setProperty("display", meta.mode === "poll" ? "none" : "inline-flex", "important");
       }
       syncTaskStatusModeButtons();
       taskSettingsStatusModeButtons.forEach(function (button) {
@@ -16713,6 +17564,11 @@
         taskSettingsPrerequisiteEl.setAttribute("data-task-prerequisite-input", currentTaskId || "");
         taskSettingsPrerequisiteEl.disabled = locked;
       }
+      if (taskSettingsTypeEl) {
+        taskSettingsTypeEl.value = drawerTaskTypeValue(task);
+        taskSettingsTypeEl.disabled = locked;
+      }
+      renderTaskPollSettings();
       if (taskSettingsDescriptionEl) {
         taskSettingsDescriptionEl.value = task.description || "";
       }
@@ -16835,6 +17691,37 @@
         taskSettingsFollowerEl.value = "";
         taskSettingsFollowerEl.setAttribute("data-follow-task-id", "");
       }
+      if (taskSettingsPollQuestionEl) {
+        taskSettingsPollQuestionEl.value = "";
+        taskSettingsPollQuestionEl.disabled = false;
+      }
+      if (taskSettingsPollMultipleEl) {
+        taskSettingsPollMultipleEl.checked = false;
+        taskSettingsPollMultipleEl.disabled = false;
+      }
+      if (taskSettingsPollResultsVisibilityEl) {
+        taskSettingsPollResultsVisibilityEl.value = "everyone";
+        taskSettingsPollResultsVisibilityEl.disabled = false;
+      }
+      if (taskSettingsPollNewOptionEl) {
+        taskSettingsPollNewOptionEl.value = "";
+        taskSettingsPollNewOptionEl.disabled = false;
+      }
+      if (taskSettingsPollAddOptionEl) {
+        taskSettingsPollAddOptionEl.disabled = false;
+      }
+      if (taskSettingsPollOptionsEl) {
+        taskSettingsPollOptionsEl.innerHTML = "";
+      }
+      taskTypeDraft = null;
+      if (taskSettingsTypeEl) {
+        taskSettingsTypeEl.value = "standard";
+        taskSettingsTypeEl.disabled = false;
+      }
+      if (taskSettingsPollEditorEl) {
+        taskSettingsPollEditorEl.classList.add("is-inactive");
+      }
+      syncPollTabAppearance();
       var entityDescriptionFallback = descriptionFormatFallbackForEntity(currentEntityType);
       if (taskSettingsDescriptionEl) {
         taskSettingsDescriptionEl.value = entity.description || "";
@@ -17146,6 +18033,11 @@
       var descriptionPayload = descriptionPayloadForEntity();
       if (currentEntityType === "task") {
         var statusMode = taskSettingsStatusModeEl ? String(taskSettingsStatusModeEl.value || "single") : "single";
+        var pollPayload = taskPollPayloadFromInputs();
+        var taskType = normalizeTaskType(taskSettingsTypeEl ? taskSettingsTypeEl.value : "standard");
+        if (taskType !== "poll") {
+          pollPayload = { question: "", allows_multiple: false, options: [] };
+        }
         var persistTaskId = String(currentEntityId || "");
         var previousTaskSnapshot = cloneTaskForUndo(currentTaskData);
         var payload = {
@@ -17157,6 +18049,8 @@
           start_date: taskSettingsDueModeEl && taskSettingsDueModeEl.value === "date"
             ? (taskSettingsStartDateEl ? taskSettingsStartDateEl.value : "")
             : "",
+          task_type: taskType,
+          poll: pollPayload,
           status_mode: statusMode,
           description: descriptionPayload.description,
           description_format: descriptionPayload.description_format,
@@ -17180,13 +18074,17 @@
             rememberRecentTaskSnapshot(data);
             maybeShowTaskCompletionToast(previousTaskSnapshot, data);
             if (String(currentTaskId || "") !== persistTaskId) return;
+            taskTypeDraft = null;
             currentTaskData = Object.assign({}, currentTaskData || {}, data);
             applyTaskRowUpdate(currentTaskData);
             descriptionEditing = false;
             hideDescriptionEditor();
             renderTaskSettings();
           })
-          .catch(function (err) { console.error('persistEntitySettings failed', err); });
+          .catch(function (err) {
+            taskTypeDraft = null;
+            console.error('persistEntitySettings failed', err);
+          });
       }
       var nameValue = taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "";
       var endpoint = currentEntityType === "project"
@@ -17676,10 +18574,13 @@
       }
       var metaLoadToken = beginDrawerLoading("meta");
       var requestToken = ++currentDrawerEntityRequestToken;
+      taskTypeDraft = null;
+      currentTaskData = null;
+      currentEntityData = null;
+      currentEntityLinks = [];
       setDrawerEntityType("task");
       currentEntityId = taskId;
       currentTaskId = taskId;
-      currentEntityData = null;
       drawer.setAttribute("data-open-task-id", String(taskId || ""));
       currentTaskTitle = taskTitle || "";
       currentProjectName = projectName || "";
@@ -17690,8 +18591,8 @@
         followers: [],
         due_mode: "none",
         description_format: DEFAULT_TASK_DESCRIPTION_FORMAT,
+        task_type: "standard",
       };
-      currentEntityLinks = [];
       titleEl.textContent = currentTaskTitle || "Task";
       setDiscussionSubtitle("", "");
       renderTaskSettings();
@@ -17702,6 +18603,9 @@
           endDrawerLoading("meta", metaLoadToken);
           if (requestToken !== currentDrawerEntityRequestToken) return;
           if (String(currentTaskId || "") !== String(taskId)) return;
+          if (!taskTypeDraft) {
+            taskTypeDraft = null;
+          }
           currentTaskData = data || null;
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           setDiscussionSubtitle(data && data.project_id, data && data.group_name);
@@ -17725,6 +18629,10 @@
     function loadEntityMeta(entityType, entityId, entityTitle, projectName) {
       var metaLoadToken = beginDrawerLoading("meta");
       var requestToken = ++currentDrawerEntityRequestToken;
+      taskTypeDraft = null;
+      currentTaskData = null;
+      currentEntityData = null;
+      currentEntityLinks = [];
       setDrawerEntityType(entityType);
       currentEntityId = entityId;
       currentTaskId = entityType === "task" ? entityId : null;
@@ -17733,9 +18641,6 @@
       }
       currentTaskTitle = entityTitle || "";
       currentProjectName = projectName || "";
-      currentEntityData = null;
-      currentTaskData = null;
-      currentEntityLinks = [];
       var titleFallback = entityType === "project" ? "Project" : "Group";
       titleEl.textContent = currentTaskTitle || titleFallback;
       if (entityType === "project") {
@@ -19893,11 +20798,18 @@
         var normalized = String(value || "").trim().toLowerCase();
         if (normalized === "per_user" || normalized === "multi") return "multi";
         if (normalized === "percentage" || normalized === "percent") return "percent";
+        if (normalized === "poll") return "poll";
         if (normalized === "single") return "single";
         return fallback || "single";
       })(taskSettingsStatusEl.dataset.statusMode || "single", "single") === "percent" && currentTaskData) {
         if (typeof window.__openPercentageStatusMenu === "function") {
           window.__openPercentageStatusMenu(currentTaskData, taskSettingsStatusEl, "settings");
+        }
+        return;
+      }
+      if (taskSettingsStatusEl && String(taskSettingsStatusEl.dataset.statusMode || "single") === "poll" && currentTaskData) {
+        if (typeof window.__openTaskPollDialog === "function") {
+          window.__openTaskPollDialog(currentTaskData, { anchor: taskSettingsStatusEl, source: "settings" });
         }
         return;
       }
@@ -20307,6 +21219,113 @@
         }, 120);
       });
     }
+
+    function bindTaskPollInputs() {
+      if (drawer.dataset.boundTaskPoll === "1") return;
+      drawer.dataset.boundTaskPoll = "1";
+      if (drawerHeaderTabsEl) {
+        drawerHeaderTabsEl.addEventListener("click", function (event) {
+          var button = event.target.closest("[data-drawer-tab]");
+          if (!button) return;
+          var tab = String(button.getAttribute("data-drawer-tab") || "");
+          if (!tab) return;
+          if (tab === "poll" && (currentEntityType !== "task" || drawerTaskTypeValue(currentTaskData || {}) !== "poll")) return;
+          setDrawerTab(tab);
+        });
+      }
+      if (taskSettingsTypeEl) {
+        taskSettingsTypeEl.addEventListener("change", function () {
+          var nextType = normalizeTaskType(taskSettingsTypeEl.value);
+          taskTypeDraft = nextType;
+          currentTaskData = Object.assign({}, currentTaskData || {}, {
+            task_type: nextType,
+            poll: nextType === "poll" ? taskPollConfig(currentTaskData) : { question: "", allows_multiple: false, options: [] },
+          });
+          renderTaskPollSettings();
+          persistEntitySettings();
+        });
+      }
+      if (taskSettingsPollQuestionEl) {
+        taskSettingsPollQuestionEl.addEventListener("input", function () {
+          if (currentTaskData) {
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
+            if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
+            syncPollTabAppearance();
+          }
+          schedulePollSettingsPersist();
+        });
+      }
+      if (taskSettingsPollMultipleEl) {
+        taskSettingsPollMultipleEl.addEventListener("change", function () {
+          if (currentTaskData) {
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
+            if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
+            syncPollTabAppearance();
+          }
+          schedulePollSettingsPersist();
+        });
+      }
+      if (taskSettingsPollResultsVisibilityEl) {
+        taskSettingsPollResultsVisibilityEl.addEventListener("change", function () {
+          if (currentTaskData) {
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
+            if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
+            syncPollTabAppearance();
+          }
+          schedulePollSettingsPersist();
+        });
+      }
+      if (taskSettingsPollAddOptionEl) {
+        taskSettingsPollAddOptionEl.addEventListener("click", function () {
+          if (!currentTaskData) return;
+          var label = String(taskSettingsPollNewOptionEl && taskSettingsPollNewOptionEl.value || "").trim();
+          if (!label) return;
+          var poll = taskPollConfig(currentTaskData);
+          poll.options.push({
+            id: "option-" + String(Date.now()) + "-" + String(poll.options.length + 1),
+            label: label,
+          });
+          currentTaskData = Object.assign({}, currentTaskData || {}, {
+            task_type: "poll",
+            poll: poll,
+          });
+          if (taskSettingsPollNewOptionEl) taskSettingsPollNewOptionEl.value = "";
+          renderTaskPollSettings();
+          schedulePollSettingsPersist();
+        });
+      }
+      if (taskSettingsPollNewOptionEl) {
+        taskSettingsPollNewOptionEl.addEventListener("keydown", function (event) {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          if (taskSettingsPollAddOptionEl) taskSettingsPollAddOptionEl.click();
+        });
+      }
+      document.addEventListener("input", function (event) {
+        var optionInput = event.target.closest ? event.target.closest("[data-poll-option-input]") : null;
+        if (!optionInput || !currentTaskData) return;
+        var poll = taskPollConfig(currentTaskData);
+        poll.options = poll.options.map(function (option) {
+          if (String(option.id || "") !== String(optionInput.getAttribute("data-poll-option-input") || "")) return option;
+          return Object.assign({}, option, { label: String(optionInput.value || "") });
+        });
+        currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
+        schedulePollSettingsPersist();
+      });
+      document.addEventListener("click", function (event) {
+        var removeButton = event.target.closest ? event.target.closest("[data-poll-option-remove]") : null;
+        if (!removeButton || !currentTaskData) return;
+        var optionId = String(removeButton.getAttribute("data-poll-option-remove") || "");
+        var poll = taskPollConfig(currentTaskData);
+        poll.options = poll.options.filter(function (option) {
+          return String(option.id || "") !== optionId;
+        });
+        currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
+        renderTaskPollSettings();
+        schedulePollSettingsPersist();
+      });
+    }
+    bindTaskPollInputs();
 
     function markRead(taskId) {
       fetch("/api/tasks/" + taskId + "/notifications/read", {
@@ -20731,6 +21750,78 @@
         openSettingsStatusMenu();
       });
     }
+    if (pollResponseCloseEl) {
+      pollResponseCloseEl.addEventListener("click", function () {
+        closeTaskPollDialog();
+      });
+    }
+    if (pollResponseDialogEl) {
+      pollResponseDialogEl.addEventListener("click", function (event) {
+        if (event.target === pollResponseDialogEl) {
+          closeTaskPollDialog();
+        }
+      });
+    }
+    if (pollResponseOptionsEl) {
+      pollResponseOptionsEl.addEventListener("click", function (event) {
+        var optionButton = event.target.closest("[data-poll-response-option]");
+        if (!optionButton || optionButton.disabled) return;
+        var allowsMultiple = String(optionButton.getAttribute("data-allows-multiple") || "") === "1";
+        var nextSelected = String(optionButton.getAttribute("data-selected") || "0") !== "1";
+        if (!allowsMultiple) {
+          pollResponseOptionsEl.querySelectorAll("[data-poll-response-option]").forEach(function (node) {
+            var isSelected = node === optionButton ? nextSelected : false;
+            node.setAttribute("data-selected", isSelected ? "1" : "0");
+            node.classList.toggle("is-selected", isSelected);
+          });
+          return;
+        }
+        optionButton.setAttribute("data-selected", nextSelected ? "1" : "0");
+        optionButton.classList.toggle("is-selected", nextSelected);
+      });
+    }
+    if (pollResponseClearEl) {
+      pollResponseClearEl.addEventListener("click", function () {
+        if (!pollResponseOptionsEl) return;
+        pollResponseOptionsEl.querySelectorAll("[data-poll-response-option]").forEach(function (node) {
+          node.setAttribute("data-selected", "0");
+          node.classList.remove("is-selected");
+        });
+      });
+    }
+    if (pollResponseSaveEl) {
+      pollResponseSaveEl.addEventListener("click", function () {
+        if (!activePollDialogTask || !pollResponseOptionsEl) return;
+        var selectedOptionIds = Array.from(pollResponseOptionsEl.querySelectorAll('[data-poll-response-option][data-selected="1"]')).map(function (node) {
+          return String(node.getAttribute("data-poll-response-option") || "").trim();
+        }).filter(Boolean);
+        pollResponseSaveEl.disabled = true;
+        saveTaskPollResponse(activePollDialogTask, selectedOptionIds)
+          .then(function (task) {
+            if (!task || !task.id) return;
+            mergeDashboardTask(task);
+            applyTaskRowUpdate(task);
+            if (String(currentTaskId || "") === String(task.id)) {
+              currentTaskData = Object.assign({}, currentTaskData || {}, task);
+              renderTaskSettings();
+            }
+            closeTaskPollDialog();
+          })
+          .catch(function (error) {
+            console.error("saveTaskPollResponse failed", error);
+          })
+          .finally(function () {
+            if (pollResponseSaveEl) {
+              pollResponseSaveEl.disabled = false;
+            }
+          });
+      });
+    }
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && pollResponseDialogEl && !pollResponseDialogEl.hidden) {
+        closeTaskPollDialog();
+      }
+    });
     document.addEventListener("click", function (event) {
       var trigger = event.target.closest("[data-task-multi-status-trigger]");
       if (trigger) {
@@ -20763,7 +21854,9 @@
         }
         if (hostTask && String(hostTask.id || "") === String(taskId)) {
           var hostMeta = taskStatusMeta(hostTask);
-          if (hostMeta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
+          if (hostMeta.mode === "poll" && typeof window.__openTaskPollDialog === "function") {
+            window.__openTaskPollDialog(hostTask, { anchor: trigger, source: "row" });
+          } else if (hostMeta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
             window.__openPercentageStatusMenu(hostTask, trigger, "row");
           } else {
             openMultiStatusMenu(hostTask, trigger, "row");
@@ -20772,7 +21865,9 @@
         }
         if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
           var currentMeta = taskStatusMeta(currentTaskData);
-          if (currentMeta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
+          if (currentMeta.mode === "poll" && typeof window.__openTaskPollDialog === "function") {
+            window.__openTaskPollDialog(currentTaskData, { anchor: trigger, source: "row" });
+          } else if (currentMeta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
             window.__openPercentageStatusMenu(currentTaskData, trigger, "row");
           } else {
             openMultiStatusMenu(currentTaskData, trigger, "row");
@@ -20784,7 +21879,9 @@
           .then(function (task) {
             if (!task || !task.id) return;
             var meta = taskStatusMeta(task);
-            if (meta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
+            if (meta.mode === "poll" && typeof window.__openTaskPollDialog === "function") {
+              window.__openTaskPollDialog(task, { anchor: trigger, source: "row" });
+            } else if (meta.mode === "percent" && typeof window.__openPercentageStatusMenu === "function") {
               window.__openPercentageStatusMenu(task, trigger, "row");
             } else {
               openMultiStatusMenu(task, trigger, "row");
@@ -24790,6 +25887,13 @@
         var task = (todoRow && todoRow._taskPayload) || (statusHost && statusHost._taskPayload) || null;
         if (!task) return;
         var meta = taskStatusMeta(task);
+        if (meta.mode === "poll") {
+          var pollTrigger = todoRow ? todoRow.querySelector('[data-task-poll-trigger="' + taskId + '"]') : null;
+          if (pollTrigger && typeof window.__openTaskPollDialog === "function") {
+            window.__openTaskPollDialog(task, { anchor: pollTrigger, source: "todo" });
+          }
+          return;
+        }
         if (meta.mode === "percent") {
           var trigger = todoRow ? todoRow.querySelector('[data-task-multi-status-trigger="' + taskId + '"]') : null;
           if (trigger) {

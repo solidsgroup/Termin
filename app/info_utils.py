@@ -14,7 +14,79 @@ ALLOWED_ATTRS = {
     "a": {"href", "target", "rel"},
     "span": {"class", "data-mentioned-user-id", "data-mentioned-email"},
 }
-ALLOWED_META_KEYS = {"due_mode", "follow_project_members", "start_date", "status_mode", "status_percentage"}
+ALLOWED_META_KEYS = {"due_mode", "follow_project_members", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
+
+
+def _normalize_poll_meta(value) -> dict:
+    poll = value if isinstance(value, dict) else {}
+    question = str(poll.get("question") or "").strip()
+    allows_multiple = bool(poll.get("allows_multiple"))
+    results_visibility = str(poll.get("results_visibility") or "everyone").strip().lower()
+    if results_visibility not in {"everyone", "creator"}:
+        results_visibility = "everyone"
+    options = []
+    seen_option_ids = set()
+    raw_options = poll.get("options")
+    if isinstance(raw_options, list):
+        for item in raw_options:
+            if isinstance(item, dict):
+                label = str(item.get("label") or "").strip()
+                option_id = str(item.get("id") or "").strip()
+            else:
+                label = str(item or "").strip()
+                option_id = ""
+            if not label:
+                continue
+            if not option_id or option_id in seen_option_ids:
+                option_id = uuid.uuid4().hex[:8]
+                while option_id in seen_option_ids:
+                    option_id = uuid.uuid4().hex[:8]
+            seen_option_ids.add(option_id)
+            options.append({"id": option_id, "label": label})
+    valid_option_ids = {str(item.get("id") or "").strip() for item in options if str(item.get("id") or "").strip()}
+    responses = []
+    seen_response_keys = set()
+    raw_responses = poll.get("responses")
+    if isinstance(raw_responses, list):
+        for item in raw_responses:
+            if not isinstance(item, dict):
+                continue
+            user_id_raw = item.get("user_id")
+            try:
+                user_id = int(user_id_raw) if user_id_raw not in (None, "", "null") else None
+            except (TypeError, ValueError):
+                user_id = None
+            email = str(item.get("email") or "").strip().lower()
+            key = f"user:{user_id}" if user_id is not None else (f"email:{email}" if email else "")
+            if not key or key in seen_response_keys:
+                continue
+            selected_option_ids = []
+            raw_option_ids = item.get("option_ids")
+            if isinstance(raw_option_ids, list):
+                for option_id in raw_option_ids:
+                    normalized_option_id = str(option_id or "").strip()
+                    if not normalized_option_id or normalized_option_id not in valid_option_ids:
+                        continue
+                    if normalized_option_id not in selected_option_ids:
+                        selected_option_ids.append(normalized_option_id)
+            if not allows_multiple and len(selected_option_ids) > 1:
+                selected_option_ids = selected_option_ids[:1]
+            seen_response_keys.add(key)
+            responses.append(
+                {
+                    "user_id": user_id,
+                    "email": email,
+                    "option_ids": selected_option_ids,
+                    "updated_at": str(item.get("updated_at") or "").strip() or datetime.utcnow().isoformat(timespec="seconds"),
+                }
+            )
+    return {
+        "question": question,
+        "allows_multiple": allows_multiple,
+        "results_visibility": results_visibility,
+        "options": options,
+        "responses": responses,
+    }
 
 
 class _InfoSanitizer(HTMLParser):
@@ -114,6 +186,14 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
         for key, value in raw_meta.items():
             if key not in ALLOWED_META_KEYS or value is None:
                 continue
+            if key == "task_type":
+                text = str(value).strip().lower()
+                if text in {"standard", "poll"}:
+                    meta[key] = text
+                continue
+            if key == "poll":
+                meta[key] = _normalize_poll_meta(value)
+                continue
             text = str(value).strip()
             if not text:
                 continue
@@ -157,6 +237,14 @@ def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> 
     if isinstance(raw_meta, dict):
         for key, value in raw_meta.items():
             if key not in ALLOWED_META_KEYS or value is None:
+                continue
+            if key == "task_type":
+                text = str(value).strip().lower()
+                if text in {"standard", "poll"}:
+                    meta[key] = text
+                continue
+            if key == "poll":
+                meta[key] = _normalize_poll_meta(value)
                 continue
             text = str(value).strip()
             if not text:

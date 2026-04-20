@@ -6,7 +6,7 @@ from app.models import Assignment, Task, TaskCollaboratorStatus, TaskPrerequisit
 
 
 COMPLETE_STATUS_VALUES = {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
-TASK_STATUS_MODES = {"single", "multi", "percent"}
+TASK_STATUS_MODES = {"single", "multi", "percent", "poll"}
 
 
 def normalize_task_status_mode(value: str | None, *, default: str = "single") -> str:
@@ -15,9 +15,88 @@ def normalize_task_status_mode(value: str | None, *, default: str = "single") ->
         return "multi"
     if text in {"percentage", "percent"}:
         return "percent"
+    if text == "poll":
+        return "poll"
     if text == "single":
         return "single"
     return default
+
+
+def _task_type(task: Task | None) -> str:
+    if not task:
+        return "standard"
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info_payload.get("meta") or {}
+    task_type = str(meta.get("task_type") or "").strip().lower()
+    return "poll" if task_type == "poll" else "standard"
+
+
+def _task_poll_payload(task: Task | None) -> dict:
+    if not task:
+        return {"question": "", "allows_multiple": False, "results_visibility": "everyone", "options": [], "responses": []}
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info_payload.get("meta") or {}
+    poll = meta.get("poll") if isinstance(meta.get("poll"), dict) else {}
+    question = str(poll.get("question") or "").strip()
+    allows_multiple = bool(poll.get("allows_multiple"))
+    results_visibility = str(poll.get("results_visibility") or "everyone").strip().lower()
+    if results_visibility not in {"everyone", "creator"}:
+        results_visibility = "everyone"
+    options = []
+    seen_option_ids: set[str] = set()
+    for item in poll.get("options") or []:
+        if isinstance(item, dict):
+            label = str(item.get("label") or "").strip()
+            option_id = str(item.get("id") or "").strip()
+        else:
+            label = str(item or "").strip()
+            option_id = ""
+        if not label:
+            continue
+        if not option_id or option_id in seen_option_ids:
+            continue
+        seen_option_ids.add(option_id)
+        options.append({"id": option_id, "label": label})
+    valid_option_ids = set(seen_option_ids)
+    responses = []
+    seen_response_keys: set[str] = set()
+    for item in poll.get("responses") or []:
+        if not isinstance(item, dict):
+            continue
+        user_id_raw = item.get("user_id")
+        try:
+            user_id = int(user_id_raw) if user_id_raw not in (None, "", "null") else None
+        except (TypeError, ValueError):
+            user_id = None
+        email = str(item.get("email") or "").strip().lower()
+        response_key = f"user:{user_id}" if user_id is not None else (f"email:{email}" if email else "")
+        if not response_key or response_key in seen_response_keys:
+            continue
+        option_ids = []
+        for option_id in item.get("option_ids") or []:
+            normalized_option_id = str(option_id or "").strip()
+            if not normalized_option_id or normalized_option_id not in valid_option_ids:
+                continue
+            if normalized_option_id not in option_ids:
+                option_ids.append(normalized_option_id)
+        if not allows_multiple and len(option_ids) > 1:
+            option_ids = option_ids[:1]
+        seen_response_keys.add(response_key)
+        responses.append(
+            {
+                "user_id": user_id,
+                "email": email,
+                "option_ids": option_ids,
+                "updated_at": str(item.get("updated_at") or "").strip(),
+            }
+        )
+    return {
+        "question": question,
+        "allows_multiple": allows_multiple,
+        "results_visibility": results_visibility,
+        "options": options,
+        "responses": responses,
+    }
 
 
 def normalize_task_status(value: str | None, *, default: str = "open") -> str:
@@ -220,7 +299,10 @@ def _base_task_status_meta(
         normalized_viewer_email = viewer_email.strip().lower()
         viewer_status = next((row["status"] for row in statuses if (row.get("email") or "").strip().lower() == normalized_viewer_email), None)
         viewer_is_assignee = any((row.get("email") or "").strip().lower() == normalized_viewer_email for row in statuses)
-    mode = task_status_mode(task)
+    if _task_type(task) == "poll":
+        mode = "poll"
+    else:
+        mode = task_status_mode(task)
     enabled = mode != "single"
     base_status = normalize_task_status(task.status)
     my_status = viewer_status if (enabled and viewer_is_assignee) else (base_status if not enabled else None)
@@ -230,6 +312,110 @@ def _base_task_status_meta(
     percentage_complete = int(round((complete_count / len(assignment_backed_statuses)) * 100)) if assignment_backed_statuses else 0
     if mode == "percent":
         percentage_complete = task_status_percentage(task)
+    poll_payload = _task_poll_payload(task) if mode == "poll" else {"question": "", "allows_multiple": False, "options": [], "responses": []}
+    poll_response_by_identity: dict[str, dict] = {}
+    if mode == "poll":
+        for response in list(poll_payload.get("responses") or []):
+            response_user_id = response.get("user_id")
+            response_email = (response.get("email") or "").strip().lower()
+            if response_user_id is not None:
+                poll_response_by_identity[f"user:{int(response_user_id)}"] = response
+            if response_email:
+                poll_response_by_identity[f"email:{response_email}"] = response
+        poll_total_count = len(assignees)
+        poll_complete_count = 0
+        poll_viewer_option_ids: list[str] = []
+        poll_viewer_has_response = False
+        can_view_results = str(poll_payload.get("results_visibility") or "everyone") == "everyone" or (
+            viewer_user_id is not None and task.creator_user_id is not None and int(viewer_user_id) == int(task.creator_user_id)
+        )
+        assignee_display_by_key: dict[str, dict] = {}
+        for assignee in assignees:
+            if assignee.get("user_id") is not None:
+                assignee_display_by_key[f"user:{int(assignee['user_id'])}"] = assignee
+            if (assignee.get("email") or "").strip():
+                assignee_display_by_key[f"email:{str(assignee.get('email') or '').strip().lower()}"] = assignee
+        poll_option_results: list[dict] = []
+        for option in list(poll_payload.get("options") or []):
+            option_id = str(option.get("id") or "").strip()
+            responders = []
+            if can_view_results and option_id:
+                for response in list(poll_payload.get("responses") or []):
+                    selected_option_ids = [str(item or "").strip() for item in list(response.get("option_ids") or [])]
+                    if option_id not in selected_option_ids:
+                        continue
+                    response_key = (
+                        f"user:{int(response['user_id'])}"
+                        if response.get("user_id") is not None
+                        else (f"email:{str(response.get('email') or '').strip().lower()}" if str(response.get("email") or "").strip() else "")
+                    )
+                    display = assignee_display_by_key.get(response_key, {})
+                    responders.append(
+                        {
+                            "user_id": response.get("user_id"),
+                            "email": str(response.get("email") or "").strip().lower(),
+                            "display_name": str(display.get("display_name") or display.get("email") or "User"),
+                            "avatar_url": display.get("avatar_url"),
+                        }
+                    )
+            poll_option_results.append(
+                {
+                    "id": option_id,
+                    "label": str(option.get("label") or "").strip(),
+                    "responders": responders,
+                }
+            )
+        for assignee in assignees:
+            assignee_key = ""
+            if assignee.get("user_id") is not None:
+                assignee_key = f"user:{int(assignee['user_id'])}"
+            elif (assignee.get("email") or "").strip():
+                assignee_key = f"email:{str(assignee.get('email') or '').strip().lower()}"
+            response = poll_response_by_identity.get(assignee_key) if assignee_key else None
+            option_ids = list(response.get("option_ids") or []) if response else []
+            responded = bool(option_ids)
+            assignee["status"] = "complete" if responded else "open"
+            assignee["state"] = "complete" if responded else "open"
+            if responded:
+                poll_complete_count += 1
+            if viewer_user_id is not None and assignee.get("user_id") is not None and int(assignee["user_id"]) == int(viewer_user_id):
+                poll_viewer_option_ids = option_ids
+                poll_viewer_has_response = responded
+            elif viewer_user_id is None and viewer_email and (assignee.get("email") or "").strip().lower() == viewer_email.strip().lower():
+                poll_viewer_option_ids = option_ids
+                poll_viewer_has_response = responded
+        percentage_complete = int(round((poll_complete_count / poll_total_count) * 100)) if poll_total_count else 0
+        has_viewer_identity = (viewer_user_id is not None) or bool((viewer_email or "").strip())
+        viewer_is_assignee = any(
+            (assignee.get("user_id") is not None and viewer_user_id is not None and int(assignee["user_id"]) == int(viewer_user_id))
+            or ((assignee.get("email") or "").strip().lower() == (viewer_email or "").strip().lower() and (viewer_email or "").strip())
+            for assignee in assignees
+        )
+        return {
+            "mode": "poll",
+            "enabled": True,
+            "prereq_blocked": False,
+            "prereq_total_count": 0,
+            "prereq_met_count": 0,
+            "task_status": "complete" if (poll_total_count > 0 and poll_complete_count == poll_total_count) else "open",
+            "task_status_state": "complete" if (poll_total_count > 0 and poll_complete_count == poll_total_count) else "open",
+            "aggregate_state": "complete" if (poll_total_count > 0 and poll_complete_count == poll_total_count) else "open",
+            "my_status": ("complete" if poll_viewer_has_response else "open") if has_viewer_identity and viewer_is_assignee else None,
+            "my_status_state": ("complete" if poll_viewer_has_response else "open") if has_viewer_identity and viewer_is_assignee else None,
+            "viewer_can_set": viewer_is_assignee,
+            "percentage_complete": percentage_complete,
+            "summary": [],
+            "user_statuses": [],
+            "assignees": assignees,
+            "poll_question": str(poll_payload.get("question") or "").strip(),
+            "poll_allows_multiple": bool(poll_payload.get("allows_multiple")),
+            "poll_results_visibility": str(poll_payload.get("results_visibility") or "everyone"),
+            "poll_results_visible": can_view_results,
+            "poll_option_results": poll_option_results,
+            "poll_total_count": poll_total_count,
+            "poll_complete_count": poll_complete_count,
+            "poll_viewer_option_ids": poll_viewer_option_ids,
+        }
     has_viewer_identity = (viewer_user_id is not None) or bool((viewer_email or "").strip())
     return {
         "mode": mode,
@@ -384,6 +570,8 @@ def task_status_meta(
 
 def effective_task_status_for_user(task: Task, *, viewer_user_id: int | None = None, viewer_email: str | None = None, status_meta: dict | None = None) -> str:
     meta = status_meta or task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email)
+    if normalize_task_status_mode(meta.get("mode"), default="single") == "poll":
+        return "complete" if str(meta.get("my_status_state") or "open") == "complete" else "open"
     if normalize_task_status_mode(meta.get("mode"), default="single") == "percent":
         return "complete" if int(meta.get("percentage_complete") or 0) >= 100 else "open"
     if meta.get("enabled"):

@@ -146,6 +146,7 @@ DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown"
 TASK_DUE_MODE_OPTIONS = {"none", "date", "asap"}
+TASK_TYPE_OPTIONS = {"standard", "poll"}
 TASK_LOCKED_PROTECTED_FIELDS = {
     "title",
     "due_at",
@@ -158,6 +159,8 @@ TASK_LOCKED_PROTECTED_FIELDS = {
     "status_percentage",
     "per_user_status_enabled",
     "assign_group_members",
+    "task_type",
+    "poll",
 }
 
 
@@ -244,6 +247,10 @@ def _task_changed_field_labels(
     new_description: str | None,
     old_description_format: str | None,
     new_description_format: str | None,
+    old_task_type: str | None,
+    new_task_type: str | None,
+    old_poll: dict | None,
+    new_poll: dict | None,
 ) -> list[str]:
     labels: list[str] = []
     if (old_title or "").strip() != (new_title or "").strip():
@@ -274,6 +281,10 @@ def _task_changed_field_labels(
         labels.append("description")
     if (old_description_format or "") != (new_description_format or ""):
         labels.append("description format")
+    if _normalize_task_type(old_task_type, default="standard") != _normalize_task_type(new_task_type, default="standard"):
+        labels.append("task type")
+    if _normalize_task_poll_payload(old_poll) != _normalize_task_poll_payload(new_poll):
+        labels.append("poll")
     return labels
 
 
@@ -456,7 +467,7 @@ def _task_update_history_bodies(
         else:
             clauses_task.append("unlocked the task")
             clauses_scoped.append("unlocked task " + title_label)
-    for simple_label in ["links", "notes", "description", "description format", "assignment mode", "follower mode"]:
+    for simple_label in ["links", "notes", "description", "description format", "assignment mode", "follower mode", "task type", "poll"]:
         if simple_label not in changed:
             continue
         clause = "updated the " + simple_label
@@ -908,6 +919,187 @@ def _task_status_percentage(task: Task) -> int:
     except (TypeError, ValueError):
         value = 100 if normalize_task_status(task.status).lower() in {"complete", "completed", "done", "closed", "pr closed", "pr merged"} else 0
     return max(0, min(100, value))
+
+
+def _normalize_task_type(value: str | None, *, default: str = "standard") -> str:
+    normalized = str(value or default).strip().lower() or default
+    return normalized if normalized in TASK_TYPE_OPTIONS else default
+
+
+def _task_type(task: Task) -> str:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = info_payload.get("meta") if isinstance(info_payload, dict) else {}
+    if _task_poll_has_configuration((meta or {}).get("poll")):
+        return "poll"
+    return _normalize_task_type((meta or {}).get("task_type"), default="standard")
+
+
+def _task_poll(task: Task) -> dict:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = info_payload.get("meta") if isinstance(info_payload, dict) else {}
+    poll = _normalize_task_poll_payload((meta or {}).get("poll"))
+    return {
+        "question": str(poll.get("question") or "").strip(),
+        "allows_multiple": bool(poll.get("allows_multiple")),
+        "results_visibility": str(poll.get("results_visibility") or "everyone").strip().lower() or "everyone",
+        "options": list(poll.get("options") or []),
+    }
+
+
+def _normalize_task_poll_payload(poll_raw) -> dict:
+    poll = poll_raw if isinstance(poll_raw, dict) else {}
+    question = str(poll.get("question") or "").strip()
+    allows_multiple = bool(poll.get("allows_multiple"))
+    results_visibility = str(poll.get("results_visibility") or "everyone").strip().lower()
+    if results_visibility not in {"everyone", "creator"}:
+        results_visibility = "everyone"
+    options_raw = poll.get("options")
+    options: list[dict] = []
+    seen_ids: set[str] = set()
+    if isinstance(options_raw, list):
+        for item in options_raw:
+            if isinstance(item, dict):
+                label = str(item.get("label") or "").strip()
+                option_id = str(item.get("id") or "").strip()
+            else:
+                label = str(item or "").strip()
+                option_id = ""
+            if not label:
+                continue
+            if not option_id or option_id in seen_ids:
+                option_id = secrets.token_hex(4)
+                while option_id in seen_ids:
+                    option_id = secrets.token_hex(4)
+            seen_ids.add(option_id)
+            options.append({"id": option_id, "label": label})
+    valid_option_ids = {str(option.get("id") or "").strip() for option in options if str(option.get("id") or "").strip()}
+    responses_raw = poll.get("responses")
+    responses: list[dict] = []
+    seen_response_keys: set[str] = set()
+    if isinstance(responses_raw, list):
+        for item in responses_raw:
+            if not isinstance(item, dict):
+                continue
+            user_id_raw = item.get("user_id")
+            try:
+                user_id = int(user_id_raw) if user_id_raw not in (None, "", "null") else None
+            except (TypeError, ValueError):
+                user_id = None
+            email = str(item.get("email") or "").strip().lower()
+            response_key = f"user:{user_id}" if user_id is not None else (f"email:{email}" if email else "")
+            if not response_key or response_key in seen_response_keys:
+                continue
+            option_ids_raw = item.get("option_ids")
+            option_ids: list[str] = []
+            if isinstance(option_ids_raw, list):
+                for option_id in option_ids_raw:
+                    normalized_option_id = str(option_id or "").strip()
+                    if not normalized_option_id or normalized_option_id not in valid_option_ids:
+                        continue
+                    if normalized_option_id not in option_ids:
+                        option_ids.append(normalized_option_id)
+            if not allows_multiple and len(option_ids) > 1:
+                option_ids = option_ids[:1]
+            seen_response_keys.add(response_key)
+            responses.append(
+                {
+                    "user_id": user_id,
+                    "email": email,
+                    "option_ids": option_ids,
+                    "updated_at": str(item.get("updated_at") or "").strip() or datetime.utcnow().isoformat(),
+                }
+            )
+    return {
+        "question": question,
+        "allows_multiple": allows_multiple,
+        "results_visibility": results_visibility,
+        "options": options,
+        "responses": responses,
+    }
+
+
+def _task_poll_has_configuration(poll_payload: dict | None) -> bool:
+    normalized = _normalize_task_poll_payload(poll_payload)
+    return bool(normalized.get("question") or normalized.get("allows_multiple") or normalized.get("options"))
+
+
+def _set_task_type(task: Task, task_type_raw) -> None:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    task_type = _normalize_task_type(task_type_raw, default="standard")
+    if task_type == "standard":
+        meta.pop("task_type", None)
+    else:
+        meta["task_type"] = task_type
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+
+
+def _set_task_poll(task: Task, poll_raw) -> None:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    existing_poll = _normalize_task_poll_payload(meta.get("poll"))
+    normalized_poll = _normalize_task_poll_payload(poll_raw)
+    if "responses" not in (poll_raw if isinstance(poll_raw, dict) else {}):
+        normalized_poll["responses"] = list(existing_poll.get("responses") or [])
+    meta["poll"] = normalized_poll
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+
+
+def _set_task_poll_response(task: Task, *, user_id: int | None = None, email: str | None = None, option_ids=None) -> dict:
+    info_payload = load_info_payload(task.info, task.link)
+    meta = dict(info_payload.get("meta") or {})
+    poll_payload = _normalize_task_poll_payload(meta.get("poll"))
+    valid_option_ids = {str(option.get("id") or "").strip() for option in poll_payload.get("options") or [] if str(option.get("id") or "").strip()}
+    normalized_option_ids: list[str] = []
+    if isinstance(option_ids, list):
+        for option_id in option_ids:
+            normalized_option_id = str(option_id or "").strip()
+            if not normalized_option_id or normalized_option_id not in valid_option_ids:
+                continue
+            if normalized_option_id not in normalized_option_ids:
+                normalized_option_ids.append(normalized_option_id)
+    if not poll_payload.get("allows_multiple") and len(normalized_option_ids) > 1:
+        normalized_option_ids = normalized_option_ids[:1]
+    normalized_email = str(email or "").strip().lower()
+    next_responses = []
+    matched = False
+    for row in list(poll_payload.get("responses") or []):
+        row_user_id = row.get("user_id")
+        row_email = str(row.get("email") or "").strip().lower()
+        same_identity = False
+        if user_id is not None and row_user_id is not None and int(row_user_id) == int(user_id):
+            same_identity = True
+        elif normalized_email and row_email == normalized_email:
+            same_identity = True
+        if same_identity:
+            matched = True
+            if normalized_option_ids:
+                next_responses.append(
+                    {
+                        "user_id": int(user_id) if user_id is not None else None,
+                        "email": normalized_email,
+                        "option_ids": normalized_option_ids,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    }
+                )
+            continue
+        next_responses.append(row)
+    if not matched and normalized_option_ids:
+        next_responses.append(
+            {
+                "user_id": int(user_id) if user_id is not None else None,
+                "email": normalized_email,
+                "option_ids": normalized_option_ids,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        )
+    poll_payload["responses"] = next_responses
+    meta["poll"] = poll_payload
+    info_payload["meta"] = meta
+    task.info = normalize_info_payload(info_payload, task.link)
+    return poll_payload
 
 
 def _set_task_status_percentage(task: Task, percentage_raw) -> tuple[bool, str | None]:
@@ -1687,6 +1879,8 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "due_mode": _task_due_mode(task),
         "start_date": _task_start_date(task),
         "status": task.status,
+        "task_type": _task_type(task),
+        "poll": _task_poll(task),
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": _task_status_mode(task) == "multi",
@@ -1897,6 +2091,8 @@ def create_task():
     due_mode = payload.get("due_mode")
     start_date = payload.get("start_date")
     assignee_email = payload.get("assignee_email")
+    task_type = payload.get("task_type")
+    poll = payload.get("poll")
 
     if not title or not project_id:
         return {"error": "title and project_id are required"}, 400
@@ -1936,6 +2132,9 @@ def create_task():
     ok, error = _set_task_start_date(task, start_date if _task_due_mode(task) == "date" else "")
     if not ok:
         return {"error": error}, 400
+    normalized_poll = _normalize_task_poll_payload(poll)
+    _set_task_type(task, task_type)
+    _set_task_poll(task, normalized_poll)
     db.session.add(task)
     db.session.commit()
     assignment_payload = None
@@ -2034,6 +2233,8 @@ def update_task(task_id: int):
     old_follow_project_members = _task_follow_project_members(task)
     old_description = task.description
     old_description_format = task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT
+    old_task_type = _task_type(task)
+    old_poll = _task_poll(task)
     old_locked = bool(task.locked)
 
     title = payload.get("title")
@@ -2047,6 +2248,8 @@ def update_task(task_id: int):
     start_date = payload.get("start_date")
     status_mode = payload.get("status_mode")
     status_percentage = payload.get("status_percentage")
+    task_type = payload.get("task_type")
+    poll = payload.get("poll")
     info = payload.get("info")
     per_user_status_enabled = payload.get("per_user_status_enabled")
     assign_group_members = payload.get("assign_group_members")
@@ -2100,6 +2303,13 @@ def update_task(task_id: int):
         ok, error = _set_task_status_percentage(task, status_percentage)
         if not ok:
             return {"error": error}, 400
+    if poll is not None:
+        normalized_poll = _normalize_task_poll_payload(poll)
+        _set_task_poll(task, normalized_poll)
+        if task_type is not None:
+            _set_task_type(task, task_type)
+    elif task_type is not None:
+        _set_task_type(task, task_type)
     if info is not None:
         if isinstance(info, dict):
             info_payload["html"] = info.get("html")
@@ -2170,6 +2380,10 @@ def update_task(task_id: int):
         new_description=task.description,
         old_description_format=old_description_format,
         new_description_format=task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
+        old_task_type=old_task_type,
+        new_task_type=_task_type(task),
+        old_poll=old_poll,
+        new_poll=_task_poll(task),
     )
     if old_locked != bool(task.locked):
         changed_fields.append("lock")
@@ -2240,6 +2454,8 @@ def update_task(task_id: int):
         "locked": bool(task.locked),
         "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "status": task.status,
+        "task_type": _task_type(task),
+        "poll": _task_poll(task),
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": _task_status_mode(task) == "multi",
@@ -2289,6 +2505,8 @@ def get_task(task_id: int):
         "link": task.link,
         "links": _info_payload_for(task).get("links", []),
         "status": task.status,
+        "task_type": _task_type(task),
+        "poll": _task_poll(task),
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
         "per_user_status_enabled": _task_status_mode(task) == "multi",
@@ -4975,6 +5193,54 @@ def delete_task_prerequisite(prerequisite_id: int):
         emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     return {"status": "deleted"}, 200
+
+
+@api_bp.post("/tasks/<int:task_id>/poll_response")
+@login_required
+def save_task_poll_response(task_id: int):
+    user = current_user()
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if _task_type(task) != "poll":
+        return {"error": "task is not a poll"}, 400
+    payload = request.get_json(silent=True) or {}
+    option_ids = payload.get("option_ids")
+    if option_ids is None:
+        option_ids = []
+    if not isinstance(option_ids, list):
+        return {"error": "option_ids must be a list"}, 400
+    is_assigned = (
+        Assignment.query.filter_by(task_id=task.id, user_id=user.id).first() is not None
+        or Assignment.query.filter_by(task_id=task.id, email=(user.email or "").strip().lower()).first() is not None
+    )
+    if not is_assigned:
+        return {"error": "only assignees can respond to this poll"}, 403
+    poll_payload = _set_task_poll_response(
+        task,
+        user_id=user.id,
+        email=user.email,
+        option_ids=option_ids,
+    )
+    db.session.commit()
+    response_count = len(
+        [
+            row
+            for row in list(poll_payload.get("responses") or [])
+            if isinstance(row, dict) and list(row.get("option_ids") or [])
+        ]
+    )
+    task_body = f'{display_name_for_user(user) or user.email or "Someone"} answered the poll on task "{task.title}" ({response_count} responses).'
+    scoped_body = f'{display_name_for_user(user) or user.email or "Someone"} answered the poll on task "{task.title}" ({response_count} responses).'
+    log_task_history(task, actor=user, action="updated", changed_fields=["poll response"], task_body=task_body, scoped_body=scoped_body)
+    db.session.commit()
+    impacted_ids = _task_impacted_ids([task.id])
+    impacted_tasks = _touch_tasks(impacted_ids)
+    if impacted_tasks:
+        emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
+    return _serialize_task_row(task, viewer_user_id=user.id), 200
 
 
 def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -> None:
