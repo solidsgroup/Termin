@@ -4325,7 +4325,11 @@ def search_tasks():
         pref = pref_map.get(task.project_id)
         division = division_map.get(pref.division_id) if pref and pref.division_id else None
         show_project_label = bool(project and not project.is_direct and division)
-        status_meta = task_status_meta(task, viewer_user_id=user.id)
+        try:
+            status_meta = task_status_meta(task, viewer_user_id=user.id)
+        except Exception:
+            current_app.logger.exception("task search status_meta failed for task %s", task.id)
+            status_meta = {}
         results.append(
             {
                 "entity_type": "task",

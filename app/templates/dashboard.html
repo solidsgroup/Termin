@@ -13825,6 +13825,51 @@
       return normalizeTaskPollConfig(task && task.poll);
     }
 
+    function localTaskSearchResults(query, options) {
+      var needle = String(query || "").trim().toLowerCase();
+      if (needle.length < 2) return [];
+      var opts = options || {};
+      var excludeTaskId = String(opts.excludeTaskId || "");
+      var taskMap = dashboardEntityMap("tasks");
+      var projectMap = dashboardEntityMap("projects");
+      var groupMap = dashboardEntityMap("groups");
+      return Object.keys(taskMap || {}).map(function (taskId) {
+        return taskMap[taskId];
+      }).filter(function (task) {
+        if (!task || !task.id) return false;
+        if (excludeTaskId && String(task.id) === excludeTaskId) return false;
+        var project = projectMap[String(task.project_id)] || null;
+        var group = task.group_id ? (groupMap[String(task.group_id)] || null) : null;
+        var haystack = [
+          String(task.title || ""),
+          String(project && (project.display_name || project.name) || ""),
+          String(group && group.name || "")
+        ].join(" ").toLowerCase();
+        return haystack.indexOf(needle) >= 0;
+      }).sort(function (a, b) {
+        return Number(b.id || 0) - Number(a.id || 0);
+      }).slice(0, 12).map(function (task) {
+        var project = projectMap[String(task.project_id)] || null;
+        var group = task.group_id ? (groupMap[String(task.group_id)] || null) : null;
+        return {
+          entity_type: "task",
+          id: task.id,
+          title: task.title,
+          project_id: task.project_id,
+          project_name: project ? String(project.display_name || project.name || "") : "",
+          group_id: task.group_id || null,
+          group_name: group ? String(group.name || "") : "",
+          status: task.status,
+          status_mode: task.status_mode,
+          status_percentage: task.status_percentage,
+          status_meta: task.status_meta || {},
+          prereq_blocked: !!(task.status_meta && task.status_meta.prereq_blocked),
+          poll: task.poll || null,
+          task_type: task.task_type || "standard",
+        };
+      });
+    }
+
     function dashboardStoreRequestUrl(baseUrl) {
       try {
         var url = new URL(baseUrl, window.location.origin);
@@ -15375,6 +15420,17 @@
       }
     }
 
+    function showLocalAssignSuggestError(input, label, retry) {
+      showLocalAssignSuggest(input, [{
+        is_error: true,
+        label: label || "Could not load results",
+        meta_label: typeof retry === "function" ? "Tap to retry" : "",
+        retry: retry,
+      }], {
+        disableSpecialSuggestions: true,
+      });
+    }
+
     function showLocalAssignSuggest(input, results, options) {
       var opts = options || {};
       hideLocalAssignSuggest(input);
@@ -15425,6 +15481,9 @@
             ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(item.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
             : '<span class="assign-suggest-avatar">' + initial + "</span>";
           btn.innerHTML = avatar + '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + "</span>" + meta + "</span>";
+          if (item.is_error) {
+            btn.classList.add("assign-suggest-error");
+          }
           btn.addEventListener("mousedown", function (event) {
             event.preventDefault();
             input.dataset.assignSelecting = "1";
@@ -15438,6 +15497,12 @@
           btn.addEventListener("click", function (event) {
             event.preventDefault();
             input.dataset.assignSelecting = "0";
+            if (item.is_error) {
+              if (typeof item.retry === "function") {
+                item.retry();
+              }
+              return;
+            }
             if (typeof input._submitSuggestItem === "function") {
               input._submitSuggestItem(item);
             } else if (item.is_add_all) {
@@ -16353,32 +16418,37 @@
     window.__renderStatusGlyphHtml = renderStatusGlyphHtml;
 
     function renderReadonlyTaskStatusIconHtml(task) {
-      var meta = taskStatusMeta(task || {});
-      var state = "partial";
-      var iconHtml = '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
-      if (taskStatusBlockedByPrereq(task || {})) {
-        state = "prereq";
-        iconHtml = renderStatusGlyphHtml("prereq");
-      } else if (meta.mode === "poll") {
-        state = String(taskAggregateStatusState(task || {}) || "open") === "complete" ? "complete" : "partial";
-        iconHtml = renderPollGlyphHtml();
-      } else if (meta.mode === "single") {
-        state = String(meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open") || "open");
-        if (state === "open") {
-          state = "open";
-        }
-        iconHtml = renderStatusGlyphHtml(state);
-      } else {
-        var aggregateState = String(taskAggregateStatusState(task || {}) || "open");
-        if (aggregateState === "open") {
-          state = "partial";
-          iconHtml = '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
+      try {
+        var meta = taskStatusMeta(task || {});
+        var state = "partial";
+        var iconHtml = '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
+        if (taskStatusBlockedByPrereq(task || {})) {
+          state = "prereq";
+          iconHtml = renderStatusGlyphHtml("prereq");
+        } else if (meta.mode === "poll") {
+          state = String(taskAggregateStatusState(task || {}) || "open") === "complete" ? "complete" : "partial";
+          iconHtml = renderPollGlyphHtml();
+        } else if (meta.mode === "single") {
+          state = String(meta.task_status_state || getStatusState(meta.task_status || (task && task.status) || "open") || "open");
+          if (state === "open") {
+            state = "open";
+          }
+          iconHtml = renderStatusGlyphHtml(state);
         } else {
-          state = aggregateState;
-          iconHtml = renderStatusGlyphHtml(aggregateState);
+          var aggregateState = String(taskAggregateStatusState(task || {}) || "open");
+          if (aggregateState === "open") {
+            state = "partial";
+            iconHtml = '<i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>';
+          } else {
+            state = aggregateState;
+            iconHtml = renderStatusGlyphHtml(aggregateState);
+          }
         }
+        return '<span class="discussion-prerequisite-status-icon" data-status-state="' + escapeHtml(state) + '" aria-hidden="true">' + iconHtml + '</span>';
+      } catch (error) {
+        console.error("renderReadonlyTaskStatusIconHtml failed", error);
+        return '<span class="discussion-prerequisite-status-icon" data-status-state="open" aria-hidden="true">' + renderStatusGlyphHtml("open") + '</span>';
       }
-      return '<span class="discussion-prerequisite-status-icon" data-status-state="' + escapeHtml(state) + '" aria-hidden="true">' + iconHtml + '</span>';
     }
 
     function renderSettingsPrerequisiteRows(prerequisites, options) {
@@ -20220,10 +20290,24 @@
     }
 
     function taskAssigneeKeys(task) {
-      if (typeof window.__taskAssignmentKeysFromData === "function") {
-        return window.__taskAssignmentKeysFromData(task, task && task.assignments);
+      var canonicalTask = (task && task.id && typeof window.__dashboardTaskEntity === "function")
+        ? window.__dashboardTaskEntity(task.id)
+        : null;
+      var effectiveTask = Object.assign({}, canonicalTask || {}, task || {});
+      if (!Array.isArray(effectiveTask.assignments) || !effectiveTask.assignments.length) {
+        effectiveTask.assignments = Array.isArray(task && task.assignments) && task.assignments.length
+          ? task.assignments
+          : (Array.isArray(canonicalTask && canonicalTask.assignments)
+            ? canonicalTask.assignments
+            : (Array.isArray(task && task.assignments) ? task.assignments : []));
       }
-      return (Array.isArray(task && task.assignments) ? task.assignments : []).map(function (assignment) {
+      if ((!Array.isArray(effectiveTask.group_assignment_members) || !effectiveTask.group_assignment_members.length) && Array.isArray(canonicalTask && canonicalTask.group_assignment_members)) {
+        effectiveTask.group_assignment_members = canonicalTask.group_assignment_members;
+      }
+      if (typeof window.__taskAssignmentKeysFromData === "function") {
+        return window.__taskAssignmentKeysFromData(effectiveTask, effectiveTask.assignments);
+      }
+      return (Array.isArray(effectiveTask.assignments) ? effectiveTask.assignments : []).map(function (assignment) {
         if (assignment && assignment.user_id) return "user:" + assignment.user_id;
         if (assignment && assignment.email) return "email:" + String(assignment.email).trim().toLowerCase();
         return "";
@@ -20363,6 +20447,9 @@
       });
       list.appendChild(fragment);
       section.hidden = false;
+      if (typeof window.__applyTodoFilters === "function") {
+        window.__applyTodoFilters();
+      }
       return true;
     }
     window.__renderTodoActiveTasksFromStore = renderTodoActiveTasksFromStore;
@@ -21101,9 +21188,10 @@
             if (!taskSettingsAssigneeEl || Number(taskSettingsAssigneeEl._suggestRequestToken || 0) !== requestToken) return;
             showLocalAssignSuggest(taskSettingsAssigneeEl, data.results || []);
           })
-          .catch(function () {
+          .catch(function (error) {
             if (!taskSettingsAssigneeEl || Number(taskSettingsAssigneeEl._suggestRequestToken || 0) !== requestToken) return;
-            hideLocalAssignSuggest(taskSettingsAssigneeEl);
+            console.error("assignment search failed", error);
+            showLocalAssignSuggestError(taskSettingsAssigneeEl, "Could not load assignees", loadSettingsAssignmentSuggestions);
           });
       }
 
@@ -21199,9 +21287,10 @@
             }) : [];
             showLocalAssignSuggest(taskSettingsFollowerEl, results);
           })
-          .catch(function () {
+          .catch(function (error) {
             if (!taskSettingsFollowerEl || Number(taskSettingsFollowerEl._suggestRequestToken || 0) !== requestToken) return;
-            hideLocalAssignSuggest(taskSettingsFollowerEl);
+            console.error("follower search failed", error);
+            showLocalAssignSuggestError(taskSettingsFollowerEl, "Could not load followers", loadFollowerSuggestions);
           });
       }
 
@@ -21272,6 +21361,32 @@
         var value = taskSettingsPrerequisiteEl.value.trim();
         var requestToken = (Number(taskSettingsPrerequisiteEl._suggestRequestToken || 0) + 1);
         taskSettingsPrerequisiteEl._suggestRequestToken = requestToken;
+        function presentResults(rawResults) {
+          if (!taskSettingsPrerequisiteEl || Number(taskSettingsPrerequisiteEl._suggestRequestToken || 0) !== requestToken) return;
+          var existingIds = new Set(
+            (Array.isArray((currentTaskData || {}).prerequisites) ? currentTaskData.prerequisites : [])
+              .map(function (item) { return String(item && item.prerequisite_task_id || ""); })
+              .filter(Boolean)
+          );
+          var results = Array.isArray(rawResults) ? rawResults.filter(function (item) {
+            return item
+              && item.entity_type === "task"
+              && String(item.id || "") !== String(currentTaskId || "")
+              && !existingIds.has(String(item.id || ""));
+          }).map(function (item) {
+            var metaBits = [];
+            if (item.project_name) metaBits.push(item.project_name);
+            if (item.group_name) metaBits.push(item.group_name);
+            return Object.assign({}, item, {
+              label: item.title || "Task",
+              meta_label: metaBits.join(" · "),
+              suggest_icon_html: renderReadonlyTaskStatusIconHtml(item),
+            });
+          }) : [];
+          showLocalAssignSuggest(taskSettingsPrerequisiteEl, results, {
+            disableSpecialSuggestions: true,
+          });
+        }
         showLocalAssignSuggestLoading(taskSettingsPrerequisiteEl, "Loading tasks…");
         fetch(
           "/api/tasks/search?q=" + encodeURIComponent(value) +
@@ -21281,34 +21396,19 @@
         )
           .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
           .then(function (data) {
-            if (!taskSettingsPrerequisiteEl || Number(taskSettingsPrerequisiteEl._suggestRequestToken || 0) !== requestToken) return;
-            var existingIds = new Set(
-              (Array.isArray((currentTaskData || {}).prerequisites) ? currentTaskData.prerequisites : [])
-                .map(function (item) { return String(item && item.prerequisite_task_id || ""); })
-                .filter(Boolean)
-            );
-            var results = Array.isArray(data.results) ? data.results.filter(function (item) {
-              return item
-                && item.entity_type === "task"
-                && String(item.id || "") !== String(currentTaskId || "")
-                && !existingIds.has(String(item.id || ""));
-            }).map(function (item) {
-              var metaBits = [];
-              if (item.project_name) metaBits.push(item.project_name);
-              if (item.group_name) metaBits.push(item.group_name);
-              return Object.assign({}, item, {
-                label: item.title || "Task",
-                meta_label: metaBits.join(" · "),
-                suggest_icon_html: renderReadonlyTaskStatusIconHtml(item),
-              });
-            }) : [];
-            showLocalAssignSuggest(taskSettingsPrerequisiteEl, results, {
-              disableSpecialSuggestions: true,
-            });
+            presentResults(data.results || []);
           })
-          .catch(function () {
+          .catch(function (error) {
             if (!taskSettingsPrerequisiteEl || Number(taskSettingsPrerequisiteEl._suggestRequestToken || 0) !== requestToken) return;
-            hideLocalAssignSuggest(taskSettingsPrerequisiteEl);
+            console.error("prerequisite search failed", error);
+            var localResults = localTaskSearchResults(value, {
+              excludeTaskId: currentTaskId || "",
+            });
+            if (localResults.length) {
+              presentResults(localResults);
+              return;
+            }
+            showLocalAssignSuggestError(taskSettingsPrerequisiteEl, "Could not load results", loadTaskPrerequisiteSuggestions);
           });
       }
 

@@ -11301,6 +11301,14 @@
         }
 
         if (taskSearchShell && taskSearchTrigger && taskSearchInput && taskSearchResults) {
+          const escapeTaskSearchHtml = (value) =>
+            String(value == null ? "" : value)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#39;");
+
           const closeTaskSearch = () => {
             taskSearchShell.classList.remove("is-open");
             taskSearchTrigger.setAttribute("aria-expanded", "false");
@@ -11326,35 +11334,69 @@
               const metaBits = [];
               if (item.division_name) {
                 metaBits.push(
-                  '<span class="view-search-division-tag" style="--view-search-project-color: ' + escapeHtml(item.project_color || "") + ';">' +
-                  escapeHtml(item.division_name) +
+                  '<span class="view-search-division-tag" style="--view-search-project-color: ' + escapeTaskSearchHtml(item.project_color || "") + ';">' +
+                  escapeTaskSearchHtml(item.division_name) +
                   '</span>'
                 );
               }
               if (item.entity_type !== "project" && item.show_project_label && item.project_name) {
                 if (metaBits.length) metaBits.push('<span class="view-search-meta-sep">·</span>');
-                metaBits.push('<span>' + escapeHtml(item.project_name) + '</span>');
+                metaBits.push('<span>' + escapeTaskSearchHtml(item.project_name) + '</span>');
               }
               if (item.entity_type !== "group" && item.group_name) {
                 if (metaBits.length) metaBits.push('<span class="view-search-meta-sep">·</span>');
-                metaBits.push('<span>' + escapeHtml(item.group_name) + '</span>');
+                metaBits.push('<span>' + escapeTaskSearchHtml(item.group_name) + '</span>');
               } else if (!metaBits.length && item.entity_type === "task" && item.project_name) {
-                metaBits.push('<span>' + escapeHtml(item.project_name) + '</span>');
+                metaBits.push('<span>' + escapeTaskSearchHtml(item.project_name) + '</span>');
               }
               return (
                 '<button class="view-search-result" type="button" ' +
-                'data-task-search-type="' + escapeHtml(item.entity_type || "task") + '" ' +
-                'data-task-search-open="' + escapeHtml(item.id) + '" ' +
-                'data-task-search-title="' + escapeHtml(item.title) + '" ' +
-                'data-task-search-project="' + escapeHtml(item.project_name || "") + '">' +
+                'data-task-search-type="' + escapeTaskSearchHtml(item.entity_type || "task") + '" ' +
+                'data-task-search-open="' + escapeTaskSearchHtml(item.id) + '" ' +
+                'data-task-search-title="' + escapeTaskSearchHtml(item.title) + '" ' +
+                'data-task-search-project="' + escapeTaskSearchHtml(item.project_name || "") + '">' +
                 '<span class="view-search-result-icon">' + (iconMarkupByType[item.entity_type] || '<i class="fa-regular fa-square" aria-hidden="true"></i>') + '</span>' +
                 '<span class="view-search-result-copy">' +
-                '<span class="view-search-result-title">' + escapeHtml(item.title) + '</span>' +
+                '<span class="view-search-result-title">' + escapeTaskSearchHtml(item.title) + '</span>' +
                 '<span class="view-search-result-meta">' + metaBits.join("") + '</span>' +
                 '</span>' +
                 '</button>'
               );
             }).join("");
+          };
+
+          const localTaskSearchResults = (query) => {
+            const trimmed = String(query || "").trim().toLowerCase();
+            if (trimmed.length < 2) return [];
+            const store = window.__dashboardBootstrapStore;
+            const entities = store && store.entities ? store.entities : {};
+            const tasks = entities.tasks || {};
+            const projects = entities.projects || {};
+            const groups = entities.groups || {};
+            return Object.keys(tasks).map((key) => tasks[key]).filter((item) => {
+              if (!item || !item.id) return false;
+              const project = projects[String(item.project_id)] || null;
+              const group = item.group_id ? (groups[String(item.group_id)] || null) : null;
+              const haystack = [
+                String(item.title || ""),
+                String(project && (project.display_name || project.name) || ""),
+                String(group && group.name || "")
+              ].join(" ").toLowerCase();
+              return haystack.indexOf(trimmed) >= 0;
+            }).sort((a, b) => Number(b.id || 0) - Number(a.id || 0)).slice(0, 12).map((item) => {
+              const project = projects[String(item.project_id)] || null;
+              const group = item.group_id ? (groups[String(item.group_id)] || null) : null;
+              return {
+                entity_type: "task",
+                id: item.id,
+                title: item.title || "Task",
+                project_name: project ? String(project.display_name || project.name || "") : "",
+                group_name: group ? String(group.name || "") : "",
+                division_name: "",
+                show_project_label: true,
+                project_color: "",
+              };
+            });
           };
 
           const runTaskSearch = (query) => {
@@ -11366,14 +11408,23 @@
             const requestId = ++taskSearchRequest;
             taskSearchResults.innerHTML = '<div class="view-search-empty">Searching…</div>';
             fetch("/api/tasks/search?q=" + encodeURIComponent(trimmed), { credentials: "same-origin" })
-              .then((res) => res.json().catch(() => ({})))
+              .then((res) => {
+                if (!res.ok) throw new Error("task search failed: " + res.status);
+                return res.json().catch(() => ({}));
+              })
               .then((data) => {
                 if (requestId !== taskSearchRequest) return;
                 renderTaskSearchResults(data.results || [], trimmed);
               })
-              .catch(() => {
+              .catch((error) => {
                 if (requestId !== taskSearchRequest) return;
-                taskSearchResults.innerHTML = '<div class="view-search-empty">Could not load results.</div>';
+                console.error("task search failed", error);
+                const localResults = localTaskSearchResults(trimmed);
+                if (localResults.length) {
+                  renderTaskSearchResults(localResults, trimmed);
+                  return;
+                }
+                taskSearchResults.innerHTML = '<button class="view-search-empty" type="button" data-task-search-retry="1">Could not load results. Retry.</button>';
               });
           };
 
@@ -11392,6 +11443,12 @@
           });
 
           taskSearchResults.addEventListener("click", (event) => {
+            const retryButton = event.target.closest("[data-task-search-retry]");
+            if (retryButton) {
+              event.preventDefault();
+              runTaskSearch(taskSearchInput.value);
+              return;
+            }
             const button = event.target.closest("[data-task-search-open]");
             if (!button) return;
             event.preventDefault();
