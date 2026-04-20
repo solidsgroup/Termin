@@ -330,6 +330,205 @@
       background: #ef4444;
       box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
     }
+
+    .poll-response-dialog {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(2, 6, 23, 0.62);
+      backdrop-filter: blur(10px);
+    }
+
+    .poll-response-dialog[hidden] {
+      display: none;
+    }
+
+    .poll-response-card {
+      width: min(640px, 100%);
+      max-height: min(80vh, 760px);
+      overflow: auto;
+      border-radius: 18px;
+      border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+      background: color-mix(in srgb, var(--panel) 94%, rgba(9, 14, 22, 0.9) 6%);
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.34);
+      padding: 22px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .poll-response-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .poll-response-title {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+    }
+
+    .poll-response-kicker {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .poll-response-question {
+      font-size: 22px;
+      line-height: 1.2;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .poll-response-meta {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .poll-response-options {
+      display: grid;
+      gap: 10px;
+    }
+
+    .poll-response-option {
+      width: 100%;
+      display: flex;
+      align-items: stretch;
+      gap: 12px;
+      border-radius: 14px;
+      border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+      background: color-mix(in srgb, var(--panel-alt) 76%, transparent);
+      padding: 14px 16px;
+      text-align: left;
+      color: var(--ink);
+      cursor: pointer;
+      transition: border-color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease;
+    }
+
+    .poll-response-option:hover {
+      border-color: color-mix(in srgb, var(--accent) 46%, var(--border) 54%);
+      background: color-mix(in srgb, var(--panel-alt) 58%, var(--accent) 12%);
+      transform: translateY(-1px);
+    }
+
+    .poll-response-option.is-selected {
+      border-color: color-mix(in srgb, var(--accent) 64%, var(--border) 36%);
+      background: color-mix(in srgb, var(--accent) 14%, var(--panel-alt) 86%);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    }
+
+    .poll-response-option.is-disabled,
+    .poll-response-option:disabled {
+      cursor: default;
+      opacity: 0.78;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .poll-response-option-indicator {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: transparent;
+      flex: 0 0 auto;
+      margin-top: 1px;
+      background: color-mix(in srgb, var(--panel) 84%, transparent);
+    }
+
+    .poll-response-option.is-selected .poll-response-option-indicator {
+      border-color: color-mix(in srgb, var(--success) 62%, var(--accent) 38%);
+      background: color-mix(in srgb, var(--success) 86%, var(--accent) 14%);
+      color: #07140d;
+    }
+
+    .poll-response-option-body {
+      min-width: 0;
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .poll-response-option-main {
+      min-width: 0;
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      text-align: left;
+    }
+
+    .poll-response-option-text {
+      min-width: 0;
+      font-size: 15px;
+      line-height: 1.45;
+      text-align: left;
+      justify-self: start;
+    }
+
+    .poll-response-responders {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex: 0 0 auto;
+      max-width: 45%;
+      flex-wrap: wrap;
+    }
+
+    .poll-response-responder {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: color-mix(in srgb, var(--panel) 84%, var(--accent) 16%);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 700;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+    }
+
+    .poll-response-responder.has-photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .poll-response-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .poll-response-note {
+      min-height: 20px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    body[data-theme="light"] .poll-response-card {
+      background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      border-color: color-mix(in srgb, var(--border) 84%, white 16%);
+    }
   </style>
   {% if status != "invalid" %}
     <div class="panel">
@@ -406,6 +605,26 @@
       </div>
     </div>
   </aside>
+  <div class="poll-response-dialog" id="collab-poll-response-dialog" hidden aria-hidden="true">
+    <div class="poll-response-card" role="dialog" aria-modal="true" aria-labelledby="collab-poll-response-question">
+      <div class="poll-response-header">
+        <div class="poll-response-title">
+          <div class="poll-response-kicker">Poll Response</div>
+          <div class="poll-response-question" id="collab-poll-response-question">Poll</div>
+          <div class="poll-response-meta" id="collab-poll-response-meta"></div>
+        </div>
+        <button class="btn secondary" type="button" id="collab-poll-response-close">Close</button>
+      </div>
+      <div class="poll-response-options" id="collab-poll-response-options"></div>
+      <div class="poll-response-actions">
+        <div class="poll-response-note" id="collab-poll-response-note"></div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn secondary" type="button" id="collab-poll-response-clear">Clear</button>
+          <button class="btn primary" type="button" id="collab-poll-response-save">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <script>
     (function () {
       const drawer = document.getElementById("collab-discussion-drawer");
@@ -416,7 +635,16 @@
       const titleEl = document.getElementById("collab-discussion-title");
       const subtitleEl = document.getElementById("collab-discussion-subtitle");
       const closeEls = [document.getElementById("collab-discussion-close"), document.getElementById("collab-discussion-cancel")].filter(Boolean);
+      const pollDialogEl = document.getElementById("collab-poll-response-dialog");
+      const pollQuestionEl = document.getElementById("collab-poll-response-question");
+      const pollMetaEl = document.getElementById("collab-poll-response-meta");
+      const pollOptionsEl = document.getElementById("collab-poll-response-options");
+      const pollNoteEl = document.getElementById("collab-poll-response-note");
+      const pollCloseEl = document.getElementById("collab-poll-response-close");
+      const pollClearEl = document.getElementById("collab-poll-response-clear");
+      const pollSaveEl = document.getElementById("collab-poll-response-save");
       let currentTaskId = null;
+      let activePollTask = null;
       const collaboratorToken = {{ collaborator.access_token|tojson }};
       const params = new URLSearchParams(window.location.search);
 
@@ -513,6 +741,12 @@
         }).then((res) => res.json().catch(() => ({})));
       }
 
+      function fetchCollaboratorPollTask(taskId) {
+        return fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/0/poll".replace("/0/poll", "/" + taskId + "/poll"), {
+          cache: "no-store",
+        }).then((res) => res.json().catch(() => ({})));
+      }
+
       function applyTaskSnapshot(snapshot) {
         if (!snapshot || !taskListEl) return;
         const taskId = String(snapshot.task_id || "");
@@ -530,6 +764,114 @@
           taskListEl.insertAdjacentHTML("beforeend", snapshot.html);
         }
         reorderTaskList();
+      }
+
+      function renderResponderAvatar(responder) {
+        const label = String((responder && (responder.display_name || responder.email)) || "User");
+        const avatarUrl = responder && responder.avatar_url ? String(responder.avatar_url) : "";
+        return (
+          '<span class="poll-response-responder' + (avatarUrl ? ' has-photo' : '') + '" title="' + escapeHtml(label) + '">' +
+            (avatarUrl
+              ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.poll-response-responder&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />'
+              : escapeHtml(label.charAt(0).toUpperCase())) +
+          '</span>'
+        );
+      }
+
+      function closePollDialog() {
+        activePollTask = null;
+        if (!pollDialogEl) return;
+        pollDialogEl.hidden = true;
+        pollDialogEl.setAttribute("aria-hidden", "true");
+        if (pollOptionsEl) pollOptionsEl.innerHTML = "";
+      }
+
+      function renderPollStatusLabel(meta) {
+        var complete = Math.max(0, Number(meta && meta.poll_complete_count || 0));
+        var total = Math.max(0, Number(meta && meta.poll_total_count || 0));
+        return String(complete) + "/" + String(total);
+      }
+
+      function renderCollaboratorPollDialog(taskData) {
+        if (!taskData || !pollOptionsEl) return;
+        activePollTask = taskData;
+        var poll = taskData.poll || {};
+        var meta = taskData.status_meta || {};
+        var selectedIds = Array.isArray(meta.poll_viewer_option_ids) ? meta.poll_viewer_option_ids.slice() : [];
+        var selectedSet = new Set(selectedIds);
+        var resultsByOptionId = {};
+        if (Array.isArray(meta.poll_option_results)) {
+          meta.poll_option_results.forEach(function (item) {
+            if (!item || !item.id) return;
+            resultsByOptionId[String(item.id)] = Array.isArray(item.responders) ? item.responders : [];
+          });
+        }
+        var allowsMultiple = !!meta.poll_allows_multiple;
+        var canRespond = !!taskData.can_respond;
+        if (pollQuestionEl) {
+          pollQuestionEl.textContent = poll.question || taskData.title || "Poll";
+        }
+        if (pollMetaEl) {
+          pollMetaEl.textContent = renderPollStatusLabel(meta) + " responses";
+        }
+        if (pollNoteEl) {
+          if (canRespond) {
+            pollNoteEl.textContent = allowsMultiple ? "Select one or more options." : "Select one option.";
+          } else {
+            pollNoteEl.textContent = taskData.status === "accepted"
+              ? "You can view this poll, but cannot respond."
+              : "Accept the task before completing this poll.";
+          }
+        }
+        if (pollClearEl) pollClearEl.disabled = !canRespond;
+        if (pollSaveEl) pollSaveEl.disabled = !canRespond;
+        var options = Array.isArray(poll.options) ? poll.options : [];
+        if (!options.length) {
+          pollOptionsEl.innerHTML = '<div class="footer-note">No poll options configured yet.</div>';
+        } else {
+          pollOptionsEl.innerHTML = options.map(function (option) {
+            var optionId = String(option && option.id ? option.id : "").trim();
+            var checked = selectedSet.has(optionId);
+            var responders = Array.isArray(resultsByOptionId[optionId]) ? resultsByOptionId[optionId] : [];
+            return (
+              '<button class="poll-response-option' + (checked ? ' is-selected' : '') + (canRespond ? '' : ' is-disabled') + '"' +
+                ' type="button"' +
+                ' data-collab-poll-response-option="' + escapeHtml(optionId) + '"' +
+                ' data-selected="' + (checked ? '1' : '0') + '"' +
+                (canRespond ? '' : ' disabled') + '>' +
+                '<span class="poll-response-option-indicator" aria-hidden="true"><i class="fa-solid fa-check"></i></span>' +
+                '<span class="poll-response-option-body">' +
+                  '<span class="poll-response-option-main">' +
+                    '<span class="poll-response-option-text">' + escapeHtml(option && option.label ? option.label : '') + '</span>' +
+                  '</span>' +
+                  (meta.poll_results_visible
+                    ? '<span class="poll-response-responders">' + responders.map(renderResponderAvatar).join("") + '</span>'
+                    : '') +
+                '</span>' +
+              '</button>'
+            );
+          }).join("");
+        }
+      }
+
+      function openCollaboratorPollDialog(taskId) {
+        if (!pollDialogEl || !taskId) return;
+        pollDialogEl.hidden = false;
+        pollDialogEl.setAttribute("aria-hidden", "false");
+        if (pollQuestionEl) pollQuestionEl.textContent = "Loading poll…";
+        if (pollMetaEl) pollMetaEl.textContent = "";
+        if (pollNoteEl) pollNoteEl.textContent = "";
+        if (pollOptionsEl) pollOptionsEl.innerHTML = '<div class="footer-note">Loading poll…</div>';
+        fetchCollaboratorPollTask(taskId)
+          .then(function (result) {
+            if (!result || !result.task) throw new Error(result && result.error ? result.error : "Could not load poll");
+            renderCollaboratorPollDialog(result.task);
+          })
+          .catch(function () {
+            if (pollOptionsEl) {
+              pollOptionsEl.innerHTML = '<div class="footer-note">Could not load poll.</div>';
+            }
+          });
       }
 
       function collabRowSortValue(row, attr, fallback) {
@@ -595,6 +937,13 @@
         );
       });
 
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-open-collab-poll]");
+        if (!button) return;
+        if (button.disabled || button.getAttribute("aria-disabled") === "true") return;
+        openCollaboratorPollDialog(button.getAttribute("data-open-collab-poll"));
+      });
+
       function focusTaskFromUrl() {
         const taskId = params.get("open_discussion_task_id") || params.get("task_id");
         if (!taskId) return;
@@ -633,11 +982,84 @@
       }
 
       closeEls.forEach((button) => button.addEventListener("click", () => drawer.classList.remove("open")));
+      if (pollCloseEl) {
+        pollCloseEl.addEventListener("click", closePollDialog);
+      }
+      if (pollDialogEl) {
+        pollDialogEl.addEventListener("click", function (event) {
+          if (event.target === pollDialogEl) {
+            closePollDialog();
+          }
+        });
+      }
+      if (pollOptionsEl) {
+        pollOptionsEl.addEventListener("click", function (event) {
+          const optionButton = event.target.closest("[data-collab-poll-response-option]");
+          if (!optionButton || optionButton.disabled) return;
+          const allowsMultiple = !!(activePollTask && activePollTask.status_meta && activePollTask.status_meta.poll_allows_multiple);
+          if (!allowsMultiple) {
+            pollOptionsEl.querySelectorAll("[data-collab-poll-response-option]").forEach(function (node) {
+              node.setAttribute("data-selected", node === optionButton ? "1" : "0");
+              node.classList.toggle("is-selected", node === optionButton);
+            });
+            return;
+          }
+          const nextSelected = optionButton.getAttribute("data-selected") !== "1";
+          optionButton.setAttribute("data-selected", nextSelected ? "1" : "0");
+          optionButton.classList.toggle("is-selected", nextSelected);
+        });
+      }
+      if (pollClearEl) {
+        pollClearEl.addEventListener("click", function () {
+          if (!pollOptionsEl) return;
+          pollOptionsEl.querySelectorAll("[data-collab-poll-response-option]").forEach(function (node) {
+            node.setAttribute("data-selected", "0");
+            node.classList.remove("is-selected");
+          });
+        });
+      }
+      if (pollSaveEl) {
+        pollSaveEl.addEventListener("click", function () {
+          if (!activePollTask || !pollOptionsEl) return;
+          const selectedOptionIds = Array.from(pollOptionsEl.querySelectorAll('[data-collab-poll-response-option][data-selected="1"]')).map(function (node) {
+            return String(node.getAttribute("data-collab-poll-response-option") || "").trim();
+          }).filter(Boolean);
+          pollSaveEl.disabled = true;
+          fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/0/poll_response".replace("/0/poll_response", "/" + activePollTask.id + "/poll_response"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ option_ids: selectedOptionIds }),
+          })
+            .then((res) => res.json().catch(() => ({})))
+            .then((result) => {
+              if (result && result.error) {
+                throw new Error(result.error);
+              }
+              return fetchTaskSnapshot(activePollTask.id).then(function (snapshot) {
+                applyTaskSnapshot(snapshot);
+                closePollDialog();
+              });
+            })
+            .catch((error) => {
+              if (pollNoteEl) {
+                pollNoteEl.textContent = error && error.message ? error.message : "Could not save poll response.";
+              }
+            })
+            .finally(() => {
+              if (pollSaveEl) pollSaveEl.disabled = false;
+            });
+        });
+      }
       sendEl.addEventListener("click", submitComment);
       inputEl.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           submitComment();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && pollDialogEl && !pollDialogEl.hidden) {
+          closePollDialog();
         }
       });
       focusTaskFromUrl();

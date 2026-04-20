@@ -159,7 +159,11 @@
   {% endif %}
 {% endmacro %}
 {% macro render_task_status_cell(task, status_payload, todo=False) %}
-  {% set status_mode = status_payload.get('mode', 'multi' if status_payload and status_payload.get('enabled') else 'single') if status_payload else 'single' %}
+  {% set poll_payload = task.poll if task and task.poll is mapping else {} %}
+  {% set poll_options = poll_payload.get('options', []) if poll_payload else [] %}
+  {% set inferred_task_type = (task.task_type if task and task.task_type is defined else '')|string|trim|lower %}
+  {% set inferred_poll = 1 if inferred_task_type == 'poll' or poll_payload.get('question') or poll_payload.get('allows_multiple') or poll_options else 0 %}
+  {% set status_mode = status_payload.get('mode') if status_payload and status_payload.get('mode') else ('poll' if inferred_poll else ('multi' if status_payload and status_payload.get('enabled') else 'single')) %}
   {% set prereq_blocked = 1 if status_payload and status_payload.get('prereq_blocked') else 0 %}
   {% set aggregate_state = status_payload.get('aggregate_state') or status_payload.get('my_status_state') or status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) %}
   {% if prereq_blocked or aggregate_state == 'prereq' %}
@@ -991,6 +995,30 @@
     width: 100%;
   }
 
+  body[data-theme="light"] .discussion-poll-option-input,
+  body[data-theme="light"] #task-settings-poll-new-option {
+    background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+    border-color: color-mix(in srgb, var(--border) 88%, white 12%);
+    color: var(--ink);
+    caret-color: var(--ink);
+    -webkit-text-fill-color: var(--ink);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  }
+
+  body[data-theme="light"] .discussion-poll-option-input::placeholder,
+  body[data-theme="light"] #task-settings-poll-new-option::placeholder {
+    color: var(--muted);
+    -webkit-text-fill-color: var(--muted);
+  }
+
+  body[data-theme="light"] .discussion-poll-option-input:-webkit-autofill,
+  body[data-theme="light"] #task-settings-poll-new-option:-webkit-autofill {
+    -webkit-text-fill-color: var(--ink);
+    caret-color: var(--ink);
+    box-shadow: inset 0 0 0 1000px color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+    transition: background-color 99999s ease-out 0s;
+  }
+
   .discussion-poll-option-remove {
     width: 30px;
     height: 30px;
@@ -1171,22 +1199,36 @@
 
   .poll-response-option-text {
     min-width: 0;
+    flex: 1 1 auto;
     font-size: 0.95rem;
     color: var(--ink);
+    text-align: left;
   }
 
   .poll-response-option-body {
     min-width: 0;
-    display: grid;
-    gap: 6px;
+    display: flex;
+    align-items: center;
     flex: 1 1 auto;
+  }
+
+  .poll-response-option-main {
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: flex-start;
   }
 
   .poll-response-responders {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 6px;
+    margin-left: auto;
+    justify-content: flex-end;
+    flex: 0 0 auto;
   }
 
   .poll-response-responder {
@@ -4759,7 +4801,12 @@
       if (taskId) {
           var host = document.querySelector('[data-task-status-host="' + taskId + '"]');
           var task = host && host._taskPayload ? host._taskPayload : null;
-          if (task && taskStatusMeta(task).mode === "poll") {
+          var resolveTaskStatusMeta = (typeof taskStatusMeta === "function")
+            ? taskStatusMeta
+            : (typeof window.__taskStatusMeta === "function"
+              ? window.__taskStatusMeta
+              : function () { return { mode: "single" }; });
+          if (task && resolveTaskStatusMeta(task).mode === "poll") {
             if (typeof window.__openTaskPollDialog === "function") {
               window.__openTaskPollDialog(task, { anchor: cell, source: "row" });
             }
@@ -16622,7 +16669,20 @@
       var meta = task && task.status_meta ? task.status_meta : {};
       var taskId = task && task.id != null ? String(task.id) : "";
       var localOverride = taskId ? (localTaskStatusOverrides[taskId] || null) : null;
-      var mode = normalizeMode((localOverride && localOverride.mode) || meta.mode || (task && task.status_mode) || ((task && task.per_user_status_enabled) ? "multi" : "single"), "single");
+      var taskType = String(task && task.task_type || "").trim().toLowerCase();
+      var taskPoll = task && task.poll && typeof task.poll === "object" ? task.poll : {};
+      var inferredPollMode = taskType === "poll"
+        || !!String(taskPoll.question || "").trim()
+        || !!taskPoll.allows_multiple
+        || !!(Array.isArray(taskPoll.options) && taskPoll.options.length);
+      var mode = normalizeMode(
+        (localOverride && localOverride.mode)
+          || meta.mode
+          || (inferredPollMode ? "poll" : null)
+          || (task && task.status_mode)
+          || ((task && task.per_user_status_enabled) ? "multi" : "single"),
+        "single"
+      );
       var baseStatus = mode === "single"
         ? ((task && task.status) || meta.task_status || "open")
         : (meta.task_status || (task && task.status) || "open");
@@ -16651,16 +16711,41 @@
           };
         });
       }
+      var assignmentCountForPoll = 0;
+      if (Array.isArray(task && task.assignments ? task.assignments : null)) {
+        var seenPollAssignmentKeys = Object.create(null);
+        task.assignments.forEach(function (assignment) {
+          if (!assignment) return;
+          var assignmentKey = assignment.user_id != null
+            ? ("user:" + String(assignment.user_id))
+            : ("email:" + String(assignment.email || assignment.display_email || "").trim().toLowerCase());
+          if (!assignmentKey || assignmentKey === "email:") return;
+          if (seenPollAssignmentKeys[assignmentKey]) return;
+          seenPollAssignmentKeys[assignmentKey] = true;
+          assignmentCountForPoll += 1;
+        });
+      }
+      var effectivePollTotalCount = Math.max(
+        Math.max(0, Number(meta.poll_total_count || 0)),
+        assignmentCountForPoll
+      );
+      var effectivePollCompleteCount = Math.max(0, Math.min(
+        Math.max(0, Number(meta.poll_complete_count || 0)),
+        effectivePollTotalCount
+      ));
       return {
         mode: mode,
         enabled: mode !== "single",
         prereq_blocked: !!meta.prereq_blocked,
         prereq_total_count: Math.max(0, Number(meta.prereq_total_count || 0)),
         prereq_met_count: Math.max(0, Number(meta.prereq_met_count || 0)),
-        poll_total_count: Math.max(0, Number(meta.poll_total_count || 0)),
-        poll_complete_count: Math.max(0, Number(meta.poll_complete_count || 0)),
+        poll_total_count: effectivePollTotalCount,
+        poll_complete_count: effectivePollCompleteCount,
         poll_allows_multiple: !!meta.poll_allows_multiple,
         poll_question: String(meta.poll_question || ""),
+        poll_results_visibility: String(meta.poll_results_visibility || "everyone"),
+        poll_results_visible: !!meta.poll_results_visible,
+        poll_option_results: Array.isArray(meta.poll_option_results) ? meta.poll_option_results.slice() : [],
         poll_viewer_option_ids: Array.isArray(meta.poll_viewer_option_ids) ? meta.poll_viewer_option_ids.slice() : [],
         task_status: baseStatus,
         task_status_state: decorateStatusState(task, getStatusState(baseStatus)),
@@ -16684,6 +16769,7 @@
         assignees: assignees,
       };
     }
+    window.__taskStatusMeta = taskStatusMeta;
 
     function prereqStatusCountLabel(taskOrMeta) {
       var meta = (taskOrMeta && typeof taskOrMeta === "object" && Object.prototype.hasOwnProperty.call(taskOrMeta, "prereq_total_count"))
@@ -16982,8 +17068,10 @@
             '>' +
               '<span class="poll-response-option-indicator" aria-hidden="true"><i class="fa-solid fa-check"></i></span>' +
               '<span class="poll-response-option-body">' +
-                '<span class="poll-response-option-text">' + escapeHtml(option && option.label ? option.label : '') + '</span>' +
-                respondersHtml +
+                '<span class="poll-response-option-main">' +
+                  '<span class="poll-response-option-text">' + escapeHtml(option && option.label ? option.label : '') + '</span>' +
+                  respondersHtml +
+                '</span>' +
               '</span>' +
             '</button>';
         }).join("");
@@ -18758,6 +18846,56 @@
     }
     window.__syncProjectHeaderAvatars = syncProjectHeaderAvatars;
 
+    var pendingAssignmentImpactRefreshTimers = Object.create(null);
+
+    function queueAssignmentImpactTaskRefresh(taskId) {
+      var normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId || typeof fetchTaskSnapshot !== "function") return;
+      if (pendingAssignmentImpactRefreshTimers[normalizedTaskId]) {
+        window.clearTimeout(pendingAssignmentImpactRefreshTimers[normalizedTaskId]);
+      }
+      pendingAssignmentImpactRefreshTimers[normalizedTaskId] = window.setTimeout(function () {
+        delete pendingAssignmentImpactRefreshTimers[normalizedTaskId];
+        fetchTaskSnapshot(normalizedTaskId, { preferCache: false })
+          .then(function (freshTask) {
+            if (!freshTask || !freshTask.id) return;
+            applyTaskRowUpdate(freshTask);
+          })
+          .catch(function () {});
+      }, 40);
+    }
+
+    function queueGroupAssignmentTaskRefreshes(projectId, groupId) {
+      var normalizedProjectId = String(projectId || "").trim();
+      var normalizedGroupId = String(groupId || "").trim();
+      var seenTaskIds = Object.create(null);
+
+      function considerTask(task) {
+        if (!task || !task.id || !task.assign_group_members) return;
+        if (normalizedProjectId && String(task.project_id || "") !== normalizedProjectId) return;
+        if (normalizedGroupId && String(task.group_id || "") !== normalizedGroupId) return;
+        var taskId = String(task.id);
+        if (seenTaskIds[taskId]) return;
+        seenTaskIds[taskId] = true;
+        queueAssignmentImpactTaskRefresh(taskId);
+      }
+
+      var taskMap = dashboardEntityMap("tasks");
+      Object.keys(taskMap || {}).forEach(function (taskId) {
+        considerTask(taskMap[taskId]);
+      });
+
+      document.querySelectorAll("[data-task-status-host]").forEach(function (host) {
+        if (!host || !host._taskPayload) return;
+        considerTask(host._taskPayload);
+      });
+
+      document.querySelectorAll(".todo-item[data-task-id]").forEach(function (item) {
+        if (!item || !item._taskPayload) return;
+        considerTask(item._taskPayload);
+      });
+    }
+
     function applyAssignmentUpdate(payload) {
       if (!payload || !payload.assignment) return false;
       var assignment = payload.assignment;
@@ -18799,6 +18937,7 @@
         if (typeof window.__applyTodoFilters === "function") {
           window.__applyTodoFilters();
         }
+        queueAssignmentImpactTaskRefresh(assignment.task_id);
         return true;
       }
       var updated = false;
@@ -18852,6 +18991,7 @@
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
+      queueAssignmentImpactTaskRefresh(assignment.task_id);
       refreshDashboardHomeFromTodo();
       return updated;
     }
@@ -23629,6 +23769,7 @@
         updateMemberAvatars('[data-project-members="' + data.project_id + '"]', data.members || [], 6);
         applyProjectShareIndicators(String(data.project_id), data.members || []);
         setDiscussionAudience(data.project_id, data.members || []);
+        queueGroupAssignmentTaskRefreshes(data.project_id, "");
       });
 
       socket.on("group_members_updated", function (data) {
@@ -23637,6 +23778,7 @@
         if (data.project_id) {
           setDiscussionAudience(data.project_id, data.members || []);
         }
+        queueGroupAssignmentTaskRefreshes(data.project_id || "", data.group_id);
       });
 
       socket.on("task_comment_created", function (data) {

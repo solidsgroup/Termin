@@ -102,6 +102,30 @@ async function deleteAssignment(page, assignmentId) {
   expect(result.ok).toBeTruthy();
 }
 
+async function createAssignment(page, taskId, email) {
+  const result = await page.evaluate(async ({ taskId: targetTaskId, email: targetEmail }) => {
+    const response = await fetch('/api/assignments', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_type: 'task',
+        target_id: targetTaskId,
+        email: targetEmail,
+      }),
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (_error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data };
+  }, { taskId, email });
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
 async function patchGroup(page, groupId, payload) {
   const result = await page.evaluate(async ({ groupId, payload }) => {
     const response = await fetch(`/api/groups/${groupId}`, {
@@ -477,6 +501,22 @@ async function expectPrereqHoverCard(page, triggerSelector, expectedTitle) {
   }
 }
 
+async function openPollDialogFromTree(page, taskId) {
+  const trigger = page.locator(`[data-task-row-id="${taskId}"] [data-task-poll-trigger="${taskId}"]`).first();
+  await expect(trigger).toHaveCount(1);
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.click();
+  await expect(page.locator('#poll-response-dialog')).toBeVisible();
+}
+
+async function submitPollResponse(page, optionId) {
+  const option = page.locator(`#poll-response-options [data-poll-response-option="${optionId}"]`).first();
+  await expect(option).toHaveCount(1);
+  await option.click();
+  await page.locator('#poll-response-save').click();
+  await expect(page.locator('#poll-response-dialog')).toBeHidden();
+}
+
 test.describe('dashboard and realtime flows', () => {
   test('dashboard stays on dashboard after refresh', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
@@ -822,6 +862,216 @@ test.describe('dashboard and realtime flows', () => {
     await expect(drawerReadonly).toBeVisible();
     await expect(drawerReadonly).toHaveAttribute('data-status-state', 'prereq');
     await steps.step('Verify the drawer hides the interactive status control, keeps the mode picker available, and shows a readonly prereq status indicator.', page);
+  });
+
+  test('poll task status badge opens the dialog and updates response counts live', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'status', 'dialog', 'socket']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Live Poll Task',
+      assignee_email: state.owner.email,
+    });
+    await createAssignment(ownerPage, pollTask.id, state.member.email);
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      poll: {
+        question: 'Choose a session',
+        allows_multiple: false,
+        results_visibility: 'everyone',
+        options: [
+          { id: 'session-a', label: 'Session A' },
+          { id: 'session-b', label: 'Session B' },
+        ],
+      },
+    });
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+
+    const ownerBadge = ownerPage.locator(`[data-task-row-id="${pollTask.id}"] [data-task-poll-trigger="${pollTask.id}"]`).first();
+    await expect(ownerBadge).toContainText('0/2');
+    await steps.step('Open the same poll task in two Tree views and verify the initial poll badge count is 0/2.', ownerPage);
+
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await expect(memberPage.locator('#poll-response-question')).toContainText('Choose a session');
+    await submitPollResponse(memberPage, 'session-a');
+    await steps.step('Respond to the poll from the member browser by selecting Session A.', memberPage);
+
+    await expect(ownerBadge).toContainText('1/2');
+    await steps.step('Verify the owner Tree view updates the poll badge live to 1/2 without a refresh.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('poll results visible to everyone show responder avatars in the poll dialog', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'results', 'avatars', 'visibility']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Visible Poll Results Task',
+      assignee_email: state.owner.email,
+    });
+    await createAssignment(ownerPage, pollTask.id, state.member.email);
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      poll: {
+        question: 'Which venue works?',
+        allows_multiple: false,
+        results_visibility: 'everyone',
+        options: [
+          { id: 'venue-a', label: 'Venue A' },
+          { id: 'venue-b', label: 'Venue B' },
+        ],
+      },
+    });
+
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await submitPollResponse(memberPage, 'venue-a');
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
+    await openPollDialogFromTree(ownerPage, pollTask.id);
+    await expect(ownerPage.locator('#poll-response-options [data-poll-response-option="venue-a"] .poll-response-responder')).toHaveCount(1);
+    await expect(ownerPage.locator('#poll-response-options [data-poll-response-option="venue-b"] .poll-response-responder')).toHaveCount(0);
+    await steps.step('Open the poll as the owner and verify the selected option shows the responder avatar when results are visible to everyone.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('poll results visible only to the creator hide responder avatars from non creators', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'results', 'visibility', 'creator-only']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Creator Only Poll Results Task',
+      assignee_email: state.owner.email,
+    });
+    await createAssignment(ownerPage, pollTask.id, state.member.email);
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      poll: {
+        question: 'Who can see this?',
+        allows_multiple: false,
+        results_visibility: 'creator',
+        options: [
+          { id: 'creator-a', label: 'Private Option A' },
+          { id: 'creator-b', label: 'Private Option B' },
+        ],
+      },
+    });
+
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await submitPollResponse(memberPage, 'creator-a');
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
+    await openPollDialogFromTree(ownerPage, pollTask.id);
+    await expect(ownerPage.locator('#poll-response-options [data-poll-response-option="creator-a"] .poll-response-responder')).toHaveCount(1);
+    await steps.step('Open the creator-only poll as the owner and verify the responder avatar is visible to the creator.', ownerPage);
+
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await expect(memberPage.locator('#poll-response-options .poll-response-responder')).toHaveCount(0);
+    await steps.step('Open the same poll as the non-creator and verify responder avatars are hidden.', memberPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('non-owner poll tasks keep the poll badge and dialog instead of the normal status menu', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'non-owner', 'status', 'tree']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Non Owner Poll Task',
+      assignee_email: state.owner.email,
+    });
+    await createAssignment(ownerPage, pollTask.id, state.member.email);
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      poll: {
+        question: 'Which time works?',
+        allows_multiple: false,
+        results_visibility: 'everyone',
+        options: [
+          { id: 'time-a', label: 'Time A' },
+          { id: 'time-b', label: 'Time B' },
+        ],
+      },
+    });
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+
+    await openPollDialogFromTree(ownerPage, pollTask.id);
+    await submitPollResponse(ownerPage, 'time-a');
+    await expect(ownerPage.locator(`[data-task-row-id="${pollTask.id}"] [data-task-poll-trigger="${pollTask.id}"]`).first()).toContainText('1/2');
+    await steps.step('Respond to the poll as the owner so the shared poll count becomes 1/2.', ownerPage);
+
+    const memberPollBadge = memberPage.locator(`[data-task-row-id="${pollTask.id}"] [data-task-poll-trigger="${pollTask.id}"]`).first();
+    await expect(memberPollBadge).toHaveCount(1);
+    await expect(memberPollBadge).toContainText('1/2');
+    await expect(memberPage.locator(`[data-task-row-id="${pollTask.id}"] [data-field="status"]`)).toHaveCount(0);
+    await steps.step('Verify the non-owner sees the same shared 1/2 poll count and no single-status control.', memberPage);
+
+    await memberPollBadge.click();
+    await expect(memberPage.locator('#poll-response-dialog')).toBeVisible();
+    await expect(memberPage.locator('#status-menu')).toBeHidden();
+    await expect(memberPage.locator('#poll-response-question')).toContainText('Which time works?');
+    await steps.step('Click the non-owner poll badge and verify it opens the poll dialog instead of the normal status menu.', memberPage);
+
+    await ownerContext.close();
+    await memberContext.close();
   });
 
   test('blocked prereq status hover shows the prerequisite list in tree and todo', async ({ page, request }) => {

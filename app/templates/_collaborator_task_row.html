@@ -2,6 +2,8 @@
 {% set assignment = entry.assignment %}
 {% set task = entry.task %}
 {% set project = entry.project %}
+{% set status_meta = entry.status_meta or {} %}
+{% set is_poll = status_meta.get('mode') == 'poll' or entry.task_type == 'poll' %}
 <div
   class="collab-row{% if entry.is_complete %} complete{% endif %}"
   id="task-{{ task.id if task else entry.assignment.task_id if entry.assignment else entry.invite.task_id if entry.invite else '' }}"
@@ -59,10 +61,11 @@
     {% endif %}
     <button
       class="btn choice-btn complete{% if entry.is_complete %} is-selected{% endif %}"
-      type="submit"
-      name="action"
-      value="{% if entry.is_complete %}uncomplete{% else %}complete{% endif %}"
+      type="{% if is_poll %}button{% else %}submit{% endif %}"
+      {% if not is_poll %}name="action"{% endif %}
+      {% if not is_poll %}value="{% if entry.is_complete %}uncomplete{% else %}complete{% endif %}"{% endif %}
+      {% if is_poll and task %}data-open-collab-poll="{{ task.id }}"{% endif %}
       {% if not entry.is_complete and entry.status != 'accepted' %}disabled aria-disabled="true" title="Accept the task before marking it complete"{% endif %}
-    >{% if entry.is_complete %}✓ Complete{% else %}Mark complete{% endif %}</button>
+    >{% if is_poll %}{% if entry.is_complete %}Update Poll{% else %}Complete Poll{% endif %}{% else %}{% if entry.is_complete %}✓ Complete{% else %}Mark complete{% endif %}{% endif %}</button>
   </form>
 </div>

@@ -66,6 +66,7 @@ from app.realtime import (
     emit_sidebar_reordered,
     emit_task_comment_created,
     emit_task_notification_updates,
+    emit_tasks_updated,
     emit_task_updated,
     emit_user_notification_preview,
     is_user_viewing_discussion,
@@ -1057,10 +1058,12 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     for assignment in assignments:
         invite = invite_by_assignment_id.get(assignment.id)
         task, project = resolve_context(assignment.task_id)
+        status_meta = task_status_map.get(task.id) if task else {}
+        info_meta = ((task_info_map.get(task.id, {}) or {}).get("meta") or {}) if task else {}
         work_status = effective_task_status_for_user(
             task,
             viewer_email=collaborator.email,
-            status_meta=task_status_map.get(task.id) if task else None,
+            status_meta=status_meta if task else None,
         )
         entries.append(
             {
@@ -1085,6 +1088,8 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                     task.description_format,
                     "markdown",
                 ) if task else "",
+                "status_meta": status_meta,
+                "task_type": "poll" if str(info_meta.get("task_type") or "").strip().lower() == "poll" else "standard",
             }
         )
 
@@ -1093,10 +1098,12 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
         if invite.id in assigned_invite_ids:
             continue
         task, project = resolve_context(invite.task_id)
+        status_meta = task_status_map.get(task.id) if task else {}
+        info_meta = ((task_info_map.get(task.id, {}) or {}).get("meta") or {}) if task else {}
         work_status = effective_task_status_for_user(
             task,
             viewer_email=collaborator.email,
-            status_meta=task_status_map.get(task.id) if task else None,
+            status_meta=status_meta if task else None,
         )
         entries.append(
             {
@@ -1121,6 +1128,8 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
                     task.description_format,
                     "markdown",
                 ) if task else "",
+                "status_meta": status_meta,
+                "task_type": "poll" if str(info_meta.get("task_type") or "").strip().lower() == "poll" else "standard",
             }
         )
 
@@ -1202,6 +1211,40 @@ def _collaborator_task_row_context(collaborator: CollaboratorProfile, task_id: i
         "collaborator": collaborator,
         "task_comment_counts": {task.id: comment_count},
         "unread_task_ids": unread_task_ids,
+    }
+
+
+def _collaborator_poll_task_payload(collaborator: CollaboratorProfile, task_id: int) -> dict | None:
+    context = _collaborator_task_row_context(collaborator, task_id)
+    if not context:
+        return None
+    entry = context.get("entry") or {}
+    task = entry.get("task")
+    if not task:
+        return None
+    status_meta = task_status_meta_map([task], viewer_email=collaborator.email).get(task.id, {})
+    if str(status_meta.get("mode") or "").strip().lower() != "poll":
+        return None
+    from app.routes import _normalize_task_poll_payload
+
+    info_payload = load_info_payload(task.info, task.link)
+    meta = info_payload.get("meta") or {}
+    poll_payload = _normalize_task_poll_payload(meta.get("poll"))
+    collaboration_status = str(entry.get("status") or "").strip().lower()
+    can_respond = collaboration_status == "accepted" and bool(status_meta.get("viewer_can_set"))
+    return {
+        "task": {
+            "id": task.id,
+            "title": task.title,
+            "project_name": entry.get("project").name if entry.get("project") else "",
+            "status": entry.get("status"),
+            "work_status": entry.get("work_status"),
+            "is_complete": bool(entry.get("is_complete")),
+            "task_type": "poll",
+            "poll": poll_payload,
+            "status_meta": status_meta,
+            "can_respond": can_respond,
+        }
     }
 
 
@@ -2994,6 +3037,76 @@ def collaborator_task_snapshot(token: str, task_id: int):
         return {"exists": False, "task_id": task_id}, 200
     html = render_template("_collaborator_task_row.html", **context)
     return {"exists": True, "task_id": task_id, "html": html}, 200
+
+
+@ui_bp.get("/collaborators/<token>/tasks/<int:task_id>/poll")
+def collaborator_task_poll(token: str, task_id: int):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return {"error": "invalid collaborator"}, 404
+    payload = _collaborator_poll_task_payload(collaborator, task_id)
+    if not payload:
+        return {"error": "poll task not found"}, 404
+    return payload, 200
+
+
+@ui_bp.post("/collaborators/<token>/tasks/<int:task_id>/poll_response")
+def collaborator_task_poll_response(token: str, task_id: int):
+    collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
+    if not collaborator:
+        return {"error": "invalid collaborator"}, 404
+    payload = _collaborator_poll_task_payload(collaborator, task_id)
+    if not payload:
+        return {"error": "poll task not found"}, 404
+    task = Task.query.get(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not payload["task"].get("can_respond"):
+        return {"error": "only accepted assignees can respond to this poll"}, 403
+    request_payload = request.get_json(silent=True) or {}
+    option_ids = request_payload.get("option_ids")
+    if option_ids is None:
+        option_ids = []
+    if not isinstance(option_ids, list):
+        return {"error": "option_ids must be a list"}, 400
+    from app.routes import _set_task_poll_response, _task_impacted_ids, _touch_tasks
+
+    poll_payload = _set_task_poll_response(
+        task,
+        email=collaborator.email,
+        option_ids=option_ids,
+    )
+    db.session.commit()
+
+    response_count = len(
+        [
+            row
+            for row in list(poll_payload.get("responses") or [])
+            if isinstance(row, dict) and list(row.get("option_ids") or [])
+        ]
+    )
+    actor_name = (collaborator.display_name or collaborator.email or "Someone").strip() or "Someone"
+    task_body = f'{actor_name} answered the poll on task "{task.title}" ({response_count} responses).'
+    scoped_body = f'{actor_name} answered the poll on task "{task.title}" ({response_count} responses).'
+    actor_user = User.query.get(collaborator.user_id) if collaborator.user_id else None
+    log_task_history(task, actor=actor_user, action="updated", changed_fields=["poll response"], task_body=task_body, scoped_body=scoped_body)
+    detail_payload = _task_notification_collaborator_payload(collaborator)
+    detail_payload["changed_fields"] = ["poll response"]
+    exclude_user_id = collaborator.user_id if collaborator.user_id else None
+    queue_task_notifications(
+        task,
+        exclude_user_id=exclude_user_id,
+        kind="task_update",
+        detail_payload=detail_payload,
+    )
+    db.session.commit()
+
+    impacted_ids = _task_impacted_ids([task.id])
+    impacted_tasks = _touch_tasks(impacted_ids)
+    if impacted_tasks:
+        emit_tasks_updated(impacted_tasks, actor_user_id=exclude_user_id)
+    emit_task_notification_updates(task, exclude_user_id=exclude_user_id)
+    return collaborator_task_poll(token, task_id)
 
 
 @ui_bp.route("/collaborators/<token>/invites/<int:invite_id>/quick/<action>", methods=["GET", "POST"])

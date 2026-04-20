@@ -374,6 +374,72 @@ def _task_status_mode_label(value: str | None) -> str:
     return "single"
 
 
+def _task_poll_change_descriptions(old_poll: dict | None, new_poll: dict | None) -> list[str]:
+    old_normalized = _normalize_task_poll_payload(old_poll)
+    new_normalized = _normalize_task_poll_payload(new_poll)
+    changes: list[str] = []
+
+    old_question = str(old_normalized.get("question") or "").strip()
+    new_question = str(new_normalized.get("question") or "").strip()
+    if old_question != new_question:
+        if new_question:
+            changes.append("updated the poll question to " + _quoted_history_value(new_question, "poll question"))
+        else:
+            changes.append("cleared the poll question")
+
+    old_allows_multiple = bool(old_normalized.get("allows_multiple"))
+    new_allows_multiple = bool(new_normalized.get("allows_multiple"))
+    if old_allows_multiple != new_allows_multiple:
+        changes.append("enabled multiple selections for the poll" if new_allows_multiple else "disabled multiple selections for the poll")
+
+    old_visibility = str(old_normalized.get("results_visibility") or "everyone").strip().lower() or "everyone"
+    new_visibility = str(new_normalized.get("results_visibility") or "everyone").strip().lower() or "everyone"
+    if old_visibility != new_visibility:
+        visibility_label = "creator only" if new_visibility == "creator" else "everyone"
+        changes.append("changed poll results visibility to " + _quoted_history_value(visibility_label, visibility_label))
+
+    old_options = {
+        str(item.get("id") or "").strip(): str(item.get("label") or "").strip()
+        for item in list(old_normalized.get("options") or [])
+        if str(item.get("id") or "").strip() and str(item.get("label") or "").strip()
+    }
+    new_options = {
+        str(item.get("id") or "").strip(): str(item.get("label") or "").strip()
+        for item in list(new_normalized.get("options") or [])
+        if str(item.get("id") or "").strip() and str(item.get("label") or "").strip()
+    }
+
+    for option_id, label in new_options.items():
+        if option_id not in old_options:
+            changes.append("added option " + _quoted_history_value(label, "option") + " to the poll")
+        elif old_options[option_id] != label:
+            changes.append(
+                "renamed poll option "
+                + _quoted_history_value(old_options[option_id], "option")
+                + " to "
+                + _quoted_history_value(label, "option")
+            )
+
+    for option_id, label in old_options.items():
+        if option_id not in new_options:
+            changes.append("removed option " + _quoted_history_value(label, "option") + " from the poll")
+
+    return changes
+
+
+def _task_update_notification_changed_fields(changed_fields: list[str], *, old_poll: dict | None = None, new_poll: dict | None = None) -> list[str]:
+    detailed: list[str] = []
+    for field in changed_fields or []:
+        normalized = str(field or "").strip().lower()
+        if normalized == "poll":
+            poll_changes = _task_poll_change_descriptions(old_poll, new_poll)
+            if poll_changes:
+                detailed.extend(poll_changes)
+            continue
+        detailed.append(str(field))
+    return detailed
+
+
 def _task_update_history_bodies(
     *,
     actor_name: str,
@@ -388,6 +454,8 @@ def _task_update_history_bodies(
     new_status_percentage: int | None,
     old_locked: bool | None = None,
     new_locked: bool | None = None,
+    old_poll: dict | None = None,
+    new_poll: dict | None = None,
     assignments: list | None = None,
     followers: list | None = None,
 ) -> tuple[str, str]:
@@ -467,12 +535,24 @@ def _task_update_history_bodies(
         else:
             clauses_task.append("unlocked the task")
             clauses_scoped.append("unlocked task " + title_label)
-    for simple_label in ["links", "notes", "description", "description format", "assignment mode", "follower mode", "task type", "poll"]:
+    for simple_label in ["links", "notes", "description", "description format", "assignment mode", "follower mode", "task type"]:
         if simple_label not in changed:
             continue
         clause = "updated the " + simple_label
         clauses_task.append(clause)
         clauses_scoped.append(clause + " for task " + title_label)
+    if "poll" in changed:
+        poll_clauses = _task_poll_change_descriptions(old_poll, new_poll)
+        if poll_clauses:
+            clauses_task.extend(poll_clauses)
+            clauses_scoped.extend([
+                clause.replace(" the poll", " for task " + title_label).replace(" to the poll", " to task " + title_label + "'s poll").replace(" from the poll", " from task " + title_label + "'s poll")
+                if "poll" in clause else (clause + " for task " + title_label)
+                for clause in poll_clauses
+            ])
+        else:
+            clauses_task.append("updated the poll")
+            clauses_scoped.append("updated the poll for task " + title_label)
     return (
         actor_name + " " + "; ".join(clauses_task) + ".",
         actor_name + " " + "; ".join(clauses_scoped) + ".",
@@ -2418,7 +2498,11 @@ def update_task(task_id: int):
             })
         elif notification_kind == "task_update":
             detail_payload.update({
-                "changed_fields": changed_fields,
+                "changed_fields": _task_update_notification_changed_fields(
+                    changed_fields,
+                    old_poll=old_poll,
+                    new_poll=_task_poll(task),
+                ),
             })
         queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
         history_task_body, history_scoped_body = _task_update_history_bodies(
@@ -2434,6 +2518,8 @@ def update_task(task_id: int):
             new_status_percentage=_task_status_percentage(task),
             old_locked=old_locked,
             new_locked=bool(task.locked),
+            old_poll=old_poll,
+            new_poll=_task_poll(task),
             assignments=[_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()],
             followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
         )
@@ -5247,6 +5333,13 @@ def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -
     tasks = Task.query.filter_by(group_id=group_id, assign_group_members=True).all()
     if not tasks:
         return
+    _sync_assign_group_member_tasks(tasks, actor_user_id=actor_user_id)
+
+
+def _sync_assign_group_member_tasks(tasks: list[Task], *, actor_user_id: int | None = None) -> None:
+    tasks = [task for task in (tasks or []) if task and task.id and task.assign_group_members]
+    if not tasks:
+        return
     emitted = []
     for task in tasks:
         changes = sync_group_task_assignments(task)
@@ -5280,8 +5373,10 @@ def _sync_group_mode_tasks(group_id: int, *, actor_user_id: int | None = None) -
 
 
 def _sync_project_group_mode_tasks(project_id: int, *, actor_user_id: int | None = None) -> None:
-    for group in Group.query.filter_by(project_id=project_id).all():
-        _sync_group_mode_tasks(group.id, actor_user_id=actor_user_id)
+    tasks = Task.query.filter_by(project_id=project_id, assign_group_members=True).all()
+    if not tasks:
+        return
+    _sync_assign_group_member_tasks(tasks, actor_user_id=actor_user_id)
 
 
 def _sync_project_follow_mode_tasks(project_id: int, *, actor_user_id: int | None = None) -> None:
