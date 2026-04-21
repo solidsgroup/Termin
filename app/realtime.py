@@ -238,6 +238,8 @@ def _web_push_payload_for_notification(
     body = "You have a new update."
     url = "/"
     tag = f"termin:{kind}"
+    timestamp_ms = int(datetime.utcnow().timestamp() * 1000)
+    push_nonce = str(detail.get("_push_nonce") or "").strip()
 
     if task is not None:
         url = f"/task/{task.id}"
@@ -351,11 +353,15 @@ def _web_push_payload_for_notification(
             title = "Group updated"
             body = f'{actor_name} updated "{group_name or "Group"}"'
 
+    if push_nonce:
+        tag = f"{tag}:{push_nonce}"
+
     return {
         "title": title,
         "body": body,
         "url": _absolute_url(url),
         "tag": tag,
+        "timestamp": timestamp_ms,
     }
 
 
@@ -417,12 +423,14 @@ def queue_user_notification(
             )
         )
     if push_enabled:
+        push_detail = dict(detail_payload or {})
+        push_detail["_push_nonce"] = format(int(now.timestamp() * 1000000), "x")
         send_web_push_notification(
             user_id=user_id,
             payload=_web_push_payload_for_notification(
                 kind=kind,
                 task=task,
-                detail_payload=detail_payload,
+                detail_payload=push_detail,
             ),
         )
 

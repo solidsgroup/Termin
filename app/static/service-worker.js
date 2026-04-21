@@ -224,6 +224,7 @@ self.addEventListener("push", function (event) {
     icon: "/static/brand/termin-icon-v4-192.png",
     badge: "/static/brand/termin-icon-v4-192.png",
     tag: payload.tag || "termin-notification",
+    timestamp: Number(payload.timestamp) || Date.now(),
     data: {
       url: payload.url || "/",
     },

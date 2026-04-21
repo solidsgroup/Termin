@@ -51,7 +51,20 @@ async function login(page, email, password) {
   await page.locator('.auth-submit').click();
 }
 
+async function waitForRealtimeSocketIfPresent(page) {
+  try {
+    await page.waitForFunction(() => {
+      if (typeof window === 'undefined') return true;
+      if (!('socketConnected' in window)) return true;
+      return !!window.socketConnected;
+    }, { timeout: 4000 });
+  } catch (_error) {
+    // Some pages in the suite do not initialize the dashboard socket runtime.
+  }
+}
+
 async function patchTask(page, taskId, payload) {
+  await waitForRealtimeSocketIfPresent(page);
   const result = await page.evaluate(async ({ taskId, payload }) => {
     const response = await fetch(`/api/tasks/${taskId}`, {
       method: 'PATCH',
@@ -72,6 +85,7 @@ async function patchTask(page, taskId, payload) {
 }
 
 async function createTask(page, payload) {
+  await waitForRealtimeSocketIfPresent(page);
   const result = await page.evaluate(async (taskPayload) => {
     const response = await fetch('/api/tasks', {
       method: 'POST',
