@@ -19066,8 +19066,9 @@
       return updated;
     }
 
-    function renderTaskAssignments(taskId, assignments) {
+    function renderTaskAssignments(taskId, assignments, options) {
       if (!taskId || typeof window.__renderAssignmentBadge !== "function") return false;
+      var opts = options || {};
       var updated = false;
       var taskMeta = typeof window.__taskMetaForAssignments === "function"
         ? window.__taskMetaForAssignments(taskId)
@@ -19138,7 +19139,7 @@
       document.querySelectorAll('.todo-item[data-task-id="' + taskId + '"]').forEach(function (item) {
         item.setAttribute("data-assignee-keys", assignmentKeys);
       });
-      if (typeof window.__applyTodoFilters === "function") {
+      if (!opts.skipFilters && typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
       return updated;
@@ -20671,12 +20672,16 @@
             var batchTaskId = assignmentHydrationTaskIds[index];
             var batchTask = taskMap[String(batchTaskId)];
             if (!batchTask) continue;
-            window.__renderTaskAssignments(batchTask.id, batchTask.assignments || []);
+            window.__renderTaskAssignments(batchTask.id, batchTask.assignments || [], {
+              skipFilters: true,
+            });
           }
           if (endIndex < assignmentHydrationTaskIds.length) {
             window.requestAnimationFrame(function () {
               hydrateAssignmentsBatch(endIndex);
             });
+          } else if (typeof window.__applyTodoFilters === "function") {
+            window.__applyTodoFilters();
           }
         };
         window.requestAnimationFrame(function () {
