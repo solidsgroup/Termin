@@ -68,6 +68,18 @@
     {% endif %}
   {% endif %}
 {% endmacro %}
+{% macro render_tree_due_label(item) %}
+  {% if item.due_at %}
+    {{ item.due_at.strftime('%b') }} {{ item.due_at.day }}
+  {% else %}
+    {% set due_mode = ((item.info_meta.due_mode if item.info_meta is defined and item.info_meta else '') or '')|trim|lower %}
+    {% if due_mode == 'asap' %}
+      ASAP
+    {% else %}
+      No Date
+    {% endif %}
+  {% endif %}
+{% endmacro %}
 {% macro status_state(status) -%}
   {% set value = (status or '')|trim|lower %}
   {%- if value in ['complete', 'completed', 'done', 'closed', 'pr closed', 'pr merged'] -%}complete
@@ -340,8 +352,8 @@
         </td>
         <td>
           <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
-            <div class="due-summary{% if not task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if task.due_at %}Due {{ task.due_at.strftime('%Y-%m-%d') }}{% else %}Created {{ task.created_at.strftime('%Y-%m-%d') }}{% endif %}">
-              <span class="due-summary-label">{{ render_due_summary(task, now_utc) }}</span>
+            <div class="due-summary{% if not task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') == 'asap' %}ASAP{% elif task.due_at %}Due {{ task.due_at.strftime('%Y-%m-%d') }}{% else %}No Date{% endif %}">
+              <span class="due-summary-label">{% if task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') == 'asap' %}ASAP{% elif task.due_at %}{{ task.due_at.strftime('%b') }} {{ task.due_at.day }}{% else %}No Date{% endif %}</span>
             </div>
             <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-start-date="{{ task_info.get('meta', {}).get('start_date', '') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" {% if task.locked %}disabled{% endif %} />
           </div>
@@ -513,6 +525,42 @@
     flex: 0 0 auto;
     color: color-mix(in srgb, var(--ink) 22%, var(--muted) 78%);
     font-size: 0.68rem;
+  }
+
+  .tasks-table .task-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    height: 26px;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .tasks-table .task-pill-segment {
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  .tasks-table .task-pill-segment[data-open-settings],
+  .tasks-table .task-pill-segment[data-open-links] {
+    min-width: 24px;
+    width: 24px;
+  }
+
+  .tasks-table .task-pill-segment.comment-button {
+    min-width: 40px;
+    width: auto;
+    padding: 0 6px;
+    gap: 4px;
+  }
+
+  .tasks-table .task-pill-segment i,
+  .tasks-table .task-pill-segment span {
+    line-height: 1;
   }
 
   @keyframes dashboardFadeLift {
@@ -3408,8 +3456,8 @@
 	                    </td>
 	                    <td>
 	                      <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
-	                        <div class="due-summary is-fallback" data-due-summary title="Created today">
-	                          <span class="due-summary-label">Created today</span>
+	                        <div class="due-summary is-fallback" data-due-summary title="No Date">
+	                          <span class="due-summary-label">No Date</span>
 	                        </div>
 	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
 	                      </div>
@@ -3469,8 +3517,8 @@
 	                    </td>
 	                    <td>
 	                      <div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);">
-	                        <div class="due-summary is-fallback" data-due-summary title="Created today">
-	                          <span class="due-summary-label">Created today</span>
+	                        <div class="due-summary is-fallback" data-due-summary title="No Date">
+	                          <span class="due-summary-label">No Date</span>
 	                        </div>
 	                        <input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="{{ now_utc.strftime('%Y-%m-%d') }}" data-due-mode="none" value="" disabled tabindex="-1" />
 	                      </div>
@@ -4544,7 +4592,7 @@
             "</span>" +
           '</div>' +
         '</td>' +
-        '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" /></div></td>' +
+        '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="No Date"><span class="due-summary-label">No Date</span></div><input class="due-input hidden" type="date" data-task-id="' + taskId + '" data-field="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" /></div></td>' +
         '<td><div data-task-status-host="' + taskId + '">' + initialStatusHtml + '</div></td>' +
         '<td>' +
           '<div class="assignments">' +
@@ -5626,7 +5674,7 @@
                   ? '<tr class="new-row">' +
                       '<td></td>' +
                       '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
-                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>' +
+                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="No Date"><span class="due-summary-label">No Date</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>' +
                       '<td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>' +
                       '<td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>' +
                     '</tr>'
@@ -5760,7 +5808,7 @@
                   ? '<tr class="new-row">' +
                       '<td></td>' +
                       '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
-                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>' +
+                      '<td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="No Date"><span class="due-summary-label">No Date</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="' + new Date().toISOString().slice(0, 10) + '" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>' +
                       '<td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>' +
                       '<td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>' +
                     '</tr>'
@@ -8522,7 +8570,7 @@
         ? "Resend"
         : "";
       return (
-        '<span class="badge ' + (assignment.user_id ? "user" : "email") + statusClass + '" data-assignment-id="' + assignment.id + '"' + (assignmentEmail ? ' data-assignment-email="' + assignmentEmail + '"' : "") + ' title="Assignment status: ' + status + '" aria-label="Assignment status: ' + status + '">' +
+        '<span class="badge user' + statusClass + '" data-assignment-id="' + assignment.id + '"' + (assignmentEmail ? ' data-assignment-email="' + assignmentEmail + '"' : "") + (assignment.user_id ? "" : ' data-assignment-kind="email"') + ' title="Assignment status: ' + status + '" aria-label="Assignment status: ' + status + '">' +
           '<button class="badge-icon' + (avatarUrl ? " has-photo" : "") + '" type="button" data-remove-assignment="' + assignment.id + '" aria-label="Remove assignment for ' + label.replace(/"/g, "&quot;") + '. Status: ' + status + '">' +
             '<span class="badge-initial">' + initial + '</span>' +
             (avatarUrl
@@ -8715,6 +8763,12 @@
 
     window.__formatDueCompactLabel = formatDueCompactLabel;
 
+    function formatTreeDueLabel(dueValue, dueMode) {
+      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
+      if (dueValue) return formatCompactCalendarDate(dueValue);
+      return "No Date";
+    }
+
     function dueProgressPercent(startValue, dueValue) {
       if (!startValue || !dueValue) return null;
       var startDate = new Date(String(startValue).slice(0, 10) + "T00:00:00");
@@ -8746,7 +8800,7 @@
         if (isTodo) {
           label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
         } else {
-          label.textContent = formatDueSummary(dueValue, createdValue, dueMode);
+          label.textContent = formatTreeDueLabel(dueValue, dueMode);
         }
       }
       if (mobileText && isTodo) {
@@ -8755,7 +8809,7 @@
       if (summary) {
         summary.title = String(dueMode || "").toLowerCase() === "asap"
           ? "ASAP"
-          : (dueValue ? "Due " + dueValue : "Created " + (createdValue || new Date().toISOString().slice(0, 10)));
+          : (dueValue ? "Due " + dueValue : "No Date");
         summary.classList.toggle("is-fallback", !dueValue);
         var progress = !isTodo && String(dueMode || "").toLowerCase() === "date" ? dueProgressPercent(startValue, dueValue) : null;
         summary.classList.toggle("is-progress", progress != null);
@@ -9376,7 +9430,7 @@
           ? "Resend"
           : "";
       return `
-        <span class="badge ${assignment.user_id ? "user" : "email"}${statusClass}" data-assignment-id="${assignment.id}"${assignmentEmail ? ` data-assignment-email="${assignmentEmail}"` : ""} title="Assignment status: ${status}" aria-label="Assignment status: ${status}">
+        <span class="badge user${statusClass}" data-assignment-id="${assignment.id}"${assignmentEmail ? ` data-assignment-email="${assignmentEmail}"` : ""}${assignment.user_id ? "" : ' data-assignment-kind="email"'} title="Assignment status: ${status}" aria-label="Assignment status: ${status}">
           <button class="badge-icon${avatarUrl ? " has-photo" : ""}" type="button" data-remove-assignment="${assignment.id}"${assignment.user_id ? ` data-user-id="${assignment.user_id}"` : ""} aria-label="Remove assignment for ${label}. Status: ${status}">
             <span class="badge-initial">${initial}</span>
             ${
@@ -9990,7 +10044,7 @@
 	              <tr class="new-row">
 	                <td></td>
 	                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
-	                <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="Created today"><span class="due-summary-label">Created today</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>
+	                <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary is-fallback" data-due-summary title="No Date"><span class="due-summary-label">No Date</span></div><input class="due-input hidden" type="date" data-new-task="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-due-mode="none" value="" disabled tabindex="-1" /></div></td>
 	                <td><div class="editable status-editable" contenteditable="false" data-new-task-status data-status-state="open">open</div></td>
 	                <td><div class="assignments"><span class="assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-new-task="assignee_email" data-col="4" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" disabled tabindex="-1" /><button class="assign-add-btn" type="button" title="Assign">+</button></span></div></td>
 	              </tr>` : ""}
@@ -10165,26 +10219,18 @@
       collapseInlineAssignInput(input);
     };
 
-    const formatDueSummary = (dueValue, createdValue, dueMode) => {
-      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
-      const today = new Date();
-      const nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      if (dueValue) {
-        const dueDate = new Date(`${dueValue}T00:00:00`);
-        const dueDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-        const diffDays = Math.round((dueDay - nowDay) / 86400000);
-        if (diffDays > 0) return `${dueValue} · ${diffDays}d left`;
-        if (diffDays === 0) return `${dueValue} · Due today`;
-        return `${dueValue} · ${Math.abs(diffDays)}d overdue`;
-      }
-      if (createdValue) {
-        const createdDate = new Date(`${createdValue}T00:00:00`);
-        const createdDay = new Date(createdDate.getFullYear(), createdDate.getMonth(), createdDate.getDate());
-        const ageDays = Math.max(0, Math.round((nowDay - createdDay) / 86400000));
-        if (ageDays === 0) return `${createdValue} · Created today`;
-        return `${createdValue} · ${ageDays}d old`;
-      }
-      return "Created today";
+    const formatCompactCalendarDate = (value) => {
+      if (!value) return "";
+      const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+      return parsed.toLocaleDateString([], { month: "short", day: "numeric" });
+    };
+
+    const formatTreeDueLabel = (dueValue, dueMode) => {
+      const normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "asap") return "ASAP";
+      if (dueValue) return formatCompactCalendarDate(dueValue);
+      return "No Date";
     };
 
     const dueProgressPercent = (startValue, dueValue) => {
@@ -10218,12 +10264,12 @@
         if (isTodo) {
           label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>' + (String(dueMode || "").toLowerCase() === "asap" ? '<span>ASAP</span>' : '');
         } else {
-          label.textContent = formatDueSummary(dueValue, createdValue, dueMode);
+          label.textContent = formatTreeDueLabel(dueValue, dueMode);
         }
       }
       summary.title = String(dueMode || "").toLowerCase() === "asap"
         ? "ASAP"
-        : (dueValue ? `Due ${dueValue}` : `Created ${createdValue || new Date().toISOString().slice(0, 10)}`);
+        : (dueValue ? `Due ${dueValue}` : "No Date");
       summary.classList.toggle("is-fallback", !dueValue);
       const progress = !isTodo && String(dueMode || "").toLowerCase() === "date" ? dueProgressPercent(startValue, dueValue) : null;
       summary.classList.toggle("is-progress", progress != null);
@@ -14812,9 +14858,11 @@
         if (projectDelta !== 0) return projectDelta;
         var positionDelta = Number(a.taskPosition || 0) - Number(b.taskPosition || 0);
         if (positionDelta !== 0) return positionDelta;
+        var indexDelta = a.sortIndex - b.sortIndex;
+        if (indexDelta !== 0) return indexDelta;
         var taskIdDelta = Number(a.taskId || 0) - Number(b.taskId || 0);
         if (taskIdDelta !== 0) return taskIdDelta;
-        return a.sortIndex - b.sortIndex;
+        return 0;
       });
     }
 
@@ -16281,7 +16329,7 @@
     function renderSettingsAssignmentRows(assignments) {
       if (currentTaskData && currentTaskData.assign_group_members) {
         var projectAssignmentCount = Array.isArray(currentTaskData.group_assignment_members) ? currentTaskData.group_assignment_members.length : 0;
-        return (
+        var projectRow = (
           '<div class="discussion-assignment-row discussion-assignment-row--project-assign">' +
             '<div class="discussion-assignment-user">' +
               '<button class="discussion-assignment-avatar" type="button" data-disable-assign-project="1" aria-label="Stop assigning project members">' +
@@ -16296,6 +16344,42 @@
             '<div class="discussion-assignment-status"><span class="discussion-assignment-pill is-account">Assigned</span></div>' +
           '</div>'
         );
+        var projectExtraAssignments = typeof window.__extraAssignmentsForGroup === "function"
+          ? window.__extraAssignmentsForGroup(currentTaskData, assignments || [])
+          : [];
+        if (!projectExtraAssignments.length) {
+          return projectRow;
+        }
+        return projectRow + projectExtraAssignments.map(function (assignment) {
+          var label = assignment.display_name || assignment.display_email || assignment.email || "User";
+          var secondary = assignment.user_id ? (assignment.display_email || assignment.email || "") : (assignment.email || "");
+          var status = assignment.status || "draft";
+          var avatarUrl = assignment.avatar_url;
+          var initial = label.trim().slice(0, 1).toUpperCase();
+          var statusContent = assignment.user_id
+            ? '<span class="discussion-assignment-pill is-account">Account</span>'
+            : status === "draft"
+            ? '<button class="btn link" type="button" data-send-link="' + assignment.id + '">Send link</button>'
+            : status === "link_sent"
+            ? '<button class="btn link" type="button" data-send-link="' + assignment.id + '">Resend</button>'
+            : '<span class="discussion-assignment-pill">' + escapeHtml(status) + '</span>';
+          return (
+            '<div class="discussion-assignment-row" data-assignment-id="' + assignment.id + '">' +
+              '<div class="discussion-assignment-user">' +
+                '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-assignment="' + assignment.id + '"' + (assignment.user_id ? ' data-user-id="' + escapeHtml(String(assignment.user_id)) + '"' : '') + ' aria-label="Remove assignment for ' + escapeHtml(label) + '">' +
+                  '<span class="badge-initial">' + escapeHtml(initial) + '</span>' +
+                  (avatarUrl ? '<img class="badge-photo" src="' + escapeHtml(avatarUrl) + '" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.discussion-assignment-avatar&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />' : '') +
+                  '<span class="badge-x">×</span>' +
+                '</button>' +
+                '<div class="discussion-assignment-meta">' +
+                  '<div class="discussion-assignment-name">' + escapeHtml(label) + '</div>' +
+                  (secondary ? '<div class="discussion-assignment-email">' + escapeHtml(secondary) + '</div>' : '') +
+                '</div>' +
+              '</div>' +
+              '<div class="discussion-assignment-status">' + statusContent + '</div>' +
+            '</div>'
+          );
+        }).join("");
       }
       var rows = Array.isArray(assignments) ? assignments : [];
       if (!rows.length) {
@@ -19079,6 +19163,7 @@
       document.querySelectorAll('.assignments [data-assign-input="task"][data-target-id="' + taskId + '"]').forEach(function (input) {
         var container = input.closest(".assignments");
         if (!container) return;
+        var hasEmailCollaborator = false;
         container.querySelectorAll("[data-assignment-id]").forEach(function (node) {
           node.remove();
         });
@@ -19092,16 +19177,20 @@
         var badgesInserted = 0;
         var totalBadges = 0;
 
-        function insertBadgeHtml(html) {
+        function insertBadgeHtml(html, options) {
           var wrapper = document.createElement("span");
           wrapper.innerHTML = html;
           var badge = wrapper.firstElementChild;
           if (!badge) return false;
+          var insertOptions = options || {};
+          if (insertOptions.emailCollaborator) {
+            hasEmailCollaborator = true;
+          }
           if (badgesInserted < 2) {
             container.insertBefore(badge, assignAction || input);
           }
           badgesInserted += 1;
-          return true;
+          return badge;
         }
 
         function insertOverflowBadge(extraCount) {
@@ -19125,14 +19214,19 @@
             : [];
           extraAssignments.forEach(function (assignment) {
             totalBadges += 1;
-            insertBadgeHtml(window.__renderAssignmentBadge(assignment));
+            insertBadgeHtml(window.__renderAssignmentBadge(assignment), {
+              emailCollaborator: assignment && assignment.user_id == null,
+            });
           });
         } else {
           (assignments || []).forEach(function (assignment) {
             totalBadges += 1;
-            insertBadgeHtml(window.__renderAssignmentBadge(assignment));
+            insertBadgeHtml(window.__renderAssignmentBadge(assignment), {
+              emailCollaborator: assignment && assignment.user_id == null,
+            });
           });
         }
+        container.classList.toggle("has-email-collaborator-assignment", hasEmailCollaborator);
         insertOverflowBadge(Math.max(0, totalBadges - Math.min(totalBadges, 2)));
         updated = true;
       });

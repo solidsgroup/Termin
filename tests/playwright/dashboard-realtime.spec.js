@@ -505,6 +505,13 @@ async function expectContainsTextWithFailure(page, testInfo, selector, expected,
   }
 }
 
+function formatCompactTreeDueLabel(isoDate) {
+  if (!isoDate) return '';
+  const parsed = new Date(`${String(isoDate).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return String(isoDate);
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 async function expectPrereqHoverCard(page, triggerSelector, expectedTitle) {
   await page.locator(triggerSelector).first().hover();
   const hoverCard = page.locator('#prereq-hover-card');
@@ -2646,6 +2653,7 @@ test.describe('dashboard and realtime flows', () => {
     const ownerPage = await ownerContext.newPage();
     const memberPage = await memberContext.newPage();
     const tomorrow = isoDateWithOffset(1);
+    const compactTomorrow = formatCompactTreeDueLabel(tomorrow);
 
     await login(ownerPage, state.owner.email, state.owner.password);
     await login(memberPage, state.member.email, state.member.password);
@@ -2664,7 +2672,7 @@ test.describe('dashboard and realtime flows', () => {
       { name: 'member', page: memberPage },
     ]);
 
-    await expectContainsTextWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.task.id}"]`, tomorrow, 'tree-due-date-live-update', 'Owner tree row should show the updated due date immediately.');
+    await expectContainsTextWithFailure(ownerPage, test.info(), `[data-task-row-id="${state.task.id}"]`, compactTomorrow, 'tree-due-date-live-update', 'Owner tree row should show the updated compact due date immediately.');
     await focusTreeTask(ownerPage, state.task.id, 'Owner tree row after live due-date update');
     await steps.multiStep('Verify the owner tree row updates its due-date display immediately.', [
       { name: 'owner', page: ownerPage },

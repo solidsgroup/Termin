@@ -5606,6 +5606,57 @@
         vertical-align: middle;
       }
 
+      .table {
+        --tree-control-height: 26px;
+        --tree-control-radius: 999px;
+      }
+
+      .table .due-cell {
+        display: inline-flex;
+        align-items: center;
+        min-height: var(--tree-control-height);
+      }
+
+      .table .due-summary {
+        min-height: var(--tree-control-height);
+        height: var(--tree-control-height);
+        box-sizing: border-box;
+        border-radius: var(--tree-control-radius);
+      }
+
+      .task-row .due-summary,
+      .subtasks-row .due-summary,
+      .tasks-table .due-summary {
+        border-radius: var(--tree-control-radius) !important;
+      }
+
+      .table td [data-task-status-host] > .task-status-multi-button,
+      .table td [data-task-status-host] > .status-editable,
+      .table td [data-task-status-host] > .github-status-readonly,
+      .table .status-editable,
+      .table .github-status-readonly {
+        min-height: var(--tree-control-height);
+        height: var(--tree-control-height);
+        box-sizing: border-box;
+        border-radius: var(--tree-control-radius);
+      }
+
+      .table .assignments,
+      .table .github-assignments {
+        min-height: var(--tree-control-height);
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .table .assignments .badge-icon,
+      .table .assignments .badge.user .badge-icon,
+      .table .github-assignments .badge-icon {
+        width: var(--tree-control-height);
+        height: var(--tree-control-height);
+        flex: 0 0 var(--tree-control-height);
+        border-radius: var(--tree-control-radius);
+      }
+
       .task-status-multi-button.is-todo {
         height: 20px;
         min-height: 20px;
@@ -7344,7 +7395,7 @@
       .task-row[data-status-state="critical"] td,
       .subtasks-row[data-status-state="critical"] td,
       .todo-item[data-status-state="critical"] {
-        background: color-mix(in srgb, #f87171 10%, transparent);
+        background: color-mix(in srgb, #f87171 14%, rgba(18, 10, 12, 0.92));
       }
 
       body[data-theme="light"] .todo-item[data-status-state="critical"] {
@@ -7354,17 +7405,22 @@
 
       body[data-theme="light"] .task-row[data-status-state="critical"] td,
       body[data-theme="light"] .subtasks-row[data-status-state="critical"] td {
-        background: color-mix(in srgb, white 86%, #fecaca 14%);
-      }
-
-      .task-row[data-status-state="critical"] td:first-child,
-      .subtasks-row[data-status-state="critical"] td:first-child {
-        box-shadow: inset 3px 0 0 #f87171;
+        background: color-mix(in srgb, white 82%, #fecaca 18%);
       }
 
       .task-row[data-status-state="critical"] .editable[data-field="title"],
       .subtasks-row[data-status-state="critical"] .editable[data-field="title"] {
-        color: #ffd1d1;
+        color: color-mix(in srgb, #ffd1d1 82%, var(--ink) 18%);
+      }
+
+      .task-row[data-status-state="critical"] td:not(:nth-child(4)) > *,
+      .subtasks-row[data-status-state="critical"] td:not(:nth-child(4)) > * {
+        opacity: 0.68;
+      }
+
+      .task-row[data-status-state="critical"] td:nth-child(4) > *,
+      .subtasks-row[data-status-state="critical"] td:nth-child(4) > * {
+        opacity: 1;
       }
 
       body[data-theme="light"] .task-row[data-status-state="critical"] .editable[data-field="title"],
@@ -7376,17 +7432,12 @@
 
       .task-row[data-status-state="complete"] td,
       .subtasks-row[data-status-state="complete"] td {
-        background: rgba(16, 20, 27, 0.52);
-      }
-
-      .task-row[data-status-state="complete"],
-      .subtasks-row[data-status-state="complete"] {
-        opacity: 0.68;
+        background: color-mix(in srgb, var(--success) 18%, rgba(10, 16, 22, 0.92));
       }
 
       .task-row[data-status-state="complete"] td:first-child,
       .subtasks-row[data-status-state="complete"] td:first-child {
-        box-shadow: inset 3px 0 0 rgba(110, 231, 183, 0.85);
+        box-shadow: none;
       }
 
       .task-row[data-status-state="complete"] .editable[data-field="title"],
@@ -7394,9 +7445,27 @@
       .todo-item[data-status-state="complete"] .todo-item-title,
       .task-row[data-status-state="complete"] .github-task-link,
       .todo-item[data-status-state="complete"] .github-task-link {
-        color: var(--muted);
-        text-decoration: line-through;
-        text-decoration-thickness: 1.5px;
+        color: color-mix(in srgb, var(--ink) 52%, var(--success) 48%);
+        text-decoration: none;
+      }
+
+      .task-row[data-status-state="complete"] td:not(:nth-child(4)) > *,
+      .subtasks-row[data-status-state="complete"] td:not(:nth-child(4)) > * {
+        opacity: 0.48;
+      }
+
+      .task-row[data-status-state="complete"] td:nth-child(4) > *,
+      .subtasks-row[data-status-state="complete"] td:nth-child(4) > * {
+        opacity: 1;
+      }
+
+      .task-row[data-status-state="complete"] .assignments .badge,
+      .subtasks-row[data-status-state="complete"] .assignments .badge,
+      .task-row[data-status-state="complete"] .github-assignments .badge,
+      .subtasks-row[data-status-state="complete"] .github-assignments .badge,
+      .task-row[data-status-state="complete"] .due-cell,
+      .subtasks-row[data-status-state="complete"] .due-cell {
+        filter: saturate(0.7);
       }
 
       .todo-item[data-status-state="complete"] {
@@ -7406,17 +7475,7 @@
 
       body[data-theme="light"] .task-row[data-status-state="complete"] td,
       body[data-theme="light"] .subtasks-row[data-status-state="complete"] td {
-        background: color-mix(in srgb, var(--success) 10%, white 90%);
-      }
-
-      body[data-theme="light"] .task-row[data-status-state="complete"],
-      body[data-theme="light"] .subtasks-row[data-status-state="complete"] {
-        opacity: 0.82;
-      }
-
-      body[data-theme="light"] .task-row[data-status-state="complete"] td:first-child,
-      body[data-theme="light"] .subtasks-row[data-status-state="complete"] td:first-child {
-        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--success) 80%, #14532d 20%);
+        background: color-mix(in srgb, var(--success) 14%, white 86%);
       }
 
       body[data-theme="light"] .task-row[data-status-state="complete"] .editable[data-field="title"],
@@ -7424,7 +7483,47 @@
       body[data-theme="light"] .todo-item[data-status-state="complete"] .todo-item-title,
       body[data-theme="light"] .task-row[data-status-state="complete"] .github-task-link,
       body[data-theme="light"] .todo-item[data-status-state="complete"] .github-task-link {
-        color: color-mix(in srgb, var(--muted) 82%, #4b5563 18%);
+        color: color-mix(in srgb, var(--ink) 44%, var(--success) 56%);
+      }
+
+      .task-row[data-status-state="prereq"] td,
+      .subtasks-row[data-status-state="prereq"] td {
+        background: color-mix(in srgb, #d6a117 16%, rgba(22, 18, 8, 0.92));
+      }
+
+      .task-row[data-status-state="prereq"] td:first-child,
+      .subtasks-row[data-status-state="prereq"] td:first-child {
+        box-shadow: none;
+      }
+
+      .task-row[data-status-state="prereq"] .editable[data-field="title"],
+      .subtasks-row[data-status-state="prereq"] .editable[data-field="title"],
+      .task-row[data-status-state="prereq"] .github-task-link,
+      .subtasks-row[data-status-state="prereq"] .github-task-link {
+        color: color-mix(in srgb, #f6dc8a 62%, var(--ink) 38%);
+        text-decoration: none;
+      }
+
+      .task-row[data-status-state="prereq"] td:not(:nth-child(4)) > *,
+      .subtasks-row[data-status-state="prereq"] td:not(:nth-child(4)) > * {
+        opacity: 0.58;
+      }
+
+      .task-row[data-status-state="prereq"] td:nth-child(4) > *,
+      .subtasks-row[data-status-state="prereq"] td:nth-child(4) > * {
+        opacity: 1;
+      }
+
+      body[data-theme="light"] .task-row[data-status-state="prereq"] td,
+      body[data-theme="light"] .subtasks-row[data-status-state="prereq"] td {
+        background: color-mix(in srgb, white 84%, #fde68a 16%);
+      }
+
+      body[data-theme="light"] .task-row[data-status-state="prereq"] .editable[data-field="title"],
+      body[data-theme="light"] .subtasks-row[data-status-state="prereq"] .editable[data-field="title"],
+      body[data-theme="light"] .task-row[data-status-state="prereq"] .github-task-link,
+      body[data-theme="light"] .subtasks-row[data-status-state="prereq"] .github-task-link {
+        color: color-mix(in srgb, #8a5a00 76%, var(--ink) 24%);
       }
 
       body[data-theme="light"] .todo-item[data-status-state="complete"] {
@@ -7507,10 +7606,10 @@
       }
 
       .status-editable[data-status-state="prereq"] {
-        color: #d6a117;
+        color: #f8e08f;
         font-weight: 700;
-        border-color: color-mix(in srgb, #d6a117 44%, var(--border));
-        background: color-mix(in srgb, #d6a117 12%, var(--panel));
+        border-color: color-mix(in srgb, #d6a117 72%, #7c5a05 28%);
+        background: color-mix(in srgb, #d6a117 24%, rgba(38, 30, 8, 0.96));
       }
 
       .status-editable[data-status-state="prereq"]::before {
@@ -7990,9 +8089,9 @@
       }
 
       .table .status-editable[data-status-state="prereq"] {
-        border-color: color-mix(in srgb, #d6a117 44%, var(--border));
-        background: color-mix(in srgb, #d6a117 12%, var(--panel));
-        color: #d6a117;
+        border-color: color-mix(in srgb, #d6a117 72%, #7c5a05 28%);
+        background: color-mix(in srgb, #d6a117 24%, rgba(38, 30, 8, 0.96));
+        color: #f8e08f;
         justify-content: flex-start;
         text-align: left;
         font-size: 11px;
@@ -8010,9 +8109,9 @@
         padding: 0 10px;
         box-sizing: border-box;
         text-align: center;
-        border-color: color-mix(in srgb, #d6a117 44%, var(--border));
-        background: color-mix(in srgb, #d6a117 12%, var(--panel));
-        color: #d6a117;
+        border-color: color-mix(in srgb, #d6a117 72%, #7c5a05 28%);
+        background: color-mix(in srgb, #d6a117 24%, rgba(38, 30, 8, 0.96));
+        color: #f8e08f;
       }
 
       .tasks-table td [data-task-status-host] > .prereq-status-readonly.status-editable[data-status-state="prereq"],
@@ -8028,9 +8127,9 @@
         padding: 0 10px !important;
         box-sizing: border-box !important;
         border-radius: 999px !important;
-        border: 1px solid color-mix(in srgb, #d6a117 44%, var(--border)) !important;
-        background: color-mix(in srgb, #d6a117 12%, var(--panel)) !important;
-        color: #d6a117 !important;
+        border: 1px solid color-mix(in srgb, #d6a117 72%, #7c5a05 28%) !important;
+        background: color-mix(in srgb, #d6a117 24%, rgba(38, 30, 8, 0.96)) !important;
+        color: #f8e08f !important;
         text-align: center !important;
         line-height: 1 !important;
         box-shadow: none !important;
@@ -8229,6 +8328,83 @@
         flex-wrap: wrap;
         gap: 6px;
         align-items: center;
+      }
+
+      .table .assignments,
+      .table .github-assignments {
+        min-height: var(--tree-control-height, 26px);
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 6px;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .table .assignments.has-email-collaborator-assignment,
+      .table .github-assignments.has-email-collaborator-assignment {
+        flex-direction: column;
+        align-items: flex-start;
+        overflow: visible;
+      }
+
+      .table .assignments .badge,
+      .table .github-assignments .badge {
+        min-height: var(--tree-control-height, 26px);
+        height: var(--tree-control-height, 26px);
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        border-radius: var(--tree-control-radius, 999px);
+        padding-top: 1px;
+        padding-bottom: 1px;
+        border-color: var(--border);
+        min-width: 0;
+        max-width: min(100%, 104px);
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+
+
+      .table .assignments .badge.user {
+        border-color: var(--accent);
+      }
+
+      .table .assignments .badge.status-accepted {
+        border-color: var(--success);
+      }
+
+      .table .assignments .badge.status-denied {
+        border-color: #f87171;
+      }
+
+      .table .github-assignments .badge.github-badge {
+        border-color: rgba(148, 163, 184, 0.34);
+      }
+
+      .table .assignments .badge > :not(.badge-icon),
+      .table .github-assignments .badge > :not(.badge-icon) {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .table .assignments .assign-action,
+      .table .github-assignments .assign-action {
+        flex: 0 0 auto;
+      }
+
+      .table .assignments .badge-icon,
+      .table .github-assignments .badge-icon {
+        width: calc(var(--tree-control-height, 26px) - 4px);
+        height: calc(var(--tree-control-height, 26px) - 4px);
+        min-width: calc(var(--tree-control-height, 26px) - 4px);
+        min-height: calc(var(--tree-control-height, 26px) - 4px);
+        box-sizing: border-box;
+        align-self: center;
+        border-width: 1.5px;
       }
 
       .assign-add-btn {
@@ -10296,21 +10472,27 @@
         }
 
         .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] {
-          background: color-mix(in srgb, #f87171 10%, transparent);
+          background: color-mix(in srgb, #f87171 14%, rgba(18, 10, 12, 0.92));
         }
 
         .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] {
-          background: rgba(16, 20, 27, 0.56);
-          opacity: 0.74;
+          background: color-mix(in srgb, var(--success) 18%, rgba(10, 16, 22, 0.92));
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] {
+          background: color-mix(in srgb, #d6a117 16%, rgba(22, 18, 8, 0.92));
         }
 
         body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] {
-          background: color-mix(in srgb, white 86%, #fecaca 14%);
+          background: color-mix(in srgb, white 82%, #fecaca 18%);
         }
 
         body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] {
-          background: color-mix(in srgb, var(--success) 10%, white 90%);
-          opacity: 0.82;
+          background: color-mix(in srgb, var(--success) 14%, white 86%);
+        }
+
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] {
+          background: color-mix(in srgb, white 84%, #fde68a 16%);
         }
 
         .tasks-table tbody tr[data-task-row-id] > td {
@@ -10499,16 +10681,60 @@
           text-decoration: none;
         }
 
+        .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] .editable[data-field="title"],
+        .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] .github-task-link {
+          color: color-mix(in srgb, #ffd1d1 82%, var(--ink) 18%);
+        }
+
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] .editable[data-field="title"],
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] .github-task-link {
+          color: #7f1d1d;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] > td:not(:nth-child(4)) > * {
+          opacity: 0.68;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="critical"] > td:nth-child(4) > * {
+          opacity: 1;
+        }
+
         .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .editable[data-field="title"],
         .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .github-task-link {
-          color: var(--muted);
-          text-decoration: line-through;
-          text-decoration-thickness: 1.5px;
+          color: color-mix(in srgb, var(--ink) 52%, var(--success) 48%);
+          text-decoration: none;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] .editable[data-field="title"],
+        .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] .github-task-link {
+          color: color-mix(in srgb, #f6dc8a 62%, var(--ink) 38%);
+          text-decoration: none;
         }
 
         body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .editable[data-field="title"],
         body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] .github-task-link {
-          color: color-mix(in srgb, var(--muted) 82%, #4b5563 18%);
+          color: color-mix(in srgb, var(--ink) 44%, var(--success) 56%);
+        }
+
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] .editable[data-field="title"],
+        body[data-theme="light"] .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] .github-task-link {
+          color: color-mix(in srgb, #8a5a00 76%, var(--ink) 24%);
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] > td:not(:nth-child(4)) > * {
+          opacity: 0.48;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="complete"] > td:nth-child(4) > * {
+          opacity: 1;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] > td:not(:nth-child(4)) > * {
+          opacity: 0.58;
+        }
+
+        .tasks-table tbody tr[data-task-row-id][data-status-state="prereq"] > td:nth-child(4) > * {
+          opacity: 1;
         }
 
         .tasks-table td [data-task-status-host] > .task-status-multi-button,
