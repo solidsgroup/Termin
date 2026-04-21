@@ -2768,10 +2768,10 @@
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 900px) {
     .dashboard-quick-task-fab {
       right: 18px;
-      bottom: calc(var(--mobile-bottom-nav-offset, 82px) + 18px);
+      bottom: calc(var(--mobile-bottom-nav-height, var(--mobile-bottom-nav-offset, 82px)) + 18px);
       width: 58px;
       height: 58px;
     }

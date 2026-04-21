@@ -9590,6 +9590,7 @@
       @media (max-width: 900px) {
         :root {
           --mobile-bottom-nav-offset: calc(82px + env(safe-area-inset-bottom, 0px));
+          --mobile-bottom-nav-height: calc(82px + env(safe-area-inset-bottom, 0px));
         }
 
         header {
@@ -9850,7 +9851,7 @@
           min-height: 0;
           height: 100%;
           max-height: 100%;
-          padding-bottom: 18px;
+          padding-bottom: calc(var(--mobile-bottom-nav-height, var(--mobile-bottom-nav-offset, 82px)) + 18px);
         }
 
         .sidebar-collapse-handle {
@@ -11360,6 +11361,16 @@
         let mobileNavToggleArmedAt = Date.now() + 700;
         let viewSwitcherDockedToBottom = false;
 
+        const syncMobileBottomNavOffset = () => {
+          if (!mobileBottomNav) return;
+          if (!mobileSidebarMql || !mobileSidebarMql.matches) return;
+          const rect = mobileBottomNav.getBoundingClientRect();
+          const navHeight = Math.max(82, Math.round(rect.height));
+          const layoutOffset = Math.max(64, navHeight - 18);
+          document.documentElement.style.setProperty("--mobile-bottom-nav-height", `${navHeight}px`);
+          document.documentElement.style.setProperty("--mobile-bottom-nav-offset", `${layoutOffset}px`);
+        };
+
         const syncMobileBottomNav = () => {
           if (!mobileBottomNav || !mobileBottomNavSlot || !headerCenter || !headerViewSwitcher || !mobileSidebarMql) return;
           if (mobileSidebarMql.matches) {
@@ -11380,6 +11391,7 @@
           }
         };
 
+        syncMobileBottomNavOffset();
         syncMobileBottomNav();
         if (mobileSidebarMql && mobileSidebarMql.matches) {
           try {
@@ -11456,11 +11468,14 @@
             }
           });
         }
+        window.addEventListener("resize", syncMobileBottomNavOffset);
         window.addEventListener("resize", syncMobileBottomNav);
         if (mobileSidebarMql) {
           if (mobileSidebarMql.addEventListener) {
+            mobileSidebarMql.addEventListener("change", syncMobileBottomNavOffset);
             mobileSidebarMql.addEventListener("change", syncMobileBottomNav);
           } else if (mobileSidebarMql.addListener) {
+            mobileSidebarMql.addListener(syncMobileBottomNavOffset);
             mobileSidebarMql.addListener(syncMobileBottomNav);
           }
         }
