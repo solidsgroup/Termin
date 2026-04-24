@@ -2529,6 +2529,8 @@ def update_task(task_id: int):
     impacted_tasks = _touch_tasks(impacted_ids)
     if impacted_tasks:
         emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
+        for impacted_task in impacted_tasks:
+            emit_task_updated(impacted_task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     info_payload = _info_payload_for(task)
     status_meta = task_status_meta(task, viewer_user_id=user.id)

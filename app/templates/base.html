@@ -9839,7 +9839,10 @@
           pointer-events: none;
           transition: transform 180ms ease, opacity 180ms ease;
           box-shadow: none;
-          padding: var(--mobile-sidebar-top, 96px) 0 28px;
+          padding:
+            var(--mobile-sidebar-top, 96px)
+            0
+            calc(var(--mobile-bottom-nav-height, var(--mobile-bottom-nav-offset, 82px)) + env(safe-area-inset-bottom, 0px) + 24px);
           height: 100dvh;
           box-sizing: border-box;
           overflow-y: auto;
@@ -10088,12 +10091,35 @@
           font-size: 11px;
         }
 
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"].is-active {
+          height: auto;
+          min-height: 100%;
+          padding-bottom: calc((var(--mobile-bottom-nav-height, var(--mobile-bottom-nav-offset, 82px)) * 1.75) + env(safe-area-inset-bottom, 0px) + 40px);
+          box-sizing: border-box;
+        }
+
+        .sidebar.todo-tree .sidebar-split-shell {
+          padding-bottom: calc(var(--mobile-bottom-nav-height, var(--mobile-bottom-nav-offset, 82px)) + env(safe-area-inset-bottom, 0px) + 24px);
+        }
+
         .sidebar-split-shell {
           height: 100%;
           min-height: 100%;
           grid-template-rows: minmax(0, 1fr) 12px minmax(0, 1fr);
           max-width: 100%;
           box-sizing: border-box;
+        }
+
+        .sidebar.todo-tree .sidebar-split-shell {
+          height: auto;
+          min-height: 100%;
+          grid-template-rows: auto 12px auto;
+          align-content: start;
+        }
+
+        .sidebar.todo-tree .sidebar-split-pane {
+          overflow: visible;
+          min-height: 0;
         }
 
         .sidebar-split-shell,
@@ -10110,6 +10136,11 @@
         body.mobile-sidebar-open .layout,
         body.mobile-sidebar-open .content {
           overflow: hidden !important;
+        }
+
+        .dashboard-sidebar-pane[data-dashboard-sidebar-pane="todo"] .todo-assignee-list {
+          max-height: none;
+          overflow: visible;
         }
 
         .todo-tree-row {

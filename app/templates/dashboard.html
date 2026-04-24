@@ -14856,10 +14856,10 @@
         if (dueDelta !== 0) return dueDelta;
         var projectDelta = String(a.projectSortName || "").localeCompare(String(b.projectSortName || ""));
         if (projectDelta !== 0) return projectDelta;
-        var positionDelta = Number(a.taskPosition || 0) - Number(b.taskPosition || 0);
-        if (positionDelta !== 0) return positionDelta;
         var indexDelta = a.sortIndex - b.sortIndex;
         if (indexDelta !== 0) return indexDelta;
+        var positionDelta = Number(a.taskPosition || 0) - Number(b.taskPosition || 0);
+        if (positionDelta !== 0) return positionDelta;
         var taskIdDelta = Number(a.taskId || 0) - Number(b.taskId || 0);
         if (taskIdDelta !== 0) return taskIdDelta;
         return 0;
