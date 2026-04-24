@@ -1946,6 +1946,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "updated_at": task.updated_at.isoformat() if task.updated_at else None,
         "locked": bool(task.locked),
         "creator": {
             "id": creator.id,
@@ -2539,6 +2540,8 @@ def update_task(task_id: int):
     return {
         "id": task.id,
         "title": task.title,
+        "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+        "position": task.position,
         "locked": bool(task.locked),
         "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
         "status": task.status,
@@ -2586,6 +2589,8 @@ def get_task(task_id: int):
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+        "position": task.position,
         "group_name": (Group.query.get(task.group_id).name if task.group_id else None),
         "locked": bool(task.locked),
         "title": task.title,
@@ -3321,36 +3326,65 @@ def move_task(task_id: int):
     if source_project_id != target_project.id or source_group_id != target_group_id:
         _resequence_tasks(source_project_id, source_group_id, exclude_task_id=task.id)
 
+    bucket_changed = source_project_id != target_project.id or source_group_id != target_group_id
+
     db.session.commit()
-    log_task_history(
-        task,
-        actor=user,
-        action="moved",
-        old_project_id=source_project_id,
-        old_group_id=source_group_id,
-    )
-    queue_task_notifications(
-        task,
-        exclude_user_id=user.id,
-        kind="task_moved",
-        detail_payload={
-            **_task_notification_actor_payload(user),
-            "old_project_id": source_project_id,
-            "old_group_id": source_group_id,
-            "new_project_id": task.project_id,
-            "new_group_id": task.group_id,
-        },
-    )
-    db.session.commit()
-    emit_task_updated(task, action="moved", old_project_id=source_project_id, old_group_id=source_group_id, actor_user_id=user.id)
+    if bucket_changed:
+        log_task_history(
+            task,
+            actor=user,
+            action="moved",
+            old_project_id=source_project_id,
+            old_group_id=source_group_id,
+        )
+        queue_task_notifications(
+            task,
+            exclude_user_id=user.id,
+            kind="task_moved",
+            detail_payload={
+                **_task_notification_actor_payload(user),
+                "old_project_id": source_project_id,
+                "old_group_id": source_group_id,
+                "new_project_id": task.project_id,
+                "new_group_id": task.group_id,
+            },
+        )
+        db.session.commit()
+    if bucket_changed:
+        emit_task_updated(
+            task,
+            action="moved",
+            old_project_id=source_project_id,
+            old_group_id=source_group_id,
+            actor_user_id=user.id,
+        )
+    affected_bucket_task_ids: list[int] = []
+    if bucket_changed:
+        affected_bucket_task_ids.extend(row.id for row in _task_bucket_query(task.project_id, task.group_id).all())
+    if bucket_changed and source_project_id:
+        affected_bucket_task_ids.extend(
+            row.id for row in _task_bucket_query(source_project_id, source_group_id).all()
+        )
     impacted_ids = [task_id for task_id in _task_impacted_ids([task.id]) if int(task_id) != int(task.id)]
-    if impacted_ids:
-        impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
+    combined_task_ids: list[int] = []
+    seen_task_ids: set[int] = set()
+    for candidate_id in affected_bucket_task_ids + impacted_ids:
+        if not candidate_id:
+            continue
+        normalized_id = int(candidate_id)
+        if normalized_id in seen_task_ids:
+            continue
+        seen_task_ids.add(normalized_id)
+        combined_task_ids.append(normalized_id)
+    if combined_task_ids:
+        impacted_tasks = Task.query.filter(Task.id.in_(combined_task_ids)).all()
         if impacted_tasks:
             emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
-    emit_task_notification_updates(task, exclude_user_id=user.id)
+    if bucket_changed:
+        emit_task_notification_updates(task, exclude_user_id=user.id)
     return {
         "status": "ok",
+        "task": _serialize_task_row(task, viewer_user_id=user.id),
         "task_id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,

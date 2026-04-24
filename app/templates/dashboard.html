@@ -297,6 +297,24 @@
     </span>
   {% endif %}
 {% endmacro %}
+{% macro render_tree_sort_header(label, key, col) %}
+  <span class="tree-sort-header-label">{{ label }}</span>
+  <button class="tree-sort-button" type="button" data-task-sort-trigger="{{ key }}" aria-label="Sort by {{ label }}" title="Sort by {{ label }}">
+    <i class="fa-solid fa-sort" aria-hidden="true"></i>
+  </button>
+  <span class="col-resizer" data-col="{{ col }}"></span>
+{% endmacro %}
+{% macro render_tasks_table_head() %}
+  <thead>
+    <tr>
+      <th></th>
+      <th>{{ render_tree_sort_header('Task', 'task', 1) }}</th>
+      <th>{{ render_tree_sort_header('Due', 'due', 2) }}</th>
+      <th>{{ render_tree_sort_header('Status', 'status', 3) }}</th>
+      <th>{{ render_tree_sort_header('Assign', 'assign', 4) }}</th>
+    </tr>
+  </thead>
+{% endmacro %}
 {% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, project_name) %}
   {% if task_list %}
     {% for task in task_list %}
@@ -309,7 +327,7 @@
         <td>
           <div class="row-controls">
             {% if can_move_task %}
-              <button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="{{ task.id }}" title="Drag task">⋮⋮</button>
+              <button class="task-drag-handle" type="button" draggable="false" data-drag-task-handle="{{ task.id }}" title="Drag task">⋮⋮</button>
             {% endif %}
           </div>
         </td>
@@ -561,6 +579,166 @@
   .tasks-table .task-pill-segment i,
   .tasks-table .task-pill-segment span {
     line-height: 1;
+  }
+
+  .tasks-table th {
+    white-space: nowrap;
+  }
+
+  .tree-sort-header-label {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .tree-sort-button {
+    width: 20px;
+    height: 20px;
+    margin-left: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: color-mix(in srgb, var(--muted) 78%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: color 140ms ease, opacity 140ms ease, transform 140ms ease;
+    opacity: 0.52;
+  }
+
+  .tree-sort-button:hover {
+    opacity: 0.82;
+    color: var(--ink);
+  }
+
+  .tree-sort-button.is-active {
+    opacity: 1;
+    color: var(--ink);
+  }
+
+  .tree-sort-button.is-active i::before {
+    content: "\f063";
+  }
+
+  .tree-sort-button.is-active[data-sort-direction="asc"] i::before {
+    content: "\f062";
+  }
+
+  .tasks-table .row-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 26px;
+  }
+
+  .tasks-table .task-drag-handle {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    padding: 0;
+    border-radius: var(--tree-control-radius);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    font-size: 13px;
+    letter-spacing: -1px;
+    transform: translateY(-0.5px);
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease;
+  }
+
+  .tasks-table .task-drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .tasks-table .task-row,
+  .tasks-table .subtasks-row,
+  .tasks-table .task-drop-placeholder td,
+  .tasks-table .task-drop-placeholder .task-drop-slot {
+    transition: background 160ms ease, border-color 160ms ease, opacity 160ms ease, transform 160ms ease, height 160ms ease;
+  }
+
+  .tasks-table .task-row.drag-source {
+    opacity: 0.38;
+    transform: scale(0.992);
+  }
+
+  .tasks-table .task-drop-placeholder td {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .tasks-table .task-drop-placeholder .task-drop-slot {
+    height: 32px;
+    border-radius: 12px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 54%, var(--line) 46%);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .task-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+    pointer-events: none;
+    width: min(680px, calc(100vw - 32px));
+    padding: 10px 14px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.24);
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    will-change: transform;
+  }
+
+  .task-drag-ghost-handle {
+    width: 26px;
+    height: 26px;
+    border-radius: var(--tree-control-radius);
+    border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+    background: color-mix(in srgb, var(--panel-alt) 82%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    letter-spacing: -1px;
+    flex: 0 0 auto;
+  }
+
+  .task-drag-ghost-copy {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 auto;
+  }
+
+  .task-drag-ghost-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  .task-drag-ghost-meta {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  body.task-pointer-dragging {
+    cursor: grabbing;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   @keyframes dashboardFadeLift {
@@ -3436,15 +3614,7 @@
               <col style="width: 14%;">
               <col style="width: 20%;">
             </colgroup>
-            <thead>
-              <tr>
-                <th></th>
-                <th>Task<span class="col-resizer" data-col="1"></span></th>
-                <th>Due<span class="col-resizer" data-col="2"></span></th>
-                <th>Status<span class="col-resizer" data-col="3"></span></th>
-                <th>Assign<span class="col-resizer" data-col="4"></span></th>
-              </tr>
-            </thead>
+            {{ render_tasks_table_head() }}
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
               {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name) }}
@@ -3498,15 +3668,7 @@
               <col style="width: 14%;">
               <col style="width: 20%;">
             </colgroup>
-            <thead>
-              <tr>
-                <th></th>
-                <th>Task<span class="col-resizer" data-col="1"></span></th>
-                <th>Due<span class="col-resizer" data-col="2"></span></th>
-                <th>Status<span class="col-resizer" data-col="3"></span></th>
-                <th>Assign<span class="col-resizer" data-col="4"></span></th>
-              </tr>
-            </thead>
+            {{ render_tasks_table_head() }}
             <tbody data-task-dropzone="1">
               {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name) }}
 	              {% if can_manage_project and not is_github_project %}
@@ -5668,7 +5830,11 @@
 	          '<div class="panel group ungrouped-table-shell" style="--group-color: ' + projectColor + ';" data-tree-ungrouped-board="' + String(project.id) + '">' +
             '<table class="table tasks-table" data-project-id="' + String(project.id) + '" data-group-id="">' +
               '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
-              '<thead><tr><th></th><th>Task<span class="col-resizer" data-col="1"></span></th><th>Due<span class="col-resizer" data-col="2"></span></th><th>Status<span class="col-resizer" data-col="3"></span></th><th>Assign<span class="col-resizer" data-col="4"></span></th></tr></thead>' +
+              ((typeof renderTasksTableHeadHtml === "function")
+                ? renderTasksTableHeadHtml()
+                : ((typeof window.__renderTasksTableHeadHtml === "function")
+                    ? window.__renderTasksTableHeadHtml()
+                    : '<thead><tr><th></th><th><span class="tree-sort-header-label">Task</span><button class="tree-sort-button" type="button" data-task-sort-trigger="task" aria-label="Sort by Task" title="Sort by Task"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="1"></span></th><th><span class="tree-sort-header-label">Due</span><button class="tree-sort-button" type="button" data-task-sort-trigger="due" aria-label="Sort by Due" title="Sort by Due"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="2"></span></th><th><span class="tree-sort-header-label">Status</span><button class="tree-sort-button" type="button" data-task-sort-trigger="status" aria-label="Sort by Status" title="Sort by Status"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="3"></span></th><th><span class="tree-sort-header-label">Assign</span><button class="tree-sort-button" type="button" data-task-sort-trigger="assign" aria-label="Sort by Assign" title="Sort by Assign"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="4"></span></th></tr></thead>')) +
               '<tbody data-task-dropzone="1">' +
                 (canManage
                   ? '<tr class="new-row">' +
@@ -5802,7 +5968,11 @@
               : '') +
             '<table class="table tasks-table" data-project-id="' + projectId + '" data-group-id="' + String(group.id) + '">' +
               '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
-              '<thead><tr><th></th><th>Task<span class="col-resizer" data-col="1"></span></th><th>Due<span class="col-resizer" data-col="2"></span></th><th>Status<span class="col-resizer" data-col="3"></span></th><th>Assign<span class="col-resizer" data-col="4"></span></th></tr></thead>' +
+              ((typeof renderTasksTableHeadHtml === "function")
+                ? renderTasksTableHeadHtml()
+                : ((typeof window.__renderTasksTableHeadHtml === "function")
+                    ? window.__renderTasksTableHeadHtml()
+                    : '<thead><tr><th></th><th><span class="tree-sort-header-label">Task</span><button class="tree-sort-button" type="button" data-task-sort-trigger="task" aria-label="Sort by Task" title="Sort by Task"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="1"></span></th><th><span class="tree-sort-header-label">Due</span><button class="tree-sort-button" type="button" data-task-sort-trigger="due" aria-label="Sort by Due" title="Sort by Due"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="2"></span></th><th><span class="tree-sort-header-label">Status</span><button class="tree-sort-button" type="button" data-task-sort-trigger="status" aria-label="Sort by Status" title="Sort by Status"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="3"></span></th><th><span class="tree-sort-header-label">Assign</span><button class="tree-sort-button" type="button" data-task-sort-trigger="assign" aria-label="Sort by Assign" title="Sort by Assign"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="4"></span></th></tr></thead>')) +
               '<tbody data-task-dropzone="1">' +
                 (canManage
                   ? '<tr class="new-row">' +
@@ -6048,6 +6218,9 @@
           existingBoard.parentNode.replaceChild(board, existingBoard);
         } else {
 	        treeBoard.appendChild(board);
+        }
+        if (typeof restoreTreeProjectBoardSortState === "function") {
+          restoreTreeProjectBoardSortState(board);
         }
           if (typeof window.__initializeProjectBoardModes === "function") {
             window.__initializeProjectBoardModes(board);
@@ -7390,6 +7563,9 @@
           var board = buildTreeProjectBoard(project, canManage);
           if (board) {
             treeBoard.appendChild(board);
+            if (typeof restoreTreeProjectBoardSortState === "function") {
+              restoreTreeProjectBoardSortState(board);
+            }
             clearTreeLoadingPanel();
             inserted = true;
           }
@@ -7429,6 +7605,9 @@
           var board = buildTreeProjectBoard(project, canManage);
           if (board) {
             treeBoard.appendChild(board);
+            if (typeof restoreTreeProjectBoardSortState === "function") {
+              restoreTreeProjectBoardSortState(board);
+            }
             clearTreeLoadingPanel();
             inserted = true;
           }
@@ -8133,14 +8312,16 @@
         });
       }
 
-      document.querySelectorAll(".tasks-table").forEach(function (table) {
-        var colgroup = table.querySelector("colgroup");
-        if (!colgroup) return;
-        var cols = Array.prototype.slice.call(colgroup.querySelectorAll("col"));
-        var saved = localStorage.getItem(storageKey(table));
-        applySavedColumnWidths(cols, saved);
+    document.querySelectorAll(".tasks-table").forEach(function (table) {
+      var colgroup = table.querySelector("colgroup");
+      if (!colgroup) return;
+      var cols = Array.prototype.slice.call(colgroup.querySelectorAll("col"));
+      var saved = localStorage.getItem(storageKey(table));
+      applySavedColumnWidths(cols, saved);
+      applySavedTaskTableSort(table);
+      applyTaskTableSort(table);
 
-        table.querySelectorAll(".col-resizer").forEach(function (resizer) {
+      table.querySelectorAll(".col-resizer").forEach(function (resizer) {
           if (resizer.dataset.chromeFallbackBound === "1") return;
           resizer.dataset.chromeFallbackBound = "1";
           resizer.addEventListener("mousedown", function (event) {
@@ -9823,7 +10004,7 @@
       tr.innerHTML = `
         <td>
           <div class="row-controls">
-            ${showDragHandle ? '<button class="task-drag-handle" type="button" draggable="true" data-drag-task-handle="' + id + '" title="Drag task">⋮⋮</button>' : ""}
+            ${showDragHandle ? '<button class="task-drag-handle" type="button" draggable="false" data-drag-task-handle="' + id + '" title="Drag task">⋮⋮</button>' : ""}
           </div>
         </td>
         <td>
@@ -9966,6 +10147,9 @@
 	          if (inserted && typeof window.__updateProjectGanttItemLocal === "function") {
 	            window.__updateProjectGanttItemLocal(task);
 	          }
+          if (inserted && typeof window.__applyTaskTableSort === "function") {
+            window.__applyTaskTableSort(table);
+          }
 	          titleInput.value = "";
           if (dueInput) dueInput.value = "";
           if (assigneeInput) assigneeInput.value = "";
@@ -10030,15 +10214,7 @@
 	            <col style="width: 14%;">
 	            <col style="width: 20%;">
           </colgroup>
-          <thead>
-            <tr>
-              <th></th>
-              <th>Task<span class="col-resizer" data-col="1"></span></th>
-              <th>Due<span class="col-resizer" data-col="2"></span></th>
-              <th>Status<span class="col-resizer" data-col="3"></span></th>
-              <th>Assign<span class="col-resizer" data-col="4"></span></th>
-            </tr>
-          </thead>
+          {{ render_tasks_table_head() }}
           <tbody data-task-dropzone="1">
             ${canManageGroup ? `
 	              <tr class="new-row">
@@ -13376,6 +13552,19 @@
       var draggingGroupId = null;
       var taskPlaceholder = null;
       var taskTreeSidebarDrop = null;
+      var taskDragGhost = null;
+      var taskProjectDropTarget = null;
+      var activeTaskPointerDrag = null;
+      var escapeTaskDragHtml = (typeof escapeHtml === "function")
+        ? escapeHtml
+        : function (value) {
+            return String(value == null ? "" : value)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#39;");
+          };
 
       function getTaskRows(taskId) {
         var rows = [];
@@ -13401,6 +13590,284 @@
           el.classList.remove("tree-drag-over");
         });
         taskTreeSidebarDrop = null;
+        document.querySelectorAll(".project-drop-target.drag-over").forEach(function (el) {
+          el.classList.remove("drag-over");
+        });
+        taskProjectDropTarget = null;
+      }
+
+      function clearTaskDragGhost() {
+        if (taskDragGhost && taskDragGhost.parentNode) {
+          taskDragGhost.parentNode.removeChild(taskDragGhost);
+        }
+        taskDragGhost = null;
+      }
+
+      function taskRowsForAnimation(tbody) {
+        if (!tbody || !tbody.querySelectorAll) return [];
+        return Array.from(tbody.querySelectorAll('tr[data-task-row-id]'));
+      }
+
+      function captureTaskRowRects(bodies) {
+        var rects = new Map();
+        (bodies || []).forEach(function (tbody) {
+          taskRowsForAnimation(tbody).forEach(function (row) {
+            rects.set(row, row.getBoundingClientRect());
+          });
+        });
+        return rects;
+      }
+
+      function animateTaskRowReflow(rects, bodies) {
+        (bodies || []).forEach(function (tbody) {
+          taskRowsForAnimation(tbody).forEach(function (row) {
+            var previousRect = rects.get(row);
+            if (!previousRect) return;
+            var nextRect = row.getBoundingClientRect();
+            var deltaY = previousRect.top - nextRect.top;
+            if (!deltaY) return;
+            row.style.transition = "none";
+            row.style.transform = "translateY(" + deltaY + "px)";
+            row.offsetHeight;
+            row.style.transition = "";
+            row.style.transform = "";
+          });
+        });
+      }
+
+      function moveTaskRowPreview(row, targetBody, beforeRow) {
+        if (!row || !targetBody) return false;
+        if (beforeRow === row) return false;
+        if (row.parentNode === targetBody && row.nextElementSibling === beforeRow) return false;
+        var bodies = [];
+        if (row.parentNode && row.parentNode !== targetBody) {
+          bodies.push(row.parentNode);
+        }
+        bodies.push(targetBody);
+        var rects = captureTaskRowRects(bodies);
+        targetBody.insertBefore(row, beforeRow || null);
+        animateTaskRowReflow(rects, bodies);
+        return true;
+      }
+
+      function createTaskDragGhost(row) {
+        clearTaskDragGhost();
+        taskDragGhost = null;
+        return null;
+      }
+
+      function positionTaskDragGhost(clientX, clientY) {
+        return;
+      }
+
+      function findTaskBeforeRow(tbody, clientY, excludeTaskId) {
+        if (!tbody) return tbody ? tbody.querySelector(".new-row") : null;
+        var rows = Array.from(tbody.querySelectorAll("tr[data-task-row-id]")).filter(function (row) {
+          return String(row.getAttribute("data-task-row-id") || "") !== String(excludeTaskId || "");
+        });
+        var beforeRow = tbody.querySelector(".new-row");
+        for (var i = 0; i < rows.length; i += 1) {
+          var rect = rows[i].getBoundingClientRect();
+          if (clientY < rect.top + rect.height / 2) {
+            beforeRow = rows[i];
+            break;
+          }
+        }
+        return beforeRow;
+      }
+
+      function buildTaskMovePayloadForTarget(taskId, targetTbody, beforeRow) {
+        if (!taskId || !targetTbody) return null;
+        var table = targetTbody.closest(".tasks-table");
+        if (!table) return null;
+        var projectId = Number(table.getAttribute("data-project-id") || 0);
+        var rawGroupId = String(table.getAttribute("data-group-id") || "").trim();
+        var groupId = rawGroupId === "" ? null : rawGroupId;
+        var beforeTaskId = null;
+        if (beforeRow && beforeRow.hasAttribute && beforeRow.hasAttribute("data-task-row-id")) {
+          var beforeValue = String(beforeRow.getAttribute("data-task-row-id") || "").trim();
+          if (beforeValue && beforeValue !== String(taskId)) {
+            beforeTaskId = Number(beforeValue);
+          }
+        }
+        return {
+          project_id: projectId,
+          group_id: groupId,
+          before_task_id: beforeTaskId,
+        };
+      }
+
+      function updateTaskDragDestination(clientX, clientY, taskId) {
+        var target = document.elementFromPoint(clientX, clientY);
+        if (!target) {
+          if (activeTaskPointerDrag) {
+            activeTaskPointerDrag.currentPayload = null;
+          }
+          clearTaskPlaceholder();
+          return;
+        }
+        var treeGroupRow = target.closest("[data-tree-group-row]");
+        if (treeGroupRow) {
+          clearTaskPlaceholder();
+          treeGroupRow.classList.add("tree-drag-over");
+          taskTreeSidebarDrop = {
+            projectId: Number(treeGroupRow.getAttribute("data-tree-project-id")),
+            groupId: Number(treeGroupRow.getAttribute("data-tree-group-row")),
+            beforeTaskId: null,
+          };
+          if (activeTaskPointerDrag) {
+            activeTaskPointerDrag.currentPayload = {
+              project_id: taskTreeSidebarDrop.projectId,
+              group_id: taskTreeSidebarDrop.groupId,
+              before_task_id: null,
+            };
+          }
+          return;
+        }
+
+        var treeProjectRow = target.closest("[data-tree-project-row]");
+        if (treeProjectRow) {
+          clearTaskPlaceholder();
+          treeProjectRow.classList.add("tree-drag-over");
+          taskTreeSidebarDrop = {
+            projectId: Number(treeProjectRow.getAttribute("data-tree-project-row")),
+            groupId: null,
+            beforeTaskId: null,
+          };
+          if (activeTaskPointerDrag) {
+            activeTaskPointerDrag.currentPayload = {
+              project_id: taskTreeSidebarDrop.projectId,
+              group_id: null,
+              before_task_id: null,
+            };
+          }
+          return;
+        }
+
+        var projectDrop = target.closest(".project-drop-target");
+        if (projectDrop) {
+          clearTaskPlaceholder();
+          projectDrop.classList.add("drag-over");
+          taskProjectDropTarget = Number(projectDrop.getAttribute("data-project-drop-id"));
+          if (activeTaskPointerDrag) {
+            activeTaskPointerDrag.currentPayload = {
+              project_id: taskProjectDropTarget,
+              group_id: null,
+              before_task_id: null,
+            };
+          }
+          return;
+        }
+
+        var tbody = target.closest("tbody[data-task-dropzone='1']");
+        if (!tbody) {
+          if (activeTaskPointerDrag) {
+            activeTaskPointerDrag.currentPayload = null;
+          }
+          clearTaskPlaceholder();
+          return;
+        }
+        taskProjectDropTarget = null;
+        taskTreeSidebarDrop = null;
+        document.querySelectorAll(".project-drop-target.drag-over").forEach(function (el) {
+          el.classList.remove("drag-over");
+        });
+        clearTaskPlaceholder();
+        var draggedRow = document.querySelector('[data-task-row-id="' + String(taskId || "") + '"]');
+        if (!draggedRow) return;
+        var beforeRow = findTaskBeforeRow(tbody, clientY, taskId);
+        if (activeTaskPointerDrag) {
+          activeTaskPointerDrag.currentPayload = buildTaskMovePayloadForTarget(taskId, tbody, beforeRow);
+        }
+        moveTaskRowPreview(draggedRow, tbody, beforeRow);
+      }
+
+      function taskMovePayloadFromPlaceholder(taskId) {
+        if (taskTreeSidebarDrop) {
+          return {
+            project_id: taskTreeSidebarDrop.projectId,
+            group_id: taskTreeSidebarDrop.groupId,
+            before_task_id: null,
+          };
+        }
+        if (taskProjectDropTarget != null) {
+          return {
+            project_id: taskProjectDropTarget,
+            group_id: null,
+            before_task_id: null,
+          };
+        }
+        var row = document.querySelector('[data-task-row-id="' + String(taskId || "") + '"]');
+        if (!row) return null;
+        var tbody = row.parentNode;
+        var table = tbody.closest(".tasks-table");
+        if (!table) return null;
+        var projectId = Number(table.getAttribute("data-project-id"));
+        var groupId = table.getAttribute("data-group-id") || null;
+        var beforeTaskId = null;
+        var next = row.nextElementSibling;
+        while (next) {
+          if (next.hasAttribute("data-task-row-id") && String(next.getAttribute("data-task-row-id") || "") !== String(taskId || "")) {
+            beforeTaskId = Number(next.getAttribute("data-task-row-id"));
+            break;
+          }
+          next = next.nextElementSibling;
+        }
+        return {
+          project_id: projectId,
+          group_id: groupId,
+          before_task_id: beforeTaskId,
+        };
+      }
+
+      function pointerDragIsNoop(dragState, payload) {
+        if (!dragState || !payload) return true;
+        return String(payload.project_id || "") === String(dragState.sourceProjectId || "")
+          && String(payload.group_id || "") === String(dragState.sourceGroupId || "")
+          && String(payload.before_task_id || "") === String(dragState.originalBeforeTaskId || "");
+      }
+
+      function cancelActiveTaskPointerDrag() {
+        if (activeTaskPointerDrag && activeTaskPointerDrag.handle && activeTaskPointerDrag.handle.releasePointerCapture) {
+          try {
+            activeTaskPointerDrag.handle.releasePointerCapture(activeTaskPointerDrag.pointerId);
+          } catch (_error) {}
+        }
+        if (activeTaskPointerDrag && activeTaskPointerDrag.row) {
+          activeTaskPointerDrag.row.classList.remove("drag-source");
+        }
+        activeTaskPointerDrag = null;
+        document.body.classList.remove("task-pointer-dragging");
+        clearTaskDragGhost();
+        clearTaskPlaceholder();
+      }
+
+      function finalizeActiveTaskPointerDrag() {
+        if (!activeTaskPointerDrag) return;
+        if (!activeTaskPointerDrag.activated) {
+          cancelActiveTaskPointerDrag();
+          return;
+        }
+        var dragState = activeTaskPointerDrag;
+        var taskId = dragState.taskId;
+        var payload = dragState.currentPayload || taskMovePayloadFromPlaceholder(taskId);
+        var shouldMove = !!payload && !pointerDragIsNoop(dragState, payload);
+        var sourceTable = dragState.row && dragState.row.closest ? dragState.row.closest(".tasks-table") : null;
+        var targetTable = payload
+          ? document.querySelector('.tasks-table[data-project-id="' + String(payload.project_id || "") + '"][data-group-id="' + String(payload.group_id || "") + '"]')
+          : null;
+        if (shouldMove) {
+          clearTaskTableSortStateLocal(sourceTable);
+          if (targetTable && targetTable !== sourceTable) {
+            clearTaskTableSortStateLocal(targetTable);
+          }
+          placeTaskRowLocal(taskId, payload);
+        }
+        cancelActiveTaskPointerDrag();
+        if (!shouldMove) return;
+        submitLegacyTaskMove(taskId, payload).catch(function (error) {
+          console.error("pointer task move failed", error);
+        });
       }
 
       function getTreeTaskTargetTbody(payload) {
@@ -13411,7 +13878,267 @@
         return document.querySelector('.tasks-table[data-project-id="' + String(payload.projectId) + '"][data-group-id=""] tbody[data-task-dropzone="1"]');
       }
 
+      function clearTaskTableSortStateLocal(table) {
+        if (!table) return;
+        table.removeAttribute("data-task-sort-key");
+        table.removeAttribute("data-task-sort-direction");
+        table.querySelectorAll("[data-task-sort-trigger]").forEach(function (button) {
+          button.classList.remove("is-active");
+          button.removeAttribute("data-sort-direction");
+        });
+        var projectId = String(table.getAttribute("data-project-id") || "").trim();
+        var groupId = String(table.getAttribute("data-group-id") || "").trim();
+        if (!projectId || !window.localStorage) return;
+        try {
+          window.localStorage.removeItem("termin.treeTaskSort.v1.user.{{ user.id }}.project." + projectId + ".group." + (groupId || "ungrouped"));
+        } catch (_error) {}
+      }
+
+      function restoreTaskTableNaturalOrderLocal(table) {
+        if (!table) return false;
+        var tbody = table.querySelector('tbody[data-task-dropzone="1"]');
+        if (!tbody) return false;
+        var rows = Array.from(tbody.querySelectorAll('tr[data-task-row-id]'));
+        if (rows.length < 2) return false;
+        rows.sort(function (a, b) {
+          var posA = Number(a.getAttribute("data-task-position") || 0);
+          var posB = Number(b.getAttribute("data-task-position") || 0);
+          if (posA !== posB) return posA - posB;
+          var idA = Number(a.getAttribute("data-task-row-id") || 0);
+          var idB = Number(b.getAttribute("data-task-row-id") || 0);
+          return idA - idB;
+        });
+        var newRow = tbody.querySelector(".new-row");
+        rows.forEach(function (candidate) {
+          tbody.insertBefore(candidate, newRow || null);
+        });
+        return true;
+      }
+
+      function placeTaskRowLocal(taskId, payload) {
+        if (!taskId || !payload) return;
+        var row = document.querySelector('[data-task-row-id="' + String(taskId) + '"]');
+        if (!row) return;
+        var targetTbody = null;
+        if (payload.project_id != null) {
+          targetTbody = payload.group_id
+            ? document.querySelector('.tasks-table[data-project-id="' + String(payload.project_id) + '"][data-group-id="' + String(payload.group_id) + '"] tbody[data-task-dropzone="1"]')
+            : document.querySelector('.tasks-table[data-project-id="' + String(payload.project_id) + '"][data-group-id=""] tbody[data-task-dropzone="1"]');
+        } else {
+          targetTbody = row.parentNode;
+        }
+        if (!targetTbody) return;
+        var beforeRow = null;
+        if (payload.before_task_id != null) {
+          beforeRow = targetTbody.querySelector('[data-task-row-id="' + String(payload.before_task_id) + '"]');
+        }
+        if (!beforeRow) {
+          beforeRow = targetTbody.querySelector(".new-row");
+        }
+        moveTaskRowPreview(row, targetTbody, beforeRow || null);
+      }
+
+      function submitLegacyTaskMove(taskId, payload) {
+        return fetch("/api/tasks/" + taskId + "/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (data) {
+              if (!res.ok) {
+                throw new Error((data && data.error) || "Task move failed");
+              }
+              return data || {};
+            });
+          })
+          .then(function (data) {
+            var movedTask = data && data.task && data.task.id ? data.task : null;
+            if (!movedTask) return data;
+            placeTaskRowLocal(taskId, payload);
+            if (typeof rememberRecentTaskSnapshot === "function") {
+              rememberRecentTaskSnapshot(movedTask);
+            } else if (typeof window.__rememberRecentTaskSnapshot === "function") {
+              window.__rememberRecentTaskSnapshot(movedTask);
+            }
+            if (typeof mergeDashboardTask === "function") {
+              mergeDashboardTask(movedTask);
+            } else if (typeof window.__mergeDashboardTask === "function") {
+              window.__mergeDashboardTask(movedTask);
+            }
+            if (typeof applyTaskRowUpdate === "function") {
+              applyTaskRowUpdate(movedTask);
+            } else if (typeof window.__applyTaskRowUpdate === "function") {
+              window.__applyTaskRowUpdate(movedTask);
+            }
+            if (typeof window.__renderTaskAssignments === "function") {
+              window.__renderTaskAssignments(movedTask.id, movedTask.assignments || []);
+            }
+            return data;
+          });
+      }
+
+      function beginDesktopTaskMouseDrag(event, taskHandle, row, table) {
+        if (String(table.getAttribute("data-task-sort-key") || "").trim()) {
+          clearTaskTableSortStateLocal(table);
+          restoreTaskTableNaturalOrderLocal(table);
+        }
+        var originalBeforeTaskId = null;
+        var next = row.nextElementSibling;
+        while (next) {
+          if (next.hasAttribute("data-task-row-id")) {
+            originalBeforeTaskId = Number(next.getAttribute("data-task-row-id"));
+            break;
+          }
+          next = next.nextElementSibling;
+        }
+        activeTaskPointerDrag = {
+          taskId: String(row.getAttribute("data-task-row-id") || ""),
+          row: row,
+          handle: taskHandle,
+          pointerId: null,
+          inputMode: "mouse",
+          startX: event.clientX,
+          startY: event.clientY,
+          sourceProjectId: Number(table.getAttribute("data-project-id") || 0),
+          sourceGroupId: table.getAttribute("data-group-id") || null,
+          originalBeforeTaskId: originalBeforeTaskId,
+          currentPayload: null,
+          activated: false,
+        };
+        event.preventDefault();
+      }
+
+      document.addEventListener("mousedown", function (event) {
+        if (event.button !== 0) return;
+        var taskHandle = event.target.closest("[data-drag-task-handle]");
+        if (!taskHandle) return;
+        var row = taskHandle.closest("[data-task-row-id]");
+        if (!row) return;
+        var table = row.closest(".tasks-table");
+        if (!table) return;
+        beginDesktopTaskMouseDrag(event, taskHandle, row, table);
+      }, true);
+
+      document.addEventListener("pointerdown", function (event) {
+        if (!window.PointerEvent) return;
+        if (event.button !== 0) return;
+        if (event.pointerType === "touch" || event.pointerType === "mouse") return;
+        var taskHandle = event.target.closest("[data-drag-task-handle]");
+        if (!taskHandle) return;
+        var row = taskHandle.closest("[data-task-row-id]");
+        if (!row) return;
+        var table = row.closest(".tasks-table");
+        if (!table) return;
+        if (String(table.getAttribute("data-task-sort-key") || "").trim()) {
+          clearTaskTableSortStateLocal(table);
+          restoreTaskTableNaturalOrderLocal(table);
+        }
+        var originalBeforeTaskId = null;
+        var next = row.nextElementSibling;
+        while (next) {
+          if (next.hasAttribute("data-task-row-id")) {
+            originalBeforeTaskId = Number(next.getAttribute("data-task-row-id"));
+            break;
+          }
+          next = next.nextElementSibling;
+        }
+        activeTaskPointerDrag = {
+          taskId: String(row.getAttribute("data-task-row-id") || ""),
+          row: row,
+          handle: taskHandle,
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          sourceProjectId: Number(table.getAttribute("data-project-id") || 0),
+          sourceGroupId: table.getAttribute("data-group-id") || null,
+          originalBeforeTaskId: originalBeforeTaskId,
+          currentPayload: null,
+          activated: false,
+        };
+        if (taskHandle.setPointerCapture) {
+          try {
+            taskHandle.setPointerCapture(event.pointerId);
+          } catch (_error) {}
+        }
+        event.preventDefault();
+      }, true);
+
+      document.addEventListener("pointermove", function (event) {
+        if (!activeTaskPointerDrag || activeTaskPointerDrag.inputMode === "mouse" || event.pointerId !== activeTaskPointerDrag.pointerId) return;
+        var deltaX = event.clientX - activeTaskPointerDrag.startX;
+        var deltaY = event.clientY - activeTaskPointerDrag.startY;
+        if (!activeTaskPointerDrag.activated) {
+          if (Math.abs(deltaX) < 4 && Math.abs(deltaY) < 4) return;
+          activeTaskPointerDrag.activated = true;
+          activeTaskPointerDrag.row.classList.add("drag-source");
+          document.body.classList.add("task-pointer-dragging");
+          createTaskDragGhost(activeTaskPointerDrag.row);
+        }
+        positionTaskDragGhost(event.clientX, event.clientY);
+        updateTaskDragDestination(event.clientX, event.clientY, activeTaskPointerDrag.taskId);
+        event.preventDefault();
+      }, true);
+
+      document.addEventListener("pointerup", function (event) {
+        if (!activeTaskPointerDrag || activeTaskPointerDrag.inputMode === "mouse" || event.pointerId !== activeTaskPointerDrag.pointerId) return;
+        finalizeActiveTaskPointerDrag();
+        event.preventDefault();
+      }, true);
+
+      document.addEventListener("pointercancel", function (event) {
+        if (!activeTaskPointerDrag || activeTaskPointerDrag.inputMode === "mouse" || event.pointerId !== activeTaskPointerDrag.pointerId) return;
+        cancelActiveTaskPointerDrag();
+      }, true);
+
+      document.addEventListener("lostpointercapture", function (event) {
+        if (!activeTaskPointerDrag || activeTaskPointerDrag.inputMode === "mouse" || !activeTaskPointerDrag.handle) return;
+        if (event.target !== activeTaskPointerDrag.handle) return;
+        finalizeActiveTaskPointerDrag();
+      }, true);
+
+      window.addEventListener("mousemove", function (event) {
+        if (!activeTaskPointerDrag || activeTaskPointerDrag.inputMode !== "mouse") return;
+        if (activeTaskPointerDrag.activated && event.buttons === 0) {
+          finalizeActiveTaskPointerDrag();
+          return;
+        }
+        var deltaX = event.clientX - activeTaskPointerDrag.startX;
+        var deltaY = event.clientY - activeTaskPointerDrag.startY;
+        if (!activeTaskPointerDrag.activated) {
+          if (Math.abs(deltaX) < 4 && Math.abs(deltaY) < 4) return;
+          activeTaskPointerDrag.activated = true;
+          activeTaskPointerDrag.row.classList.add("drag-source");
+          document.body.classList.add("task-pointer-dragging");
+          createTaskDragGhost(activeTaskPointerDrag.row);
+        }
+        positionTaskDragGhost(event.clientX, event.clientY);
+        updateTaskDragDestination(event.clientX, event.clientY, activeTaskPointerDrag.taskId);
+        event.preventDefault();
+      }, true);
+
+      window.addEventListener("mouseup", function (event) {
+        if (!activeTaskPointerDrag || activeTaskPointerDrag.inputMode !== "mouse") return;
+        if (event.button !== 0) return;
+        finalizeActiveTaskPointerDrag();
+        event.preventDefault();
+      }, true);
+
+      window.addEventListener("blur", function () {
+        if (!activeTaskPointerDrag || activeTaskPointerDrag.inputMode !== "mouse") return;
+        finalizeActiveTaskPointerDrag();
+      });
+
       document.addEventListener("dragstart", function (event) {
+        if (event.target.closest("[data-drag-task-handle]")) {
+          event.preventDefault();
+          return;
+        }
+        if (activeTaskPointerDrag) {
+          event.preventDefault();
+          return;
+        }
         var taskHandle = event.target.closest("[data-drag-task-handle]");
         if (taskHandle) {
           var row = taskHandle.closest("[data-task-row-id]");
@@ -13420,6 +14147,10 @@
           event.dataTransfer.effectAllowed = "move";
           event.dataTransfer.setData("text/plain", draggingTaskId);
           row.classList.add("drag-source");
+          var ghost = createTaskDragGhost(row);
+          if (ghost && event.dataTransfer && typeof event.dataTransfer.setDragImage === "function") {
+            event.dataTransfer.setDragImage(ghost, 22, 18);
+          }
           return;
         }
 
@@ -13514,12 +14245,7 @@
               var beforeTreeRow = targetTbody.querySelector(".new-row");
               targetTbody.insertBefore(ensureTaskPlaceholder(), beforeTreeRow);
             }
-            fetch("/api/tasks/" + draggingTaskId + "/move", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "same-origin",
-              body: JSON.stringify(taskTreeSidebarDrop),
-            }).catch(function (error) {
+            submitLegacyTaskMove(draggingTaskId, taskTreeSidebarDrop).catch(function (error) {
               console.error("legacy task move failed", error);
             });
             return;
@@ -13529,12 +14255,7 @@
           if (projectDrop) {
             event.preventDefault();
             var targetProjectId = Number(projectDrop.getAttribute("data-project-drop-id"));
-            fetch("/api/tasks/" + draggingTaskId + "/move", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "same-origin",
-              body: JSON.stringify({ project_id: targetProjectId, group_id: null, before_task_id: null }),
-            }).catch(function (error) {
+            submitLegacyTaskMove(draggingTaskId, { project_id: targetProjectId, group_id: null, before_task_id: null }).catch(function (error) {
               console.error("legacy task move failed", error);
             });
             return;
@@ -13555,15 +14276,10 @@
             }
             next = next.nextElementSibling;
           }
-          fetch("/api/tasks/" + draggingTaskId + "/move", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: JSON.stringify({
-              project_id: projectId,
-              group_id: groupId,
-              before_task_id: beforeTaskId,
-            }),
+          submitLegacyTaskMove(draggingTaskId, {
+            project_id: projectId,
+            group_id: groupId,
+            before_task_id: beforeTaskId,
           }).catch(function (error) {
             console.error("legacy task move failed", error);
           });
@@ -13605,6 +14321,7 @@
           if (row) row.classList.remove("drag-source");
         }
         draggingTaskId = null;
+        clearTaskDragGhost();
         clearTaskPlaceholder();
         document.querySelectorAll(".project-drop-target.drag-over").forEach(function (el) {
           el.classList.remove("drag-over");
@@ -14027,6 +14744,7 @@
     }
 
     function mergeDashboardTask(task) {
+      task = resolveFreshestTaskPayload(task);
       if (!task || task.id == null) return;
       if (typeof reconcileLocalTaskStatusOverride === "function") {
         reconcileLocalTaskStatusOverride(task);
@@ -18226,6 +18944,52 @@
         });
     }
 
+    function taskPayloadTimestampValue(task) {
+      if (!task || !task.updated_at) return 0;
+      var timestamp = Date.parse(String(task.updated_at || ""));
+      return Number.isFinite(timestamp) ? timestamp : 0;
+    }
+
+    function selectNewerTaskPayload(currentTask, candidateTask) {
+      if (!currentTask || !currentTask.id) return candidateTask && candidateTask.id ? candidateTask : currentTask;
+      if (!candidateTask || !candidateTask.id) return currentTask;
+      var currentTimestamp = taskPayloadTimestampValue(currentTask);
+      var candidateTimestamp = taskPayloadTimestampValue(candidateTask);
+      if (currentTimestamp && candidateTimestamp) {
+        return candidateTimestamp >= currentTimestamp ? candidateTask : currentTask;
+      }
+      if (candidateTimestamp && !currentTimestamp) return candidateTask;
+      if (currentTimestamp && !candidateTimestamp) return currentTask;
+      return candidateTask;
+    }
+
+    function latestKnownTaskPayload(taskId) {
+      var normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId) return null;
+      var latestTask = null;
+      var entities = dashboardBootstrapStore && dashboardBootstrapStore.entities && dashboardBootstrapStore.entities.tasks
+        ? dashboardBootstrapStore.entities.tasks
+        : null;
+      if (entities) {
+        latestTask = selectNewerTaskPayload(
+          latestTask,
+          entities[normalizedTaskId] || entities[Number(normalizedTaskId)] || null
+        );
+      }
+      var host = document.querySelector('[data-task-status-host="' + normalizedTaskId + '"]');
+      var hostTask = host && host._taskPayload ? host._taskPayload : null;
+      latestTask = selectNewerTaskPayload(latestTask, hostTask);
+      if (String(currentTaskId || "") === normalizedTaskId && currentTaskData && currentTaskData.id) {
+        latestTask = selectNewerTaskPayload(latestTask, currentTaskData);
+      }
+      return latestTask;
+    }
+
+    function resolveFreshestTaskPayload(task) {
+      if (!task || !task.id) return task;
+      return selectNewerTaskPayload(latestKnownTaskPayload(task.id), task);
+    }
+
     function fetchTaskSnapshot(taskId, options) {
       if (!taskId) return Promise.resolve(null);
       var config = options && typeof options === "object" ? options : {};
@@ -18240,9 +19004,10 @@
       return fetch("/api/tasks/" + taskId, { credentials: "same-origin", cache: "no-store" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {
-          if (!data || !data.id) return null;
-          rememberRecentTaskSnapshot(data);
-          return data;
+          var freshestTask = resolveFreshestTaskPayload(data);
+          if (!freshestTask || !freshestTask.id) return null;
+          rememberRecentTaskSnapshot(freshestTask);
+          return freshestTask;
         })
         .catch(function (error) {
           var message = error && error.message ? String(error.message) : "";
@@ -19236,6 +20001,7 @@
       if (!opts.skipFilters && typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
+      applyTaskTableSortForTask(taskId);
       return updated;
     }
     window.__renderTaskAssignments = renderTaskAssignments;
@@ -19284,6 +20050,7 @@
     }
 
     function applyTaskRowUpdate(task) {
+      task = resolveFreshestTaskPayload(task);
       if (!task || !task.id) return false;
       reconcileLocalTaskStatusOverride(task);
       var taskId = String(task.id);
@@ -19306,6 +20073,12 @@
         row.setAttribute("data-completed-window", todoCompletedWindowFor(normalizedDue, normalizedDueMode));
         if (effectiveTask.position !== undefined && effectiveTask.position !== null) {
           row.setAttribute("data-task-position", String(effectiveTask.position));
+          if (!isTodoRow && typeof insertTaskRowByPosition === "function") {
+            var rowParent = row.parentNode;
+            if (rowParent && rowParent.matches && rowParent.matches('tbody[data-task-dropzone="1"]')) {
+              insertTaskRowByPosition(rowParent, row, task.id, effectiveTask.position);
+            }
+          }
         }
       });
       document.querySelectorAll('.editable[data-task-id="' + task.id + '"][data-field="title"]').forEach(function (cell) {
@@ -19374,6 +20147,7 @@
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
+      applyTaskTableSortForTask(task.id);
       refreshDashboardHomeFromTodo();
       return matched;
     }
@@ -19934,6 +20708,27 @@
       }
     }
 
+    function placeTaskRowLocal(taskId, payload) {
+      var normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId || !payload) return false;
+      var row = document.querySelector('[data-task-row-id="' + normalizedTaskId + '"]');
+      if (!row) return false;
+      var targetTable = document.querySelector(
+        '.tasks-table[data-project-id="' + String(payload.project_id || "") + '"][data-group-id="' + String(payload.group_id || "") + '"]'
+      );
+      var targetBody = targetTable ? targetTable.querySelector('tbody[data-task-dropzone="1"]') : null;
+      if (!targetBody) return false;
+      var beforeRow = null;
+      if (payload.before_task_id) {
+        beforeRow = targetBody.querySelector('[data-task-row-id="' + String(payload.before_task_id) + '"]');
+      }
+      if (!beforeRow) {
+        beforeRow = targetBody.querySelector(".new-row");
+      }
+      targetBody.insertBefore(row, beforeRow || null);
+      return true;
+    }
+
     var pendingDeleteTasks = {};
 
     function cloneTaskForUndo(task) {
@@ -20220,6 +21015,223 @@
       var newRow = tbody.querySelector(".new-row");
       tbody.insertBefore(row, insertBefore || newRow || null);
     }
+    window.__renderTasksTableHeadHtml = renderTasksTableHeadHtml;
+
+    function renderTasksTableHeadHtml() {
+      return '' +
+        '<thead><tr>' +
+          '<th></th>' +
+          '<th><span class="tree-sort-header-label">Task</span><button class="tree-sort-button" type="button" data-task-sort-trigger="task" aria-label="Sort by Task" title="Sort by Task"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="1"></span></th>' +
+          '<th><span class="tree-sort-header-label">Due</span><button class="tree-sort-button" type="button" data-task-sort-trigger="due" aria-label="Sort by Due" title="Sort by Due"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="2"></span></th>' +
+          '<th><span class="tree-sort-header-label">Status</span><button class="tree-sort-button" type="button" data-task-sort-trigger="status" aria-label="Sort by Status" title="Sort by Status"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="3"></span></th>' +
+          '<th><span class="tree-sort-header-label">Assign</span><button class="tree-sort-button" type="button" data-task-sort-trigger="assign" aria-label="Sort by Assign" title="Sort by Assign"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="4"></span></th>' +
+        '</tr></thead>';
+    }
+
+    function taskRowPositionValue(row) {
+      return Number(row && row.getAttribute("data-task-position") || 0);
+    }
+
+    function taskRowIdValue(row) {
+      return Number(row && row.getAttribute("data-task-row-id") || 0);
+    }
+
+    function taskStatusSortRank(state) {
+      var normalized = String(state || "").trim().toLowerCase();
+      if (normalized === "critical") return 0;
+      if (normalized === "prereq") return 1;
+      if (normalized === "open") return 2;
+      if (normalized === "complete") return 3;
+      return 4;
+    }
+
+    function taskDueSortValue(row) {
+      var input = row ? row.querySelector('.due-input[data-field="due_at"]') : null;
+      var dueMode = input ? String(input.getAttribute("data-due-mode") || "").trim().toLowerCase() : "";
+      var dueValue = input ? String(input.value || "").trim() : "";
+      if (dueMode === "asap") {
+        return { rank: 0, value: "" };
+      }
+      if (dueValue) {
+        return { rank: 1, value: dueValue };
+      }
+      return { rank: 2, value: "" };
+    }
+
+    function taskAssignSortValue(row) {
+      var container = row ? row.querySelector(".assignments") : null;
+      if (!container) return "";
+      return Array.from(container.querySelectorAll(".badge-label")).map(function (node) {
+        return String(node.textContent || "").trim().toLowerCase();
+      }).filter(Boolean).join(" | ");
+    }
+
+    function taskTitleSortValue(row) {
+      var titleNode = row ? row.querySelector('.editable[data-field="title"], .github-task-link span') : null;
+      return String(titleNode ? titleNode.textContent || "" : "").trim().toLowerCase();
+    }
+
+    function taskRowSortComparator(sortKey, direction) {
+      var multiplier = direction === "asc" ? 1 : -1;
+      return function (a, b) {
+        var result = 0;
+        if (sortKey === "task") {
+          result = taskTitleSortValue(a).localeCompare(taskTitleSortValue(b));
+        } else if (sortKey === "due") {
+          var dueA = taskDueSortValue(a);
+          var dueB = taskDueSortValue(b);
+          result = dueA.rank - dueB.rank;
+          if (!result) {
+            result = String(dueA.value).localeCompare(String(dueB.value));
+          }
+        } else if (sortKey === "status") {
+          result = taskStatusSortRank(a && a.getAttribute("data-status-state")) - taskStatusSortRank(b && b.getAttribute("data-status-state"));
+        } else if (sortKey === "assign") {
+          result = taskAssignSortValue(a).localeCompare(taskAssignSortValue(b));
+        }
+        if (!result) {
+          result = taskRowPositionValue(a) - taskRowPositionValue(b);
+        }
+        if (!result) {
+          result = taskRowIdValue(a) - taskRowIdValue(b);
+        }
+        return result * multiplier;
+      };
+    }
+
+    function taskTableSortStorageKey(table) {
+      if (!table) return "";
+      var projectId = String(table.getAttribute("data-project-id") || "").trim();
+      var groupId = String(table.getAttribute("data-group-id") || "").trim();
+      if (!projectId) return "";
+      return "termin.treeTaskSort.v1.user.{{ user.id }}.project." + projectId + ".group." + (groupId || "ungrouped");
+    }
+
+    function persistTaskTableSortState(table) {
+      var key = taskTableSortStorageKey(table);
+      if (!key || !window.localStorage) return;
+      var sortKey = String(table.getAttribute("data-task-sort-key") || "").trim();
+      var sortDirection = String(table.getAttribute("data-task-sort-direction") || "").trim().toLowerCase();
+      try {
+        if (!sortKey) {
+          window.localStorage.removeItem(key);
+          return;
+        }
+        window.localStorage.setItem(key, JSON.stringify({
+          key: sortKey,
+          direction: sortDirection === "asc" ? "asc" : "desc",
+        }));
+      } catch (_error) {}
+    }
+
+    function applySavedTaskTableSort(table) {
+      var key = taskTableSortStorageKey(table);
+      if (!key || !window.localStorage) return false;
+      try {
+        var raw = window.localStorage.getItem(key);
+        if (!raw) return false;
+        var parsed = JSON.parse(raw);
+        var sortKey = String(parsed && parsed.key || "").trim();
+        if (!sortKey) return false;
+        table.setAttribute("data-task-sort-key", sortKey);
+        table.setAttribute("data-task-sort-direction", String(parsed && parsed.direction || "desc").trim().toLowerCase() === "asc" ? "asc" : "desc");
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    }
+
+    function clearTaskTableSortState(table) {
+      if (!table) return;
+      table.removeAttribute("data-task-sort-key");
+      table.removeAttribute("data-task-sort-direction");
+      syncTaskSortHeaderState(table);
+      persistTaskTableSortState(table);
+    }
+
+    function restoreTreeProjectBoardSortState(board) {
+      if (!board) return;
+      board.querySelectorAll(".tasks-table").forEach(function (table) {
+        applySavedTaskTableSort(table);
+        applyTaskTableSort(table);
+      });
+    }
+
+    function restoreAllTreeTaskTableSortStates(root) {
+      var scope = root && root.querySelectorAll ? root : document;
+      scope.querySelectorAll(".tree-project-board .tasks-table, [data-tree-project-board] .tasks-table, .tasks-table[data-project-id]").forEach(function (table) {
+        applySavedTaskTableSort(table);
+        applyTaskTableSort(table);
+      });
+    }
+
+    function syncTaskSortHeaderState(table) {
+      if (!table) return;
+      var activeKey = String(table.getAttribute("data-task-sort-key") || "").trim();
+      var activeDirection = String(table.getAttribute("data-task-sort-direction") || "desc").trim().toLowerCase();
+      table.querySelectorAll("[data-task-sort-trigger]").forEach(function (button) {
+        var isActive = String(button.getAttribute("data-task-sort-trigger") || "") === activeKey;
+        button.classList.toggle("is-active", isActive);
+        if (isActive) {
+          button.setAttribute("data-sort-direction", activeDirection === "asc" ? "asc" : "desc");
+        } else {
+          button.removeAttribute("data-sort-direction");
+        }
+      });
+    }
+
+    function applyTaskTableSort(table) {
+      if (!table) return false;
+      var sortKey = String(table.getAttribute("data-task-sort-key") || "").trim();
+      if (!sortKey) {
+        syncTaskSortHeaderState(table);
+        return false;
+      }
+      var direction = String(table.getAttribute("data-task-sort-direction") || "desc").trim().toLowerCase() === "asc" ? "asc" : "desc";
+      var tbody = table.querySelector('tbody[data-task-dropzone="1"]');
+      if (!tbody) {
+        syncTaskSortHeaderState(table);
+        return false;
+      }
+      var rows = Array.from(tbody.querySelectorAll('tr[data-task-row-id]'));
+      if (rows.length < 2) {
+        syncTaskSortHeaderState(table);
+        return false;
+      }
+      rows.sort(taskRowSortComparator(sortKey, direction));
+      var newRow = tbody.querySelector(".new-row");
+      rows.forEach(function (row) {
+        tbody.insertBefore(row, newRow || null);
+      });
+      syncTaskSortHeaderState(table);
+      persistTaskTableSortState(table);
+      return true;
+    }
+    window.__applyTaskTableSort = applyTaskTableSort;
+
+    function applyTaskTableSortForTask(taskId) {
+      var row = document.querySelector('[data-task-row-id="' + String(taskId || "") + '"]');
+      var table = row ? row.closest(".tasks-table") : null;
+      if (!table) return false;
+      return applyTaskTableSort(table);
+    }
+
+    document.addEventListener("click", function (event) {
+      var sortButton = event.target.closest("[data-task-sort-trigger]");
+      if (!sortButton) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var table = sortButton.closest(".tasks-table");
+      if (!table) return;
+      var sortKey = String(sortButton.getAttribute("data-task-sort-trigger") || "").trim();
+      if (!sortKey) return;
+      var currentKey = String(table.getAttribute("data-task-sort-key") || "").trim();
+      var currentDirection = String(table.getAttribute("data-task-sort-direction") || "desc").trim().toLowerCase();
+      var nextDirection = (currentKey === sortKey && currentDirection === "desc") ? "asc" : "desc";
+      table.setAttribute("data-task-sort-key", sortKey);
+      table.setAttribute("data-task-sort-direction", nextDirection);
+      applyTaskTableSort(table);
+    }, true);
 
     function reorderGroupBlocksLocal(order) {
       if (!Array.isArray(order) || !order.length) return false;
@@ -20289,6 +21301,8 @@
       if (typeof window.__renderTaskAssignments === "function") {
         window.__renderTaskAssignments(task.id, task.assignments || []);
       }
+      applySavedTaskTableSort(table);
+      applyTaskTableSort(table);
       if (typeof window.__updateProjectGanttItemLocal === "function") {
         window.__updateProjectGanttItemLocal(task);
       }
@@ -24443,7 +25457,8 @@
         }
         var taskSnapshotPromise = fetchTaskSnapshot(task.id, { preferCache: false });
         taskSnapshotPromise.then(function (freshTask) {
-          var resolvedTask = freshTask && freshTask.id ? freshTask : task;
+          var resolvedTask = resolveFreshestTaskPayload(freshTask && freshTask.id ? freshTask : task);
+          if (!resolvedTask || !resolvedTask.id) return;
           if (pendingTodoCompletionHides[String(resolvedTask.id)] && taskMyStatusState(resolvedTask) === "complete") {
             queuePendingTodoCompletionHide(resolvedTask, 1200);
             return;
@@ -24482,42 +25497,44 @@
             window.__ensureTreeTaskVisible(resolvedTask);
           }
         }).catch(function () {
-          if (pendingTodoCompletionHides[String(task.id)] && taskMyStatusState(task) === "complete") {
-            queuePendingTodoCompletionHide(task, 1200);
+          var fallbackTask = resolveFreshestTaskPayload(task);
+          if (!fallbackTask || !fallbackTask.id) return;
+          if (pendingTodoCompletionHides[String(fallbackTask.id)] && taskMyStatusState(fallbackTask) === "complete") {
+            queuePendingTodoCompletionHide(fallbackTask, 1200);
             return;
           }
           var todoUpdated = false;
           if (typeof window.__upsertTodoItemFromSnapshot === "function") {
-            todoUpdated = !!window.__upsertTodoItemFromSnapshot(task);
+            todoUpdated = !!window.__upsertTodoItemFromSnapshot(fallbackTask);
           }
           if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
-            if (window.__upsertTaskRowFromSnapshot(task)) {
-              pulseTask(task.id);
+            if (window.__upsertTaskRowFromSnapshot(fallbackTask)) {
+              pulseTask(fallbackTask.id);
               return;
             }
           }
-          mergeDashboardTask(task);
+          mergeDashboardTask(fallbackTask);
           if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
-            window.__updateCachedTreeSnapshotsForTask(task, {
+            window.__updateCachedTreeSnapshotsForTask(fallbackTask, {
               action: data.action || "updated",
               oldProjectId: data.old_project_id || "",
             });
           }
-          var updated = applyTaskRowUpdate(task);
-          renderTaskAssignments(task.id, task.assignments || []);
+          var updated = applyTaskRowUpdate(fallbackTask);
+          renderTaskAssignments(fallbackTask.id, fallbackTask.assignments || []);
           if (updated || todoUpdated) {
-            pulseTask(task.id);
+            pulseTask(fallbackTask.id);
             if (typeof window.__ensureTreeTaskVisible === "function") {
-              window.__ensureTreeTaskVisible(task);
+              window.__ensureTreeTaskVisible(fallbackTask);
             }
             return;
           }
-          if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(task)) {
-            pulseTask(task.id);
+          if (typeof window.__upsertTaskRowFromSnapshot === "function" && window.__upsertTaskRowFromSnapshot(fallbackTask)) {
+            pulseTask(fallbackTask.id);
             return;
           }
           if (typeof window.__ensureTreeTaskVisible === "function") {
-            window.__ensureTreeTaskVisible(task);
+            window.__ensureTreeTaskVisible(fallbackTask);
           }
         });
       }
@@ -24961,6 +25978,9 @@
       }
 
       function syncTreeSelectionAfterEnsure() {
+        if (typeof restoreAllTreeTaskTableSortStates === "function") {
+          restoreAllTreeTaskTableSortStates(document.querySelector("[data-tree-board]") || document);
+        }
         applySelection(currentSelection, { syncHistory: false });
         focusTreeSidebarSelection(currentSelection);
         if (treeBoard && treeBoard.querySelector("[data-tree-project-board]")) {
@@ -26477,6 +27497,11 @@
 
     hydrateDashboardBootstrapStoreFromCache();
     scheduleDashboardBootstrapRefreshStartup();
+    if (typeof restoreAllTreeTaskTableSortStates === "function") {
+      window.requestAnimationFrame(function () {
+        restoreAllTreeTaskTableSortStates(document.querySelector("[data-tree-board]") || document);
+      });
+    }
     window.setInterval(pollNotificationState, 15000);
     window.setInterval(pollOpenDiscussion, 10000);
   })();

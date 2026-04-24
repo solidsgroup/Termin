@@ -55,6 +55,16 @@ async function waitForRealtimeSocketIfPresent(page) {
   try {
     await page.waitForFunction(() => {
       if (typeof window === 'undefined') return true;
+      const path = String((window.location && window.location.pathname) || '');
+      const needsDashboardRealtime =
+        path === '/dashboard'
+        || path === '/todo'
+        || path.indexOf('/tree/') === 0;
+      if (!needsDashboardRealtime) return true;
+      const uiReady = !!document.querySelector(
+        '.dashboard-action-list, [data-dashboard-home-shell], .todo-board, [data-tree-project-board], .tasks-table'
+      );
+      if (!uiReady) return false;
       if (!('socketConnected' in window)) return true;
       return !!window.socketConnected;
     }, { timeout: 4000 });
