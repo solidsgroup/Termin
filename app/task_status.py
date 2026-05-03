@@ -93,6 +93,7 @@ def _task_poll_payload(task: Task | None) -> dict:
     return {
         "question": question,
         "allows_multiple": allows_multiple,
+        "closed": bool(poll.get("closed")),
         "results_visibility": results_visibility,
         "options": options,
         "responses": responses,
@@ -409,6 +410,7 @@ def _base_task_status_meta(
             "assignees": assignees,
             "poll_question": str(poll_payload.get("question") or "").strip(),
             "poll_allows_multiple": bool(poll_payload.get("allows_multiple")),
+            "poll_closed": bool(poll_payload.get("closed")),
             "poll_results_visibility": str(poll_payload.get("results_visibility") or "everyone"),
             "poll_results_visible": can_view_results,
             "poll_option_results": poll_option_results,

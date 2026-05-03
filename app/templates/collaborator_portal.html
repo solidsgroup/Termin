@@ -817,6 +817,8 @@
         if (pollNoteEl) {
           if (canRespond) {
             pollNoteEl.textContent = allowsMultiple ? "Select one or more options." : "Select one option.";
+          } else if (meta.poll_closed || poll.closed) {
+            pollNoteEl.textContent = "This poll is closed to new responses.";
           } else {
             pollNoteEl.textContent = taskData.status === "accepted"
               ? "You can view this poll, but cannot respond."

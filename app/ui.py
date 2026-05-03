@@ -1231,7 +1231,7 @@ def _collaborator_poll_task_payload(collaborator: CollaboratorProfile, task_id: 
     meta = info_payload.get("meta") or {}
     poll_payload = _normalize_task_poll_payload(meta.get("poll"))
     collaboration_status = str(entry.get("status") or "").strip().lower()
-    can_respond = collaboration_status == "accepted" and bool(status_meta.get("viewer_can_set"))
+    can_respond = collaboration_status == "accepted" and bool(status_meta.get("viewer_can_set")) and not bool(status_meta.get("poll_closed"))
     return {
         "task": {
             "id": task.id,

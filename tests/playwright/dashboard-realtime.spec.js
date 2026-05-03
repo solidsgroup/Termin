@@ -94,6 +94,25 @@ async function patchTask(page, taskId, payload) {
   return result.data;
 }
 
+async function fetchTaskViaApi(page, taskId) {
+  await waitForRealtimeSocketIfPresent(page);
+  const result = await page.evaluate(async (targetTaskId) => {
+    const response = await fetch(`/api/tasks/${targetTaskId}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data };
+  }, taskId);
+  expect(result.ok).toBeTruthy();
+  return result.data;
+}
+
 async function createTask(page, payload) {
   await waitForRealtimeSocketIfPresent(page);
   const result = await page.evaluate(async (taskPayload) => {
@@ -943,6 +962,104 @@ test.describe('dashboard and realtime flows', () => {
 
     await expect(ownerBadge).toContainText('1/2');
     await steps.step('Verify the owner Tree view updates the poll badge live to 1/2 without a refresh.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('locked poll tasks still allow assigned participants to update their vote', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'locked', 'response']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Locked Poll Task',
+      assignee_email: state.owner.email,
+    });
+    await createAssignment(ownerPage, pollTask.id, state.member.email);
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      locked: true,
+      poll: {
+        question: 'Pick a locked option',
+        allows_multiple: false,
+        results_visibility: 'everyone',
+        options: [
+          { id: 'locked-a', label: 'Locked A' },
+          { id: 'locked-b', label: 'Locked B' },
+        ],
+      },
+    });
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+
+    const ownerBadge = ownerPage.locator(`[data-task-row-id="${pollTask.id}"] [data-task-poll-trigger="${pollTask.id}"]`).first();
+    await expect(ownerBadge).toContainText('0/2');
+    await expect(ownerBadge).toBeEnabled();
+
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await submitPollResponse(memberPage, 'locked-a');
+    await expect(ownerBadge).toContainText('1/2');
+    await steps.step('Open a locked poll as an assigned participant and verify saving a vote still updates the shared count.', memberPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('closed poll tasks open but do not accept new responses', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'closed', 'response']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Closed Poll Task',
+      assignee_email: state.member.email,
+    });
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      poll: {
+        question: 'Pick a closed option',
+        allows_multiple: false,
+        closed: true,
+        results_visibility: 'everyone',
+        options: [
+          { id: 'closed-a', label: 'Closed A' },
+          { id: 'closed-b', label: 'Closed B' },
+        ],
+      },
+    });
+
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+    const pollBadge = memberPage.locator(`[data-task-row-id="${pollTask.id}"] [data-task-poll-trigger="${pollTask.id}"]`).first();
+    await expect(pollBadge).toBeEnabled();
+
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await expect(memberPage.locator('#poll-response-note')).toContainText('closed');
+    await expect(memberPage.locator('[data-poll-response-option="closed-a"]')).toBeDisabled();
+    await expect(memberPage.locator('#poll-response-save')).toBeDisabled();
+    await steps.step('Open a closed poll and verify the dialog remains viewable while response controls are disabled.', memberPage);
 
     await ownerContext.close();
     await memberContext.close();
@@ -2521,6 +2638,62 @@ test.describe('dashboard and realtime flows', () => {
     await expectTodoTaskLinkBadge(page, test.info(), taskId, linkUrl, 'todo-link-badge-after-refresh', 'The same Todo task should still show its favicon badge immediately after a full page refresh.');
     await focusTodoTask(page, taskId, 'Linked Todo task after refresh', [`Expected link badge: ${linkUrl}`]);
     await steps.step('Refresh /todo and verify Linked Todo Task still shows the same link favicon badge immediately after reload.', page);
+  });
+
+  test('todo checkbox persists single-status completion to the server', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['todo', 'status', 'persistence', 'single']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Single Persist Task',
+      assignee_email: state.owner.email,
+      due_at: isoDateWithOffset(0),
+      due_mode: 'date',
+    });
+    await patchTask(page, task.id, { status: 'open', status_mode: 'single' });
+
+    await page.goto('/todo');
+    const checkButton = page.locator(`.todo-item[data-task-id="${task.id}"] [data-todo-check-toggle="${task.id}"]`).first();
+    await expect(checkButton).toHaveCount(1);
+    await checkButton.click();
+
+    await expect.poll(async () => {
+      const freshTask = await fetchTaskViaApi(page, task.id);
+      return String(freshTask.status || '').toLowerCase();
+    }).toBe('complete');
+    await steps.step('Click the Todo checkbox for a single-status task and verify /api/tasks returns status=complete from the server.', page);
+  });
+
+  test('todo checkbox persists multi-status completion to the server', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['todo', 'status', 'persistence', 'multi']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Multi Persist Task',
+      assignee_email: state.owner.email,
+      due_at: isoDateWithOffset(0),
+      due_mode: 'date',
+    });
+    await patchTask(page, task.id, { status_mode: 'multi' });
+
+    await page.goto('/todo');
+    const checkButton = page.locator(`.todo-item[data-task-id="${task.id}"] [data-todo-check-toggle="${task.id}"]`).first();
+    await expect(checkButton).toHaveCount(1);
+    await checkButton.click();
+
+    await expect.poll(async () => {
+      const freshTask = await fetchTaskViaApi(page, task.id);
+      return String((freshTask.status_meta && freshTask.status_meta.my_status) || '').toLowerCase();
+    }).toBe('complete');
+    await steps.step('Click the Todo checkbox for a multi-status task and verify /api/tasks returns the viewer-specific status as complete from the server.', page);
   });
 
   test('todo shows a compact active tasks section for started future work', async ({ page, request }) => {

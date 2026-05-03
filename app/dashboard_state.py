@@ -294,6 +294,7 @@ def _serialize_task(
         "poll": {
             "question": str(poll_raw.get("question") or "").strip(),
             "allows_multiple": bool(poll_raw.get("allows_multiple")),
+            "closed": bool(poll_raw.get("closed")),
             "results_visibility": "creator" if str(poll_raw.get("results_visibility") or "").strip().lower() == "creator" else "everyone",
             "options": poll_options,
         },

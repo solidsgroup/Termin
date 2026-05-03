@@ -408,6 +408,16 @@ def _task_poll_change_descriptions(old_poll: dict | None, new_poll: dict | None)
         for item in list(new_normalized.get("options") or [])
         if str(item.get("id") or "").strip() and str(item.get("label") or "").strip()
     }
+    old_option_order = [
+        str(item.get("id") or "").strip()
+        for item in list(old_normalized.get("options") or [])
+        if str(item.get("id") or "").strip() and str(item.get("id") or "").strip() in old_options
+    ]
+    new_option_order = [
+        str(item.get("id") or "").strip()
+        for item in list(new_normalized.get("options") or [])
+        if str(item.get("id") or "").strip() and str(item.get("id") or "").strip() in new_options
+    ]
 
     for option_id, label in new_options.items():
         if option_id not in old_options:
@@ -423,6 +433,9 @@ def _task_poll_change_descriptions(old_poll: dict | None, new_poll: dict | None)
     for option_id, label in old_options.items():
         if option_id not in new_options:
             changes.append("removed option " + _quoted_history_value(label, "option") + " from the poll")
+
+    if old_options == new_options and old_option_order != new_option_order:
+        changes.append("reordered the poll options")
 
     return changes
 
@@ -1021,6 +1034,7 @@ def _task_poll(task: Task) -> dict:
     return {
         "question": str(poll.get("question") or "").strip(),
         "allows_multiple": bool(poll.get("allows_multiple")),
+        "closed": bool(poll.get("closed")),
         "results_visibility": str(poll.get("results_visibility") or "everyone").strip().lower() or "everyone",
         "options": list(poll.get("options") or []),
     }
@@ -1030,6 +1044,7 @@ def _normalize_task_poll_payload(poll_raw) -> dict:
     poll = poll_raw if isinstance(poll_raw, dict) else {}
     question = str(poll.get("question") or "").strip()
     allows_multiple = bool(poll.get("allows_multiple"))
+    closed = bool(poll.get("closed"))
     results_visibility = str(poll.get("results_visibility") or "everyone").strip().lower()
     if results_visibility not in {"everyone", "creator"}:
         results_visibility = "everyone"
@@ -1092,6 +1107,7 @@ def _normalize_task_poll_payload(poll_raw) -> dict:
     return {
         "question": question,
         "allows_multiple": allows_multiple,
+        "closed": closed,
         "results_visibility": results_visibility,
         "options": options,
         "responses": responses,
@@ -1100,7 +1116,7 @@ def _normalize_task_poll_payload(poll_raw) -> dict:
 
 def _task_poll_has_configuration(poll_payload: dict | None) -> bool:
     normalized = _normalize_task_poll_payload(poll_payload)
-    return bool(normalized.get("question") or normalized.get("allows_multiple") or normalized.get("options"))
+    return bool(normalized.get("question") or normalized.get("allows_multiple") or normalized.get("closed") or normalized.get("options"))
 
 
 def _set_task_type(task: Task, task_type_raw) -> None:
@@ -5344,6 +5360,8 @@ def save_task_poll_response(task_id: int):
     )
     if not is_assigned:
         return {"error": "only assignees can respond to this poll"}, 403
+    if _task_poll(task).get("closed"):
+        return {"error": "poll is closed"}, 423
     poll_payload = _set_task_poll_response(
         task,
         user_id=user.id,

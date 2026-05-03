@@ -2,6 +2,8 @@ const path = require('path');
 const { defineConfig } = require('@playwright/test');
 
 const reportFolder = path.resolve(__dirname, 'playwright-report-gallery');
+const e2ePort = Number(process.env.TERMIN_E2E_PORT || process.env.PORT || 5010);
+const e2eBaseURL = process.env.TERMIN_E2E_BASE_URL || `http://127.0.0.1:${e2ePort}`;
 
 module.exports = defineConfig({
   testDir: path.resolve(__dirname, 'playwright'),
@@ -16,7 +18,7 @@ module.exports = defineConfig({
     [path.resolve(__dirname, 'playwright/simple-snapshot-reporter.js'), { outputFolder: reportFolder }],
   ],
   use: {
-    baseURL: 'http://127.0.0.1:5010',
+    baseURL: e2eBaseURL,
     headless: true,
     trace: 'retain-on-failure',
   },
@@ -26,8 +28,11 @@ module.exports = defineConfig({
     env: {
       ...process.env,
       PYTHONPATH: path.resolve(__dirname, '..'),
+      TERMIN_E2E_PORT: String(e2ePort),
+      TERMIN_E2E_BASE_URL: e2eBaseURL,
+      PUBLIC_BASE_URL: e2eBaseURL,
     },
-    url: 'http://127.0.0.1:5010/health',
+    url: `${e2eBaseURL}/health`,
     reuseExistingServer: false,
     timeout: 30_000,
   },

@@ -1188,13 +1188,49 @@
 
   .discussion-poll-option-row {
     display: grid;
-    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-columns: 24px minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 10px;
     padding: 8px 10px;
     border-radius: 12px;
     border: 1px solid color-mix(in srgb, var(--line) 94%, transparent);
     background: color-mix(in srgb, var(--panel-alt) 84%, transparent);
+  }
+
+  .discussion-poll-option-order {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .discussion-poll-option-move,
+  .discussion-poll-option-remove {
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    color: var(--muted);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .discussion-poll-option-move {
+    width: 24px;
+    height: 18px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .discussion-poll-option-move:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .discussion-poll-option-input {
+    min-width: 0;
+    width: 100%;
   }
 
   .discussion-poll-option-bullet {
@@ -1214,11 +1250,6 @@
     height: 6px;
     border-radius: 999px;
     background: color-mix(in srgb, #c99211 76%, var(--ink));
-  }
-
-  .discussion-poll-option-input {
-    min-width: 0;
-    width: 100%;
   }
 
   body[data-theme="light"] .discussion-poll-option-input,
@@ -1249,11 +1280,13 @@
     width: 30px;
     height: 30px;
     border-radius: 10px;
-    border: 1px solid var(--line);
-    background: color-mix(in srgb, var(--panel) 90%, transparent);
-    color: var(--muted);
-    font: inherit;
-    cursor: pointer;
+    padding: 0;
+  }
+
+  .discussion-poll-option-remove:hover {
+    border-color: color-mix(in srgb, var(--danger, #d44) 58%, var(--line));
+    color: var(--danger, #d44);
+    background: color-mix(in srgb, var(--danger, #d44) 10%, var(--panel) 90%);
   }
 
   .discussion-poll-option-add-row {
@@ -1272,6 +1305,12 @@
         rgba(255, 255, 255, 0.03) var(--status-progress, 0%),
         rgba(255, 255, 255, 0.03) 100%
       );
+  }
+
+  .task-row[data-task-locked="1"] [data-task-poll-trigger],
+  .todo-item[data-task-locked="1"] [data-task-poll-trigger] {
+    cursor: pointer;
+    opacity: 1;
   }
 
   body[data-theme="light"] .task-status-poll-button {
@@ -3901,6 +3940,13 @@
           </label>
         </div>
         <div class="discussion-setting-field is-inline">
+          <span class="discussion-setting-label discussion-setting-label--row">Accepting</span>
+          <label class="discussion-poll-checkbox">
+            <input id="task-settings-poll-closed" type="checkbox" />
+            <span>Close this poll to new responses</span>
+          </label>
+        </div>
+        <div class="discussion-setting-field is-inline">
           <span class="discussion-setting-label discussion-setting-label--row">Results</span>
           <select id="task-settings-poll-results-visibility" aria-label="Poll results visibility">
             <option value="everyone">Everyone</option>
@@ -4950,27 +4996,6 @@
       function patchInlineTaskStatus(taskId, statusValue) {
         if (window.__taskIdIsLocked(taskId)) {
           return Promise.reject(new Error("Task is locked"));
-        }
-        var normalizedTaskId = String(taskId || "").trim();
-        var normalizedNextStatus = String(statusValue || "").trim().toLowerCase();
-        var host = normalizedTaskId
-          ? document.querySelector('[data-task-status-host="' + normalizedTaskId + '"]')
-          : null;
-        var hostTask = host && host._taskPayload ? host._taskPayload : null;
-        var currentStatus = hostTask
-          ? String((((hostTask.status_meta || {}).task_status) || hostTask.status || "")).trim().toLowerCase()
-          : "";
-        if (!currentStatus) {
-          var visibleCell = normalizedTaskId
-            ? document.querySelector('[data-task-status-host="' + normalizedTaskId + '"] [data-field="status"]')
-            : null;
-          currentStatus = String((visibleCell && visibleCell.textContent) || "").trim().toLowerCase();
-        }
-        if (normalizedNextStatus && currentStatus && normalizedNextStatus === currentStatus) {
-          return Promise.resolve(hostTask || {
-            id: normalizedTaskId,
-            status: currentStatus,
-          });
         }
         return fetch("/api/tasks/" + taskId, {
           method: "PATCH",
@@ -14413,6 +14438,7 @@
     var taskSettingsPollEditorEl = document.getElementById("task-settings-poll-editor");
     var taskSettingsPollQuestionEl = document.getElementById("task-settings-poll-question");
     var taskSettingsPollMultipleEl = document.getElementById("task-settings-poll-multiple");
+    var taskSettingsPollClosedEl = document.getElementById("task-settings-poll-closed");
     var taskSettingsPollResultsVisibilityEl = document.getElementById("task-settings-poll-results-visibility");
     var taskSettingsPollOptionsEl = document.getElementById("task-settings-poll-options");
     var taskSettingsPollNewOptionEl = document.getElementById("task-settings-poll-new-option");
@@ -14561,6 +14587,7 @@
       return {
         question: String(source.question || "").trim(),
         allows_multiple: !!source.allows_multiple,
+        closed: !!source.closed,
         results_visibility: (function (value) {
           var normalized = String(value || "everyone").trim().toLowerCase();
           return normalized === "creator" ? "creator" : "everyone";
@@ -14572,7 +14599,7 @@
     function taskIsPoll(task) {
       var poll = taskPollConfig(task);
       return normalizeTaskType(task && task.task_type) === "poll"
-        || !!(poll.question || poll.allows_multiple || poll.options.length);
+        || !!(poll.question || poll.allows_multiple || poll.closed || poll.options.length);
     }
 
     function currentTaskTypeValue(task) {
@@ -17291,12 +17318,17 @@
         taskSettingsPollOptionsEl.innerHTML = '<div class="footer-note">No options yet.</div>';
         return;
       }
-      taskSettingsPollOptionsEl.innerHTML = poll.options.map(function (option) {
+      taskSettingsPollOptionsEl.innerHTML = poll.options.map(function (option, index) {
+        var optionLabel = String(option && option.label ? option.label : "");
         return '' +
           '<div class="discussion-poll-option-row" data-poll-option-id="' + escapeHtml(option.id) + '">' +
             '<span class="discussion-poll-option-bullet" aria-hidden="true"></span>' +
-            '<input class="discussion-poll-option-input" type="text" value="' + escapeHtml(option.label) + '" data-poll-option-input="' + escapeHtml(option.id) + '" aria-label="Poll option" autocomplete="termin-nope-poll-option" autocorrect="off" autocapitalize="sentences" spellcheck="true" />' +
-            '<button class="discussion-poll-option-remove" type="button" data-poll-option-remove="' + escapeHtml(option.id) + '" aria-label="Remove option">×</button>' +
+            '<input class="discussion-poll-option-input" type="text" value="' + escapeHtml(optionLabel) + '" data-poll-option-input="' + escapeHtml(option.id) + '" aria-label="Poll option: ' + escapeHtml(optionLabel || "option") + '" autocomplete="termin-nope-poll-option" autocorrect="off" autocapitalize="sentences" spellcheck="true" />' +
+            '<span class="discussion-poll-option-order" aria-label="Move option">' +
+              '<button class="discussion-poll-option-move" type="button" data-poll-option-move="up" data-poll-option-id="' + escapeHtml(option.id) + '" aria-label="Move option up"' + (index <= 0 ? ' data-boundary-disabled="1" disabled' : '') + '><i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>' +
+              '<button class="discussion-poll-option-move" type="button" data-poll-option-move="down" data-poll-option-id="' + escapeHtml(option.id) + '" aria-label="Move option down"' + (index >= poll.options.length - 1 ? ' data-boundary-disabled="1" disabled' : '') + '><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>' +
+            '</span>' +
+            '<button class="discussion-poll-option-remove" type="button" data-poll-option-remove="' + escapeHtml(option.id) + '" data-poll-option-label="' + escapeHtml(optionLabel) + '" aria-label="Remove poll option ' + escapeHtml(optionLabel || "option") + '">×</button>' +
           '</div>';
       }).join("");
     }
@@ -17331,12 +17363,18 @@
         taskSettingsPollEditorEl.classList.toggle("is-inactive", taskType !== "poll");
       }
       if (taskSettingsPollQuestionEl) {
-        taskSettingsPollQuestionEl.value = poll.question || "";
+        if (document.activeElement !== taskSettingsPollQuestionEl) {
+          taskSettingsPollQuestionEl.value = poll.question || "";
+        }
         taskSettingsPollQuestionEl.disabled = !!locked || taskType !== "poll";
       }
       if (taskSettingsPollMultipleEl) {
         taskSettingsPollMultipleEl.checked = !!poll.allows_multiple;
         taskSettingsPollMultipleEl.disabled = !!locked || taskType !== "poll";
+      }
+      if (taskSettingsPollClosedEl) {
+        taskSettingsPollClosedEl.checked = !!poll.closed;
+        taskSettingsPollClosedEl.disabled = !!locked || taskType !== "poll";
       }
       if (taskSettingsPollResultsVisibilityEl) {
         taskSettingsPollResultsVisibilityEl.value = String(poll.results_visibility || "everyone") === "creator" ? "creator" : "everyone";
@@ -17350,9 +17388,9 @@
       }
       renderTaskPollOptions();
       if (taskSettingsPollOptionsEl) {
-        taskSettingsPollOptionsEl.querySelectorAll("[data-poll-option-input], [data-poll-option-remove]").forEach(function (node) {
+        taskSettingsPollOptionsEl.querySelectorAll("[data-poll-option-input], [data-poll-option-remove], [data-poll-option-move]").forEach(function (node) {
           if ("disabled" in node) {
-            node.disabled = !!locked || taskType !== "poll";
+            node.disabled = !!locked || taskType !== "poll" || node.hasAttribute("data-boundary-disabled");
           }
         });
       }
@@ -17373,6 +17411,7 @@
       return normalizeTaskPollConfig({
         question: taskSettingsPollQuestionEl ? taskSettingsPollQuestionEl.value : "",
         allows_multiple: !!(taskSettingsPollMultipleEl && taskSettingsPollMultipleEl.checked),
+        closed: !!(taskSettingsPollClosedEl && taskSettingsPollClosedEl.checked),
         results_visibility: taskSettingsPollResultsVisibilityEl ? taskSettingsPollResultsVisibilityEl.value : "everyone",
         options: options,
       });
@@ -17385,6 +17424,15 @@
         pollSettingsPersistTimer = 0;
         persistEntitySettings();
       }, 220);
+    }
+
+    function persistPollSettingsNow() {
+      if (!currentTaskId) return;
+      if (pollSettingsPersistTimer) {
+        window.clearTimeout(pollSettingsPersistTimer);
+        pollSettingsPersistTimer = 0;
+      }
+      persistEntitySettings();
     }
 
     function syncTaskLinkBadges(taskId, links) {
@@ -17614,6 +17662,7 @@
         poll_total_count: effectivePollTotalCount,
         poll_complete_count: effectivePollCompleteCount,
         poll_allows_multiple: !!meta.poll_allows_multiple,
+        poll_closed: !!meta.poll_closed,
         poll_question: String(meta.poll_question || ""),
         poll_results_visibility: String(meta.poll_results_visibility || "everyone"),
         poll_results_visible: !!meta.poll_results_visible,
@@ -17693,7 +17742,7 @@
             ' data-task-id="' + escapeHtml(task.id) + '"' +
             ' aria-pressed="' + (isResponded ? "true" : "false") + '"' +
             ' title="' + escapeHtml(title) + '"' +
-            ((task.locked || !!meta.prereq_blocked) ? ' disabled' : '') +
+            (!!meta.prereq_blocked ? ' disabled' : '') +
           '>' +
             '<span class="todo-check-toggle-icon">' + renderPollGlyphHtml() + '</span>' +
             '<span class="todo-check-toggle-label">' + escapeHtml(title) + '</span>' +
@@ -17876,7 +17925,8 @@
       var poll = taskPollConfig(task || {});
       var selectedIds = Array.isArray(meta.poll_viewer_option_ids) ? meta.poll_viewer_option_ids.slice() : [];
       var allowsMultiple = !!meta.poll_allows_multiple;
-      var canRespond = !!meta.viewer_can_set && !taskStatusBlockedByPrereq(task || {}) && !(task && task.locked);
+      var pollClosed = !!(meta.poll_closed || poll.closed);
+      var canRespond = !!meta.viewer_can_set && !pollClosed && !taskStatusBlockedByPrereq(task || {});
       var resultsVisible = !!meta.poll_results_visible;
       var optionResultsById = {};
       if (Array.isArray(meta.poll_option_results)) {
@@ -17894,6 +17944,9 @@
       if (pollResponseNoteEl) {
         if (canRespond) {
           pollResponseNoteEl.textContent = (allowsMultiple ? "Select one or more options." : "Select one option.")
+            + (resultsVisible ? "" : " Results are visible to the creator only.");
+        } else if (pollClosed) {
+          pollResponseNoteEl.textContent = "This poll is closed to new responses."
             + (resultsVisible ? "" : " Results are visible to the creator only.");
         } else {
           pollResponseNoteEl.textContent = "You can view this poll, but only assignees can respond."
@@ -18418,7 +18471,7 @@
         taskSettingsStatusEl.dataset.statusBaseline = effectiveStatus;
         taskSettingsStatusEl.setAttribute("data-payload-field", meta.mode === "single" ? "status" : (meta.mode === "poll" ? "poll_response" : "user_status"));
         taskSettingsStatusEl.hidden = false;
-        taskSettingsStatusEl.disabled = locked;
+        taskSettingsStatusEl.disabled = meta.mode === "poll" ? (!!meta.prereq_blocked || meta.viewer_can_set === false) : locked;
         taskSettingsStatusEl.dataset.statusMode = meta.mode || "single";
         taskSettingsStatusEl.dataset.statusModeBaseline = meta.mode || "single";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
@@ -18442,9 +18495,12 @@
           taskSettingsStatusEl.appendChild(chevron);
         }
         taskSettingsStatusEl.setAttribute("data-status-state", taskAggregateStatusState(task));
-        taskSettingsStatusEl.disabled = locked || blockedByPrereq;
-        taskSettingsStatusEl.setAttribute("aria-disabled", (locked || blockedByPrereq) ? "true" : "false");
-        taskSettingsStatusEl.classList.toggle("is-disabled", locked || blockedByPrereq);
+        var statusDisabled = meta.mode === "poll"
+          ? (blockedByPrereq || meta.viewer_can_set === false)
+          : (locked || blockedByPrereq);
+        taskSettingsStatusEl.disabled = statusDisabled;
+        taskSettingsStatusEl.setAttribute("aria-disabled", statusDisabled ? "true" : "false");
+        taskSettingsStatusEl.classList.toggle("is-disabled", statusDisabled);
         if (meta.mode === "poll") {
           var pollTotal = Math.max(0, Number(meta.poll_total_count || 0));
           var pollComplete = Math.max(0, Number(meta.poll_complete_count || 0));
@@ -18658,6 +18714,10 @@
       if (taskSettingsPollMultipleEl) {
         taskSettingsPollMultipleEl.checked = false;
         taskSettingsPollMultipleEl.disabled = false;
+      }
+      if (taskSettingsPollClosedEl) {
+        taskSettingsPollClosedEl.checked = false;
+        taskSettingsPollClosedEl.disabled = false;
       }
       if (taskSettingsPollResultsVisibilityEl) {
         taskSettingsPollResultsVisibilityEl.value = "everyone";
@@ -22132,16 +22192,17 @@
 
     function openSettingsStatusMenu() {
       if (currentEntityType !== "task") return;
-      if (currentTaskData && taskIsLocked(currentTaskData)) return;
       if (currentTaskData && taskStatusBlockedByPrereq(currentTaskData)) return;
-      if (taskSettingsStatusEl && (function (value, fallback) {
+      var settingsMode = taskSettingsStatusEl && (function (value, fallback) {
         var normalized = String(value || "").trim().toLowerCase();
         if (normalized === "per_user" || normalized === "multi") return "multi";
         if (normalized === "percentage" || normalized === "percent") return "percent";
         if (normalized === "poll") return "poll";
         if (normalized === "single") return "single";
         return fallback || "single";
-      })(taskSettingsStatusEl.dataset.statusMode || "single", "single") === "percent" && currentTaskData) {
+      })(taskSettingsStatusEl.dataset.statusMode || "single", "single");
+      if (currentTaskData && taskIsLocked(currentTaskData) && settingsMode !== "poll") return;
+      if (taskSettingsStatusEl && settingsMode === "percent" && currentTaskData) {
         if (typeof window.__openPercentageStatusMenu === "function") {
           window.__openPercentageStatusMenu(currentTaskData, taskSettingsStatusEl, "settings");
         }
@@ -22592,7 +22653,7 @@
           taskTypeDraft = nextType;
           currentTaskData = Object.assign({}, currentTaskData || {}, {
             task_type: nextType,
-            poll: nextType === "poll" ? taskPollConfig(currentTaskData) : { question: "", allows_multiple: false, options: [] },
+            poll: nextType === "poll" ? taskPollConfig(currentTaskData) : { question: "", allows_multiple: false, closed: false, options: [] },
           });
           renderTaskPollSettings();
           persistEntitySettings();
@@ -22601,6 +22662,21 @@
       if (taskSettingsPollQuestionEl) {
         taskSettingsPollQuestionEl.addEventListener("input", function () {
           if (currentTaskData) {
+            var poll = taskPollConfig(currentTaskData);
+            poll.question = String(taskSettingsPollQuestionEl.value || "");
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
+            if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
+            syncPollTabAppearance();
+          }
+        });
+        taskSettingsPollQuestionEl.addEventListener("blur", function () {
+          if (!currentTaskData || taskIsLocked(currentTaskData)) return;
+          persistPollSettingsNow();
+        });
+      }
+      if (taskSettingsPollMultipleEl) {
+        taskSettingsPollMultipleEl.addEventListener("change", function () {
+          if (currentTaskData) {
             currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
             if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
             syncPollTabAppearance();
@@ -22608,8 +22684,8 @@
           schedulePollSettingsPersist();
         });
       }
-      if (taskSettingsPollMultipleEl) {
-        taskSettingsPollMultipleEl.addEventListener("change", function () {
+      if (taskSettingsPollClosedEl) {
+        taskSettingsPollClosedEl.addEventListener("change", function () {
           if (currentTaskData) {
             currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
             if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
@@ -22654,9 +22730,16 @@
           if (taskSettingsPollAddOptionEl) taskSettingsPollAddOptionEl.click();
         });
       }
+      document.addEventListener("click", function (event) {
+        if (!event.target.closest) return;
+        if (event.target.closest("[data-poll-option-input]")) {
+          event.stopPropagation();
+        }
+      }, true);
       document.addEventListener("input", function (event) {
         var optionInput = event.target.closest ? event.target.closest("[data-poll-option-input]") : null;
         if (!optionInput || !currentTaskData) return;
+        event.stopPropagation();
         var poll = taskPollConfig(currentTaskData);
         poll.options = poll.options.map(function (option) {
           if (String(option.id || "") !== String(optionInput.getAttribute("data-poll-option-input") || "")) return option;
@@ -22666,10 +22749,42 @@
         schedulePollSettingsPersist();
       });
       document.addEventListener("click", function (event) {
+        var moveButton = event.target.closest ? event.target.closest("[data-poll-option-move]") : null;
+        if (moveButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!currentTaskData || moveButton.disabled) return;
+          var moveOptionId = String(moveButton.getAttribute("data-poll-option-id") || "");
+          var direction = String(moveButton.getAttribute("data-poll-option-move") || "");
+          var movePoll = taskPollConfig(currentTaskData);
+          var currentIndex = movePoll.options.findIndex(function (option) {
+            return String(option.id || "") === moveOptionId;
+          });
+          var nextIndex = direction === "up" ? currentIndex - 1 : (direction === "down" ? currentIndex + 1 : currentIndex);
+          if (currentIndex < 0 || nextIndex < 0 || nextIndex >= movePoll.options.length || nextIndex === currentIndex) return;
+          var moved = movePoll.options.splice(currentIndex, 1)[0];
+          movePoll.options.splice(nextIndex, 0, moved);
+          currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: movePoll });
+          renderTaskPollSettings();
+          schedulePollSettingsPersist();
+          return;
+        }
         var removeButton = event.target.closest ? event.target.closest("[data-poll-option-remove]") : null;
         if (!removeButton || !currentTaskData) return;
+        event.preventDefault();
+        event.stopPropagation();
         var optionId = String(removeButton.getAttribute("data-poll-option-remove") || "");
         var poll = taskPollConfig(currentTaskData);
+        var optionLabel = String(removeButton.getAttribute("data-poll-option-label") || "");
+        if (!optionLabel) {
+          var matchingOption = poll.options.find(function (option) {
+            return String(option.id || "") === optionId;
+          });
+          optionLabel = matchingOption && matchingOption.label ? String(matchingOption.label) : "this option";
+        }
+        if (!window.confirm('Remove poll option "' + optionLabel + '"? This will also clear any responses to it.')) {
+          return;
+        }
         poll.options = poll.options.filter(function (option) {
           return String(option.id || "") !== optionId;
         });
@@ -23182,7 +23297,8 @@
         event.stopPropagation();
         var taskId = trigger.getAttribute("data-task-id") || trigger.getAttribute("data-task-multi-status-trigger");
         if (!taskId) return;
-        if (window.__taskIdIsLocked(taskId)) return;
+        var triggerIsPoll = trigger.hasAttribute("data-task-poll-trigger") || trigger.classList.contains("task-status-poll-button");
+        if (window.__taskIdIsLocked(taskId) && !triggerIsPoll) return;
         if (String(trigger.getAttribute("data-status-state") || "").trim().toLowerCase() === "prereq") return;
         var statusHost = trigger.closest("[data-task-status-host]") || document.querySelector('[data-task-status-host="' + taskId + '"]');
         var hostTask = statusHost && statusHost._taskPayload ? statusHost._taskPayload : null;
@@ -27242,7 +27358,7 @@
         event.stopPropagation();
         if (todoCheckButton.disabled || todoCheckButton.dataset.pending === "1") return;
         var taskId = String(todoCheckButton.getAttribute("data-task-id") || "").trim();
-        if (!taskId || window.__taskIdIsLocked(taskId)) return;
+        if (!taskId) return;
         var todoRow = todoCheckButton.closest(".todo-item");
         var statusHost = todoRow ? todoRow.querySelector('[data-task-status-host="' + taskId + '"]') : null;
         var task = (todoRow && todoRow._taskPayload) || (statusHost && statusHost._taskPayload) || null;
@@ -27255,6 +27371,7 @@
           }
           return;
         }
+        if (window.__taskIdIsLocked(taskId)) return;
         if (meta.mode === "percent") {
           var trigger = todoRow ? todoRow.querySelector('[data-task-multi-status-trigger="' + taskId + '"]') : null;
           if (trigger) {

@@ -693,6 +693,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "poll": {
             "question": str(poll_raw.get("question") or "").strip(),
             "allows_multiple": bool(poll_raw.get("allows_multiple")),
+            "closed": bool(poll_raw.get("closed")),
             "results_visibility": "creator" if str(poll_raw.get("results_visibility") or "").strip().lower() == "creator" else "everyone",
             "options": poll_options,
         },
@@ -838,6 +839,7 @@ def _serialize_task_data(
         "poll": {
             "question": str(poll_raw.get("question") or "").strip(),
             "allows_multiple": bool(poll_raw.get("allows_multiple")),
+            "closed": bool(poll_raw.get("closed")),
             "options": poll_options,
         },
         "status_mode": normalize_task_status_mode(getattr(task, "status_mode", None), default="single"),

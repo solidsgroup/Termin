@@ -9,9 +9,11 @@ from werkzeug.security import generate_password_hash
 
 
 TEST_ROOT = Path(tempfile.mkdtemp(prefix="termin-e2e-"))
+E2E_PORT = int(os.environ.get("TERMIN_E2E_PORT") or os.environ.get("PORT") or "5010")
+E2E_BASE_URL = os.environ.get("TERMIN_E2E_BASE_URL") or f"http://127.0.0.1:{E2E_PORT}"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_ROOT / 'e2e.db'}"
 os.environ.setdefault("SECRET_KEY", "e2e-secret")
-os.environ.setdefault("PUBLIC_BASE_URL", "http://127.0.0.1:5010")
+os.environ.setdefault("PUBLIC_BASE_URL", E2E_BASE_URL)
 os.environ.setdefault("PREFERRED_URL_SCHEME", "http")
 os.environ.setdefault("DEV_MAILBOX_ENABLED", "1")
 os.environ.setdefault("DEV_MAILBOX_CAPTURE_ONLY", "1")
@@ -387,7 +389,7 @@ def e2e_convert_collaborator():
 
 def main():
     seed_data()
-    socketio.run(app, host="127.0.0.1", port=5010, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="127.0.0.1", port=E2E_PORT, debug=False, allow_unsafe_werkzeug=True)
 
 
 if __name__ == "__main__":
