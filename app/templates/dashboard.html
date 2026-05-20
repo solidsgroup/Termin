@@ -518,14 +518,30 @@
   }
 
   .todo-active-task-title {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
     font-size: 0.93rem;
     font-weight: 400;
     line-height: 1.15;
     color: var(--ink);
+  }
+
+  .todo-active-task-title:hover,
+  .todo-active-task-title:focus-visible,
+  .todo-active-task-scope:hover,
+  .todo-active-task-scope:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   .todo-active-task-meta {
@@ -537,6 +553,11 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .todo-active-task-scope {
+    color: inherit;
+    text-decoration: none;
   }
 
   .todo-active-task-arrow {
@@ -870,7 +891,7 @@
     background: color-mix(in srgb, var(--panel) 96%, #000 4%);
     border: 1px solid var(--line);
     box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
-    pointer-events: none;
+    pointer-events: auto;
   }
 
   .prereq-hover-card-title {
@@ -889,6 +910,15 @@
 
   .prereq-hover-card .discussion-prerequisite-row {
     margin: 0;
+    border-top: 0;
+    cursor: pointer;
+  }
+
+  .prereq-hover-card .discussion-prerequisite-row:hover,
+  .prereq-hover-card .discussion-prerequisite-row:focus-within {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 58%, transparent);
   }
 
   .prereq-hover-card .discussion-assignment-name {
@@ -17290,8 +17320,9 @@
       return rows.map(function (prerequisite) {
         var label = prerequisite.title || "Task";
         var secondary = prerequisiteMetaLabel(prerequisite);
+        var prerequisiteTaskId = prerequisite.prerequisite_task_id || prerequisite.task_id || prerequisite.id || "";
         return (
-          '<div class="discussion-assignment-row discussion-prerequisite-row' + (readOnly ? ' is-readonly' : '') + '" data-prerequisite-id="' + prerequisite.id + '">' +
+          '<div class="discussion-assignment-row discussion-prerequisite-row' + (readOnly ? ' is-readonly' : '') + '" data-prerequisite-id="' + prerequisite.id + '" data-prerequisite-task-id="' + escapeHtml(prerequisiteTaskId) + '">' +
             '<div class="discussion-assignment-user discussion-prerequisite-user">' +
               '<div class="discussion-prerequisite-pill-slot">' +
                 renderReadonlyTaskStatusIconHtml(prerequisite) +
@@ -19412,6 +19443,10 @@
       requestId: 0,
     };
 
+    function nodeWithinPrereqHoverCard(node) {
+      return !!(prereqHoverCardEl && node && prereqHoverCardEl.contains(node));
+    }
+
     function cancelHidePrereqHoverCard() {
       if (prereqHoverState.hideTimer) {
         window.clearTimeout(prereqHoverState.hideTimer);
@@ -19472,6 +19507,39 @@
         '</div>';
       prereqHoverCardEl.hidden = false;
       prereqHoverCardEl.setAttribute("aria-hidden", "false");
+    }
+
+    function openPrereqTaskFromHover(prerequisiteId, fallbackPrerequisite) {
+      var taskId = String(prerequisiteId || "").trim();
+      if (!taskId) return;
+      var localTask = (typeof dashboardTaskEntity === "function" ? dashboardTaskEntity(taskId) : null)
+        || (typeof taskById === "function" ? taskById(taskId) : null)
+        || fallbackPrerequisite
+        || { id: taskId, title: "Task" };
+      var task = normalizeDashboardTaskPayload(Object.assign({}, fallbackPrerequisite || {}, localTask || {}, { id: taskId }));
+      taskTypeDraft = null;
+      currentEntityData = null;
+      currentTaskData = task;
+      currentEntityLinks = Array.isArray(task.links) ? task.links.slice() : (task.link ? [task.link] : []);
+      setDrawerEntityType("task");
+      currentEntityId = taskId;
+      currentTaskId = taskId;
+      currentTaskTitle = task.title || "Task";
+      currentProjectName = task.project_name || "";
+      if (!currentProjectName && task.project_id && typeof dashboardProjectEntity === "function") {
+        var project = dashboardProjectEntity(task.project_id);
+        currentProjectName = (project && (project.display_name || project.name)) || "";
+      }
+      drawer.setAttribute("data-open-task-id", taskId);
+      titleEl.textContent = currentTaskTitle;
+      setDiscussionSubtitle(task.project_id || "", task.group_name || "");
+      syncDiscussionAudience();
+      renderTaskSettings();
+      renderEntityLinkState();
+      drawer.classList.add("open");
+      markDrawerOpenInHistory();
+      setDrawerTab("settings");
+      hidePrereqHoverCard();
     }
 
     function renderPrereqHoverCardLoading() {
@@ -19546,8 +19614,37 @@
       if (!from || from !== prereqHoverState.activeTarget) return;
       var to = prereqHoverTargetForNode(event.relatedTarget);
       if (to === from) return;
+      if (nodeWithinPrereqHoverCard(event.relatedTarget)) return;
       scheduleHidePrereqHoverCard();
     });
+
+    if (prereqHoverCardEl) {
+      prereqHoverCardEl.addEventListener("mouseenter", function () {
+        cancelHidePrereqHoverCard();
+      });
+      prereqHoverCardEl.addEventListener("mouseleave", function (event) {
+        var to = prereqHoverTargetForNode(event.relatedTarget);
+        if (to && to === prereqHoverState.activeTarget) return;
+        scheduleHidePrereqHoverCard();
+      });
+      prereqHoverCardEl.addEventListener("click", function (event) {
+        var row = event.target.closest ? event.target.closest("[data-prerequisite-id]") : null;
+        if (!row || !prereqHoverCardEl.contains(row)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        var prerequisiteId = row.getAttribute("data-prerequisite-task-id") || row.getAttribute("data-prerequisite-id");
+        var prerequisiteRowId = row.getAttribute("data-prerequisite-id");
+        var activeTask = taskForPrereqHoverTarget(prereqHoverState.activeTarget);
+        var fallback = null;
+        if (activeTask && Array.isArray(activeTask.prerequisites)) {
+          fallback = activeTask.prerequisites.find(function (item) {
+            return String(item && (item.prerequisite_task_id || item.task_id || item.id) || "") === String(prerequisiteId || "")
+              || String(item && item.id || "") === String(prerequisiteRowId || "");
+          }) || null;
+        }
+        openPrereqTaskFromHover(prerequisiteId, fallback);
+      });
+    }
 
     document.addEventListener("focusin", function (event) {
       var target = prereqHoverTargetForNode(event.target);
@@ -21590,9 +21687,12 @@
       }
       var fragment = document.createDocumentFragment();
       entries.forEach(function (entry) {
-        var row = document.createElement("a");
+        var row = document.createElement("div");
+        var projectHref = entry.projectId ? ("/tree/project/" + encodeURIComponent(String(entry.projectId || ""))) : "";
+        var groupHref = entry.projectId && entry.groupId
+          ? ("/tree/project/" + encodeURIComponent(String(entry.projectId || "")) + "/group/" + encodeURIComponent(String(entry.groupId || "")))
+          : "";
         row.className = "todo-active-task-row";
-        row.href = "/task/" + encodeURIComponent(String(entry.id || ""));
         row.style.setProperty("--todo-active-task-color", String(entry.divisionColor || "var(--accent)"));
         row.setAttribute("data-task-id", String(entry.id || ""));
         row.setAttribute("data-project-id", String(entry.projectId || ""));
@@ -21604,10 +21704,10 @@
         row.innerHTML = '' +
           '<span class="todo-active-task-accent" aria-hidden="true"></span>' +
           '<span class="todo-active-task-copy">' +
-            '<span class="todo-active-task-title">' + escapeHtml(entry.title || "Task") + '</span>' +
+            '<button class="todo-active-task-title" type="button" data-active-task-open="' + escapeHtml(entry.id || "") + '" data-task-title="' + escapeHtml(entry.title || "Task") + '" data-project-name="' + escapeHtml(entry.projectName || "Project") + '">' + escapeHtml(entry.title || "Task") + '</button>' +
             '<span class="todo-active-task-meta">' +
-              escapeHtml(entry.projectName || "Project") +
-              (entry.groupName ? ' · ' + escapeHtml(entry.groupName) : '') +
+              (projectHref ? '<a class="todo-active-task-scope" data-active-project-link href="' + escapeHtml(projectHref) + '">' + escapeHtml(entry.projectName || "Project") + '</a>' : escapeHtml(entry.projectName || "Project")) +
+              (entry.groupName ? ' · ' + (groupHref ? '<a class="todo-active-task-scope" data-active-group-link href="' + escapeHtml(groupHref) + '">' + escapeHtml(entry.groupName) + '</a>' : escapeHtml(entry.groupName)) : '') +
               (entry.dueLabel ? ' · ' + escapeHtml(entry.dueLabel) : '') +
             '</span>' +
           '</span>' +
@@ -27325,6 +27425,20 @@
     {% endif %}
 
     document.addEventListener("click", function (event) {
+      var activeTaskOpen = event.target.closest("[data-active-task-open]");
+      if (activeTaskOpen) {
+        event.preventDefault();
+        event.stopPropagation();
+        var activeTaskId = Number(activeTaskOpen.getAttribute("data-active-task-open") || 0);
+        if (activeTaskId && typeof window.__openSettings === "function") {
+          window.__openSettings(
+            activeTaskId,
+            activeTaskOpen.getAttribute("data-task-title") || "",
+            activeTaskOpen.getAttribute("data-project-name") || "Project"
+          );
+        }
+        return;
+      }
       if (
         typeof window.matchMedia === "function" &&
         window.matchMedia("(max-width: 900px)").matches
@@ -27466,7 +27580,7 @@
           });
         return;
       }
-      var treeLink = event.target.closest(".todo-project-name, .todo-group-name");
+      var treeLink = event.target.closest(".todo-project-name, .todo-group-name, .todo-active-task-scope");
       if (!treeLink) return;
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;

@@ -551,6 +551,31 @@ async function expectPrereqHoverCard(page, triggerSelector, expectedTitle) {
   }
 }
 
+async function installTaskFetchRecorder(page, taskId) {
+  await page.evaluate((targetTaskId) => {
+    const needle = `/api/tasks/${targetTaskId}`;
+    window.__prereqTaskFetchRecorder = { needle, urls: [] };
+    if (!window.__prereqTaskFetchRecorderOriginalFetch) {
+      window.__prereqTaskFetchRecorderOriginalFetch = window.fetch.bind(window);
+      window.fetch = function patchedPrereqTaskFetch(input, init) {
+        const url = typeof input === 'string' ? input : ((input && input.url) || '');
+        if (String(url).indexOf(window.__prereqTaskFetchRecorder.needle) >= 0) {
+          window.__prereqTaskFetchRecorder.urls.push({
+            url: String(url),
+            method: String((init && init.method) || (input && input.method) || 'GET').toUpperCase(),
+          });
+        }
+        return window.__prereqTaskFetchRecorderOriginalFetch(input, init);
+      };
+    }
+  }, String(taskId));
+}
+
+async function expectNoRecordedTaskFetches(page) {
+  const recorded = await page.evaluate(() => (window.__prereqTaskFetchRecorder && window.__prereqTaskFetchRecorder.urls) || []);
+  expect(recorded).toEqual([]);
+}
+
 async function openPollDialogFromTree(page, taskId) {
   const trigger = page.locator(`[data-task-row-id="${taskId}"] [data-task-poll-trigger="${taskId}"]`).first();
   await expect(trigger).toHaveCount(1);
@@ -1246,6 +1271,12 @@ test.describe('dashboard and realtime flows', () => {
     await waitForTreeProjectReady(page, state.project.id, dependentTask.id);
     await expect(page.locator(`[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
     await expectPrereqHoverCard(page, `[data-task-row-id="${dependentTask.id}"] [data-status-cell="1"]`, 'Hover Source Task');
+    await installTaskFetchRecorder(page, prerequisiteTask.id);
+    await page.locator(`#prereq-hover-card [data-prerequisite-task-id="${prerequisiteTask.id}"]`).click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await expect(page.locator('#discussion-drawer')).toHaveAttribute('data-open-task-id', String(prerequisiteTask.id));
+    await expect(page.locator('#discussion-title')).toHaveText('Hover Source Task');
+    await expectNoRecordedTaskFetches(page);
     await steps.step('Hover the blocked Tree status badge and verify the prereq hover card shows the prerequisite task.', page);
 
     await page.goto('/todo');
@@ -2718,7 +2749,15 @@ test.describe('dashboard and realtime flows', () => {
     await expect(activeRows).toHaveCount(1);
     await expect(activeRows.first()).toContainText('Realtime Task');
     await expect(activeRows.first()).toContainText((state.project && (state.project.display_name || state.project.name)) || 'Realtime Project');
-    await steps.step(`Open /todo with a task started on ${today} and due ${futureDue}, then verify the compact Active Tasks section shows a single-line row for Realtime Task.`, page);
+    await activeRows.first().locator('[data-active-task-open]').click();
+    await expect(page.locator('#discussion-drawer')).toHaveAttribute('data-open-task-id', String(state.task.id));
+    await expect(page.locator('#discussion-title')).toHaveText('Realtime Task');
+    await page.locator('#discussion-close').click();
+    await expect(activeRows.first().locator('[data-active-project-link]')).toHaveAttribute('href', `/tree/project/${state.project.id}`);
+    await expect(activeRows.first().locator('[data-active-group-link]')).toHaveAttribute('href', `/tree/project/${state.project.id}/group/${state.group.id}`);
+    await activeRows.first().locator('[data-active-group-link]').click();
+    await expect(page).toHaveURL(new RegExp(`/tree/project/${state.project.id}/group/${state.group.id}`));
+    await steps.step(`Open /todo with a task started on ${today} and due ${futureDue}, then verify the compact Active Tasks title opens the drawer and the group link navigates to Tree.`, page);
   });
 
   test('todo active tasks are ordered by nearest due date first', async ({ page, request }) => {
