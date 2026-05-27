@@ -14427,6 +14427,7 @@
 
 <script>
   (function () {
+    window.__terminDashboardSocketOwnsNotifications = true;
     var drawer = document.getElementById("discussion-drawer");
     if (!drawer) return;
     var listEl = document.getElementById("discussion-list");
@@ -25774,6 +25775,8 @@
     }
 
     function pollNotificationState() {
+      if (socketConnected) return;
+      if (document.hidden) return;
       fetch("/api/notifications", { credentials: "same-origin" })
         .then(function (res) { return res.json().catch(function () { return {}; }); })
         .then(function (data) {

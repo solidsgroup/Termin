@@ -11933,7 +11933,7 @@
 
         applyHeaderNotificationState(headerNotificationState);
 
-        if (window.io) {
+        if (window.io && !window.__terminDashboardSocketOwnsNotifications) {
           const headerSocket = window.io({
             transports: ["websocket", "polling"],
           });
