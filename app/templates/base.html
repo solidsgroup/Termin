@@ -27,8 +27,27 @@
           },
         },
       };
+      window.__loadTerminMathJax = function () {
+        if (window.MathJax && window.MathJax.typesetPromise) {
+          return Promise.resolve(window.MathJax);
+        }
+        if (window.__terminMathJaxLoading) {
+          return window.__terminMathJaxLoading;
+        }
+        window.__terminMathJaxLoading = new Promise(function (resolve, reject) {
+          var script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js";
+          script.async = true;
+          script.onload = function () { resolve(window.MathJax); };
+          script.onerror = function () {
+            window.__terminMathJaxLoading = null;
+            reject(new Error("MathJax failed to load"));
+          };
+          document.head.appendChild(script);
+        });
+        return window.__terminMathJaxLoading;
+      };
     </script>
-    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <style>
       :root {
         --bg: {{ global_theme_interface.bg }};
@@ -1244,13 +1263,14 @@
         transform: translateX(-50%);
         opacity: 0;
         pointer-events: none;
+        overflow: hidden;
         transition: opacity 160ms ease;
       }
 
       .header-loading-indicator::before {
         content: "";
         display: block;
-        width: 100%;
+        width: calc(100% + 84px);
         height: 100%;
         border-radius: 999px;
         background:
@@ -1262,6 +1282,7 @@
         background-size: 84px 4px;
         animation: termin-header-loading 1200ms linear infinite;
         opacity: 0.45;
+        will-change: transform;
       }
 
       body.is-page-loading .header-loading-indicator {
@@ -1276,10 +1297,10 @@
 
       @keyframes termin-header-loading {
         from {
-          background-position: 0 0;
+          transform: translateX(-84px);
         }
         to {
-          background-position: 84px 0;
+          transform: translateX(0);
         }
       }
 

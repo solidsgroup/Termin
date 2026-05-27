@@ -15113,7 +15113,7 @@
 	    }
 
     function typesetMathNodes(nodes) {
-      if (!nodes || !window.MathJax || !MathJax.typesetPromise) return;
+      if (!nodes) return;
       var elements = [];
       if (Array.isArray(nodes) || nodes instanceof NodeList) {
         elements = Array.from(nodes);
@@ -15124,9 +15124,22 @@
       }
       elements = elements.filter(function (el) { return el; });
       if (!elements.length) return;
-      MathJax.typesetPromise(elements).catch(function (err) {
-        console.error("MathJax typeset failed", err);
+      var hasMath = elements.some(function (el) {
+        var text = String(el.textContent || "");
+        return /\\\(|\\\[|\$\$|(^|[^\\])\$[^$\n]+\$/.test(text);
       });
+      if (!hasMath) return;
+      var loader = typeof window.__loadTerminMathJax === "function"
+        ? window.__loadTerminMathJax()
+        : Promise.resolve(window.MathJax || null);
+      loader
+        .then(function (mathJax) {
+          if (!mathJax || typeof mathJax.typesetPromise !== "function") return;
+          return mathJax.typesetPromise(elements);
+        })
+        .catch(function (err) {
+          console.error("MathJax typeset failed", err);
+        });
     }
 
     function setDescriptionRendered(html) {
