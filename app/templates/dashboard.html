@@ -1625,6 +1625,11 @@
     border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
     border-top-color: var(--accent);
     animation: termin-page-spinner 720ms linear infinite;
+    animation-play-state: paused;
+  }
+
+  .discussion-drawer.is-loading .discussion-loading-spinner {
+    animation-play-state: running;
   }
 
   .discussion-drawer .discussion-presence,
@@ -1834,6 +1839,11 @@
     border: 2px solid color-mix(in srgb, var(--muted) 45%, transparent);
     border-top-color: var(--accent);
     animation: termin-page-spinner 720ms linear infinite;
+    animation-play-state: paused;
+  }
+
+  .dashboard-pane-loading.is-active .dashboard-pane-spinner {
+    animation-play-state: running;
   }
 
   .dashboard-home-stats {
@@ -2341,6 +2351,11 @@
     border: 2px solid color-mix(in srgb, var(--line) 82%, transparent);
     border-top-color: color-mix(in srgb, var(--accent) 58%, var(--line));
     animation: assign-suggest-spin 700ms linear infinite;
+    animation-play-state: paused;
+  }
+
+  .assign-suggest-avatar.is-loading .assign-suggest-spinner {
+    animation-play-state: running;
   }
 
   @keyframes assign-suggest-spin {

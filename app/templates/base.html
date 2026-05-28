@@ -1281,12 +1281,17 @@
           );
         background-size: 84px 4px;
         animation: termin-header-loading 1200ms linear infinite;
+        animation-play-state: paused;
         opacity: 0.45;
         will-change: transform;
       }
 
       body.is-page-loading .header-loading-indicator {
         opacity: 1;
+      }
+
+      body.is-page-loading .header-loading-indicator::before {
+        animation-play-state: running;
       }
 
       @keyframes termin-page-spinner {
