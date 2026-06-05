@@ -2601,6 +2601,7 @@ def get_task(task_id: int):
     assignments = Assignment.query.filter_by(task_id=task.id).all()
     followers = TaskFollower.query.filter_by(task_id=task.id).all()
     info_payload = _info_payload_for(task)
+    status_meta = task_status_meta(task, viewer_user_id=user.id)
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -2618,6 +2619,8 @@ def get_task(task_id: int):
         "poll": _task_poll(task),
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
+        "status_meta": status_meta,
+        "user_status": status_meta.get("my_status"),
         "per_user_status_enabled": _task_status_mode(task) == "multi",
         "assign_group_members": bool(task.assign_group_members),
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
@@ -3375,8 +3378,7 @@ def move_task(task_id: int):
             actor_user_id=user.id,
         )
     affected_bucket_task_ids: list[int] = []
-    if bucket_changed:
-        affected_bucket_task_ids.extend(row.id for row in _task_bucket_query(task.project_id, task.group_id).all())
+    affected_bucket_task_ids.extend(row.id for row in _task_bucket_query(task.project_id, task.group_id).all())
     if bucket_changed and source_project_id:
         affected_bucket_task_ids.extend(
             row.id for row in _task_bucket_query(source_project_id, source_group_id).all()
@@ -3392,10 +3394,15 @@ def move_task(task_id: int):
             continue
         seen_task_ids.add(normalized_id)
         combined_task_ids.append(normalized_id)
+    affected_tasks = (
+        Task.query.filter(Task.id.in_(combined_task_ids))
+        .order_by(Task.project_id.asc(), Task.group_id.asc().nullsfirst(), Task.position.asc(), Task.id.asc())
+        .all()
+    ) if combined_task_ids else []
     if combined_task_ids:
-        impacted_tasks = Task.query.filter(Task.id.in_(combined_task_ids)).all()
-        if impacted_tasks:
-            emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
+        socket_position_tasks = [row for row in affected_tasks if not bucket_changed or int(row.id) != int(task.id)]
+        if socket_position_tasks:
+            emit_tasks_updated(socket_position_tasks, action="reordered", actor_user_id=user.id)
     if bucket_changed:
         emit_task_notification_updates(task, exclude_user_id=user.id)
     return {
@@ -3405,6 +3412,7 @@ def move_task(task_id: int):
         "project_id": task.project_id,
         "group_id": task.group_id,
         "position": task.position,
+        "affected_tasks": [_serialize_task_row(row, viewer_user_id=user.id) for row in affected_tasks],
     }, 200
 
 

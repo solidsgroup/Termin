@@ -31,7 +31,7 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app.extensions import db, socketio
-from app.models import Assignment, Project, ProjectMember, Task, TaskUserStatus, User
+from app.models import Assignment, Group, Project, ProjectMember, Task, TaskUserStatus, User
 from app.realtime import emit_task_updated
 
 
@@ -117,6 +117,76 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(dashboard_response.status_code, 200)
         self.assertIn('data-dashboard-current-view="dashboard"', root_response.get_data(as_text=True))
         self.assertIn('data-dashboard-current-view="dashboard"', dashboard_response.get_data(as_text=True))
+
+    def test_same_bucket_task_move_returns_affected_positions(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Planning")
+            group = Group(project_id=project.id, name="Work", position=1)
+            db.session.add(group)
+            db.session.flush()
+            first = self.create_task(project, "First", creator=owner)
+            second = self.create_task(project, "Second", creator=owner)
+            third = self.create_task(project, "Third", creator=owner)
+            first.group_id = group.id
+            second.group_id = group.id
+            third.group_id = group.id
+            first.position = 1
+            second.position = 2
+            third.position = 3
+            db.session.commit()
+            project_id = project.id
+            group_id = group.id
+            first_id = first.id
+            second_id = second.id
+            third_id = third.id
+
+        self.login(self.client, owner_id)
+        response = self.client.post(
+            f"/api/tasks/{third_id}/move",
+            json={
+                "project_id": project_id,
+                "group_id": group_id,
+                "before_task_id": first_id,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["task_id"], third_id)
+        affected = {row["id"]: row["position"] for row in payload.get("affected_tasks", [])}
+        self.assertEqual(affected, {third_id: 1, first_id: 2, second_id: 3})
+
+        with self.app.app_context():
+            rows = (
+                Task.query.filter(Task.id.in_([first_id, second_id, third_id]))
+                .order_by(Task.position.asc(), Task.id.asc())
+                .all()
+            )
+            self.assertEqual([row.id for row in rows], [third_id, first_id, second_id])
+            self.assertEqual([row.position for row in rows], [1, 2, 3])
+
+    def test_get_task_includes_status_meta_after_single_status_completion(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Planning")
+            task = self.create_task(project, "Complete Me", creator=owner, status="open")
+            self.add_assignment(task, user=owner)
+            project_id = project.id
+            task_id = task.id
+
+        self.login(self.client, owner_id)
+        patch_response = self.client.patch(f"/api/tasks/{task_id}", json={"status": "complete"})
+        self.assertEqual(patch_response.status_code, 200)
+
+        get_response = self.client.get(f"/api/tasks/{task_id}")
+        self.assertEqual(get_response.status_code, 200)
+        payload = get_response.get_json()
+        self.assertEqual(payload["project_id"], project_id)
+        self.assertEqual(payload["status"], "complete")
+        self.assertEqual(payload["status_meta"]["mode"], "single")
+        self.assertEqual(payload["status_meta"]["task_status_state"], "complete")
 
     def test_dashboard_action_items_only_show_tasks_assigned_to_current_user(self):
         with self.app.app_context():

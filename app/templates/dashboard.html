@@ -14008,7 +14008,45 @@
         moveTaskRowPreview(row, targetTbody, beforeRow || null);
       }
 
+      function orderedTaskMovePayloads(tasks) {
+        return (Array.isArray(tasks) ? tasks.slice() : []).sort(function (a, b) {
+          var projectDelta = Number(a && a.project_id || 0) - Number(b && b.project_id || 0);
+          if (projectDelta !== 0) return projectDelta;
+          var groupA = a && a.group_id != null ? Number(a.group_id) : -1;
+          var groupB = b && b.group_id != null ? Number(b.group_id) : -1;
+          if (groupA !== groupB) return groupA - groupB;
+          var positionDelta = Number(a && a.position || 0) - Number(b && b.position || 0);
+          if (positionDelta !== 0) return positionDelta;
+          return Number(a && a.id || 0) - Number(b && b.id || 0);
+        });
+      }
+
+      function applyTaskMovePayloads(tasks) {
+        orderedTaskMovePayloads(tasks).forEach(function (affectedTask) {
+          if (!affectedTask || !affectedTask.id) return;
+          if (typeof rememberRecentTaskSnapshot === "function") {
+            rememberRecentTaskSnapshot(affectedTask);
+          } else if (typeof window.__rememberRecentTaskSnapshot === "function") {
+            window.__rememberRecentTaskSnapshot(affectedTask);
+          }
+          if (typeof mergeDashboardTask === "function") {
+            mergeDashboardTask(affectedTask);
+          } else if (typeof window.__mergeDashboardTask === "function") {
+            window.__mergeDashboardTask(affectedTask);
+          }
+          if (typeof applyTaskRowUpdate === "function") {
+            applyTaskRowUpdate(affectedTask);
+          } else if (typeof window.__applyTaskRowUpdate === "function") {
+            window.__applyTaskRowUpdate(affectedTask);
+          }
+          if (typeof window.__renderTaskAssignments === "function") {
+            window.__renderTaskAssignments(affectedTask.id, affectedTask.assignments || []);
+          }
+        });
+      }
+
       function submitLegacyTaskMove(taskId, payload) {
+
         return fetch("/api/tasks/" + taskId + "/move", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -14026,25 +14064,11 @@
           .then(function (data) {
             var movedTask = data && data.task && data.task.id ? data.task : null;
             if (!movedTask) return data;
+            var affectedTasks = Array.isArray(data.affected_tasks) && data.affected_tasks.length
+              ? data.affected_tasks
+              : [movedTask];
             placeTaskRowLocal(taskId, payload);
-            if (typeof rememberRecentTaskSnapshot === "function") {
-              rememberRecentTaskSnapshot(movedTask);
-            } else if (typeof window.__rememberRecentTaskSnapshot === "function") {
-              window.__rememberRecentTaskSnapshot(movedTask);
-            }
-            if (typeof mergeDashboardTask === "function") {
-              mergeDashboardTask(movedTask);
-            } else if (typeof window.__mergeDashboardTask === "function") {
-              window.__mergeDashboardTask(movedTask);
-            }
-            if (typeof applyTaskRowUpdate === "function") {
-              applyTaskRowUpdate(movedTask);
-            } else if (typeof window.__applyTaskRowUpdate === "function") {
-              window.__applyTaskRowUpdate(movedTask);
-            }
-            if (typeof window.__renderTaskAssignments === "function") {
-              window.__renderTaskAssignments(movedTask.id, movedTask.assignments || []);
-            }
+            applyTaskMovePayloads(affectedTasks);
             return data;
           });
       }
@@ -25790,6 +25814,10 @@
 
       socket.on("tasks_updated", function (data) {
         if (!data || !Array.isArray(data.tasks) || !data.tasks.length) return;
+        if (data.action === "reordered") {
+          applyTaskMovePayloads(data.tasks);
+          return;
+        }
         data.tasks.forEach(function (task) {
           if (!task || !task.id) return;
           processTaskSocketUpdate({
