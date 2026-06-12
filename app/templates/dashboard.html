@@ -14667,6 +14667,7 @@
           }
         });
       }
+      window.__applyTaskMovePayloads = applyTaskMovePayloads;
 
       function submitLegacyTaskMove(taskId, payload) {
 
@@ -26768,7 +26769,19 @@
       socket.on("tasks_updated", function (data) {
         if (!data || !Array.isArray(data.tasks) || !data.tasks.length) return;
         if (data.action === "reordered") {
-          applyTaskMovePayloads(data.tasks);
+          if (typeof window.__applyTaskMovePayloads === "function") {
+            window.__applyTaskMovePayloads(data.tasks);
+            return;
+          }
+          console.warn("task reorder payload received before move helper was ready");
+          data.tasks.forEach(function (task) {
+            if (!task || !task.id) return;
+            processTaskSocketUpdate({
+              action: "updated",
+              actor_user_id: data.actor_user_id,
+              task: task,
+            });
+          });
           return;
         }
         data.tasks.forEach(function (task) {
