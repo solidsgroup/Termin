@@ -21496,6 +21496,110 @@
         handle.dataset.ganttProvisionalIso = "";
       }
 
+      function clearGanttGuideHighlights(shell) {
+        if (!shell) return;
+        shell.querySelectorAll(".is-gantt-guide-intersecting").forEach(function (node) {
+          node.classList.remove("is-gantt-guide-intersecting");
+        });
+        shell.querySelectorAll(".is-gantt-guide-date-hit").forEach(function (node) {
+          node.classList.remove("is-gantt-guide-date-hit");
+        });
+      }
+
+      function updateGanttGuideHighlights(track, isoValue) {
+        if (!track) return;
+        var shell = track.closest(".project-gantt-shell");
+        if (!shell) return;
+        clearGanttGuideHighlights(shell);
+        var snappedIso = String(isoValue || "").slice(0, 10);
+        if (!snappedIso) return;
+        var sourceTaskId = String(track.getAttribute("data-task-id") || "");
+        shell.querySelectorAll("[data-gantt-track]").forEach(function (candidateTrack) {
+          var taskId = String(candidateTrack.getAttribute("data-task-id") || "");
+          if (!taskId || (sourceTaskId && taskId === sourceTaskId)) return;
+          var startIso = String(candidateTrack.getAttribute("data-task-start-date") || "").slice(0, 10);
+          var dueIso = String(candidateTrack.getAttribute("data-task-effective-due-date") || candidateTrack.getAttribute("data-task-due-date") || "").slice(0, 10);
+          var startHit = !!startIso && startIso === snappedIso;
+          var endHit = !!dueIso && dueIso === snappedIso;
+          var intersectsRange = false;
+          if (startIso && dueIso) {
+            var rangeStart = startIso <= dueIso ? startIso : dueIso;
+            var rangeEnd = startIso <= dueIso ? dueIso : startIso;
+            intersectsRange = snappedIso >= rangeStart && snappedIso <= rangeEnd;
+          } else if (dueIso) {
+            intersectsRange = dueIso === snappedIso;
+          }
+          if (!intersectsRange && !startHit && !endHit) return;
+          var row = candidateTrack.closest(".project-gantt-row");
+          if (row) {
+            row.classList.add("is-gantt-guide-intersecting");
+          }
+          if (startHit) {
+            var startHandle = candidateTrack.querySelector('[data-gantt-handle="start"]:not(.is-provisional)');
+            if (startHandle) {
+              startHandle.classList.add("is-gantt-guide-date-hit");
+            }
+          }
+          if (endHit) {
+            candidateTrack.querySelectorAll('.project-gantt-marker, [data-gantt-handle="end"]').forEach(function (node) {
+              node.classList.add("is-gantt-guide-date-hit");
+            });
+          }
+        });
+      }
+
+      function getGanttAnchorIso(track, anchorEl) {
+        if (!track || !anchorEl) return "";
+        if (anchorEl.matches && anchorEl.matches('[data-gantt-handle="start"]')) {
+          return String(track.getAttribute("data-task-start-date") || anchorEl.getAttribute("data-gantt-provisional-iso") || "").slice(0, 10);
+        }
+        if (anchorEl.matches && (anchorEl.matches('[data-gantt-handle="end"]') || anchorEl.matches(".project-gantt-marker"))) {
+          return String(track.getAttribute("data-task-effective-due-date") || track.getAttribute("data-task-due-date") || "").slice(0, 10);
+        }
+        return "";
+      }
+
+      function setGanttHoverLinePercent(track, percent, isoValue) {
+        if (!track) return;
+        var shell = track.closest(".project-gantt-shell");
+        if (!shell) return;
+        var nextPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+        shell.style.setProperty("--gantt-hover-percent", nextPercent.toFixed(2) + "%");
+        shell.classList.add("is-gantt-hovering");
+        updateGanttGuideHighlights(track, isoValue);
+      }
+
+      function updateGanttHoverLine(track, clientX, anchorEl) {
+        if (!track || activeGanttDrag) return;
+        var shell = track.closest(".project-gantt-shell");
+        if (!shell) return;
+        var anchorPercent = null;
+        if (anchorEl && anchorEl.style && anchorEl.style.left) {
+          var parsedPercent = parseFloat(anchorEl.style.left);
+          if (!Number.isNaN(parsedPercent)) {
+            anchorPercent = Math.max(0, Math.min(100, parsedPercent));
+          }
+        }
+        var snappedIso = anchorPercent === null ? ganttTrackDateFromClientX(track, clientX) : getGanttAnchorIso(track, anchorEl);
+        var snappedPercent = snappedIso ? ganttPercentForIso(track, snappedIso) : null;
+        var nextPercent = anchorPercent !== null ? anchorPercent : snappedPercent;
+        if (nextPercent === null) {
+          var trackRect = track.getBoundingClientRect();
+          nextPercent = trackRect.width
+            ? Math.max(0, Math.min(100, ((clientX - trackRect.left) / trackRect.width) * 100))
+            : 0;
+        }
+        setGanttHoverLinePercent(track, nextPercent, snappedIso);
+      }
+
+      function clearGanttHoverLine(track) {
+        var shell = track && track.closest ? track.closest(".project-gantt-shell") : null;
+        if (!shell) return;
+        shell.classList.remove("is-gantt-hovering");
+        shell.style.removeProperty("--gantt-hover-percent");
+        clearGanttGuideHighlights(shell);
+      }
+
 	    function removeProjectGanttItemLocal(taskId) {
 	      if (!taskId) return;
 	      document.querySelectorAll("[data-project-gantt]").forEach(function (panel) {
@@ -24117,6 +24221,7 @@
         return String(item && item.id || "") === taskId;
       }) : null;
       event.preventDefault();
+      updateGanttHoverLine(track, event.clientX, handle);
       activeGanttDrag = {
         taskId: taskId,
         task: Object.assign({}, existingItem || {}, {
@@ -24157,6 +24262,8 @@
       if (!activeGanttDrag) {
         var hoveredTrack = event.target.closest("[data-gantt-track]");
         if (hoveredTrack) {
+          var hoverAnchor = event.target.closest("[data-gantt-handle], .project-gantt-marker");
+          updateGanttHoverLine(hoveredTrack, event.clientX, hoverAnchor && hoveredTrack.contains(hoverAnchor) ? hoverAnchor : null);
           updateProvisionalGanttStartHandle(hoveredTrack, event.clientX);
         }
         return;
@@ -24169,6 +24276,7 @@
       if (activeGanttDrag.handle === "end" && activeGanttDrag.task.start_date && nextIso < activeGanttDrag.task.start_date.slice(0, 10)) {
         nextIso = activeGanttDrag.task.start_date.slice(0, 10);
       }
+      setGanttHoverLinePercent(activeGanttDrag.track, ganttPercentForIso(activeGanttDrag.track, nextIso), nextIso);
       if (nextIso === activeGanttDrag.nextIso) return;
       activeGanttDrag.nextIso = nextIso;
       applyGanttDragPreview(activeGanttDrag);
@@ -24184,11 +24292,13 @@
     document.addEventListener("pointerleave", function (event) {
       var track = event.target && event.target.closest ? event.target.closest("[data-gantt-track]") : null;
       if (!track || activeGanttDrag) return;
+      clearGanttHoverLine(track);
       clearProvisionalGanttStartHandle(track);
     }, true);
     document.addEventListener("mouseleave", function (event) {
       var track = event.target && event.target.closest ? event.target.closest("[data-gantt-track]") : null;
       if (!track || activeGanttDrag) return;
+      clearGanttHoverLine(track);
       clearProvisionalGanttStartHandle(track);
     }, true);
     if (taskSettingsStatusEl) {
