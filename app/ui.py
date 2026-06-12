@@ -6,7 +6,7 @@ from pathlib import Path
 import secrets
 import subprocess
 
-from flask import Blueprint, Response, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, redirect, render_template, request, session, url_for
 from sqlalchemy import func, or_
 from werkzeug.security import generate_password_hash
 
@@ -54,7 +54,10 @@ from app.notification_emailer import (
     send_notification_digest_email,
 )
 from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, GroupTemplate, GroupTemplateTask, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
+from app.models import TeamInvite, ProjectTeamShare
 from app.models import UserNotificationPreference
+from app.team_shares import accessible_project_ids_for_user, project_access_user_ids, project_has_team_access
+from app.team_invites import accept_team_invite, user_matches_team_invite_email
 from app.group_assignments import serialize_group_assignment_members
 from app.realtime import (
     _render_description,
@@ -63,6 +66,7 @@ from app.realtime import (
     emit_division_created,
     emit_group_created,
     emit_project_created,
+    emit_project_members_updated,
     emit_sidebar_reordered,
     emit_task_comment_created,
     emit_task_notification_updates,
@@ -106,21 +110,13 @@ def _project_display_name_for_user(project: Project, user_id: int) -> str:
     return project.name
 
 
+def _is_standard_project(project: Project) -> bool:
+    return not bool(getattr(project, "is_direct", False)) and not bool(getattr(project, "is_team", False))
+
+
 def _accessible_projects_for_user(user) -> list[Project]:
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
-    member_project_ids = [row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()]
-    member_group_project_ids = [
-        row.project_id
-        for row in db.session.query(Group.project_id)
-        .join(GroupMember, GroupMember.group_id == Group.id)
-        .filter(GroupMember.user_id == user.id)
-        .all()
-    ]
-    accessible_project_ids = list(
-        {project.id for project in owned_projects}
-        .union(member_project_ids)
-        .union(member_group_project_ids)
-    )
+    accessible_project_ids = sorted(accessible_project_ids_for_user(user.id))
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
 
 
@@ -563,6 +559,7 @@ def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> 
 
 def _sidebar_order_tokens(user) -> list[str]:
     accessible_projects = _accessible_projects_for_user(user)
+    accessible_projects = [project for project in accessible_projects if _is_standard_project(project)]
     divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
     pref_map = sidebar_preference_map(user.id, accessible_projects, divisions)
     items = top_level_sidebar_items(accessible_projects, divisions, pref_map)
@@ -673,6 +670,11 @@ def _build_dashboard_viewer_maps(projects: list[Project]) -> tuple[dict[int, lis
     for row in ProjectMember.query.filter(ProjectMember.project_id.in_(project_ids)).all():
         flag = ensure_project_flag(row.project_id, row.user_id)
         flag["project_member"] = True
+
+    for project_id in project_ids:
+        for user_id in project_access_user_ids(project_id):
+            flag = ensure_project_flag(project_id, user_id)
+            flag["project_member"] = True
 
     if group_ids:
         for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all():
@@ -1472,31 +1474,20 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         current_view = "dashboard"
     show_completed = current_view in {"tree", "inbox"}
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
-    direct_member_project_ids = [
-        m.project_id for m in ProjectMember.query.filter_by(user_id=user.id).all()
-    ]
-    member_group_project_ids = [
-        row.project_id
-        for row in db.session.query(Group.project_id)
-        .join(GroupMember, GroupMember.group_id == Group.id)
-        .filter(GroupMember.user_id == user.id)
-        .all()
-    ]
-    member_project_ids = list(set(direct_member_project_ids).union(member_group_project_ids))
-    accessible_project_ids = list(
-        {p.id for p in owned_projects}
-        .union(member_project_ids)
-    )
+    accessible_project_ids = sorted(accessible_project_ids_for_user(user.id))
+    member_project_ids = sorted(set(accessible_project_ids).difference({p.id for p in owned_projects if p.id}))
     projects = (
         Project.query.filter(Project.id.in_(accessible_project_ids)).all()
         if accessible_project_ids
         else []
     )
-    standard_projects = [project for project in projects if not project.is_direct]
+    standard_projects = [project for project in projects if _is_standard_project(project)]
     direct_projects = [project for project in projects if project.is_direct]
+    team_projects = [project for project in projects if getattr(project, "is_team", False)]
     direct_projects.sort(
         key=lambda project: ((_project_display_name_for_user(project, user.id) or "").lower(), project.id)
     )
+    team_projects.sort(key=lambda project: ((project.name or "").lower(), project.id))
     active_theme_name = normalize_theme_name(getattr(user, "theme_name", None))
     sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.name.asc(), Division.id.asc()).all()
     division_options = [
@@ -1532,7 +1523,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     unassigned_projects = [
         project
         for project in projects
-        if project.is_direct or not (sidebar_pref_map.get(project.id) and sidebar_pref_map.get(project.id).division_id)
+        if _is_standard_project(project) and not (sidebar_pref_map.get(project.id) and sidebar_pref_map.get(project.id).division_id)
     ]
 
     selected_project = None
@@ -1586,7 +1577,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
             if selected_id_int and not selected_project:
                 selected_project = next((p for p in projects if p.id == selected_id_int), None)
         if not selected_project:
-            selected_project = standard_projects[0] if standard_projects else (direct_projects[0] if direct_projects else projects[0])
+            selected_project = standard_projects[0] if standard_projects else (team_projects[0] if team_projects else (direct_projects[0] if direct_projects else projects[0]))
 
     tasks = []
     groups = []
@@ -1603,12 +1594,13 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
 
     def build_project_context(project: Project) -> dict:
         project_is_github = bool(github_project_id and project.id == github_project_id)
-        pref = sidebar_pref_map.get(project.id)
+        pref = sidebar_pref_map.get(project.id) if _is_standard_project(project) else None
         project_color = division_color_map.get(pref.division_id if pref else None, "#4cc9f0")
         project_is_owner = project.owner_id == user.id
         project_is_member = (
             ProjectMember.query.filter_by(project_id=project.id, user_id=user.id).first()
             is not None
+            or project_has_team_access(user.id, project.id)
             or (
                 db.session.query(Group.id)
                 .join(GroupMember, GroupMember.group_id == Group.id)
@@ -1736,7 +1728,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     project_display_names = {project.id: _project_display_name_for_user(project, user.id) for project in projects}
     project_hierarchy_meta = {}
     for project in projects:
-        pref = sidebar_pref_map.get(project.id) if not project.is_direct else None
+        pref = sidebar_pref_map.get(project.id) if _is_standard_project(project) else None
         division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
         project_hierarchy_meta[project.id] = {
             "division_name": division.name if division else None,
@@ -1747,7 +1739,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     shared_project_ids = {
         project.id
         for project in projects
-        if not project.is_direct and int(project.owner_id or 0) != int(user.id)
+        if _is_standard_project(project) and int(project.owner_id or 0) != int(user.id)
     }
     shared_group_ids = {
         group.id
@@ -1764,7 +1756,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         for group in Group.query.filter(Group.project_id.in_(shared_out_project_ids if shared_out_project_ids else [-1])).all()
     }
     selected_project_display_name = project_display_names.get(selected_project.id, selected_project.name) if selected_project else ""
-    tree_source_projects = standard_projects + direct_projects
+    tree_source_projects = standard_projects + team_projects + direct_projects
     tree_project_contexts = [build_project_context(project) for project in tree_source_projects]
     tree_groups_by_project: dict[int, list[Group]] = {
         context["project"].id: context["groups"]
@@ -2094,6 +2086,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         project_viewers=project_viewers,
         group_viewers=group_viewers,
         direct_projects=direct_projects,
+        team_projects=team_projects,
         self_direct_project_id=self_direct_project.id if self_direct_project else None,
         direct_project_peers=direct_project_peers,
         project_display_names=project_display_names,
@@ -2160,6 +2153,7 @@ def follow_group(group_id: int):
     if not (
         Project.query.filter_by(id=group.project_id, owner_id=user.id).first()
         or ProjectMember.query.filter_by(project_id=group.project_id, user_id=user.id).first()
+        or project_has_team_access(user.id, group.project_id)
         or db.session.query(Group.id)
         .join(GroupMember, GroupMember.group_id == Group.id)
         .filter(Group.project_id == group.project_id, GroupMember.user_id == user.id)
@@ -2181,6 +2175,7 @@ def follow_project(project_id: int):
     if not (
         Project.query.filter_by(id=project.id, owner_id=user.id).first()
         or ProjectMember.query.filter_by(project_id=project.id, user_id=user.id).first()
+        or project_has_team_access(user.id, project.id)
         or db.session.query(Group.id)
         .join(GroupMember, GroupMember.group_id == Group.id)
         .filter(Group.project_id == project.id, GroupMember.user_id == user.id)
@@ -2384,6 +2379,113 @@ def delete_account_group_template(template_id: int):
     db.session.delete(template)
     db.session.commit()
     return _render_account_page(user, section="templates", message="Group template deleted.")
+
+
+@ui_bp.get("/team-invites/<token>")
+def team_invite(token: str):
+    invite = TeamInvite.query.filter_by(token=token).first()
+    if not invite:
+        return render_template(
+            "team_invite.html",
+            status="invalid",
+            message="This Team invitation link is invalid.",
+            continue_url=url_for("auth.login"),
+        )
+    team = Project.query.get(invite.team_project_id)
+    inviter = User.query.get(invite.inviter_user_id) if invite.inviter_user_id else None
+    if not team or not getattr(team, "is_team", False):
+        return render_template(
+            "team_invite.html",
+            status="invalid",
+            message="The invited Team no longer exists.",
+            continue_url=url_for("auth.login"),
+        )
+    if invite.status != "sent":
+        return render_template(
+            "team_invite.html",
+            status="accepted",
+            message=f"This invitation to {team.name} has already been used.",
+            continue_url=url_for("ui.dashboard"),
+        )
+    user = current_user()
+    if not user:
+        session["team_invite_token"] = token
+        return render_template(
+            "team_invite.html",
+            status="login",
+            invite=invite,
+            team=team,
+            inviter=inviter,
+            message="Sign in with the invited email address to accept this Team invitation.",
+            continue_url=url_for("auth.login"),
+        )
+    if not user_matches_team_invite_email(user, invite.email):
+        session["team_invite_token"] = token
+        return render_template(
+            "team_invite.html",
+            status="mismatch",
+            invite=invite,
+            team=team,
+            inviter=inviter,
+            message=f"This invitation was sent to {invite.email}. Sign in with that account to accept it.",
+            continue_url=url_for("auth.login"),
+        )
+    return render_template(
+        "team_invite.html",
+        status="ready",
+        invite=invite,
+        team=team,
+        inviter=inviter,
+        message=f"Accept the invitation to join {team.name}.",
+        continue_url=url_for("ui.dashboard"),
+    )
+
+
+@ui_bp.post("/team-invites/<token>/accept")
+@login_required
+def accept_team_invite_route(token: str):
+    user = current_user()
+    invite = TeamInvite.query.filter_by(token=token).first()
+    if not invite:
+        return render_template(
+            "team_invite.html",
+            status="invalid",
+            message="This Team invitation link is invalid.",
+            continue_url=url_for("ui.dashboard"),
+        ), 404
+    team = Project.query.get(invite.team_project_id)
+    try:
+        created = accept_team_invite(invite, user)
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return render_template(
+            "team_invite.html",
+            status="error",
+            invite=invite,
+            team=team,
+            message=str(exc),
+            continue_url=url_for("ui.dashboard"),
+        ), 400
+    session.pop("team_invite_token", None)
+    if team:
+        emit_project_created(team, actor_user_id=invite.inviter_user_id, recipient_user_id=user.id)
+        emit_project_members_updated(team.id, actor_user_id=invite.inviter_user_id)
+        shared_rows = ProjectTeamShare.query.filter_by(team_project_id=team.id).all()
+        for shared_row in shared_rows:
+            shared_project = Project.query.get(shared_row.project_id)
+            if shared_project:
+                emit_project_created(shared_project, actor_user_id=invite.inviter_user_id, recipient_user_id=user.id)
+                emit_project_members_updated(shared_project.id, actor_user_id=invite.inviter_user_id)
+    message = f"You are now a member of {team.name}." if created and team else "Team invitation accepted."
+    return render_template(
+        "team_invite.html",
+        status="accepted",
+        invite=invite,
+        team=team,
+        message=message,
+        continue_url=url_for("ui.tree_project_dashboard", project_id=team.id) if team else url_for("ui.dashboard"),
+    )
 
 
 @ui_bp.get("/admin")
@@ -2838,7 +2940,11 @@ def create_task():
     project = Project.query.filter_by(id=int(project_id)).first()
     if not project:
         return redirect(url_for("ui.dashboard", project_id=project_id))
-    if project.owner_id != user.id and not ProjectMember.query.filter_by(project_id=project.id, user_id=user.id).first():
+    if (
+        project.owner_id != user.id
+        and not ProjectMember.query.filter_by(project_id=project.id, user_id=user.id).first()
+        and not project_has_team_access(user.id, project.id)
+    ):
         return redirect(url_for("ui.dashboard", project_id=project_id))
 
     due_at = None

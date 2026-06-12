@@ -18,6 +18,7 @@ from app.identity import (
 )
 from app.models import CollaboratorProfile, User, UserEmail
 from app.oauth import oauth
+from app.team_invites import accept_team_invite, pending_team_invite_for_email
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -31,6 +32,19 @@ def _establish_session(user_id: int) -> None:
 
 def _can_self_bootstrap_account(email: str | None) -> bool:
     return normalize_email(email) == OWNER_BOOTSTRAP_EMAIL
+
+
+def _pending_team_invite_allows_account(email: str | None) -> bool:
+    return pending_team_invite_for_email(session.get("team_invite_token"), email) is not None
+
+
+def _accept_pending_team_invite_if_available(user: User) -> None:
+    invite = pending_team_invite_for_email(session.get("team_invite_token"), user.email)
+    if not invite:
+        return
+    accept_team_invite(invite, user)
+    db.session.commit()
+    session.pop("team_invite_token", None)
 
 
 def _provider_login_error(message: str, *, kind: str | None = None):
@@ -76,7 +90,7 @@ def _get_or_create_user(email: str, display_name: str | None, avatar_url: str | 
     normalized_email = normalize_email(email)
     user = find_user_by_email(normalized_email)
     if not user:
-        if not _can_self_bootstrap_account(normalized_email):
+        if not _can_self_bootstrap_account(normalized_email) and not _pending_team_invite_allows_account(normalized_email):
             raise ValueError("No account is available for that email yet. Use your invitation email link to claim access first.")
         user = User(email=normalized_email, display_name=display_name, avatar_url=avatar_url)
         db.session.add(user)
@@ -181,6 +195,7 @@ def _link_provider_account(
     sync_user_avatar_from_primary_email(user)
     db.session.commit()
     _establish_session(user.id)
+    _accept_pending_team_invite_if_available(user)
     return user
 
 
@@ -271,6 +286,7 @@ def _login_with_provider(
     )
     db.session.commit()
     _establish_session(user.id)
+    _accept_pending_team_invite_if_available(user)
     return user
 
 
@@ -350,6 +366,7 @@ def login():
             error = "Invalid email or password."
         else:
             _establish_session(user.id)
+            _accept_pending_team_invite_if_available(user)
             return redirect(url_for("ui.dashboard"))
 
     if session.get("collaborator_claim_token"):

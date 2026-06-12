@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.sidebar_layout import sidebar_preference_map, top_level_sidebar_items
 from app.task_status import effective_task_status_for_user, task_status_meta_map
+from app.team_shares import accessible_project_ids_for_user
 from app.themes import division_effective_color, normalize_theme_name
 from app.info_utils import sanitize_info_html
 from app.ui import _build_github_task_meta
@@ -52,26 +53,9 @@ def _project_display_name_for_user(project: Project, user_id: int) -> str:
 
 def _accessible_projects_for_user(user) -> tuple[list[Project], list[Project], set[int]]:
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
-    direct_member_project_ids = [
-        row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()
-    ]
-    member_group_project_ids = [
-        row.project_id
-        for row in db.session.query(Group.project_id)
-        .join(GroupMember, GroupMember.group_id == Group.id)
-        .filter(GroupMember.user_id == user.id)
-        .all()
-    ]
-    member_project_ids = {
-        int(project_id)
-        for project_id in direct_member_project_ids + member_group_project_ids
-        if project_id
-    }
-    accessible_project_ids = {
-        int(project.id)
-        for project in owned_projects
-        if project and project.id
-    }.union(member_project_ids)
+    accessible_project_ids = accessible_project_ids_for_user(user.id)
+    owned_project_ids = {int(project.id) for project in owned_projects if project and project.id}
+    member_project_ids = {int(project_id) for project_id in accessible_project_ids.difference(owned_project_ids)}
     projects = (
         Project.query.filter(Project.id.in_(sorted(accessible_project_ids))).all()
         if accessible_project_ids
@@ -182,6 +166,7 @@ def _serialize_project(
         "position": project.position,
         "sidebar_position": sidebar_pref.position if sidebar_pref else None,
         "is_direct": bool(project.is_direct),
+        "is_team": bool(getattr(project, "is_team", False)),
         "direct_user_a_id": project.direct_user_a_id,
         "direct_user_b_id": project.direct_user_b_id,
         "default_owner_calendar_opt_in": bool(project.default_owner_calendar_opt_in),
@@ -333,11 +318,13 @@ def build_dashboard_bootstrap(user) -> dict:
     theme_name = normalize_theme_name(getattr(user, "theme_name", None))
     projects, owned_projects, member_project_ids = _accessible_projects_for_user(user)
     projects_by_id = {project.id: project for project in projects}
-    standard_projects = [project for project in projects if not project.is_direct]
+    standard_projects = [project for project in projects if not project.is_direct and not getattr(project, "is_team", False)]
     direct_projects = [project for project in projects if project.is_direct]
+    team_projects = [project for project in projects if getattr(project, "is_team", False)]
     direct_projects.sort(
         key=lambda project: ((_project_display_name_for_user(project, user.id) or "").lower(), project.id)
     )
+    team_projects.sort(key=lambda project: ((project.name or "").lower(), project.id))
 
     divisions = (
         Division.query.filter_by(owner_id=user.id)

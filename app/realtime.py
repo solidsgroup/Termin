@@ -28,6 +28,7 @@ from app.models import (
     Project,
     ProjectComment,
     ProjectMember,
+    ProjectTeamShare,
     ProjectSidebarPreference,
     Task,
     TaskComment,
@@ -39,6 +40,7 @@ from app.models import (
 )
 from app.themes import DEFAULT_THEME_NAME, division_effective_color, normalize_theme_name
 from app.task_status import normalize_task_status_mode, task_status_meta, task_status_percentage
+from app.team_shares import project_access_user_ids, project_has_team_access, project_team_member_user_ids
 from app.utils import current_user, display_name_for_user
 from app.web_push import send_web_push_notification
 
@@ -191,6 +193,7 @@ def _user_can_join_project(user_id: int, project_id: int) -> bool:
     return bool(
         Project.query.filter_by(id=project_id, owner_id=user_id).first()
         or ProjectMember.query.filter_by(project_id=project_id, user_id=user_id).first()
+        or project_has_team_access(user_id, project_id)
         or db.session.query(Group.id)
         .join(GroupMember, GroupMember.group_id == Group.id)
         .filter(Group.project_id == project_id, GroupMember.user_id == user_id)
@@ -521,36 +524,30 @@ def _task_collaborator_ids(task: Task) -> set[int]:
 
 
 def _project_comment_user_ids(project_id: int) -> set[int]:
-    project = Project.query.get(project_id)
-    user_ids = {project.owner_id} if project else set()
-    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=project_id).all())
-    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
-    if group_ids:
-        user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
-    return {user_id for user_id in user_ids if user_id}
+    return project_access_user_ids(project_id)
 
 
 def _group_comment_user_ids(group_id: int) -> set[int]:
     group = Group.query.get(group_id)
     if not group:
         return set()
-    project = Project.query.get(group.project_id)
-    user_ids = {project.owner_id} if project else set()
-    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=group.project_id).all())
+    user_ids = project_access_user_ids(group.project_id)
     user_ids.update(row.user_id for row in GroupMember.query.filter_by(group_id=group_id).all())
     return {user_id for user_id in user_ids if user_id}
 
 
 def _project_update_user_ids(project_id: int) -> set[int]:
+    user_ids = project_access_user_ids(project_id)
     project = Project.query.get(project_id)
-    if not project:
-        return set()
-    user_ids = {project.owner_id}
-    user_ids.update(row.user_id for row in ProjectMember.query.filter_by(project_id=project_id).all())
-    group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
-    if group_ids:
-        user_ids.update(row.user_id for row in GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).all())
-    return {user_id for user_id in user_ids if user_id}
+    if project and getattr(project, "is_team", False):
+        shared_project_ids = [
+            int(row.project_id)
+            for row in ProjectTeamShare.query.filter_by(team_project_id=project.id).all()
+            if row.project_id
+        ]
+        for shared_project_id in shared_project_ids:
+            user_ids.update(project_access_user_ids(shared_project_id))
+    return user_ids
 
 
 def _render_description(description: str | None, description_format: str | None, default_format: str) -> str:
@@ -579,6 +576,7 @@ def _serialize_project_payload(project: Project) -> dict:
         "links": info_payload.get("links", []),
         "division_id": project.division_id,
         "is_direct": bool(getattr(project, "is_direct", False)),
+        "is_team": bool(getattr(project, "is_team", False)),
         "description": project.description,
         "description_format": project.description_format or "markdown",
         "start_date": project.start_date.isoformat() if getattr(project, "start_date", None) else None,
@@ -615,6 +613,9 @@ def _serialize_project_payload_for_user(project: Project, user_id: int) -> dict:
             else None
         )
         payload["display_name"] = display_name_for_user(peer) if peer else project.name
+        payload["division_id"] = None
+    elif getattr(project, "is_team", False):
+        payload["display_name"] = project.name
         payload["division_id"] = None
     else:
         pref = ProjectSidebarPreference.query.filter_by(user_id=user_id, project_id=project.id).first()
@@ -904,6 +905,9 @@ def project_access_map(project_id: int) -> dict[int, dict]:
                 "avatar_url": user.avatar_url,
                 "owner": False,
                 "project_member": False,
+                "direct_project_member": False,
+                "group_member": False,
+                "team_member": False,
             }
             access[user_id] = row
         return row
@@ -917,6 +921,13 @@ def project_access_map(project_id: int) -> dict[int, dict]:
         member = ensure(row.user_id)
         if member:
             member["project_member"] = True
+            member["direct_project_member"] = True
+
+    for user_id in project_team_member_user_ids(project_id):
+        member = ensure(user_id)
+        if member:
+            member["project_member"] = True
+            member["team_member"] = True
 
     group_ids = [group_id for (group_id,) in db.session.query(Group.id).filter(Group.project_id == project_id).all()]
     if group_ids:
@@ -924,6 +935,7 @@ def project_access_map(project_id: int) -> dict[int, dict]:
             member = ensure(row.user_id)
             if member:
                 member["project_member"] = True
+                member["group_member"] = True
 
     return access
 
@@ -1252,6 +1264,7 @@ def _can_access_project_discussion(user, project_id: int) -> bool:
     return bool(
         Project.query.filter_by(id=project_id, owner_id=user.id).first()
         or ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first()
+        or project_has_team_access(user.id, project_id)
         or db.session.query(Group.id)
         .join(GroupMember, GroupMember.group_id == Group.id)
         .filter(Group.project_id == project_id, GroupMember.user_id == user.id)

@@ -6,13 +6,13 @@ from app.models import (
     CollaboratorProfile,
     Group,
     Project,
-    ProjectMember,
     Task,
     TaskComment,
     TaskNotification,
     User,
     UserDiscussionActivity,
 )
+from app.team_shares import project_access_user_ids
 from app.utils import display_name_for_user
 
 
@@ -31,18 +31,7 @@ def task_discussion_user_ids(task: Task) -> set[int]:
 
 
 def project_discussion_user_ids(project_id: int) -> set[int]:
-    project = Project.query.get(project_id)
-    user_ids: set[int] = set()
-    if not project:
-        return user_ids
-    if project.owner_id:
-        user_ids.add(int(project.owner_id))
-    user_ids.update(
-        int(row.user_id)
-        for row in ProjectMember.query.filter_by(project_id=project.id).all()
-        if row.user_id
-    )
-    return {user_id for user_id in user_ids if user_id}
+    return project_access_user_ids(project_id)
 
 
 def group_discussion_user_ids(group_id: int) -> set[int]:

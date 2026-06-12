@@ -47,6 +47,32 @@
     </div>
   </div>
 {% endmacro %}
+{% macro render_team_project_item(project, selected_project, user, project_viewers) %}
+  {% set can_manage = project.owner_id == user.id %}
+  {% set viewers = project_viewers.get(project.id, []) %}
+  {% set label = project.name %}
+  <div class="project-item team-project-item{% if selected_project and project.id == selected_project.id %} active{% endif %} project-drop-target" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if can_manage else 0 }}" data-project-drop-id="{{ project.id }}" data-project-href="{{ url_for('ui.tree_project_dashboard', project_id=project.id) }}" data-project-team="1">
+    <div class="project-item-top">
+      <a href="{{ url_for('ui.tree_project_dashboard', project_id=project.id) }}" style="color: inherit; text-decoration: none; min-width: 0;">
+        <strong data-project-title="{{ project.id }}">{{ label }}</strong>
+      </a>
+      <span class="avatar-stack is-team" data-presence-project-id="{{ project.id }}" data-project-members="{{ project.id }}">
+        {% for u in viewers[:4] %}
+          <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
+            {% if u.avatar_url %}
+              <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+            {% else %}
+              {{ (u.display_name or u.email)[0]|upper }}
+            {% endif %}
+          </span>
+        {% endfor %}
+        {% if viewers|length > 4 %}
+          <span class="avatar-chip">+{{ viewers|length - 4 }}</span>
+        {% endif %}
+      </span>
+    </div>
+  </div>
+{% endmacro %}
 {% macro render_due_summary(item, now_utc) %}
   {% if item.due_at %}
     {% set due_date = item.due_at.strftime('%Y-%m-%d') %}
@@ -923,6 +949,94 @@
 
   .prereq-hover-card .discussion-assignment-name {
     white-space: normal;
+  }
+
+  .team-hover-card {
+    position: fixed;
+    z-index: 1400;
+    width: min(320px, calc(100vw - 24px));
+    padding: 12px;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--panel) 96%, #000 4%);
+    border: 1px solid var(--line);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
+    pointer-events: auto;
+  }
+
+  .team-hover-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: var(--ink);
+  }
+
+  .team-hover-card-title i {
+    color: color-mix(in srgb, #22c7a9 82%, var(--ink) 18%);
+  }
+
+  .team-hover-card-subtitle {
+    margin: -4px 0 10px;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  .team-hover-card-members {
+    display: grid;
+    gap: 6px;
+  }
+
+  .team-hover-card-member {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .team-hover-card-avatar {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--panel-alt);
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.68rem;
+    font-weight: 800;
+    overflow: hidden;
+  }
+
+  .team-hover-card-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .team-hover-card-member-copy {
+    min-width: 0;
+  }
+
+  .team-hover-card-member-name,
+  .team-hover-card-member-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .team-hover-card-member-name {
+    color: var(--ink);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .team-hover-card-member-email {
+    color: var(--muted);
+    font-size: 0.7rem;
   }
 
   .project-board-description,
@@ -3203,6 +3317,31 @@
             </div>
           </div>
         {% endif %}
+        {% if team_projects %}
+          <div class="todo-tree-node" data-division-id="team" style="--division-color: #36c2a1;">
+            <div class="todo-tree-row">
+              <label class="todo-tree-label-row">
+                <input type="checkbox" class="todo-tree-checkbox" data-todo-division="team" checked />
+                <span class="todo-tree-label">Teams</span>
+                <button class="todo-tree-only-btn" type="button" data-todo-only="division" data-todo-only-id="team" aria-label="Show only Teams">only</button>
+                <button class="todo-tree-toggle" type="button" data-toggle-division="team" aria-label="Toggle teams">▾</button>
+              </label>
+            </div>
+            <div class="todo-tree-children">
+              {% for project in team_projects %}
+                <div class="todo-tree-node is-project" data-project-id="{{ project.id }}" data-division-id="team">
+                  <div class="todo-tree-row">
+                    <label class="todo-tree-label-row">
+                      <input type="checkbox" class="todo-tree-checkbox" data-todo-project="{{ project.id }}" data-division-id="team" checked />
+                      <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
+                      <button class="todo-tree-only-btn" type="button" data-todo-only="project" data-todo-only-id="{{ project.id }}" aria-label="Show only {{ project_display_names.get(project.id, project.name) }}">only</button>
+                    </label>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
         {% if direct_projects %}
           <div class="todo-tree-node" data-division-id="direct" style="--division-color: #9aa6b2;">
             <div class="todo-tree-row">
@@ -3400,6 +3539,41 @@
         </div>
         <div class="sidebar-split-divider" data-sidebar-splitter role="separator" aria-orientation="horizontal" aria-label="Resize structure and direct panels"></div>
         <div class="sidebar-split-pane sidebar-split-pane-bottom" data-sidebar-split-pane="bottom">
+          <div class="todo-sidebar-section team-projects-section">
+            <div class="sidebar-heading-row todo-sidebar-subhead team-projects-heading">
+              <h3 style="margin: 0;">Teams</h3>
+              <button class="sidebar-mini-add" type="button" data-open-team-modal aria-label="Create team">+</button>
+            </div>
+            <div class="todo-tree-list tree-select-list" data-tree-team-list>
+              {% for project in team_projects %}
+                {% set team_can_manage_project = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
+                {% set viewers = project_viewers.get(project.id, []) %}
+                <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-team-project="{{ project.id }}">
+                  <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if team_can_manage_project else 0 }}" data-project-team="1" data-tree-project-row="{{ project.id }}" draggable="true">
+                    <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
+                      <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
+                      <span class="avatar-stack is-team is-tree-team" data-presence-project-id="{{ project.id }}" data-project-members="{{ project.id }}">
+                        {% for u in viewers[:4] %}
+                          <span class="avatar-chip" data-user-id="{{ u.id }}" title="{{ u.display_name or u.email }}">
+                            {% if u.avatar_url %}
+                              <img src="{{ u.avatar_url }}" alt="avatar" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />
+                            {% else %}
+                              {{ (u.display_name or u.email)[0]|upper }}
+                            {% endif %}
+                          </span>
+                        {% endfor %}
+                        {% if viewers|length > 4 %}
+                          <span class="avatar-chip">+{{ viewers|length - 4 }}</span>
+                        {% endif %}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              {% else %}
+                <div class="todo-tree-empty team-project-empty">No teams yet.</div>
+              {% endfor %}
+            </div>
+          </div>
           <div class="todo-sidebar-section direct-projects-section">
             <div class="sidebar-heading-row todo-sidebar-subhead direct-projects-heading">
               <h3 style="margin: 0;">Direct</h3>
@@ -4020,6 +4194,7 @@
 </aside>
 <div class="person-hover-card" id="person-hover-card" hidden aria-hidden="true"></div>
 <div class="prereq-hover-card" id="prereq-hover-card" hidden aria-hidden="true"></div>
+<div class="team-hover-card" id="team-hover-card" hidden aria-hidden="true"></div>
 <div class="poll-response-dialog" id="poll-response-dialog" hidden aria-hidden="true">
   <div class="poll-response-card" role="dialog" aria-modal="true" aria-labelledby="poll-response-question">
     <div class="poll-response-header">
@@ -4091,8 +4266,8 @@
 <div id="share-modal" class="modal">
   <div class="panel">
     <h3 id="share-title">Share</h3>
-    <label for="share-input">Add user</label>
-    <input id="share-input" placeholder="Type a name or email" autocomplete="termin-nope-share" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <label for="share-input" id="share-input-label">Add user or Team</label>
+    <input id="share-input" placeholder="Type a name, email, or Team" autocomplete="termin-nope-share" autocorrect="off" autocapitalize="off" spellcheck="false" />
     <div id="share-suggest" class="suggest-list"></div>
     <div id="share-status" class="footer-note" style="margin-top: 8px;"></div>
     <div id="share-list" class="share-list"></div>
@@ -4111,6 +4286,19 @@
     <div id="direct-project-status" class="footer-note" style="margin-top: 8px;"></div>
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
       <button class="btn secondary" type="button" id="direct-project-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="team-modal" class="modal">
+  <div class="panel">
+    <h3>Create Team</h3>
+    <label for="team-name-input">Team name</label>
+    <input id="team-name-input" placeholder="Research team, Operations, Writing group" autocomplete="termin-nope-team" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <div id="team-status" class="footer-note" style="margin-top: 8px;"></div>
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button class="btn secondary" type="button" id="team-cancel">Cancel</button>
+      <button class="btn" type="button" id="team-create">Create Team</button>
     </div>
   </div>
 </div>
@@ -6172,6 +6360,7 @@
         var project = snapshot.project;
         var canManage = !!project.can_manage;
         var isDirectProject = !!project.is_direct;
+        var isTeamProject = !!project.is_team;
         var divisionId = project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id);
         var treeSidebar = document.querySelector("[data-tree-sidebar]");
         var treeBoard = document.querySelector("[data-tree-board]");
@@ -6179,9 +6368,13 @@
 
         var targetDivision = null;
         var targetDirectList = null;
+        var targetTeamList = null;
         if (isDirectProject) {
           targetDirectList = ensureTreeDirectList();
           if (!targetDirectList) return false;
+        } else if (isTeamProject) {
+          targetTeamList = ensureTreeTeamList();
+          if (!targetTeamList) return false;
         } else {
           targetDivision = treeSidebar.querySelector('[data-tree-division-node="' + divisionId + '"]');
           if (!targetDivision && divisionId === "none") {
@@ -6200,12 +6393,14 @@
 	          }
 	        }
         var divisionChildren = targetDivision ? targetDivision.querySelector(".todo-tree-children") : null;
-        if (!isDirectProject && !divisionChildren) return false;
+        if (!isDirectProject && !isTeamProject && !divisionChildren) return false;
         var node = isDirectProject
           ? buildTreeDirectProjectNode(project, canManage)
+          : isTeamProject
+            ? buildTreeTeamProjectNode(project, canManage)
           : buildTreeProjectNode(project, canManage);
         if (!node) return false;
-        if (!isDirectProject) {
+        if (!isDirectProject && !isTeamProject) {
           node.classList.remove("is-collapsed");
           var projectToggle = node.querySelector('[data-tree-toggle-project="' + String(project.id) + '"]');
           if (projectToggle) {
@@ -6227,14 +6422,20 @@
           existingNode.parentNode.replaceChild(node, existingNode);
           if (isDirectProject && node.parentNode !== targetDirectList) {
             targetDirectList.appendChild(node);
+          } else if (isTeamProject && node.parentNode !== targetTeamList) {
+            targetTeamList.appendChild(node);
           }
         } else if (isDirectProject) {
           targetDirectList.appendChild(node);
+        } else if (isTeamProject) {
+          targetTeamList.appendChild(node);
         } else {
           divisionChildren.appendChild(node);
         }
         if (isDirectProject) {
           updateDirectProjectEmptyState();
+        } else if (isTeamProject) {
+          updateTeamProjectEmptyState();
         }
 
         try {
@@ -6242,7 +6443,7 @@
             var nextState = window.__loadTreeViewState() || {};
             nextState.expanded = nextState.expanded || {};
             nextState.expanded.projects = nextState.expanded.projects || {};
-            nextState.expanded.projects[String(project.id)] = !isDirectProject;
+            nextState.expanded.projects[String(project.id)] = !isDirectProject && !isTeamProject;
             window.__saveTreeViewState(nextState);
           }
         } catch (err) {}
@@ -7605,6 +7806,32 @@
         return shell.querySelector('[data-tree-direct-list]');
       }
 
+      function ensureTreeTeamList() {
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        if (!treeSidebar) return null;
+        var existing = treeSidebar.querySelector('[data-tree-team-list]');
+        if (existing) return existing;
+        var splitPaneBottom = treeSidebar.querySelector('[data-sidebar-split-pane="bottom"]');
+        var shell = document.createElement("div");
+        shell.className = "todo-sidebar-section team-projects-section";
+        shell.innerHTML =
+          '<div class="sidebar-heading-row todo-sidebar-subhead team-projects-heading">' +
+            '<h3 style="margin: 0;">Teams</h3>' +
+            '<button class="sidebar-mini-add" type="button" data-open-team-modal aria-label="Create team">+</button>' +
+          '</div>' +
+          '<div class="todo-tree-list tree-select-list" data-tree-team-list></div>';
+        (splitPaneBottom || treeSidebar).insertBefore(shell, (splitPaneBottom || treeSidebar).firstChild);
+        shell.querySelectorAll("[data-open-team-modal]").forEach(function (button) {
+          button.addEventListener("click", function (event) {
+            event.preventDefault();
+            if (typeof window.__openTeamModal === "function") {
+              window.__openTeamModal();
+            }
+          });
+        });
+        return shell.querySelector('[data-tree-team-list]');
+      }
+
       function clearTreeLoadingPanel() {
         var treeBoard = document.querySelector("[data-tree-board]");
         if (!treeBoard) return;
@@ -7646,11 +7873,48 @@
         return inserted;
       }
 
+      function insertTreeTeamProjectLocal(project, canManage) {
+        if (!project || !project.id || !project.is_team) return false;
+        var treeSidebar = document.querySelector("[data-tree-sidebar]");
+        if (!treeSidebar) return false;
+        var inserted = false;
+        if (!treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]')) {
+          var teamList = ensureTreeTeamList();
+          var node = teamList ? buildTreeTeamProjectNode(project, canManage) : null;
+          if (teamList && node) {
+            teamList.appendChild(node);
+            inserted = true;
+          }
+        } else {
+          inserted = true;
+        }
+        var treeBoard = document.querySelector("[data-tree-board]");
+        if (treeBoard && !treeBoard.querySelector('[data-tree-project-board="' + project.id + '"]')) {
+          var board = buildTreeProjectBoard(project, canManage);
+          if (board) {
+            treeBoard.appendChild(board);
+            if (typeof restoreTreeProjectBoardSortState === "function") {
+              restoreTreeProjectBoardSortState(board);
+            }
+            clearTreeLoadingPanel();
+            inserted = true;
+          }
+        }
+        if (typeof window.__refreshTreeSelectionState === "function") {
+          window.__refreshTreeSelectionState();
+        }
+        updateTeamProjectEmptyState();
+        return inserted;
+      }
+
       function insertTreeProjectLocal(project, canManage) {
         var treeSidebar = document.querySelector("[data-tree-sidebar]");
         if (!treeSidebar || !project || !project.id) return false;
         if (project.is_direct) {
           return insertTreeDirectProjectLocal(project, canManage);
+        }
+        if (project.is_team) {
+          return insertTreeTeamProjectLocal(project, canManage);
         }
         var inserted = false;
         if (!treeSidebar.querySelector('[data-tree-project-node="' + project.id + '"]')) {
@@ -7719,6 +7983,37 @@
         }
       }
 
+      function updateTeamProjectEmptyState() {
+        var treeList = document.querySelector("[data-tree-team-list]");
+        if (treeList) {
+          var hasTreeItems = !!treeList.querySelector("[data-tree-team-project]");
+          var treeEmpty = treeList.querySelector("[data-team-project-empty], .team-project-empty, .todo-tree-empty");
+          if (hasTreeItems && treeEmpty) {
+            treeEmpty.remove();
+          } else if (!hasTreeItems && !treeEmpty) {
+            var treeNode = document.createElement("div");
+            treeNode.className = "todo-tree-empty team-project-empty";
+            treeNode.setAttribute("data-team-project-empty", "");
+            treeNode.textContent = "No teams yet.";
+            treeList.appendChild(treeNode);
+          }
+          return;
+        }
+        var list = document.querySelector("[data-team-project-list]");
+        if (!list) return;
+        var hasItems = !!list.querySelector(".team-project-item");
+        var empty = list.querySelector("[data-team-project-empty]");
+        if (hasItems && empty) {
+          empty.remove();
+        } else if (!hasItems && !empty) {
+          var node = document.createElement("div");
+          node.className = "team-project-empty";
+          node.setAttribute("data-team-project-empty", "");
+          node.textContent = "No teams yet.";
+          list.appendChild(node);
+        }
+      }
+
       function ensureDirectProjectList() {
         var treeList = document.querySelector("[data-tree-direct-list]");
         if (treeList) return treeList;
@@ -7746,6 +8041,35 @@
           });
         });
         return section.querySelector("[data-direct-project-list]");
+      }
+
+      function ensureTeamProjectList() {
+        var treeList = document.querySelector("[data-tree-team-list]");
+        if (treeList) return treeList;
+        var list = document.querySelector("[data-team-project-list]");
+        if (list) return list;
+        var sidebar = document.querySelector(".layout > .sidebar:not(.todo-tree)");
+        if (!sidebar) return null;
+        var section = document.createElement("div");
+        section.className = "team-projects-section";
+        section.innerHTML =
+          '<div class="sidebar-heading-row team-projects-heading">' +
+            '<h3 style="margin: 0;">Teams</h3>' +
+            '<button class="sidebar-mini-add" type="button" data-open-team-modal aria-label="Create team">+</button>' +
+          '</div>' +
+          '<div class="team-project-list" data-team-project-list>' +
+            '<div class="team-project-empty" data-team-project-empty>No teams yet.</div>' +
+          '</div>';
+        sidebar.appendChild(section);
+        section.querySelectorAll("[data-open-team-modal]").forEach(function (button) {
+          button.addEventListener("click", function (event) {
+            event.preventDefault();
+            if (typeof window.__openTeamModal === "function") {
+              window.__openTeamModal();
+            }
+          });
+        });
+        return section.querySelector("[data-team-project-list]");
       }
 
       function buildDirectProjectItemNode(project, canManage) {
@@ -7782,6 +8106,37 @@
         return wrapper;
       }
 
+      function buildTeamProjectItemNode(project, canManage) {
+        if (document.querySelector("[data-tree-sidebar]") && typeof buildTreeTeamProjectNode === "function") {
+          return buildTreeTeamProjectNode(project, canManage);
+        }
+        if (!project || !project.id) return null;
+        function escapeTeamText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var label = project.display_name || project.name || "Team";
+        var wrapper = document.createElement("div");
+        wrapper.className = "project-item team-project-item project-drop-target";
+        wrapper.setAttribute("data-project-context", String(project.id));
+        wrapper.setAttribute("data-project-manage", canManage ? "1" : "0");
+        wrapper.setAttribute("data-project-drop-id", String(project.id));
+        wrapper.setAttribute("data-project-href", "/tree/project/" + encodeURIComponent(project.id));
+        wrapper.setAttribute("data-project-team", "1");
+        wrapper.innerHTML =
+          '<div class="project-item-top">' +
+            '<a href="/tree/project/' + encodeURIComponent(project.id) + '" style="color: inherit; text-decoration: none; min-width: 0;">' +
+              '<strong data-project-title="' + String(project.id) + '">' + escapeTeamText(label) + '</strong>' +
+            '</a>' +
+            '<span class="avatar-stack is-team" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"><span class="avatar-chip" title="' + escapeTeamText(label) + '">' + escapeTeamText((label || "T").charAt(0).toUpperCase()) + '</span></span>' +
+          '</div>';
+        return wrapper;
+      }
+
       function buildTreeDirectProjectNode(project, canManage) {
         if (!project || !project.id) return null;
         function escapeTreeDirectText(value) {
@@ -7805,6 +8160,31 @@
             '<button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="' + String(project.id) + '" data-tree-project-id="' + String(project.id) + '">' +
               '<span class="todo-tree-label">' + escapeTreeDirectText(label) + '</span>' +
               '<span class="avatar-stack is-direct is-tree-direct" data-presence-project-id="' + String(project.id) + '"><span class="avatar-chip"' + (project.direct_peer && project.direct_peer.id ? ' data-user-id="' + String(project.direct_peer.id) + '"' : '') + ' title="' + escapeTreeDirectText(label) + '">' + avatarHtml + '</span></span>' +
+            '</button>' +
+          '</div>';
+        return node;
+      }
+
+      function buildTreeTeamProjectNode(project, canManage) {
+        if (!project || !project.id) return null;
+        function escapeTreeTeamText(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+        var label = project.display_name || project.name || "Team";
+        var node = document.createElement("div");
+        node.className = "todo-tree-node is-project";
+        node.setAttribute("data-tree-project-node", String(project.id));
+        node.setAttribute("data-tree-team-project", String(project.id));
+        node.innerHTML =
+          '<div class="todo-tree-row" data-project-context="' + String(project.id) + '" data-project-manage="' + (canManage ? "1" : "0") + '" data-project-team="1" data-tree-project-row="' + String(project.id) + '" draggable="true">' +
+            '<button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="' + String(project.id) + '" data-tree-project-id="' + String(project.id) + '">' +
+              '<span class="todo-tree-label">' + escapeTreeTeamText(label) + '</span>' +
+              '<span class="avatar-stack is-team is-tree-team" data-presence-project-id="' + String(project.id) + '" data-project-members="' + String(project.id) + '"><span class="avatar-chip" title="' + escapeTreeTeamText(label) + '">' + escapeTreeTeamText((label || "T").charAt(0).toUpperCase()) + '</span></span>' +
             '</button>' +
           '</div>';
         return node;
@@ -8156,6 +8536,9 @@
       window.__updateDirectProjectEmptyState = updateDirectProjectEmptyState;
       window.__ensureDirectProjectList = ensureDirectProjectList;
       window.__buildDirectProjectItemNode = buildDirectProjectItemNode;
+      window.__updateTeamProjectEmptyState = updateTeamProjectEmptyState;
+      window.__ensureTeamProjectList = ensureTeamProjectList;
+      window.__buildTeamProjectItemNode = buildTeamProjectItemNode;
       window.__setDivisionColorLocal = setDivisionColorLocal;
       window.__addDivisionOptionLocal = addDivisionOptionLocal;
       window.__removeDivisionOptionLocal = removeDivisionOptionLocal;
@@ -8674,7 +9057,7 @@
               meta.appendChild(labels);
               row.appendChild(meta);
 
-              if (!user.owner) {
+              if (!user.owner && user.can_remove !== false) {
                 var actions = document.createElement("div");
                 actions.className = "share-actions";
 
@@ -11299,6 +11682,7 @@
     const shareInput = document.getElementById("share-input");
     const shareSuggest = document.getElementById("share-suggest");
     const shareTitle = document.getElementById("share-title");
+    const shareInputLabel = document.getElementById("share-input-label");
     const shareCancel = document.getElementById("share-cancel");
     const shareStatus = document.getElementById("share-status");
     const shareList = document.getElementById("share-list");
@@ -11307,6 +11691,11 @@
     const directProjectSuggest = document.getElementById("direct-project-suggest");
     const directProjectStatus = document.getElementById("direct-project-status");
     const directProjectCancel = document.getElementById("direct-project-cancel");
+    const teamModal = document.getElementById("team-modal");
+    const teamNameInput = document.getElementById("team-name-input");
+    const teamStatus = document.getElementById("team-status");
+    const teamCancel = document.getElementById("team-cancel");
+    const teamCreate = document.getElementById("team-create");
     const dashboardQuickTaskFab = document.getElementById("dashboard-quick-task-fab");
     const quickTaskModal = document.getElementById("quick-task-modal");
     const quickTaskForm = document.getElementById("quick-task-form");
@@ -11481,10 +11870,19 @@
         });
     };
 
+    const shareContextIsTeam = () => {
+      if (!shareContext || !shareContext.id) return false;
+      const project = typeof dashboardProjectEntity === "function" ? dashboardProjectEntity(shareContext.id) : null;
+      if (project && project.is_team) return true;
+      return !!document.querySelector(`[data-tree-team-project="${String(shareContext.id).replace(/"/g, '\\"')}"]`);
+    };
+
     const openShareModal = (context) => {
       if (!shareModal) return;
       shareContext = { type: "project", id: context.id };
-      shareTitle.textContent = "Share Project";
+      const isTeam = shareContextIsTeam();
+      shareTitle.textContent = isTeam ? "Team Members" : "Share Project";
+      if (shareInputLabel) shareInputLabel.textContent = isTeam ? "Add member or invite by email" : "Add user or Team";
       shareInput.value = "";
       shareSuggestResults = [];
       shareSuggestActiveIndex = -1;
@@ -11647,6 +12045,58 @@
       if (directProjectStatus) directProjectStatus.textContent = "";
     };
 
+    const openTeamModal = () => {
+      if (!teamModal) return;
+      teamModal.style.display = "flex";
+      if (teamStatus) teamStatus.textContent = "";
+      if (teamNameInput) {
+        teamNameInput.value = "";
+        teamNameInput.focus();
+      }
+    };
+    window.__openTeamModal = openTeamModal;
+
+    const closeTeamModal = () => {
+      if (!teamModal) return;
+      teamModal.style.display = "none";
+      if (teamStatus) teamStatus.textContent = "";
+    };
+
+    const submitTeam = () => {
+      var name = teamNameInput ? String(teamNameInput.value || "").trim() : "";
+      if (!name) {
+        if (teamStatus) teamStatus.textContent = "Team name is required.";
+        if (teamNameInput) teamNameInput.focus();
+        return;
+      }
+      if (teamStatus) teamStatus.textContent = "Creating…";
+      if (teamCreate) teamCreate.disabled = true;
+      fetch("/api/teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ name: name }),
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          if (!result.ok || !result.data || !result.data.project || !result.data.project.id) {
+            throw new Error(result.data && result.data.error ? result.data.error : "Failed to create team");
+          }
+          closeTeamModal();
+          var nextUrl = new URL(window.location.href);
+          nextUrl.pathname = "/tree/project/" + encodeURIComponent(result.data.project.id);
+          nextUrl.search = "";
+          nextUrl.hash = "";
+          window.location.href = nextUrl.pathname + nextUrl.search + nextUrl.hash;
+        })
+        .catch((error) => {
+          if (teamStatus) teamStatus.textContent = error.message || "Unable to create team.";
+        })
+        .finally(() => {
+          if (teamCreate) teamCreate.disabled = false;
+        });
+    };
+
     function quickTaskEscape(value) {
       return String(value == null ? "" : value)
         .replace(/&/g, "&amp;")
@@ -11739,6 +12189,7 @@
 
     function quickTaskProjectColor(project) {
       if (!project) return "#4cc9f0";
+      if (project.is_team) return "#36c2a1";
       if (project.division_id != null) {
         var division = quickTaskEntityMap("divisions")[String(project.division_id)];
         if (division && division.color) return division.color;
@@ -11807,9 +12258,32 @@
         html.push('</div>');
       }
 
+      var teamProjects = Object.keys(projects)
+        .map(function (key) { return projects[key]; })
+        .filter(function (project) { return project && project.is_team && manageableSet.has(String(project.id)); })
+        .sort(function (a, b) {
+          return String(a.display_name || a.name || "").localeCompare(String(b.display_name || b.name || "")) || Number(a.id || 0) - Number(b.id || 0);
+        });
+      if (teamProjects.length) {
+        html.push('<div class="quick-task-project-section"><div class="quick-task-project-section-title">Teams</div>');
+        teamProjects.forEach(function (project) {
+          var selected = String(quickTaskSelection.projectId || "") === String(project.id) && !quickTaskSelection.groupId;
+          html.push(
+            '<button class="quick-task-project-option' + (selected ? ' is-selected' : '') + '" type="button" data-quick-task-select-project="' + quickTaskEscape(project.id) + '" style="--quick-task-option-color:#36c2a1;">' +
+              '<span class="quick-task-project-option-dot"></span>' +
+              '<span class="quick-task-option-copy">' +
+                '<span class="quick-task-option-title">' + quickTaskEscape(project.display_name || project.name || "Team") + '</span>' +
+                '<span class="quick-task-option-meta">Team task</span>' +
+              '</span>' +
+            '</button>'
+          );
+        });
+        html.push('</div>');
+      }
+
       var standardProjects = Object.keys(projects)
         .map(function (key) { return projects[key]; })
-        .filter(function (project) { return project && !project.is_direct && manageableSet.has(String(project.id)); });
+        .filter(function (project) { return project && !project.is_direct && !project.is_team && manageableSet.has(String(project.id)); });
       var topLevelProjects = standardProjects
         .filter(function (project) { return project.division_id == null; })
         .sort(function (a, b) {
@@ -12718,13 +13192,95 @@
         });
     };
 
+    const submitTeamShare = (teamProjectId) => {
+      if (!shareContext || !teamProjectId) return;
+      fetch(`/api/projects/${shareContext.id}/teams`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ team_project_id: teamProjectId }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then(() => {
+          if (shareStatus) shareStatus.textContent = "Team added.";
+          shareInput.value = "";
+          shareSuggestResults = [];
+          shareSuggestActiveIndex = -1;
+          shareSuggest.innerHTML = "";
+          loadShareMembers();
+        });
+    };
+
+    const submitTeamInvite = (email) => {
+      if (!shareContext || !shareContextIsTeam() || !email) return;
+      fetch(`/api/teams/${shareContext.id}/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ email }),
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, status: res.status, data })))
+        .then((result) => {
+          if (!result.ok) {
+            const message = result.status === 409
+              ? "That email already has a Termin account. Add them as a member instead."
+              : ((result.data && result.data.error) || "Could not send invitation.");
+            throw new Error(message);
+          }
+          if (shareStatus) shareStatus.textContent = `Invitation sent to ${result.data.email || email}.`;
+          shareInput.value = "";
+          shareSuggestResults = [];
+          shareSuggestActiveIndex = -1;
+          shareSuggest.innerHTML = "";
+        })
+        .catch((error) => {
+          if (shareStatus) shareStatus.textContent = error && error.message ? error.message : "Could not send invitation.";
+        });
+    };
+
     const loadShareMembers = () => {
       if (!shareContext || !shareList) return;
-      const url = `/api/projects/${shareContext.id}/members`;
-      fetch(url, { credentials: "same-origin" })
-        .then((res) => res.json().catch(() => ({ members: [] })))
-          .then((data) => {
+      const membersUrl = `/api/projects/${shareContext.id}/members`;
+      const teamsUrl = `/api/projects/${shareContext.id}/teams`;
+      Promise.all([
+        fetch(membersUrl, { credentials: "same-origin" }).then((res) => res.json().catch(() => ({ members: [] }))),
+        fetch(teamsUrl, { credentials: "same-origin" }).then((res) => res.json().catch(() => ({ teams: [] }))),
+      ])
+        .then(([data, teamData]) => {
             shareList.innerHTML = "";
+            (teamData.teams || []).forEach((team) => {
+              const row = document.createElement("div");
+              row.className = "share-item";
+              const meta = document.createElement("div");
+              meta.className = "meta";
+              const avatar = document.createElement("span");
+              avatar.className = "avatar-chip";
+              avatar.textContent = (team.display_name || team.name || "T")[0].toUpperCase();
+              const label = document.createElement("div");
+              label.className = "label";
+              label.textContent = team.display_name || team.name || "Team";
+              const metaWrap = document.createElement("div");
+              metaWrap.appendChild(label);
+              const tag = document.createElement("div");
+              tag.className = "muted";
+              tag.textContent = `Team · ${Number(team.member_count || 0)} member${Number(team.member_count || 0) === 1 ? "" : "s"}`;
+              metaWrap.appendChild(tag);
+              meta.appendChild(avatar);
+              meta.appendChild(metaWrap);
+              row.appendChild(meta);
+              const actions = document.createElement("div");
+              actions.className = "share-actions";
+              const remove = document.createElement("button");
+              remove.className = "btn link";
+              remove.type = "button";
+              remove.textContent = "Remove";
+              remove.addEventListener("click", () => {
+                fetch(`/api/projects/${shareContext.id}/teams/${team.id}`, { method: "DELETE" }).then(() => loadShareMembers());
+              });
+              actions.appendChild(remove);
+              row.appendChild(actions);
+              shareList.appendChild(row);
+            });
             (data.members || []).forEach((u) => {
               const row = document.createElement("div");
               row.className = "share-item";
@@ -12760,7 +13316,7 @@
             meta.appendChild(avatar);
             meta.appendChild(metaWrap);
             row.appendChild(meta);
-            if (!u.owner) {
+            if (!u.owner && u.can_remove !== false) {
               const actions = document.createElement("div");
               actions.className = "share-actions";
               const remove = document.createElement("button");
@@ -12777,28 +13333,44 @@
           });
         });
     };
+    window.__loadShareMembers = loadShareMembers;
 
 	    if (shareInput) {
 	      const syncShareSuggestionActive = () => {
-	        shareSuggest.querySelectorAll("button[data-user-id]").forEach((button, index) => {
+	        shareSuggest.querySelectorAll("button[data-share-suggestion]").forEach((button, index) => {
 	          button.classList.toggle("is-active", index === shareSuggestActiveIndex);
 	        });
 	      };
 
 	      const renderShareSuggestions = () => {
 	        shareSuggest.innerHTML = "";
-	        shareSuggestResults.forEach((u, index) => {
+	        shareSuggestResults.forEach((item, index) => {
 	          const btn = document.createElement("button");
-	          const label = u.display_name || u.email || "User";
-	          const secondary = u.email && u.email !== label ? u.email : "";
+	          const isTeam = item.type === "team";
+	          const isInvite = item.type === "invite";
+	          const label = item.display_name || item.name || item.email || (isTeam ? "Team" : "User");
+	          const secondary = isInvite
+              ? "Send invitation email"
+              : isTeam
+              ? `Team · ${Number(item.member_count || 0)} member${Number(item.member_count || 0) === 1 ? "" : "s"}`
+              : (item.email && item.email !== label ? item.email : "");
 	          const initial = label.trim().slice(0, 1).toUpperCase();
 	          btn.type = "button";
-	          btn.dataset.userId = u.id;
+	          btn.dataset.shareSuggestion = isInvite ? "invite" : (isTeam ? "team" : "user");
+	          if (isTeam) {
+	            btn.dataset.teamId = item.id;
+	          } else if (isInvite) {
+	            btn.dataset.inviteEmail = item.email;
+	          } else {
+	            btn.dataset.userId = item.id;
+	          }
 	          if (index === shareSuggestActiveIndex) {
 	            btn.classList.add("is-active");
 	          }
-	          const avatar = u.avatar_url
-	            ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(u.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(initial) + '; this.remove();" /></span>'
+	          const avatar = isInvite
+	            ? '<span class="assign-suggest-avatar"><i class="fa-solid fa-envelope" aria-hidden="true"></i></span>'
+	            : item.avatar_url
+	            ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(item.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(initial) + '; this.remove();" /></span>'
 	            : '<span class="assign-suggest-avatar">' + escapeHtml(initial) + '</span>';
 	          btn.innerHTML = avatar +
 	            '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + '</span>' +
@@ -12807,7 +13379,9 @@
 	          btn.addEventListener("mousedown", (event) => {
 	            event.preventDefault();
 	            event.stopPropagation();
-	            submitShare(u.id);
+	            if (isInvite) submitTeamInvite(item.email);
+	            else if (isTeam) submitTeamShare(item.id);
+	            else submitShare(item.id);
 	          });
 	          btn.addEventListener("mouseenter", () => {
 	            shareSuggestActiveIndex = index;
@@ -12820,10 +13394,23 @@
 
 	      const loadShareSuggestions = () => {
 	        const q = shareInput.value.trim();
-	        fetch(`/api/users?q=${encodeURIComponent(q)}`)
-	          .then((res) => res.json().catch(() => ({ results: [] })))
-	          .then((data) => {
-	            shareSuggestResults = Array.isArray(data.results) ? data.results : [];
+	        const isTeamContext = shareContextIsTeam();
+	        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q);
+	        Promise.all([
+	          fetch(`/api/users?q=${encodeURIComponent(q)}`).then((res) => res.json().catch(() => ({ results: [] }))),
+	          fetch("/api/teams", { credentials: "same-origin" }).then((res) => res.json().catch(() => ({ results: [] }))),
+	        ])
+	          .then(([userData, teamData]) => {
+	            const users = Array.isArray(userData.results) ? userData.results.map((u) => ({ ...u, type: "user" })) : [];
+	            const needle = q.toLowerCase();
+	            const teams = isTeamContext ? [] : (Array.isArray(teamData.results) ? teamData.results : [])
+	              .filter((team) => !needle || String(team.display_name || team.name || "").toLowerCase().includes(needle))
+	              .map((team) => ({ ...team, type: "team" }));
+	            const hasExactUserEmail = users.some((u) => String(u.email || "").toLowerCase() === needle);
+	            const invite = isTeamContext && isEmail && !hasExactUserEmail
+	              ? [{ type: "invite", email: q, display_name: `Invite ${q}` }]
+	              : [];
+	            shareSuggestResults = teams.concat(users).concat(invite);
 	            shareSuggestActiveIndex = shareSuggestResults.length ? 0 : -1;
 	            renderShareSuggestions();
 	          });
@@ -12846,7 +13433,9 @@
 	        if (event.key === "Enter") {
 	          event.preventDefault();
 	          const selected = shareSuggestResults[shareSuggestActiveIndex] || shareSuggestResults[0];
-	          if (selected) submitShare(selected.id);
+	          if (selected && selected.type === "invite") submitTeamInvite(selected.email);
+	          else if (selected && selected.type === "team") submitTeamShare(selected.id);
+	          else if (selected) submitShare(selected.id);
 	        }
 	      });
 	      shareInput.addEventListener("focus", () => {
@@ -12871,6 +13460,13 @@
       button.addEventListener("click", (event) => {
         event.preventDefault();
         openDirectProjectModal();
+      });
+    });
+
+    document.querySelectorAll("[data-open-team-modal]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        openTeamModal();
       });
     });
 
@@ -12915,6 +13511,33 @@
     if (directProjectModal) {
       directProjectModal.addEventListener("click", (event) => {
         if (event.target === directProjectModal) closeDirectProjectModal();
+      });
+    }
+
+    if (teamCreate) {
+      teamCreate.addEventListener("click", submitTeam);
+    }
+
+    if (teamNameInput) {
+      teamNameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submitTeam();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeTeamModal();
+        }
+      });
+    }
+
+    if (teamCancel) {
+      teamCancel.addEventListener("click", closeTeamModal);
+    }
+
+    if (teamModal) {
+      teamModal.addEventListener("click", (event) => {
+        if (event.target === teamModal) closeTeamModal();
       });
     }
 
@@ -16772,6 +17395,40 @@
       return '<span class="' + classes + '" data-user-id="' + member.id + '" title="' + escapeHtml(label) + '">' + escapeHtml(initial) + '</span>';
     }
 
+    function renderTeamAvatarChip(team) {
+      var label = team.display_name || team.name || "Team";
+      var count = Number(team.member_count || 0);
+      var title = label + (count ? " · " + count + " member" + (count === 1 ? "" : "s") : "");
+      var memberPayload = "";
+      try {
+        memberPayload = encodeURIComponent(JSON.stringify(Array.isArray(team.members) ? team.members : []));
+      } catch (err) {
+        memberPayload = "";
+      }
+      return '<span class="avatar-chip is-team-share" data-team-id="' + escapeHtml(team.id) + '" data-team-name="' + escapeHtml(label) + '" data-team-member-count="' + escapeHtml(String(count)) + '" data-team-members="' + escapeHtml(memberPayload) + '" title="' + escapeHtml(title) + '"><i class="fa-solid fa-user-group" aria-hidden="true"></i><span class="team-share-name">' + escapeHtml(label) + '</span></span>';
+    }
+
+    function updateTeamShareChipsForProject(project) {
+      if (!project || !project.is_team || project.id == null) return;
+      var teamId = String(project.id);
+      var label = project.display_name || project.name || "Team";
+      var selectorTeamId = window.CSS && typeof window.CSS.escape === "function"
+        ? window.CSS.escape(teamId)
+        : teamId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      document.querySelectorAll('.avatar-chip.is-team-share[data-team-id="' + selectorTeamId + '"]').forEach(function (chip) {
+        var count = Number(chip.getAttribute("data-team-member-count") || 0);
+        var title = label + (count ? " · " + count + " member" + (count === 1 ? "" : "s") : "");
+        chip.setAttribute("data-team-name", label);
+        chip.setAttribute("title", title);
+        var nameNode = chip.querySelector(".team-share-name");
+        if (nameNode) nameNode.textContent = label;
+      });
+      if (teamHoverState && teamHoverState.activeTarget && String(teamHoverState.activeTarget.getAttribute("data-team-id") || "") === teamId) {
+        renderTeamHoverCard(teamHoverState.activeTarget);
+        positionTeamHoverCard(teamHoverState.activeTarget);
+      }
+    }
+
     function currentDiscussionProjectId() {
       if (currentEntityType === "task") {
         return currentTaskData && currentTaskData.project_id ? String(currentTaskData.project_id) : "";
@@ -19723,6 +20380,156 @@
       positionPrereqHoverCard(prereqHoverState.activeTarget);
     });
 
+    var teamHoverCardEl = document.getElementById("team-hover-card");
+    var teamHoverState = {
+      activeTarget: null,
+      hideTimer: 0,
+    };
+
+    function teamHoverTargetForNode(node) {
+      if (!node || typeof node.closest !== "function") return null;
+      return node.closest(".avatar-chip.is-team-share[data-team-id]");
+    }
+
+    function cancelHideTeamHoverCard() {
+      if (teamHoverState.hideTimer) {
+        window.clearTimeout(teamHoverState.hideTimer);
+        teamHoverState.hideTimer = 0;
+      }
+    }
+
+    function hideTeamHoverCard() {
+      cancelHideTeamHoverCard();
+      teamHoverState.activeTarget = null;
+      if (!teamHoverCardEl) return;
+      teamHoverCardEl.hidden = true;
+      teamHoverCardEl.setAttribute("aria-hidden", "true");
+      teamHoverCardEl.innerHTML = "";
+    }
+
+    function scheduleHideTeamHoverCard() {
+      cancelHideTeamHoverCard();
+      teamHoverState.hideTimer = window.setTimeout(hideTeamHoverCard, 90);
+    }
+
+    function teamMembersForChip(target) {
+      if (!target) return [];
+      var encoded = target.getAttribute("data-team-members") || "";
+      if (!encoded) return [];
+      try {
+        var parsed = JSON.parse(decodeURIComponent(encoded));
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (err) {
+        return [];
+      }
+    }
+
+    function renderTeamHoverCard(target) {
+      if (!teamHoverCardEl || !target) return;
+      var teamName = target.getAttribute("data-team-name") || "Team";
+      var count = Number(target.getAttribute("data-team-member-count") || 0);
+      var members = teamMembersForChip(target);
+      teamHoverCardEl.innerHTML =
+        '<div class="team-hover-card-title"><i class="fa-solid fa-user-group" aria-hidden="true"></i><span>' + escapeHtml(teamName) + '</span></div>' +
+        '<div class="team-hover-card-subtitle">' + escapeHtml(String(count || members.length) + " member" + ((count || members.length) === 1 ? "" : "s")) + '</div>' +
+        '<div class="team-hover-card-members">' +
+          (members.length
+            ? members.map(function (member) {
+                var label = member.display_name || member.email || "User";
+                var secondary = member.email && member.email !== label ? member.email : "";
+                var initial = label.trim().slice(0, 1).toUpperCase() || "?";
+                return (
+                  '<div class="team-hover-card-member">' +
+                    '<span class="team-hover-card-avatar">' +
+                      (member.avatar_url
+                        ? '<img src="' + escapeHtml(member.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(initial) + '; this.remove();" />'
+                        : escapeHtml(initial)) +
+                    '</span>' +
+                    '<span class="team-hover-card-member-copy">' +
+                      '<span class="team-hover-card-member-name">' + escapeHtml(label) + '</span>' +
+                      (secondary ? '<span class="team-hover-card-member-email">' + escapeHtml(secondary) + '</span>' : '') +
+                    '</span>' +
+                  '</div>'
+                );
+              }).join("")
+            : '<div class="footer-note">No members found.</div>') +
+        '</div>';
+      teamHoverCardEl.hidden = false;
+      teamHoverCardEl.setAttribute("aria-hidden", "false");
+    }
+
+    function positionTeamHoverCard(target) {
+      if (!teamHoverCardEl || !target || teamHoverCardEl.hidden) return;
+      var rect = target.getBoundingClientRect();
+      var cardRect = teamHoverCardEl.getBoundingClientRect();
+      var left = Math.max(12, Math.min(rect.left, window.innerWidth - cardRect.width - 12));
+      var top = rect.bottom + 10;
+      if (top + cardRect.height > window.innerHeight - 12) {
+        top = rect.top - cardRect.height - 10;
+      }
+      if (top < 12) {
+        top = Math.max(12, window.innerHeight - cardRect.height - 12);
+      }
+      teamHoverCardEl.style.left = Math.round(left) + "px";
+      teamHoverCardEl.style.top = Math.round(top) + "px";
+    }
+
+    function showTeamHoverCard(target) {
+      if (!teamHoverCardEl || !target) return;
+      cancelHideTeamHoverCard();
+      teamHoverState.activeTarget = target;
+      renderTeamHoverCard(target);
+      positionTeamHoverCard(target);
+    }
+
+    document.addEventListener("mouseover", function (event) {
+      var target = teamHoverTargetForNode(event.target);
+      if (!target) return;
+      showTeamHoverCard(target);
+    });
+
+    document.addEventListener("mouseout", function (event) {
+      var from = teamHoverTargetForNode(event.target);
+      if (!from || from !== teamHoverState.activeTarget) return;
+      var to = teamHoverTargetForNode(event.relatedTarget);
+      if (to === from) return;
+      if (teamHoverCardEl && event.relatedTarget && teamHoverCardEl.contains(event.relatedTarget)) return;
+      scheduleHideTeamHoverCard();
+    });
+
+    if (teamHoverCardEl) {
+      teamHoverCardEl.addEventListener("mouseenter", cancelHideTeamHoverCard);
+      teamHoverCardEl.addEventListener("mouseleave", function (event) {
+        var to = teamHoverTargetForNode(event.relatedTarget);
+        if (to && to === teamHoverState.activeTarget) return;
+        scheduleHideTeamHoverCard();
+      });
+    }
+
+    document.addEventListener("focusin", function (event) {
+      var target = teamHoverTargetForNode(event.target);
+      if (!target) return;
+      showTeamHoverCard(target);
+    });
+
+    document.addEventListener("focusout", function (event) {
+      var from = teamHoverTargetForNode(event.target);
+      if (!from || from !== teamHoverState.activeTarget) return;
+      var to = teamHoverTargetForNode(event.relatedTarget);
+      if (to === from) return;
+      scheduleHideTeamHoverCard();
+    });
+
+    window.addEventListener("scroll", function () {
+      if (!teamHoverState.activeTarget || !teamHoverCardEl || teamHoverCardEl.hidden) return;
+      positionTeamHoverCard(teamHoverState.activeTarget);
+    }, true);
+
+    window.addEventListener("resize", function () {
+      if (!teamHoverState.activeTarget || !teamHoverCardEl || teamHoverCardEl.hidden) return;
+      positionTeamHoverCard(teamHoverState.activeTarget);
+    });
+
     function openDirectChatForUser(userId) {
       if (!userId) return Promise.resolve();
       return fetch("/api/direct-projects", {
@@ -19910,7 +20717,7 @@
         });
     }
 
-    function updateMemberAvatars(selector, members, limit) {
+    function updateMemberAvatars(selector, members, limit, teams) {
       document.querySelectorAll(selector).forEach(function (container) {
         var projectId = container.getAttribute("data-project-members") || container.getAttribute("data-presence-project-id") || "";
         if (projectId) {
@@ -19918,21 +20725,34 @@
         }
       });
       document.querySelectorAll(selector).forEach(function (container) {
-        var visible = (members || []).slice(0, limit || 6);
-        var extra = Math.max(0, (members || []).length - visible.length);
-        container.innerHTML = visible.map(renderAvatarChip).join("") + (extra ? '<span class="avatar-chip">+' + extra + "</span>" : "");
+        var memberList = Array.isArray(members) ? members : [];
+        var teamList = Array.isArray(teams) ? teams : [];
+        var teamMemberIds = new Set();
+        teamList.forEach(function (team) {
+          (Array.isArray(team.member_ids) ? team.member_ids : []).forEach(function (userId) {
+            teamMemberIds.add(String(userId));
+          });
+        });
+        var visibleMembers = memberList.filter(function (member) {
+          return !teamMemberIds.has(String(member.id || ""));
+        });
+        var chips = teamList.map(renderTeamAvatarChip).concat(visibleMembers.map(renderAvatarChip));
+        var visible = chips.slice(0, limit || 6);
+        var extra = Math.max(0, chips.length - visible.length);
+        container.innerHTML = visible.join("") + (extra ? '<span class="avatar-chip">+' + extra + "</span>" : "");
       });
     }
 
-    function applyProjectShareIndicators(projectId, members) {
+    function applyProjectShareIndicators(projectId, members, teams) {
       var currentUser = String(currentUserId || "");
       var memberList = Array.isArray(members) ? members : [];
+      var teamList = Array.isArray(teams) ? teams : [];
       var isSharedWithMe = memberList.some(function (member) {
         return String(member.id || "") === currentUser && !member.owner;
       });
-      var isSharedOut = !isSharedWithMe && memberList.some(function (member) {
+      var isSharedOut = !isSharedWithMe && (teamList.length > 0 || memberList.some(function (member) {
         return String(member.id || "") !== currentUser;
-      });
+      }));
       var iconHtml = isSharedWithMe
         ? '<span class="shared-with-me-icon is-shared-in" title="Shared with me" aria-label="Shared with me"><i class="fa-regular fa-user" aria-hidden="true"></i></span>'
         : isSharedOut
@@ -19960,14 +20780,20 @@
       if (Array.isArray(knownMembers)) {
         updateMemberAvatars(selector, knownMembers, 6);
         applyProjectShareIndicators(normalizedProjectId, knownMembers);
-        return;
       }
-      fetch("/api/projects/" + encodeURIComponent(normalizedProjectId) + "/members", { credentials: "same-origin" })
-        .then(function (res) { return res.json().catch(function () { return {}; }); })
-        .then(function (data) {
+      Promise.all([
+        fetch("/api/projects/" + encodeURIComponent(normalizedProjectId) + "/members", { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return {}; }); }),
+        fetch("/api/projects/" + encodeURIComponent(normalizedProjectId) + "/teams", { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return {}; }); }),
+      ])
+        .then(function (results) {
+          var data = results[0] || {};
+          var teamData = results[1] || {};
           if (!data || !Array.isArray(data.members)) return;
-          updateMemberAvatars(selector, data.members, 6);
-          applyProjectShareIndicators(normalizedProjectId, data.members);
+          var teams = Array.isArray(teamData.teams) ? teamData.teams : [];
+          updateMemberAvatars(selector, data.members, 6, teams);
+          applyProjectShareIndicators(normalizedProjectId, data.members, teams);
         })
         .catch(function (err) {
           console.error("syncProjectHeaderAvatars failed", err);
@@ -25248,8 +26074,7 @@
 
       socket.on("project_members_updated", function (data) {
         if (!data || !data.project_id) return;
-        updateMemberAvatars('[data-project-members="' + data.project_id + '"]', data.members || [], 6);
-        applyProjectShareIndicators(String(data.project_id), data.members || []);
+        syncProjectHeaderAvatars(data.project_id, data.members || []);
         setDiscussionAudience(data.project_id, data.members || []);
         queueGroupAssignmentTaskRefreshes(data.project_id, "");
       });
@@ -25381,6 +26206,11 @@
         if (typeof window.__setProjectNameLocal === "function") {
           window.__setProjectNameLocal(String(project.id), projectLabel);
         }
+        updateTeamShareChipsForProject(project);
+        var shareModalNode = document.getElementById("share-modal");
+        if (project.is_team && shareModalNode && shareModalNode.style.display !== "none" && typeof window.__loadShareMembers === "function") {
+          window.__loadShareMembers();
+        }
         if (typeof syncEntityLinkBadges === "function") {
           syncEntityLinkBadges("project", project.id, project.links || []);
         }
@@ -25419,6 +26249,8 @@
         var isTreeView = !!document.querySelector("[data-tree-sidebar]") && !!document.querySelector("[data-tree-board]");
         if (project.is_direct && isTreeView && typeof window.__insertTreeProjectLocal === "function") {
           window.__insertTreeProjectLocal(project, canManage);
+        } else if (project.is_team && isTreeView && typeof window.__insertTreeProjectLocal === "function") {
+          window.__insertTreeProjectLocal(project, canManage);
         } else if (project.is_direct && typeof window.__ensureDirectProjectList === "function" && typeof window.__buildDirectProjectItemNode === "function") {
           var directList = window.__ensureDirectProjectList();
           if (directList && !directList.querySelector('[data-project-context="' + project.id + '"]')) {
@@ -25427,6 +26259,17 @@
               directList.appendChild(directItem);
               if (typeof window.__updateDirectProjectEmptyState === "function") {
                 window.__updateDirectProjectEmptyState();
+              }
+            }
+          }
+        } else if (project.is_team && typeof window.__ensureTeamProjectList === "function" && typeof window.__buildTeamProjectItemNode === "function") {
+          var teamList = window.__ensureTeamProjectList();
+          if (teamList && !teamList.querySelector('[data-project-context="' + project.id + '"]')) {
+            var teamItem = window.__buildTeamProjectItemNode(project, canManage);
+            if (teamItem) {
+              teamList.appendChild(teamItem);
+              if (typeof window.__updateTeamProjectEmptyState === "function") {
+                window.__updateTeamProjectEmptyState();
               }
             }
           }

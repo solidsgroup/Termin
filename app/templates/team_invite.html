@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth-page">
+  <div class="auth-card">
+    <div class="auth-card-header">
+      <div class="auth-eyebrow">Termin Team Invitation</div>
+      <h2>{{ team.name if team else "Team Invitation" }}</h2>
+      {% if inviter %}
+        <p class="footer-note">{{ inviter.display_name or inviter.email }} invited you to join this Team.</p>
+      {% endif %}
+    </div>
+    {% if message %}
+      <div class="{% if status in ['invalid', 'error', 'mismatch'] %}auth-error{% else %}footer-note{% endif %}" role="status">{{ message }}</div>
+    {% endif %}
+    {% if invite and status in ["login", "mismatch"] %}
+      <div class="footer-note" style="margin-top: 10px;">Invited email: {{ invite.email }}</div>
+    {% endif %}
+    {% if status == "ready" and invite %}
+      <form method="post" action="{{ url_for('ui.accept_team_invite_route', token=invite.token) }}" class="auth-form" style="margin-top: 16px;">
+        <button class="btn auth-submit" type="submit">Accept Invitation</button>
+      </form>
+    {% else %}
+      <div style="margin-top: 16px;">
+        <a class="btn auth-submit" href="{{ continue_url }}">{{ "Sign in" if status in ["login", "mismatch"] else "Continue" }}</a>
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

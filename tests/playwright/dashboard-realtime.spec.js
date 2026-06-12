@@ -2517,6 +2517,116 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Click the direct-project row and verify it stays avatar-based, with no share icon and no expandable group chrome injected.', page);
   });
 
+  test('tree team project opens after creation without client errors', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'teams', 'sidebar']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const result = await page.evaluate(async (memberId) => {
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Playwright Team', member_ids: [memberId] }),
+      });
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (error) {
+        data = null;
+      }
+      return { ok: response.ok, status: response.status, data };
+    }, state.member.id);
+    expect(result.ok).toBeTruthy();
+    const teamId = result.data.project.id;
+
+    await page.goto(`/tree/project/${teamId}`);
+    await waitForTreeProjectReady(page, teamId, null);
+    await expect(page.locator(`[data-tree-team-project="${teamId}"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-tree-project-board="${teamId}"]`)).toContainText('Playwright Team');
+    await steps.step('Create a Team through the API, open its tree page, and verify the Team sidebar row and board render without client errors.', page);
+  });
+
+  test('team member picker can invite an unregistered email', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'teams', 'invites']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const result = await page.evaluate(async () => {
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Invite UI Team' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      return { ok: response.ok, data };
+    });
+    expect(result.ok).toBeTruthy();
+    const teamId = result.data.project.id;
+
+    await page.goto(`/tree/project/${teamId}`);
+    await waitForTreeProjectReady(page, teamId, null);
+    await page.locator(`[data-open-share-project="${teamId}"]`).first().click();
+    await expect(page.locator('#share-title')).toHaveText('Team Members');
+    await expect(page.locator('#share-input-label')).toHaveText('Add member or invite by email');
+    await page.locator('#share-input').fill('newinvitee@example.com');
+    const inviteSuggestion = page.locator('#share-suggest [data-share-suggestion="invite"]').first();
+    await expect(inviteSuggestion).toContainText('Invite newinvitee@example.com');
+    await expect(inviteSuggestion).toContainText('Send invitation email');
+    await inviteSuggestion.click();
+    await expect(page.locator('#share-status')).toContainText('Invitation sent to newinvitee@example.com');
+    await steps.step('Open a Team member picker, type an unregistered email, choose the invite suggestion, and verify the invitation email action succeeds.', page);
+  });
+
+  test('project Team share chip updates live when the Team is renamed', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'teams', 'sharing', 'realtime']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const setup = await page.evaluate(async ({ projectId, memberId }) => {
+      const teamResponse = await fetch('/api/teams', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Teaching Team', member_ids: [memberId] }),
+      });
+      const teamData = await teamResponse.json().catch(() => ({}));
+      if (!teamResponse.ok) return { ok: false, status: teamResponse.status, data: teamData };
+      const shareResponse = await fetch(`/api/projects/${projectId}/teams`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_project_id: teamData.project.id }),
+      });
+      const shareData = await shareResponse.json().catch(() => ({}));
+      return { ok: shareResponse.ok, status: shareResponse.status, data: shareData, teamId: teamData.project.id };
+    }, { projectId: state.project.id, memberId: state.member.id });
+    expect(setup.ok).toBeTruthy();
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const chip = page.locator(`.avatar-chip.is-team-share[data-team-id="${setup.teamId}"]`).first();
+    await expect(chip).toContainText('Teaching Team');
+
+    const rename = await page.evaluate(async (teamId) => {
+      const response = await fetch(`/api/projects/${teamId}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Teaching Team Renamed' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      return { ok: response.ok, status: response.status, data };
+    }, setup.teamId);
+    expect(rename.ok).toBeTruthy();
+    await expect(chip).toContainText('Teaching Team Renamed');
+    await steps.step('Share a project with Teaching Team, rename the Team, and verify the existing project share chip updates without a refresh.', page);
+  });
+
   test('tree shared structure project shows header avatars', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['tree', 'shared', 'project-header', 'avatars']);

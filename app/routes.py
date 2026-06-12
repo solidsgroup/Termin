@@ -6,13 +6,13 @@ import re
 from urllib.parse import urlparse
 from sqlalchemy import or_
 
-from flask import Blueprint, current_app, request, send_from_directory
+from flask import Blueprint, current_app, request, send_from_directory, url_for
 
 from markdown import markdown as render_markdown
 from app.auth import login_required
 from app.collaborators import get_or_create_collaborator_profile
 from app.dashboard_state import build_dashboard_bootstrap, build_dashboard_changes
-from app.emailer import MailDeliveryError, send_magic_link_digest_email, send_magic_link_email
+from app.emailer import MailDeliveryError, send_email, send_magic_link_digest_email, send_magic_link_email
 from app.extensions import db
 from app.discussion_activity import (
     group_discussion_user_ids,
@@ -119,11 +119,22 @@ from app.models import (
     GroupTemplateTask,
     ProjectComment,
     GroupComment,
+    ProjectTeamShare,
+    TeamInvite,
 )
+from app.team_shares import accessible_project_ids_for_user, project_access_user_ids, project_has_team_access, team_member_user_ids
+from app.team_invites import get_or_create_team_invite
 from app.utils import current_user, display_name_for_user, is_admin as user_is_admin
 
 
 api_bp = Blueprint("api", __name__)
+
+
+def _public_url(endpoint: str, **values) -> str:
+    base_url = str(current_app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    if base_url:
+        return f"{base_url}{url_for(endpoint, **values)}"
+    return url_for(endpoint, _external=True, **values)
 
 
 def _json_response_with_payload_header(payload: dict, status_code: int = 200):
@@ -1883,6 +1894,8 @@ def _account_user_has_project_access(project_id: int, account_user_id: int | Non
         return True
     if ProjectMember.query.filter_by(project_id=project_id, user_id=account_user_id).first():
         return True
+    if project_has_team_access(account_user_id, project_id):
+        return True
     return (
         db.session.query(Group.id)
         .join(GroupMember, GroupMember.group_id == Group.id)
@@ -2006,6 +2019,8 @@ def _can_manage_project(user, project_id: int) -> bool:
         return True
     if ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first() is not None:
         return True
+    if project_has_team_access(user.id, project_id):
+        return True
     return (
         db.session.query(Group.id)
         .join(GroupMember, GroupMember.group_id == Group.id)
@@ -2023,6 +2038,8 @@ def _can_access_project(user, project_id: int) -> bool:
     if Project.query.filter_by(id=project_id, owner_id=user.id).first():
         return True
     if ProjectMember.query.filter_by(project_id=project_id, user_id=user.id).first():
+        return True
+    if project_has_team_access(user.id, project_id):
         return True
     if (
         db.session.query(Group.id)
@@ -2044,19 +2061,7 @@ def _can_access_group(user, group_id: int) -> bool:
 
 def _accessible_projects_for_user(user) -> list[Project]:
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
-    member_project_ids = [row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()]
-    member_group_project_ids = [
-        row.project_id
-        for row in db.session.query(Group.project_id)
-        .join(GroupMember, GroupMember.group_id == Group.id)
-        .filter(GroupMember.user_id == user.id)
-        .all()
-    ]
-    accessible_project_ids = list(
-        {project.id for project in owned_projects}
-        .union(member_project_ids)
-        .union(member_group_project_ids)
-    )
+    accessible_project_ids = sorted(accessible_project_ids_for_user(user.id))
     return Project.query.filter(Project.id.in_(accessible_project_ids)).all() if accessible_project_ids else []
 
 
@@ -2076,6 +2081,11 @@ def _project_display_name_for_user(project: Project, user_id: int) -> str:
 
 def _sidebar_order_tokens(user) -> list[str]:
     accessible_projects = _accessible_projects_for_user(user)
+    accessible_projects = [
+        project
+        for project in accessible_projects
+        if not bool(getattr(project, "is_direct", False)) and not bool(getattr(project, "is_team", False))
+    ]
     divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
     pref_map = sidebar_preference_map(user.id, accessible_projects, divisions)
     items = top_level_sidebar_items(accessible_projects, divisions, pref_map)
@@ -3892,7 +3902,9 @@ def delete_project(project_id: int):
     if project.owner_id != user.id:
         return {"error": "unauthorized"}, 403
 
-    recipient_user_ids = [project.owner_id] + [row.user_id for row in ProjectMember.query.filter_by(project_id=project.id).all()]
+    recipient_user_ids = list(project_access_user_ids(project.id))
+    if project.owner_id:
+        recipient_user_ids.append(project.owner_id)
     recipient_user_ids = sorted({user_id for user_id in recipient_user_ids if user_id})
     group_ids = [g.id for g in Group.query.filter_by(project_id=project.id).all()]
     task_ids = [t.id for t in Task.query.filter_by(project_id=project.id).all()]
@@ -3908,6 +3920,9 @@ def delete_project(project_id: int):
     Task.query.filter(Task.project_id == project.id).delete(synchronize_session=False)
     GroupMember.query.filter(GroupMember.group_id.in_(group_ids)).delete(synchronize_session=False)
     ProjectMember.query.filter(ProjectMember.project_id == project.id).delete(synchronize_session=False)
+    ProjectTeamShare.query.filter(
+        or_(ProjectTeamShare.project_id == project.id, ProjectTeamShare.team_project_id == project.id)
+    ).delete(synchronize_session=False)
     ProjectSidebarPreference.query.filter_by(project_id=project.id).delete(synchronize_session=False)
     Group.query.filter(Group.project_id == project.id).delete(synchronize_session=False)
     db.session.delete(project)
@@ -4330,7 +4345,11 @@ def search_tasks():
         return {"results": []}
     project_map = {project.id: project for project in accessible_projects}
     sidebar_divisions = Division.query.filter_by(owner_id=user.id).order_by(Division.position.asc(), Division.id.asc()).all()
-    pref_map = sidebar_preference_map(user.id, [project for project in accessible_projects if not project.is_direct], sidebar_divisions)
+    pref_map = sidebar_preference_map(
+        user.id,
+        [project for project in accessible_projects if not project.is_direct and not getattr(project, "is_team", False)],
+        sidebar_divisions,
+    )
     division_map = {division.id: division for division in sidebar_divisions}
     group_map = {
         group.id: group
@@ -4534,6 +4553,242 @@ def list_direct_projects():
     return {"results": results}
 
 
+@api_bp.post("/teams")
+@login_required
+def create_team():
+    user = current_user()
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        return {"error": "name is required"}, 400
+
+    raw_member_ids = payload.get("member_ids") or []
+    if not isinstance(raw_member_ids, list):
+        raw_member_ids = []
+    member_ids: list[int] = []
+    for raw_id in raw_member_ids:
+        try:
+            member_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if member_id and member_id != int(user.id) and member_id not in member_ids:
+            member_ids.append(member_id)
+    members = User.query.filter(User.id.in_(member_ids)).all() if member_ids else []
+    valid_member_ids = {int(member.id) for member in members}
+
+    project = Project(
+        name=name,
+        owner_id=user.id,
+        is_team=True,
+        is_direct=False,
+        division_id=None,
+        position=0,
+    )
+    db.session.add(project)
+    db.session.flush()
+    for member_id in sorted(valid_member_ids):
+        db.session.add(ProjectMember(project_id=project.id, user_id=member_id))
+    db.session.flush()
+    log_project_history(project, actor=user, action="created")
+    db.session.commit()
+
+    recipient_user_ids = sorted({int(user.id)}.union(valid_member_ids))
+    for recipient_user_id in recipient_user_ids:
+        emit_project_created(project, actor_user_id=user.id, recipient_user_id=recipient_user_id)
+
+    return {
+        "project": _serialize_project_payload_for_user(project, user.id),
+        "created": True,
+    }, 201
+
+
+@api_bp.get("/teams")
+@login_required
+def list_teams():
+    user = current_user()
+    member_project_ids = [row.project_id for row in ProjectMember.query.filter_by(user_id=user.id).all()]
+    projects = (
+        Project.query.filter(
+            Project.is_team.is_(True),
+            or_(Project.owner_id == user.id, Project.id.in_(member_project_ids if member_project_ids else [-1])),
+        )
+        .all()
+    )
+    results = [_serialize_project_payload_for_user(project, user.id) for project in projects]
+    results.sort(key=lambda item: ((item.get("display_name") or item.get("name") or "").lower(), item.get("id") or 0))
+    return {"results": results}
+
+
+@api_bp.post("/teams/<int:team_project_id>/invites")
+@login_required
+def send_team_invite(team_project_id: int):
+    user = current_user()
+    team = Project.query.get(team_project_id)
+    if not team or not getattr(team, "is_team", False):
+        return {"error": "team not found"}, 404
+    if not _can_manage_project(user, team.id):
+        return {"error": "unauthorized"}, 403
+    payload = request.get_json(silent=True) or {}
+    email = normalize_email(payload.get("email"))
+    if not email or "@" not in email:
+        return {"error": "valid email is required"}, 400
+    existing_user = find_user_by_email(email)
+    if existing_user:
+        return {
+            "error": "user already exists",
+            "user": {
+                "id": existing_user.id,
+                "email": existing_user.email,
+                "display_name": display_name_for_user(existing_user) or existing_user.email,
+                "avatar_url": existing_user.avatar_url,
+            },
+        }, 409
+
+    try:
+        invite = get_or_create_team_invite(team, user, email)
+        invite_url = _public_url("ui.team_invite", token=invite.token)
+        inviter_name = display_name_for_user(user) or user.email or "A Termin user"
+        subject = f"{inviter_name} invited you to join {team.name} on Termin"
+        text_body = (
+            f"{inviter_name} invited you to join the Team \"{team.name}\" on Termin.\n\n"
+            f"Accept the invitation here:\n{invite_url}\n\n"
+            "If you were not expecting this invitation, you can ignore this email."
+        )
+        html_body = (
+            f"<p>{escape(inviter_name)} invited you to join the Team "
+            f"<strong>{escape(team.name or 'Team')}</strong> on Termin.</p>"
+            f"<p><a href=\"{escape(invite_url)}\">Accept the invitation</a></p>"
+            "<p>If you were not expecting this invitation, you can ignore this email.</p>"
+        )
+        send_email(
+            email,
+            subject,
+            text_body,
+            html_body=html_body,
+            from_email=user.email,
+            reply_to=user.email,
+        )
+        db.session.commit()
+    except MailDeliveryError as exc:
+        db.session.rollback()
+        return {"error": f"Could not send invitation email: {exc}"}, 502
+    except ValueError as exc:
+        db.session.rollback()
+        return {"error": str(exc)}, 400
+
+    return {"status": "sent", "email": invite.email, "invite_url": invite_url}, 201
+
+
+def _serialize_team_share(team: Project) -> dict:
+    member_ids = sorted(team_member_user_ids(team.id))
+    members = User.query.filter(User.id.in_(member_ids)).all() if member_ids else []
+    members.sort(key=lambda item: ((display_name_for_user(item) or item.email or "").lower(), item.id))
+    return {
+        "id": team.id,
+        "name": team.name,
+        "display_name": team.name,
+        "member_count": len(member_ids),
+        "member_ids": member_ids,
+        "members": [
+            {
+                "id": member.id,
+                "email": member.email,
+                "display_name": display_name_for_user(member) or member.email,
+                "avatar_url": member.avatar_url,
+            }
+            for member in members[:6]
+        ],
+    }
+
+
+@api_bp.get("/projects/<int:project_id>/teams")
+@login_required
+def list_project_team_shares(project_id: int):
+    user = current_user()
+    if not _can_access_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    rows = ProjectTeamShare.query.filter_by(project_id=project_id).all()
+    team_ids = [row.team_project_id for row in rows if row.team_project_id]
+    teams = Project.query.filter(Project.id.in_(team_ids), Project.is_team.is_(True)).all() if team_ids else []
+    teams.sort(key=lambda team: ((team.name or "").lower(), team.id))
+    return {"teams": [_serialize_team_share(team) for team in teams]}, 200
+
+
+@api_bp.post("/projects/<int:project_id>/teams")
+@login_required
+def add_project_team_share(project_id: int):
+    user = current_user()
+    if not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    payload = request.get_json(silent=True) or {}
+    team_project_id = payload.get("team_project_id") or payload.get("team_id")
+    try:
+        team_project_id = int(team_project_id)
+    except (TypeError, ValueError):
+        return {"error": "team_project_id is required"}, 400
+    project = Project.query.get(project_id)
+    team = Project.query.get(team_project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not team or not getattr(team, "is_team", False):
+        return {"error": "team not found"}, 404
+    if project.id == team.id:
+        return {"error": "cannot share a team with itself"}, 400
+    if not _can_access_project(user, team.id):
+        return {"error": "team not found"}, 404
+    existing = ProjectTeamShare.query.filter_by(project_id=project.id, team_project_id=team.id).first()
+    if existing:
+        return {"status": "ok", "team": _serialize_team_share(team)}, 200
+    db.session.add(ProjectTeamShare(project_id=project.id, team_project_id=team.id))
+    db.session.commit()
+    team_user_ids = sorted(team_member_user_ids(team.id))
+    for recipient_user_id in team_user_ids:
+        emit_project_created(project, actor_user_id=user.id, recipient_user_id=recipient_user_id)
+        if int(recipient_user_id) != int(user.id):
+            member_user = User.query.get(recipient_user_id)
+            if member_user:
+                _queue_project_shared_notification(member_user, user, project)
+    emit_project_members_updated(project.id, actor_user_id=user.id)
+    _sync_project_group_mode_tasks(project.id, actor_user_id=user.id)
+    _sync_project_follow_mode_tasks(project.id, actor_user_id=user.id)
+    return {"status": "ok", "team": _serialize_team_share(team)}, 201
+
+
+@api_bp.delete("/projects/<int:project_id>/teams/<int:team_project_id>")
+@login_required
+def remove_project_team_share(project_id: int, team_project_id: int):
+    user = current_user()
+    if not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    project = Project.query.get(project_id)
+    team = Project.query.get(team_project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    team_user_ids = sorted(team_member_user_ids(team_project_id))
+    ProjectTeamShare.query.filter_by(project_id=project_id, team_project_id=team_project_id).delete()
+    db.session.commit()
+    removed_user_ids = []
+    for recipient_user_id in team_user_ids:
+        recipient_user = User.query.get(recipient_user_id)
+        if (
+            recipient_user
+            and int(recipient_user_id) != int(project.owner_id or 0)
+            and not _can_access_project(recipient_user, project_id)
+        ):
+            removed_user_ids.append(recipient_user_id)
+    if removed_user_ids:
+        emit_project_deleted(project_id, actor_user_id=user.id, recipient_user_ids=removed_user_ids, include_project_room=False)
+    if team:
+        for recipient_user_id in team_user_ids:
+            member_user = User.query.get(recipient_user_id)
+            if member_user and int(recipient_user_id) != int(user.id):
+                _queue_project_removed_notification(member_user, user, project)
+    emit_project_members_updated(project_id, actor_user_id=user.id)
+    _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
+    _sync_project_follow_mode_tasks(project_id, actor_user_id=user.id)
+    return {"status": "deleted"}, 200
+
+
 @api_bp.post("/admin/resequence_tasks")
 @login_required
 def admin_resequence_tasks():
@@ -4572,6 +4827,16 @@ def add_project_member(project_id: int):
     _sync_project_follow_mode_tasks(project_id, actor_user_id=user.id)
     project = Project.query.get(project_id)
     emit_project_created(project, actor_user_id=user.id, recipient_user_id=user_id)
+    if project and getattr(project, "is_team", False):
+        shared_rows = ProjectTeamShare.query.filter_by(team_project_id=project.id).all()
+        for shared_row in shared_rows:
+            shared_project = Project.query.get(shared_row.project_id)
+            if shared_project:
+                emit_project_created(shared_project, actor_user_id=user.id, recipient_user_id=user_id)
+                _queue_project_shared_notification(member_user, user, shared_project)
+                emit_project_members_updated(shared_project.id, actor_user_id=user.id)
+                _sync_project_group_mode_tasks(shared_project.id, actor_user_id=user.id)
+                _sync_project_follow_mode_tasks(shared_project.id, actor_user_id=user.id)
     _queue_project_shared_notification(member_user, user, project)
     emit_project_members_updated(project_id, actor_user_id=user.id)
     for group_id in group_ids:
@@ -4627,8 +4892,13 @@ def list_project_members(project_id: int):
     for member in members:
         if member.get("owner"):
             member["access_label"] = "Owner"
+            member["can_remove"] = False
+        elif member.get("team_member") and not member.get("direct_project_member"):
+            member["access_label"] = "Team"
+            member["can_remove"] = False
         else:
             member["access_label"] = "Shared"
+            member["can_remove"] = True
         member["can_promote"] = False
         member["can_demote"] = False
     members.sort(key=lambda item: (0 if item.get("owner") else 1, (item.get("display_name") or item.get("email") or "").lower()))
@@ -4666,6 +4936,18 @@ def remove_project_member(project_id: int, user_id: int):
     _sync_project_group_mode_tasks(project_id, actor_user_id=user.id)
     _sync_project_follow_mode_tasks(project_id, actor_user_id=user.id)
     emit_project_deleted(project_id, actor_user_id=user.id, recipient_user_ids=[user_id], include_project_room=False)
+    if project and getattr(project, "is_team", False):
+        shared_rows = ProjectTeamShare.query.filter_by(team_project_id=project.id).all()
+        for shared_row in shared_rows:
+            shared_project = Project.query.get(shared_row.project_id)
+            if not shared_project:
+                continue
+            recipient_user = User.query.get(user_id)
+            if recipient_user and not _can_access_project(recipient_user, shared_project.id):
+                emit_project_deleted(shared_project.id, actor_user_id=user.id, recipient_user_ids=[user_id], include_project_room=False)
+            emit_project_members_updated(shared_project.id, actor_user_id=user.id)
+            _sync_project_group_mode_tasks(shared_project.id, actor_user_id=user.id)
+            _sync_project_follow_mode_tasks(shared_project.id, actor_user_id=user.id)
     if member_user and project:
         _queue_project_removed_notification(member_user, user, project)
     emit_project_members_updated(project_id, actor_user_id=user.id)

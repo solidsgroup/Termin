@@ -43,6 +43,13 @@ def _should_profile_request(path: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in _PROFILED_PATH_PREFIXES)
 
 
+def _manifest_color(value: str | None, fallback: str = "#10141b") -> str:
+    value = str(value or "").strip()
+    if len(value) in (4, 7) and value.startswith("#"):
+        return value
+    return fallback
+
+
 def create_app() -> Flask:
     instance_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "instance")
     app = Flask(__name__, instance_path=instance_path)
@@ -88,8 +95,8 @@ def create_app() -> Flask:
             "start_url": "/",
             "scope": "/",
             "display": "standalone",
-            "background_color": ui["bg"],
-            "theme_color": ui["header_bg"],
+            "background_color": _manifest_color(ui.get("bg")),
+            "theme_color": _manifest_color(ui.get("header_bg"), ui.get("panel_alt") or ui.get("bg") or "#10141b"),
             "description": "Termin task and discussion workspace.",
             "icons": [
                 {

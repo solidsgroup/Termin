@@ -103,6 +103,7 @@ class Project(db.Model):
     name = db.Column(db.String(255), nullable=False)
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     is_direct = db.Column(db.Boolean, default=False, nullable=False)
+    is_team = db.Column(db.Boolean, default=False, nullable=False)
     direct_user_a_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     direct_user_b_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     division_id = db.Column(db.Integer, db.ForeignKey("divisions.id"))
@@ -139,6 +140,18 @@ class ProjectMember(db.Model):
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ProjectTeamShare(db.Model):
+    __tablename__ = "project_team_shares"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    team_project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("project_id", "team_project_id", name="uq_project_team_shares_project_team"),
+    )
 
 
 class Division(db.Model):
@@ -369,6 +382,19 @@ class DevMailboxMessage(db.Model):
     transport_details = db.Column(db.Text)
     smtp_host = db.Column(db.String(255))
     smtp_port = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TeamInvite(db.Model):
+    __tablename__ = "team_invites"
+    id = db.Column(db.Integer, primary_key=True)
+    team_project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    inviter_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    token = db.Column(db.String(64), unique=True, nullable=False)
+    status = db.Column(db.String(32), default="sent", nullable=False)
+    accepted_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    accepted_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 

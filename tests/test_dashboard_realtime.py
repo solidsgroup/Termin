@@ -31,7 +31,7 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app.extensions import db, socketio
-from app.models import Assignment, Group, Project, ProjectMember, Task, TaskUserStatus, User
+from app.models import Assignment, DevMailboxMessage, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskUserStatus, TeamInvite, User
 from app.realtime import emit_task_updated
 
 
@@ -42,6 +42,9 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         cls.app.config.update(
             TESTING=True,
             SQLALCHEMY_DATABASE_URI=os.environ["DATABASE_URL"],
+            DEV_MAILBOX_ENABLED=True,
+            DEV_MAILBOX_CAPTURE_ONLY=True,
+            MAIL_FROM_EMAIL="noreply@example.com",
         )
 
     @classmethod
@@ -66,11 +69,12 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         db.session.commit()
         return user
 
-    def create_project(self, owner, name="Project", *, is_direct=False, direct_peer=None):
+    def create_project(self, owner, name="Project", *, is_direct=False, is_team=False, direct_peer=None):
         project = Project(
             name=name,
             owner_id=owner.id,
             is_direct=is_direct,
+            is_team=is_team,
             direct_user_a_id=owner.id if is_direct else None,
             direct_user_b_id=direct_peer.id if (is_direct and direct_peer) else None,
             created_at=datetime.utcnow(),
@@ -279,6 +283,183 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertIn("Assigned to me", html)
         self.assertNotIn("Assigned to someone else", html)
         self.assertNotIn("Completed mine", html)
+
+    def test_create_team_creates_team_project_and_member_access(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            member = self.create_user("member@example.com", "Member")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            member_id = sqlalchemy_inspect(member).identity[0]
+
+        self.login(self.client, owner_id)
+        response = self.client.post("/api/teams", json={"name": "Research Team", "member_ids": [member_id]})
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(payload["project"]["is_team"])
+        self.assertFalse(payload["project"]["is_direct"])
+        self.assertIsNone(payload["project"]["division_id"])
+        self.assertEqual(payload["project"]["display_name"], "Research Team")
+        project_id = payload["project"]["id"]
+
+        with self.app.app_context():
+            project = Project.query.get(project_id)
+            self.assertIsNotNone(project)
+            self.assertTrue(project.is_team)
+            self.assertFalse(project.is_direct)
+            self.assertEqual(project.name, "Research Team")
+            self.assertIsNotNone(ProjectMember.query.filter_by(project_id=project_id, user_id=member_id).first())
+
+        member_client = self.app.test_client()
+        self.login(member_client, member_id)
+        list_response = member_client.get("/api/teams")
+        list_payload = list_response.get_json()
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual([item["id"] for item in list_payload["results"]], [project_id])
+
+        tree_response = member_client.get(f"/tree/project/{project_id}")
+        self.assertEqual(tree_response.status_code, 200)
+        html = tree_response.get_data(as_text=True)
+        self.assertIn('data-tree-team-project="%d"' % project_id, html)
+        self.assertIn("Research Team", html)
+
+    def test_team_project_members_can_be_added_and_removed(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            member = self.create_user("member@example.com", "Member")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            member_id = sqlalchemy_inspect(member).identity[0]
+            project = self.create_project(owner, "Operations", is_team=True)
+            project_id = sqlalchemy_inspect(project).identity[0]
+
+        self.login(self.client, owner_id)
+        add_response = self.client.post(f"/api/projects/{project_id}/members", json={"user_id": member_id})
+        self.assertEqual(add_response.status_code, 201)
+        with self.app.app_context():
+            self.assertIsNotNone(ProjectMember.query.filter_by(project_id=project_id, user_id=member_id).first())
+
+        member_client = self.app.test_client()
+        self.login(member_client, member_id)
+        self.assertEqual(member_client.get(f"/tree/project/{project_id}").status_code, 200)
+
+        remove_response = self.client.delete(f"/api/projects/{project_id}/members/{member_id}")
+        self.assertEqual(remove_response.status_code, 200)
+        with self.app.app_context():
+            self.assertIsNone(ProjectMember.query.filter_by(project_id=project_id, user_id=member_id).first())
+        self.assertEqual(member_client.get("/api/teams").get_json()["results"], [])
+
+    def test_team_invite_sends_email_and_accepts_new_member(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            team = self.create_project(owner, "Invite Team", is_team=True)
+            team_id = sqlalchemy_inspect(team).identity[0]
+
+        self.login(self.client, owner_id)
+        invite_response = self.client.post(f"/api/teams/{team_id}/invites", json={"email": "newperson@example.com"})
+        self.assertEqual(invite_response.status_code, 201)
+        invite_payload = invite_response.get_json()
+        self.assertEqual(invite_payload["status"], "sent")
+        self.assertIn("/team-invites/", invite_payload["invite_url"])
+
+        with self.app.app_context():
+            invite = TeamInvite.query.filter_by(team_project_id=team_id, email="newperson@example.com").first()
+            self.assertIsNotNone(invite)
+            self.assertEqual(invite.status, "sent")
+            message = DevMailboxMessage.query.filter_by(to_email="newperson@example.com").first()
+            self.assertIsNotNone(message)
+            self.assertIn("Invite Team", message.subject)
+            token = invite.token
+            invite_url = f"/team-invites/{token}"
+
+        anonymous_client = self.app.test_client()
+        landing_response = anonymous_client.get(invite_url)
+        self.assertEqual(landing_response.status_code, 200)
+        self.assertIn("Sign in with the invited email address", landing_response.get_data(as_text=True))
+        with anonymous_client.session_transaction() as session:
+            self.assertEqual(session.get("team_invite_token"), token)
+
+        invited_client = self.app.test_client()
+        with self.app.app_context():
+            invited = self.create_user("newperson@example.com", "New Person")
+            invited_id = sqlalchemy_inspect(invited).identity[0]
+        self.login(invited_client, invited_id)
+        accept_response = invited_client.post(f"/team-invites/{token}/accept")
+        self.assertEqual(accept_response.status_code, 200)
+        self.assertIn("You are now a member of Invite Team", accept_response.get_data(as_text=True))
+
+        with self.app.app_context():
+            accepted_invite = TeamInvite.query.filter_by(token=token).first()
+            self.assertEqual(accepted_invite.status, "accepted")
+            self.assertEqual(accepted_invite.accepted_user_id, invited_id)
+            self.assertIsNotNone(ProjectMember.query.filter_by(project_id=team_id, user_id=invited_id).first())
+
+    def test_project_can_be_shared_with_team_and_resolves_members_dynamically(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            member = self.create_user("member@example.com", "Member")
+            late_member = self.create_user("late@example.com", "Late")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            member_id = sqlalchemy_inspect(member).identity[0]
+            late_member_id = sqlalchemy_inspect(late_member).identity[0]
+            project = self.create_project(owner, "Shared Report")
+            team = self.create_project(owner, "Research Team", is_team=True)
+            db.session.add(ProjectMember(project_id=team.id, user_id=member.id))
+            db.session.commit()
+            project_id = sqlalchemy_inspect(project).identity[0]
+            team_id = sqlalchemy_inspect(team).identity[0]
+
+        self.login(self.client, owner_id)
+        share_response = self.client.post(f"/api/projects/{project_id}/teams", json={"team_project_id": team_id})
+        self.assertEqual(share_response.status_code, 201)
+        teams_response = self.client.get(f"/api/projects/{project_id}/teams")
+        self.assertEqual(teams_response.status_code, 200)
+        self.assertEqual([item["id"] for item in teams_response.get_json()["teams"]], [team_id])
+        self.assertEqual(set(teams_response.get_json()["teams"][0]["member_ids"]), {owner_id, member_id})
+        with self.app.app_context():
+            self.assertIsNotNone(ProjectTeamShare.query.filter_by(project_id=project_id, team_project_id=team_id).first())
+            self.assertIsNone(ProjectMember.query.filter_by(project_id=project_id, user_id=member_id).first())
+
+        member_client = self.app.test_client()
+        self.login(member_client, member_id)
+        self.assertEqual(member_client.get(f"/tree/project/{project_id}").status_code, 200)
+        members_response = member_client.get(f"/api/projects/{project_id}/members")
+        self.assertEqual(members_response.status_code, 200)
+        member_ids = {item["id"] for item in members_response.get_json()["members"]}
+        self.assertIn(member_id, member_ids)
+
+        late_client = self.app.test_client()
+        self.login(late_client, late_member_id)
+        self.assertEqual(late_client.get(f"/api/projects/{project_id}/tree_snapshot").status_code, 403)
+
+        add_response = self.client.post(f"/api/projects/{team_id}/members", json={"user_id": late_member_id})
+        self.assertEqual(add_response.status_code, 201)
+        self.assertEqual(late_client.get(f"/tree/project/{project_id}").status_code, 200)
+        with self.app.app_context():
+            self.assertIsNone(ProjectMember.query.filter_by(project_id=project_id, user_id=late_member_id).first())
+
+    def test_removing_project_team_share_revokes_team_member_access(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            member = self.create_user("member@example.com", "Member")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            member_id = sqlalchemy_inspect(member).identity[0]
+            project = self.create_project(owner, "Shared Report")
+            team = self.create_project(owner, "Research Team", is_team=True)
+            db.session.add(ProjectMember(project_id=team.id, user_id=member.id))
+            db.session.add(ProjectTeamShare(project_id=project.id, team_project_id=team.id))
+            db.session.commit()
+            project_id = sqlalchemy_inspect(project).identity[0]
+            team_id = sqlalchemy_inspect(team).identity[0]
+
+        member_client = self.app.test_client()
+        self.login(member_client, member_id)
+        self.assertEqual(member_client.get(f"/tree/project/{project_id}").status_code, 200)
+
+        self.login(self.client, owner_id)
+        remove_response = self.client.delete(f"/api/projects/{project_id}/teams/{team_id}")
+        self.assertEqual(remove_response.status_code, 200)
+        self.assertEqual(member_client.get(f"/api/projects/{project_id}/tree_snapshot").status_code, 403)
 
     def test_direct_project_tree_snapshot_matches_assignments_for_both_users(self):
         with self.app.app_context():

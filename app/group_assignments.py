@@ -1,5 +1,6 @@
 from app.extensions import db
-from app.models import Assignment, Project, ProjectMember, Task, User
+from app.models import Assignment, Project, Task, User
+from app.team_shares import project_access_user_ids
 
 
 def group_assignment_candidate_users(task: Task) -> list[User]:
@@ -9,7 +10,7 @@ def group_assignment_candidate_users(task: Task) -> list[User]:
     project = Project.query.get(task.project_id)
     if project and project.owner_id:
         user_ids.append(int(project.owner_id))
-    user_ids.extend(int(row.user_id) for row in ProjectMember.query.filter_by(project_id=task.project_id).all() if row.user_id)
+    user_ids.extend(project_access_user_ids(task.project_id))
     seen: set[int] = set()
     users: list[User] = []
     for user_id in user_ids:
