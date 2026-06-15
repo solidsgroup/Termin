@@ -132,7 +132,7 @@ def _task_due_mode(task: Task | None) -> str:
         return "none"
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     mode = str(info_payload.get("meta", {}).get("due_mode") or "").strip().lower()
-    if mode in {"asap", "date"}:
+    if mode in {"asap", "date", "relative"}:
         return mode
     if task.due_at:
         return "date"
@@ -144,6 +144,43 @@ def _task_start_date(task: Task | None) -> str:
         return ""
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     return str((info_payload.get("meta") or {}).get("start_date") or "").strip()
+
+
+def _task_due_relative(task: Task | None) -> dict:
+    if not task:
+        return {"task_id": None, "task_title": "", "days": 0}
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info_payload.get("meta") if isinstance(info_payload, dict) else {}
+    try:
+        task_id = int((meta or {}).get("due_relative_task_id") or 0) or None
+    except (TypeError, ValueError):
+        task_id = None
+    try:
+        days = int((meta or {}).get("due_relative_days") or 0)
+    except (TypeError, ValueError):
+        days = 0
+    task_title = ""
+    due_at = None
+    if task_id:
+        relative_task = Task.query.get(task_id)
+        if relative_task:
+            task_title = relative_task.title
+            due_at = relative_task.due_at.isoformat() if relative_task.due_at else None
+    return {"task_id": task_id, "task_title": task_title, "days": days, "due_at": due_at}
+
+
+def _task_due_relative_start_days(task: Task | None) -> int | None:
+    if not task:
+        return None
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info_payload.get("meta") if isinstance(info_payload, dict) else {}
+    raw = (meta or {}).get("due_relative_start_days")
+    if raw in (None, "", "null"):
+        return None
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return None
 
 
 def _load_notification_data(raw: str | None) -> dict:
@@ -709,6 +746,8 @@ def _task_summary(task: Task | None) -> dict | None:
         "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "due_relative": _task_due_relative(task),
+        "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "prerequisites": _serialize_task_prerequisites(task.id),
@@ -741,6 +780,7 @@ def _serialize_task_prerequisites(task_id: int) -> list[dict]:
                 "prereq_blocked": bool((task_status_meta(prerequisite_task) or {}).get("prereq_blocked")),
                 "due_at": prerequisite_task.due_at.isoformat() if prerequisite_task.due_at else None,
                 "due_mode": _task_due_mode(prerequisite_task),
+                "due_relative": _task_due_relative(prerequisite_task),
                 "start_date": _task_start_date(prerequisite_task),
                 "locked": bool(prerequisite_task.locked),
             }
@@ -776,6 +816,7 @@ def _serialize_task_dependents(task_id: int) -> list[dict]:
                 "prereq_blocked": bool((status_meta or {}).get("prereq_blocked")),
                 "due_at": dependent_task.due_at.isoformat() if dependent_task.due_at else None,
                 "due_mode": _task_due_mode(dependent_task),
+                "due_relative": _task_due_relative(dependent_task),
                 "start_date": _task_start_date(dependent_task),
                 "locked": bool(dependent_task.locked),
             }
@@ -835,6 +876,8 @@ def _serialize_task_data(
         "links": info_payload.get("links", []),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "due_relative": _task_due_relative(task),
+        "due_relative_start_days": _task_due_relative_start_days(task),
         "status": task.status,
         "task_type": task_type,
         "poll": {

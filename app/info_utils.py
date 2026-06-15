@@ -14,7 +14,7 @@ ALLOWED_ATTRS = {
     "a": {"href", "target", "rel"},
     "span": {"class", "data-mentioned-user-id", "data-mentioned-email"},
 }
-ALLOWED_META_KEYS = {"due_mode", "follow_project_members", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
+ALLOWED_META_KEYS = {"due_mode", "due_relative_days", "due_relative_start_days", "due_relative_task_id", "follow_project_members", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
 
 
 def _normalize_poll_meta(value) -> dict:

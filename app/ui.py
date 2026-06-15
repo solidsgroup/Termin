@@ -993,7 +993,7 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
             return "none"
         info_payload = task_info_map.get(task.id, {}) or {}
         due_mode = str((info_payload.get("meta") or {}).get("due_mode") or "").strip().lower()
-        if due_mode in {"asap", "date"}:
+        if due_mode in {"asap", "date", "relative"}:
             return due_mode
         if task.due_at:
             return "date"

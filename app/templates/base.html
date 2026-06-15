@@ -4200,6 +4200,83 @@
         flex: 1 1 auto;
       }
 
+      .discussion-setting-relative-due {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: min(100%, 320px);
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .discussion-setting-relative-due > input {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .discussion-setting-relative-offset {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex: 0 0 auto;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .discussion-setting-relative-offset input {
+        width: 72px !important;
+        flex: 0 0 72px !important;
+        text-align: center;
+      }
+
+      .discussion-setting-relative-start-offset {
+        width: min(100%, 320px);
+      }
+
+      .discussion-setting-relative-start-offset span {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .due-relative-result {
+        display: grid;
+        gap: 2px;
+        width: 100%;
+        border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+        color: var(--ink);
+        padding: 7px 9px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .due-relative-result:hover {
+        border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+        background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+      }
+
+      .due-relative-result-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .due-relative-result-meta,
+      .due-relative-result-note {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .due-relative-result-note {
+        padding: 2px 4px;
+      }
+
       .discussion-setting-due-wrap select:focus-visible,
       .discussion-setting-field select:focus-visible {
         outline: none;
@@ -6156,6 +6233,47 @@
         white-space: nowrap;
       }
 
+      .project-gantt-filter-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 30px;
+        width: min(220px, 100%);
+        padding: 0 10px;
+        border: 1px solid color-mix(in srgb, var(--project-color) 18%, var(--border));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+        color: var(--muted);
+      }
+
+      .project-gantt-filter-control i {
+        flex: 0 0 auto;
+        font-size: 11px;
+        opacity: 0.78;
+      }
+
+      .project-gantt-filter-control input {
+        min-width: 0;
+        width: 100%;
+        height: 28px;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+      }
+
+      .project-gantt-filter-control input::placeholder {
+        color: color-mix(in srgb, var(--muted) 82%, transparent);
+      }
+
+      .project-gantt-filter-control:focus-within {
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+        color: var(--ink);
+      }
+
       .project-gantt-day-mask {
         display: inline-flex;
         align-items: center;
@@ -6849,6 +6967,10 @@
         background: color-mix(in srgb, var(--project-color, var(--accent)) 7%, transparent);
       }
 
+      body.is-gantt-dragging .project-gantt-row.is-gantt-relative-reference {
+        background: color-mix(in srgb, #f5c542 8%, transparent);
+      }
+
       .project-gantt-task {
         min-width: 0;
       }
@@ -7045,9 +7167,80 @@
         background: color-mix(in srgb, white 34%, currentColor 66%);
       }
 
+      body.is-gantt-dragging .project-gantt-span.is-relative-due {
+        background:
+          linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--project-color) 56%, transparent),
+            color-mix(in srgb, #f5c542 30%, var(--project-color) 42%)
+          );
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, #f5c542 28%, transparent),
+          0 0 0 3px color-mix(in srgb, #f5c542 7%, transparent);
+      }
+
       .project-gantt-span.is-outside {
         background: color-mix(in srgb, var(--project-color) 36%, var(--muted));
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--project-color) 10%, transparent);
+      }
+
+      body.is-gantt-dragging .project-gantt-marker.is-relative-due {
+        background: color-mix(in srgb, #f5c542 68%, var(--project-color, var(--accent)) 32%);
+        box-shadow:
+          0 0 0 2px color-mix(in srgb, var(--panel) 86%, transparent),
+          0 0 0 5px color-mix(in srgb, #f5c542 32%, transparent);
+      }
+
+      body.is-gantt-dragging .project-gantt-track.is-gantt-relative-reference::before {
+        height: 4px;
+        background: color-mix(in srgb, #f5c542 34%, var(--project-color, var(--accent)) 28%);
+      }
+
+      body.is-gantt-dragging .project-gantt-track.is-gantt-relative-reference .project-gantt-marker {
+        box-shadow:
+          0 0 0 3px color-mix(in srgb, var(--panel) 78%, transparent),
+          0 0 0 6px color-mix(in srgb, #f5c542 34%, transparent),
+          0 0 16px color-mix(in srgb, #f5c542 26%, transparent);
+      }
+
+      .project-gantt-relative-anchor {
+        position: absolute;
+        top: 50%;
+        width: 8px;
+        height: 18px;
+        border-radius: 999px;
+        transform: translate(-50%, -50%);
+        background: color-mix(in srgb, #f5c542 74%, var(--panel) 26%);
+        border: 1px solid color-mix(in srgb, #f5c542 54%, var(--border));
+        box-shadow: 0 0 0 3px color-mix(in srgb, #f5c542 14%, transparent);
+        pointer-events: none;
+        z-index: 3;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+
+      .project-gantt-relative-anchor::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: -5px;
+        width: 1px;
+        height: 28px;
+        transform: translateX(-50%);
+        background: color-mix(in srgb, #f5c542 50%, transparent);
+      }
+
+      .project-gantt-relative-anchor.is-in-project {
+        width: 6px;
+        opacity: 0.8;
+      }
+
+      body:not(.is-gantt-dragging) .project-gantt-relative-anchor.is-in-project {
+        opacity: 0;
+      }
+
+      body.is-gantt-dragging .project-gantt-relative-anchor {
+        opacity: 1;
       }
 
       .project-gantt-marker.is-outside {
@@ -7101,8 +7294,8 @@
         outline-offset: 2px;
       }
 
-      .project-gantt-track:hover .project-gantt-handle:not(.is-provisional),
-      .project-gantt-track:focus-within .project-gantt-handle:not(.is-provisional) {
+      .project-gantt-track:hover .project-gantt-handle:not(.is-provisional):not(:disabled),
+      .project-gantt-track:focus-within .project-gantt-handle:not(.is-provisional):not(:disabled) {
         opacity: 1;
         pointer-events: auto;
       }
@@ -7237,6 +7430,10 @@
       }
 
       body[data-theme="light"] .project-gantt-mark-control select {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
+      }
+
+      body[data-theme="light"] .project-gantt-filter-control {
         background: color-mix(in srgb, white 96%, var(--panel-alt) 4%);
       }
 

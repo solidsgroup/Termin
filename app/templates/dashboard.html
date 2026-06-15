@@ -1101,6 +1101,7 @@
   }
 
   .project-gantt-mark-control,
+  .project-gantt-filter-control,
   .project-gantt-export-btn {
     flex: 0 0 auto;
   }
@@ -4063,13 +4064,31 @@
               <option value="none">No Date</option>
               <option value="asap">ASAP</option>
               <option value="date">Date</option>
+              <option value="relative">Relative</option>
             </select>
 	            <input id="task-settings-due" type="date" aria-label="Due date" />
+	          </div>
+	        </div>
+	        <div class="discussion-setting-field is-inline" id="task-settings-relative-due-field" hidden>
+	          <span class="discussion-setting-label discussion-setting-label--row">Relative</span>
+	          <div class="discussion-setting-relative-due">
+	            <input id="task-settings-relative-due-task" type="text" placeholder="Select reference task" autocomplete="termin-nope-relative-task" autocorrect="off" autocapitalize="off" spellcheck="false" />
+	            <label class="discussion-setting-relative-offset">
+	              <span>Days</span>
+	              <input id="task-settings-relative-due-days" type="number" step="1" value="0" aria-label="Relative due day offset" />
+	            </label>
 	          </div>
 	        </div>
 	        <div class="discussion-setting-field is-inline" id="task-settings-start-field">
 	          <span class="discussion-setting-label discussion-setting-label--row">Start</span>
 	          <input id="task-settings-start-date" type="date" aria-label="Start date" />
+	        </div>
+	        <div class="discussion-setting-field is-inline" id="task-settings-relative-start-field" hidden>
+	          <span class="discussion-setting-label discussion-setting-label--row">Start</span>
+	          <label class="discussion-setting-relative-offset discussion-setting-relative-start-offset">
+	            <span>Days in advance</span>
+	            <input id="task-settings-relative-start-days" type="number" min="0" step="1" value="" aria-label="Relative start days in advance" />
+	          </label>
 	        </div>
 	        <div class="discussion-setting-field is-inline discussion-setting-status-row" data-task-only>
 	          <span class="discussion-setting-label discussion-setting-label--row" id="task-settings-status-label">Status</span>
@@ -6070,6 +6089,26 @@
           '</div>';
         }
 
+        function projectGanttFilterValue(projectId) {
+          var input = document.querySelector('[data-project-gantt-filter="' + String(projectId || "") + '"]');
+          return input ? String(input.value || "").trim().toLowerCase() : "";
+        }
+
+        function projectGanttItemMatchesFilter(item, filterValue) {
+          if (!filterValue) return true;
+          var meta = item && item.status_meta ? item.status_meta : {};
+          var fields = [
+            item && item.title,
+            item && item.group_name,
+            item && item.project_name,
+            item && item.status,
+            item && item.due_mode,
+            meta && meta.task_status,
+            meta && meta.mode,
+          ];
+          return fields.join(" ").toLowerCase().indexOf(filterValue) !== -1;
+        }
+
         function buildProjectGanttToolbarHtml(projectId, ganttEnabled, markUnits) {
           if (!ganttEnabled) return "";
           var units = markUnits || { major: "month", minor: "week" };
@@ -6079,6 +6118,7 @@
             '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + String(projectId) + '">' + buildProjectGanttMarkOptionsHtml(units.minor, true) + '</select></label>' +
             buildProjectGanttDayMaskHtml(projectId, "minor", units.minorDays, String(units.minor || "") === "day") +
             buildProjectGanttRangesHtml(projectId, units.ranges) +
+            '<label class="project-gantt-filter-control" aria-label="Filter Gantt tasks"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" data-project-gantt-filter="' + String(projectId) + '" placeholder="Filter tasks" autocomplete="off" /></label>' +
             '<button class="project-gantt-export-btn" type="button" data-project-gantt-export="' + String(projectId) + '">Copy Latex</button>' +
           '</div>';
         }
@@ -6382,6 +6422,8 @@
 	              start_date: task.start_date || "",
 	              due_at: task.due_at || "",
 	              due_mode: task.due_mode || (task.due_at ? "date" : "none"),
+	              due_relative: task.due_relative || null,
+	              due_relative_start_days: task.due_relative_start_days != null ? task.due_relative_start_days : null,
 	              status: task.status || "open",
 	              status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
 	              status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
@@ -6398,6 +6440,8 @@
 	            start_date: task.start_date || "",
 	            due_at: task.due_at || "",
 	            due_mode: task.due_mode || (task.due_at ? "date" : "none"),
+	            due_relative: task.due_relative || null,
+	            due_relative_start_days: task.due_relative_start_days != null ? task.due_relative_start_days : null,
 	            status: task.status || "open",
 	            status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
 	            status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
@@ -7455,6 +7499,12 @@
             return all.concat(section.items || []);
           }, []);
         }
+        var filterValue = projectGanttFilterValue(projectId);
+        if (filterValue) {
+          items = items.filter(function (item) {
+            return projectGanttItemMatchesFilter(item, filterValue);
+          });
+        }
         var rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
         var todayDate = new Date();
         todayDate = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
@@ -7463,12 +7513,21 @@
         if (todayDeltaDays >= 0 && todayDeltaDays <= rangeDays) {
           todayPercent = rangeDays <= 0 ? 0 : (todayDeltaDays / rangeDays) * 100;
         }
+        function ganttPercentForRenderIso(isoValue) {
+          if (!isoValue) return 0;
+          var valueDate = new Date(String(isoValue).slice(0, 10) + "T00:00:00");
+          if (Number.isNaN(valueDate.getTime())) return 0;
+          var valueDeltaDays = Math.round((valueDate.getTime() - startDate.getTime()) / 86400000);
+          var clampedValue = Math.max(0, Math.min(rangeDays, valueDeltaDays));
+          return rangeDays <= 0 ? 0 : (clampedValue / rangeDays) * 100;
+        }
         var collapsedSections = collapsedProjectGanttGroups(projectId);
 	        if (!items.length) {
+          var emptyText = filterValue ? "No matching dated tasks." : "No dated tasks yet.";
 	          panel.innerHTML =
 	            '<div class="project-gantt-shell">' +
 	              '<div class="project-gantt-axis"><div class="project-gantt-axis-spacer" aria-hidden="true"></div><div class="project-gantt-axis-track">' + renderProjectGanttGrid(intervals, { labels: true, startLabel: escapeProjectGanttText(formatProjectGanttDate(startRaw)), endLabel: escapeProjectGanttText(formatProjectGanttDate(endRaw)), todayPercent: todayPercent }) + '</div></div>' +
-	              '<div class="project-gantt-body"><div class="project-gantt-empty">No dated tasks yet.</div></div>' +
+	              '<div class="project-gantt-body"><div class="project-gantt-empty">' + escapeProjectGanttText(emptyText) + '</div></div>' +
 	            '</div>';
 	          return;
 	        }
@@ -7513,10 +7572,35 @@
             state: aggregateState,
           };
         }
+        var ganttItemById = {};
+        items.forEach(function (item) {
+          if (item && item.id != null) {
+            ganttItemById[String(item.id)] = item;
+          }
+        });
+        var ganttRelativeReferenceIds = {};
+        items.forEach(function (item) {
+          var mode = String(item && item.due_mode || "").trim().toLowerCase();
+          var relative = item && item.due_relative && typeof item.due_relative === "object" ? item.due_relative : null;
+          var referenceId = relative && relative.task_id != null ? String(relative.task_id) : "";
+          if (mode === "relative" && referenceId && ganttItemById[referenceId]) {
+            ganttRelativeReferenceIds[referenceId] = true;
+          }
+        });
         function buildGanttTrackHtml(item) {
           var statusMeta = ganttStatusMeta(item);
           var statusState = statusMeta.state;
           var dueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
+          var relativeDue = item.due_relative && typeof item.due_relative === "object" ? item.due_relative : {};
+          var relativeReferenceId = relativeDue.task_id != null ? String(relativeDue.task_id) : "";
+          var isRelativeDue = dueMode === "relative" && !!relativeReferenceId;
+          var relativeReferenceInProject = isRelativeDue && !!ganttItemById[relativeReferenceId];
+          var relativeAnchorIso = relativeDue.due_at ? String(relativeDue.due_at).slice(0, 10) : "";
+          var relativeReferenceTitle = relativeDue.task_title || "reference task";
+          var relativeOffsetDays = Number(relativeDue.days || 0);
+          var relativeTitle = isRelativeDue
+            ? ("Relative due date: " + (relativeOffsetDays === 0 ? "same day as " : (Math.abs(relativeOffsetDays) + " day" + (Math.abs(relativeOffsetDays) === 1 ? "" : "s") + (relativeOffsetDays > 0 ? " after " : " before "))) + relativeReferenceTitle)
+            : "";
           var effectiveDueDate = null;
           if (item.due_at) {
             effectiveDueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
@@ -7527,6 +7611,7 @@
           }
           var dueDate = effectiveDueDate;
           var locked = !!item.locked;
+          var startIsRelative = isRelativeDue && item.due_relative_start_days != null && item.due_relative_start_days !== "";
           var startTaskDate = item.start_date ? new Date(String(item.start_date).slice(0, 10) + "T00:00:00") : null;
           if (startTaskDate && Number.isNaN(startTaskDate.getTime())) {
             startTaskDate = null;
@@ -7547,26 +7632,33 @@
             ? Math.max(0, Math.min(100, Number(item.status_percentage != null ? item.status_percentage : 0)))
             : (statusState === "complete" ? 100 : 0);
           var trackHtml = "";
+          var relativeClass = isRelativeDue ? " is-relative-due" : "";
+          var dueReadOnly = locked || (dueMode !== "date" && !(isRelativeDue && relativeAnchorIso));
+          var startReadOnly = locked;
           if (hasSpan) {
             var clampedStart = Math.max(0, Math.min(rangeDays, startDeltaDays));
             var startPercent = rangeDays <= 0 ? 0 : (clampedStart / rangeDays) * 100;
             var widthPercent = Math.max(1.2, endPercent - startPercent);
             var spanOutside = startDeltaDays < 0 || endDeltaDays > rangeDays;
             trackHtml =
-              '<span class="project-gantt-span status-' + statusState + ' mode-' + statusMeta.mode + (spanOutside ? ' is-outside' : '') + '" style="left:' + startPercent.toFixed(2) + '%; width:' + widthPercent.toFixed(2) + '%;">' +
+              '<span class="project-gantt-span status-' + statusState + ' mode-' + statusMeta.mode + relativeClass + (spanOutside ? ' is-outside' : '') + '" style="left:' + startPercent.toFixed(2) + '%; width:' + widthPercent.toFixed(2) + '%;"' + (relativeTitle ? ' title="' + escapeProjectGanttText(relativeTitle) + '"' : '') + '>' +
                 (statusMeta.mode === "percent"
                   ? '<span class="project-gantt-span-progress" style="width:' + progressPercent.toFixed(2) + '%;"></span>'
                   : '') +
               '</span>' +
-              '<button class="project-gantt-handle is-start" type="button" data-gantt-handle="start" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust start date" style="left:' + startPercent.toFixed(2) + '%;"' + (locked ? ' disabled' : '') + '></button>' +
-              '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
+              '<button class="project-gantt-handle is-start" type="button" data-gantt-handle="start" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="' + (isRelativeDue ? 'Relative start is derived' : 'Adjust start date') + '" style="left:' + startPercent.toFixed(2) + '%;"' + (startReadOnly ? ' disabled' : '') + (isRelativeDue ? ' title="Start is derived from relative due date"' : '') + '></button>' +
+              '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + relativeClass + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"' + (relativeTitle ? ' title="' + escapeProjectGanttText(relativeTitle) + '"' : '') + '><span class="project-gantt-marker-icon"></span></span>';
           } else {
-            trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"><span class="project-gantt-marker-icon"></span></span>';
+            trackHtml = '<span class="project-gantt-marker status-' + statusState + ' icon-' + markerIcon + relativeClass + (outside ? ' is-outside' : '') + '" style="left:' + endPercent.toFixed(2) + '%;"' + (relativeTitle ? ' title="' + escapeProjectGanttText(relativeTitle) + '"' : '') + '><span class="project-gantt-marker-icon"></span></span>';
             if (!startTaskDate && dueMode === "date" && item.due_at) {
               trackHtml += '<button class="project-gantt-handle is-start is-provisional" type="button" data-gantt-handle="start" data-gantt-provisional-start="1" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Set start date" style="left:' + endPercent.toFixed(2) + '%;"' + (locked ? ' disabled' : '') + '></button>';
             }
           }
-          trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="Adjust due date" style="left:' + endPercent.toFixed(2) + '%;"' + (locked ? ' disabled' : '') + '></button>';
+          if (isRelativeDue && relativeAnchorIso) {
+            var anchorPercent = ganttPercentForRenderIso(relativeAnchorIso);
+            trackHtml += '<span class="project-gantt-relative-anchor' + (relativeReferenceInProject ? ' is-in-project' : '') + '" style="left:' + anchorPercent.toFixed(2) + '%;" title="' + escapeProjectGanttText("Reference due: " + relativeReferenceTitle + " (" + relativeAnchorIso + ")") + '"></span>';
+          }
+          trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="' + (isRelativeDue ? 'Relative due date is derived' : 'Adjust due date') + '" style="left:' + endPercent.toFixed(2) + '%;"' + (dueReadOnly ? ' disabled' : '') + (relativeTitle ? ' title="' + escapeProjectGanttText(relativeTitle) + '"' : '') + '></button>';
           return trackHtml;
         }
 	        var rows = sections.map(function (section) {
@@ -7581,13 +7673,13 @@
               : section.items.map(function (item) {
           var trackHtml = buildGanttTrackHtml(item);
 		          return (
-		            '<div class="project-gantt-row">' +
+		            '<div class="project-gantt-row' + (ganttRelativeReferenceIds[String(item.id)] ? ' is-gantt-relative-reference' : '') + '">' +
 		              '<div class="project-gantt-task">' +
 		                '<div class="project-gantt-task-title-row">' +
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
 		                '</div>' +
 		              '</div>' +
-		              '<div class="project-gantt-track" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-task-locked="' + (item.locked ? '1' : '0') + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
+		              '<div class="project-gantt-track' + (ganttRelativeReferenceIds[String(item.id)] ? ' is-gantt-relative-reference' : '') + '" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-task-locked="' + (item.locked ? '1' : '0') + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
 		                trackHtml +
 		              '</div>' +
 		            '</div>'
@@ -7841,6 +7933,14 @@
         if (!control) return;
         var board = control.closest("[data-tree-project-board]");
         saveProjectGanttSettingsForBoard(board);
+      });
+
+      document.addEventListener("input", function (event) {
+        var filterInput = event.target.closest("[data-project-gantt-filter]");
+        if (!filterInput) return;
+        var board = filterInput.closest("[data-tree-project-board]");
+        var gantt = board ? board.querySelector("[data-project-gantt]") : null;
+        if (gantt) renderProjectGantt(gantt);
       });
 
       document.addEventListener("click", function (event) {
@@ -9815,13 +9915,35 @@
     }
 
     function formatDueCompactLabel(dueValue, createdValue, dueMode) {
-      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
+      var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "asap") return "ASAP";
       if (dueValue) return formatCompactCalendarDate(dueValue);
       if (createdValue) return formatCompactCalendarDate(createdValue);
       return formatCompactCalendarDate(new Date().toISOString().slice(0, 10)) || "Today";
     }
 
     window.__formatDueCompactLabel = formatDueCompactLabel;
+
+    function dueRelativeDescription(daysValue, taskTitle, compact) {
+      var title = String(taskTitle || "").trim() || "task";
+      var days = Number.parseInt(String(daysValue == null ? "0" : daysValue), 10);
+      if (!Number.isFinite(days)) days = 0;
+      if (compact) {
+        if (days === 0) return "same day as " + title;
+        return String(Math.abs(days)) + "d " + (days > 0 ? "after " : "before ") + title;
+      }
+      if (days === 0) return "same day as " + title;
+      return String(Math.abs(days)) + " day" + (Math.abs(days) === 1 ? "" : "s") + " " + (days > 0 ? "after " : "before ") + title;
+    }
+
+    function dueRelativeInputDescription(input, compact) {
+      if (!input) return "";
+      return dueRelativeDescription(
+        input.getAttribute("data-due-relative-days") || "0",
+        input.getAttribute("data-due-relative-task-title") || "",
+        compact
+      );
+    }
 
     function formatTreeDueLabel(dueValue, dueMode) {
       if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
@@ -9855,23 +9977,27 @@
       var createdValue = input.getAttribute("data-created-at");
       var startValue = input.getAttribute("data-start-date");
       var dueMode = input.getAttribute("data-due-mode");
+      var normalizedDueMode = String(dueMode || "").toLowerCase();
+      var relativeText = normalizedDueMode === "relative" ? dueRelativeInputDescription(input, true) : "";
       var isTodo = !!(cell && cell.closest(".todo-item"));
       if (label) {
         if (isTodo) {
           label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>';
         } else {
-          label.textContent = formatTreeDueLabel(dueValue, dueMode);
+          label.textContent = formatTreeDueLabel(dueValue, dueMode) + (relativeText ? " · " + relativeText : "");
         }
       }
       if (mobileText && isTodo) {
-        mobileText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode);
+        mobileText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode) + (relativeText ? " · " + relativeText : "");
       }
       if (summary) {
-        summary.title = String(dueMode || "").toLowerCase() === "asap"
+        summary.title = normalizedDueMode === "asap"
           ? "ASAP"
-          : (dueValue ? "Due " + dueValue : "No Date");
+          : (normalizedDueMode === "relative"
+            ? ((dueValue ? "Due " + dueValue + " · " : "Due ") + dueRelativeInputDescription(input, false))
+            : (dueValue ? "Due " + dueValue : "No Date"));
         summary.classList.toggle("is-fallback", !dueValue);
-        var progress = !isTodo && String(dueMode || "").toLowerCase() === "date" ? dueProgressPercent(startValue, dueValue) : null;
+        var progress = !isTodo && normalizedDueMode === "date" ? dueProgressPercent(startValue, dueValue) : null;
         summary.classList.toggle("is-progress", progress != null);
         if (progress != null) {
           summary.style.setProperty("--due-progress", progress.toFixed(2) + "%");
@@ -10897,7 +11023,7 @@
             </span>
           </div>
         </td>
-        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-start-date="${info && info.meta && info.meta.start_date ? String(info.meta.start_date) : ""}" data-due-mode="${info && info.meta && info.meta.due_mode ? info.meta.due_mode : (due ? "date" : "none")}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
+        <td><div class="due-cell" data-due-cell onclick="return window.__openDueInput(this);"><div class="due-summary${due ? "" : " is-fallback"}" data-due-summary title=""><span class="due-summary-label"></span></div><input class="due-input hidden" type="date" data-task-id="${id}" data-field="due_at" data-col="2" data-created-at="${new Date().toISOString().slice(0, 10)}" data-start-date="${info && info.meta && info.meta.start_date ? String(info.meta.start_date) : ""}" data-due-mode="${info && info.meta && info.meta.due_mode ? info.meta.due_mode : (due ? "date" : "none")}" data-due-relative-task-id="${info && info.meta && info.meta.due_relative_task_id ? escapeHtml(String(info.meta.due_relative_task_id)) : ""}" data-due-relative-task-title="${info && info.meta && info.meta.due_relative_task_title ? escapeHtml(String(info.meta.due_relative_task_title)) : ""}" data-due-relative-days="${info && info.meta && info.meta.due_relative_days != null ? escapeHtml(String(info.meta.due_relative_days)) : "0"}" value="${due ? String(due).slice(0, 10) : ""}" /></div></td>
         <td><div data-task-status-host="${id}">${initialStatusHtml}</div></td>
         <td>
           <div class="assignments">
@@ -11117,6 +11243,10 @@
           const dueInput = row.querySelector(`.due-input[data-task-id="${task.id}"]`);
           if (dueInput) {
             dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+            dueInput.setAttribute("data-due-mode", task.due_mode || (task.due_at ? "date" : "none"));
+            if (typeof window.__setDueInputRelativeData === "function") {
+              window.__setDueInputRelativeData(dueInput, task.due_relative || null);
+            }
             if (typeof window.__updateDueDisplay === "function") {
               window.__updateDueDisplay(dueInput);
             }
@@ -11281,12 +11411,53 @@
       return parsed.toLocaleDateString([], { month: "short", day: "numeric" });
     };
 
+    const formatDueCompactLabel = (dueValue, createdValue, dueMode) => {
+      const normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "asap") return "ASAP";
+      if (dueValue) return formatCompactCalendarDate(dueValue);
+      if (createdValue) return formatCompactCalendarDate(createdValue);
+      return formatCompactCalendarDate(new Date().toISOString().slice(0, 10)) || "Today";
+    };
+
+    window.__formatDueCompactLabel = window.__formatDueCompactLabel || formatDueCompactLabel;
+
     const formatTreeDueLabel = (dueValue, dueMode) => {
       const normalizedMode = String(dueMode || "").toLowerCase();
       if (normalizedMode === "asap") return "ASAP";
       if (dueValue) return formatCompactCalendarDate(dueValue);
       return "No Date";
     };
+
+    const formatDueRelativeDescription = (daysValue, taskTitle, compact) => {
+      const title = String(taskTitle || "").trim() || "task";
+      let days = Number.parseInt(String(daysValue == null ? "0" : daysValue), 10);
+      if (!Number.isFinite(days)) days = 0;
+      if (compact) {
+        if (days === 0) return "same day as " + title;
+        return String(Math.abs(days)) + "d " + (days > 0 ? "after " : "before ") + title;
+      }
+      if (days === 0) return "same day as " + title;
+      return String(Math.abs(days)) + " day" + (Math.abs(days) === 1 ? "" : "s") + " " + (days > 0 ? "after " : "before ") + title;
+    };
+
+    const dueInputRelativeDescription = (input, compact) => {
+      if (!input) return "";
+      return formatDueRelativeDescription(
+        input.getAttribute("data-due-relative-days") || "0",
+        input.getAttribute("data-due-relative-task-title") || "",
+        compact
+      );
+    };
+
+    const setDueInputRelativeData = (input, relative) => {
+      if (!input) return;
+      const data = relative || {};
+      input.setAttribute("data-due-relative-task-id", data.task_id ? String(data.task_id) : "");
+      input.setAttribute("data-due-relative-task-title", data.task_title ? String(data.task_title) : "");
+      input.setAttribute("data-due-relative-days", data.days != null ? String(data.days) : "0");
+    };
+
+    window.__setDueInputRelativeData = setDueInputRelativeData;
 
     const dueProgressPercent = (startValue, dueValue) => {
       if (!startValue || !dueValue) return null;
@@ -11313,20 +11484,28 @@
       const createdValue = input.getAttribute("data-created-at");
       const startValue = input.getAttribute("data-start-date");
       const dueMode = input.getAttribute("data-due-mode");
+      const normalizedDueMode = String(dueMode || "").toLowerCase();
+      const relativeText = normalizedDueMode === "relative" ? dueInputRelativeDescription(input, true) : "";
       const isTodo = !!(dueCell && dueCell.closest(".todo-item"));
       const label = summary.querySelector(".due-summary-label");
       if (label) {
         if (isTodo) {
           label.innerHTML = '<i class="fa-regular fa-calendar" aria-hidden="true"></i>' + (String(dueMode || "").toLowerCase() === "asap" ? '<span>ASAP</span>' : '');
         } else {
-          label.textContent = formatTreeDueLabel(dueValue, dueMode);
+          label.textContent = formatTreeDueLabel(dueValue, dueMode) + (relativeText ? " · " + relativeText : "");
         }
       }
-      summary.title = String(dueMode || "").toLowerCase() === "asap"
+      const mobileText = summary.querySelector(".todo-mobile-due-text");
+      if (mobileText && isTodo) {
+        mobileText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode) + (relativeText ? " · " + relativeText : "");
+      }
+      summary.title = normalizedDueMode === "asap"
         ? "ASAP"
-        : (dueValue ? `Due ${dueValue}` : "No Date");
+        : (normalizedDueMode === "relative"
+          ? ((dueValue ? `Due ${dueValue} · ` : "Due ") + dueInputRelativeDescription(input, false))
+          : (dueValue ? `Due ${dueValue}` : "No Date"));
       summary.classList.toggle("is-fallback", !dueValue);
-      const progress = !isTodo && String(dueMode || "").toLowerCase() === "date" ? dueProgressPercent(startValue, dueValue) : null;
+      const progress = !isTodo && normalizedDueMode === "date" ? dueProgressPercent(startValue, dueValue) : null;
       summary.classList.toggle("is-progress", progress != null);
       if (progress != null) {
         summary.style.setProperty("--due-progress", `${progress.toFixed(2)}%`);
@@ -11394,7 +11573,7 @@
       const dueRect = dueCell.getBoundingClientRect();
       menu.className = "todo-assignee-menu";
       menu.style.position = "fixed";
-      menu.style.width = "min(260px, calc(100vw - 24px))";
+      menu.style.width = "min(340px, calc(100vw - 24px))";
       menu.style.maxWidth = "calc(100vw - 24px)";
       menu.style.top = Math.round(dueCell.getBoundingClientRect().bottom + 6) + "px";
       menu.style.zIndex = "600";
@@ -11403,16 +11582,43 @@
           '<button class="btn secondary' + (currentMode === "none" ? ' is-active' : '') + '" type="button" data-due-mode-action="none">No Date</button>' +
           '<button class="btn secondary' + (currentMode === "asap" ? ' is-active' : '') + '" type="button" data-due-mode-action="asap">ASAP</button>' +
           '<button class="btn secondary' + (currentMode === "date" ? ' is-active' : '') + '" type="button" data-due-mode-action="date">Date</button>' +
+          '<button class="btn secondary' + (currentMode === "relative" ? ' is-active' : '') + '" type="button" data-due-mode-action="relative">Relative</button>' +
         '</div>' +
-        '<div data-due-mode-date-wrap style="margin-top:8px;">' +
+        '<div data-due-mode-date-wrap style="margin-top:8px; display:' + (currentMode === "date" ? 'block' : 'none') + ';">' +
           '<input type="date" data-due-mode-date-input style="width:100%; border:1px solid var(--border); background:color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%); color:var(--ink); border-radius:10px; padding:7px 10px; font:inherit; font-size:13px;" value="' + (input.value || "") + '" />' +
+        '</div>' +
+        '<div data-due-mode-relative-wrap style="margin-top:10px; display:' + (currentMode === "relative" ? 'grid' : 'none') + '; gap:8px;">' +
+          '<input type="text" data-due-mode-relative-task-input placeholder="Reference task" autocomplete="termin-nope-relative-task-row" autocorrect="off" autocapitalize="off" spellcheck="false" style="width:100%; border:1px solid var(--border); background:color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%); color:var(--ink); border-radius:10px; padding:7px 10px; font:inherit; font-size:13px;" value="' + escapeHtml(input.getAttribute("data-due-relative-task-title") || "") + '" />' +
+          '<div data-due-mode-relative-results style="display:grid; gap:4px;"></div>' +
+          '<div style="display:flex; align-items:center; gap:8px;">' +
+            '<label style="display:flex; align-items:center; gap:6px; flex:1 1 auto; color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.05em;">Days <input type="number" step="1" data-due-mode-relative-days style="min-width:0; width:90px; border:1px solid var(--border); background:color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%); color:var(--ink); border-radius:10px; padding:7px 10px; font:inherit; font-size:13px;" value="' + escapeHtml(input.getAttribute("data-due-relative-days") || "0") + '" /></label>' +
+            '<button class="btn secondary" type="button" data-due-mode-relative-apply>Save</button>' +
+          '</div>' +
         '</div>';
       document.body.appendChild(menu);
-      var menuWidth = Math.min(260, Math.max(180, menu.offsetWidth || 260));
+      var menuWidth = Math.min(340, Math.max(220, menu.offsetWidth || 340));
       var left = Math.round(dueRect.right - menuWidth);
       left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
       menu.style.left = left + "px";
       var embeddedDateInput = menu.querySelector("[data-due-mode-date-input]");
+      var dateWrap = menu.querySelector("[data-due-mode-date-wrap]");
+      var relativeWrap = menu.querySelector("[data-due-mode-relative-wrap]");
+      var relativeTaskInput = menu.querySelector("[data-due-mode-relative-task-input]");
+      var relativeResults = menu.querySelector("[data-due-mode-relative-results]");
+      var relativeDaysInput = menu.querySelector("[data-due-mode-relative-days]");
+      var relativeApply = menu.querySelector("[data-due-mode-relative-apply]");
+      var setDateWrapVisible = function (visible) {
+        if (!dateWrap) return;
+        dateWrap.style.display = visible ? "block" : "none";
+        dateWrap.hidden = !visible;
+      };
+      var setRelativeWrapVisible = function (visible) {
+        if (!relativeWrap) return;
+        relativeWrap.style.display = visible ? "grid" : "none";
+        relativeWrap.hidden = !visible;
+      };
+      setDateWrapVisible(currentMode === "date");
+      setRelativeWrapVisible(currentMode === "relative");
       if (embeddedDateInput) {
         embeddedDateInput.addEventListener("change", function () {
           input.setAttribute("data-due-mode", "date");
@@ -11421,6 +11627,120 @@
             window.__applyDueInput(input);
           }
           closeDueModeMenu();
+        });
+      }
+      if (relativeTaskInput) {
+        relativeTaskInput.dataset.selectedTaskId = input.getAttribute("data-due-relative-task-id") || "";
+        relativeTaskInput._suggestRequestToken = 0;
+        var selectRelativeTaskItem = function (item) {
+          if (!item || !item.id) return;
+          relativeTaskInput.dataset.selectedTaskId = String(item.id);
+          relativeTaskInput.value = item.title || "";
+          input.setAttribute("data-due-relative-task-id", String(item.id));
+          input.setAttribute("data-due-relative-task-title", item.title || "");
+        };
+        var renderRelativeResults = function (items, message) {
+          if (!relativeResults) return;
+          var rows = Array.isArray(items) ? items.slice(0, 8) : [];
+          if (!rows.length) {
+            relativeResults.innerHTML = message
+              ? '<div class="due-relative-result-note">' + escapeHtml(message) + '</div>'
+              : "";
+            return;
+          }
+          relativeResults.innerHTML = rows.map(function (item) {
+            var meta = item.meta_label ? '<span class="due-relative-result-meta">' + escapeHtml(item.meta_label) + '</span>' : '';
+            return '<button class="due-relative-result" type="button" data-due-relative-result-task-id="' + escapeHtml(item.id || "") + '">' +
+              '<span class="due-relative-result-title">' + escapeHtml(item.title || item.label || "Task") + '</span>' +
+              meta +
+            '</button>';
+          }).join("");
+          relativeResults.querySelectorAll("[data-due-relative-result-task-id]").forEach(function (button, index) {
+            button.addEventListener("click", function (event) {
+              event.preventDefault();
+              event.stopPropagation();
+              selectRelativeTaskItem(rows[index]);
+              renderRelativeResults([], "");
+            });
+          });
+        };
+        var loadRelativeSuggestions = function () {
+          var value = relativeTaskInput.value.trim();
+          var requestToken = Number(relativeTaskInput._suggestRequestToken || 0) + 1;
+          relativeTaskInput._suggestRequestToken = requestToken;
+          renderRelativeResults([], "Loading tasks...");
+          fetch(
+            "/api/tasks/search?q=" + encodeURIComponent(value) +
+            "&entity_type=task" +
+            "&exclude_task_id=" + encodeURIComponent(String(input.getAttribute("data-task-id") || "")),
+            { credentials: "same-origin" }
+          )
+            .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+            .then(function (data) {
+              if (Number(relativeTaskInput._suggestRequestToken || 0) !== requestToken) return;
+              var results = Array.isArray(data.results) ? data.results : [];
+              results = results.filter(function (item) {
+                return item && item.entity_type === "task" && String(item.id || "") !== String(input.getAttribute("data-task-id") || "");
+              }).map(function (item) {
+                var metaBits = [];
+                if (item.project_name) metaBits.push(item.project_name);
+                if (item.group_name) metaBits.push(item.group_name);
+                if (item.due_at) metaBits.push("Due " + String(item.due_at).slice(0, 10));
+                return Object.assign({}, item, {
+                  label: item.title || "Task",
+                  meta_label: metaBits.join(" · "),
+                });
+              });
+              if (!results.length) {
+                results = typeof window.__localTaskSearchResults === "function"
+                  ? window.__localTaskSearchResults(value, { excludeTaskId: input.getAttribute("data-task-id") || "" })
+                  : [];
+              }
+              renderRelativeResults(results, value ? "No matching tasks" : "Type to search tasks");
+            })
+            .catch(function (error) {
+              if (Number(relativeTaskInput._suggestRequestToken || 0) !== requestToken) return;
+              console.error("relative due row search failed", error);
+              var localResults = typeof window.__localTaskSearchResults === "function"
+                ? window.__localTaskSearchResults(value, { excludeTaskId: input.getAttribute("data-task-id") || "" })
+                : [];
+              if (localResults.length) {
+                renderRelativeResults(localResults, "");
+              } else {
+                renderRelativeResults([], "Could not load tasks");
+              }
+            });
+        };
+        relativeTaskInput.addEventListener("input", function () {
+          relativeTaskInput.dataset.selectedTaskId = "";
+          loadRelativeSuggestions();
+        });
+        relativeTaskInput.addEventListener("focus", loadRelativeSuggestions);
+      }
+      if (relativeApply) {
+        relativeApply.addEventListener("click", function () {
+          var selectedTaskId = relativeTaskInput ? (relativeTaskInput.dataset.selectedTaskId || input.getAttribute("data-due-relative-task-id") || "") : "";
+          if (!selectedTaskId) {
+            if (relativeTaskInput) relativeTaskInput.focus();
+            return;
+          }
+          input.setAttribute("data-due-mode", "relative");
+          input.setAttribute("data-due-relative-task-id", selectedTaskId);
+          input.setAttribute("data-due-relative-task-title", relativeTaskInput ? (relativeTaskInput.value || "") : "");
+          input.setAttribute("data-due-relative-days", relativeDaysInput ? (relativeDaysInput.value || "0") : "0");
+          if (typeof window.__applyDueInput === "function") {
+            window.__applyDueInput(input);
+          }
+          closeDueModeMenu();
+        });
+      }
+      if (relativeWrap) {
+        menu.querySelectorAll("[data-due-mode-action]").forEach(function (button) {
+          button.addEventListener("click", function () {
+            var nextMode = String(button.getAttribute("data-due-mode-action") || "");
+            setDateWrapVisible(nextMode === "date");
+            setRelativeWrapVisible(nextMode === "relative");
+          });
         });
       }
       window.__activeDueMenuEl = menu;
@@ -11463,11 +11783,36 @@
       updateDueDisplay(input);
       hideDueInput(input);
       if (taskId) {
+        const payload = { due_at: value || null, due_mode: dueMode };
+        if (dueMode === "relative") {
+          payload.due_relative_task_id = input.getAttribute("data-due-relative-task-id") || "";
+          payload.due_relative_days = input.getAttribute("data-due-relative-days") || "0";
+        }
         fetch(`/api/tasks/${taskId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ due_at: value || null, due_mode: dueMode }),
-        });
+          body: JSON.stringify(payload),
+        })
+          .then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (!data || !data.id) return;
+            if (typeof rememberRecentTaskSnapshot === "function") {
+              rememberRecentTaskSnapshot(data);
+            }
+            input.value = data.due_at ? String(data.due_at).slice(0, 10) : "";
+            input.setAttribute("data-due-mode", data.due_mode || (input.value ? "date" : "none"));
+            input.setAttribute("data-start-date", data.start_date ? String(data.start_date).slice(0, 10) : "");
+            if (typeof window.__setDueInputRelativeData === "function") {
+              window.__setDueInputRelativeData(input, data.due_relative || null);
+            }
+            updateDueDisplay(input);
+            if (typeof applyTaskRowUpdate === "function") {
+              applyTaskRowUpdate(data);
+            }
+          })
+          .catch(function (error) {
+            console.error("applyDueInput failed", error);
+          });
         if (typeof moveTodoItemIfNeeded === "function") {
           var todoItem = input.closest(".todo-item");
           if (todoItem) {
@@ -15534,8 +15879,13 @@
 	    var taskSettingsTitleEl = document.getElementById("task-settings-title");
 	    var taskSettingsDueModeEl = document.getElementById("task-settings-due-mode");
 	    var taskSettingsDueEl = document.getElementById("task-settings-due");
+	    var taskSettingsRelativeDueFieldEl = document.getElementById("task-settings-relative-due-field");
+	    var taskSettingsRelativeDueTaskEl = document.getElementById("task-settings-relative-due-task");
+	    var taskSettingsRelativeDueDaysEl = document.getElementById("task-settings-relative-due-days");
 	    var taskSettingsStartFieldEl = document.getElementById("task-settings-start-field");
 	    var taskSettingsStartDateEl = document.getElementById("task-settings-start-date");
+	    var taskSettingsRelativeStartFieldEl = document.getElementById("task-settings-relative-start-field");
+	    var taskSettingsRelativeStartDaysEl = document.getElementById("task-settings-relative-start-days");
 	    var projectSettingsStartDateEl = document.getElementById("project-settings-start-date");
 	    var projectSettingsEndDateEl = document.getElementById("project-settings-end-date");
 	    var projectSettingsStartFieldEl = projectSettingsStartDateEl ? projectSettingsStartDateEl.closest(".discussion-setting-field") : null;
@@ -15779,6 +16129,7 @@
         };
       });
     }
+    window.__localTaskSearchResults = localTaskSearchResults;
 
     function dashboardStoreRequestUrl(baseUrl) {
       try {
@@ -16170,7 +16521,7 @@
 
     function taskDueModeValue(task) {
       var mode = String((task && task.due_mode) || "").trim().toLowerCase();
-      if (mode === "asap" || mode === "date") return mode;
+      if (mode === "asap" || mode === "date" || mode === "relative") return mode;
       if (task && task.due_at) return "date";
       return "none";
     }
@@ -16189,6 +16540,16 @@
       var mode = String(taskSettingsDueModeEl.value || "none");
       taskSettingsDueEl.hidden = mode !== "date";
       taskSettingsDueEl.disabled = mode !== "date";
+      if (taskSettingsRelativeDueFieldEl) {
+        taskSettingsRelativeDueFieldEl.hidden = mode !== "relative";
+        taskSettingsRelativeDueFieldEl.style.display = mode === "relative" ? "" : "none";
+      }
+      if (taskSettingsRelativeDueTaskEl) {
+        taskSettingsRelativeDueTaskEl.disabled = mode !== "relative" || taskSettingsDueModeEl.disabled;
+      }
+      if (taskSettingsRelativeDueDaysEl) {
+        taskSettingsRelativeDueDaysEl.disabled = mode !== "relative" || taskSettingsDueModeEl.disabled;
+      }
       if (taskSettingsStartFieldEl) {
         taskSettingsStartFieldEl.hidden = mode !== "date";
         taskSettingsStartFieldEl.style.display = mode === "date" ? "" : "none";
@@ -16199,6 +16560,16 @@
 	          taskSettingsStartDateEl.value = "";
 	        }
 	      }
+      if (taskSettingsRelativeStartFieldEl) {
+        taskSettingsRelativeStartFieldEl.hidden = mode !== "relative";
+        taskSettingsRelativeStartFieldEl.style.display = mode === "relative" ? "" : "none";
+      }
+      if (taskSettingsRelativeStartDaysEl) {
+        taskSettingsRelativeStartDaysEl.disabled = mode !== "relative" || taskSettingsDueModeEl.disabled;
+        if (mode !== "relative") {
+          taskSettingsRelativeStartDaysEl.value = "";
+        }
+      }
 	    }
 
     function typesetMathNodes(nodes) {
@@ -19599,9 +19970,24 @@
       }
       taskSettingsDueEl.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
       taskSettingsDueEl.disabled = locked;
+      if (taskSettingsRelativeDueTaskEl) {
+        var relativeDue = task.due_relative || {};
+        taskSettingsRelativeDueTaskEl.value = relativeDue.task_title || "";
+        taskSettingsRelativeDueTaskEl.dataset.selectedTaskId = relativeDue.task_id ? String(relativeDue.task_id) : "";
+        taskSettingsRelativeDueTaskEl.disabled = locked;
+      }
+      if (taskSettingsRelativeDueDaysEl) {
+        var relativeDays = task.due_relative && task.due_relative.days != null ? task.due_relative.days : 0;
+        taskSettingsRelativeDueDaysEl.value = String(relativeDays);
+        taskSettingsRelativeDueDaysEl.disabled = locked;
+      }
       if (taskSettingsStartDateEl) {
         taskSettingsStartDateEl.value = task.start_date ? String(task.start_date).slice(0, 10) : "";
         taskSettingsStartDateEl.disabled = locked;
+      }
+      if (taskSettingsRelativeStartDaysEl) {
+        taskSettingsRelativeStartDaysEl.value = task.due_relative_start_days != null ? String(task.due_relative_start_days) : "";
+        taskSettingsRelativeStartDaysEl.disabled = locked;
       }
       syncTaskSettingsDueControl();
       var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
@@ -19818,6 +20204,19 @@
       if (taskSettingsDueModeEl) taskSettingsDueModeEl.disabled = false;
       if (taskSettingsDueEl) taskSettingsDueEl.value = "";
       if (taskSettingsDueEl) taskSettingsDueEl.disabled = false;
+      if (taskSettingsRelativeDueTaskEl) {
+        taskSettingsRelativeDueTaskEl.value = "";
+        taskSettingsRelativeDueTaskEl.dataset.selectedTaskId = "";
+        taskSettingsRelativeDueTaskEl.disabled = false;
+      }
+      if (taskSettingsRelativeDueDaysEl) {
+        taskSettingsRelativeDueDaysEl.value = "0";
+        taskSettingsRelativeDueDaysEl.disabled = false;
+      }
+      if (taskSettingsRelativeStartDaysEl) {
+        taskSettingsRelativeStartDaysEl.value = "";
+        taskSettingsRelativeStartDaysEl.disabled = false;
+      }
       if (taskSettingsStartDateEl) taskSettingsStartDateEl.value = "";
       if (taskSettingsStartDateEl) taskSettingsStartDateEl.disabled = false;
       syncTaskSettingsDueControl();
@@ -20283,6 +20682,15 @@
           due_mode: taskSettingsDueModeEl ? taskSettingsDueModeEl.value : "none",
           start_date: taskSettingsDueModeEl && taskSettingsDueModeEl.value === "date"
             ? (taskSettingsStartDateEl ? taskSettingsStartDateEl.value : "")
+            : "",
+          due_relative_task_id: taskSettingsDueModeEl && taskSettingsDueModeEl.value === "relative" && taskSettingsRelativeDueTaskEl
+            ? (taskSettingsRelativeDueTaskEl.dataset.selectedTaskId || "")
+            : "",
+          due_relative_days: taskSettingsDueModeEl && taskSettingsDueModeEl.value === "relative" && taskSettingsRelativeDueDaysEl
+            ? (taskSettingsRelativeDueDaysEl.value || "0")
+            : "0",
+          due_relative_start_days: taskSettingsDueModeEl && taskSettingsDueModeEl.value === "relative" && taskSettingsRelativeStartDaysEl
+            ? taskSettingsRelativeStartDaysEl.value
             : "",
           task_type: taskType,
           poll: pollPayload,
@@ -21582,6 +21990,9 @@
         input.dataset.originalValue = normalizedDue;
         input.setAttribute("data-due-mode", effectiveTask.due_mode || (normalizedDue ? "date" : "none"));
         input.setAttribute("data-start-date", effectiveTask.start_date ? String(effectiveTask.start_date).slice(0, 10) : "");
+        if (typeof window.__setDueInputRelativeData === "function") {
+          window.__setDueInputRelativeData(input, effectiveTask.due_relative || null);
+        }
         if (typeof window.__updateDueDisplay === "function") {
           window.__updateDueDisplay(input);
         }
@@ -21681,6 +22092,8 @@
 	          start_date: task.start_date || "",
 	          due_at: task.due_at || "",
 	          due_mode: task.due_mode || (task.due_at ? "date" : "none"),
+	          due_relative: task.due_relative || null,
+	          due_relative_start_days: task.due_relative_start_days != null ? task.due_relative_start_days : null,
 	          status: task.status || "open",
 	          status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
 	          status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
@@ -21715,6 +22128,127 @@
 	      });
 	    }
 	    window.__updateProjectGanttItemLocal = updateProjectGanttItemLocal;
+
+      function projectGanttAddDaysIso(isoValue, dayDelta) {
+        var parsed = new Date(String(isoValue || "").slice(0, 10) + "T00:00:00");
+        if (Number.isNaN(parsed.getTime())) return "";
+        parsed.setDate(parsed.getDate() + Number(dayDelta || 0));
+        var year = parsed.getFullYear();
+        var month = String(parsed.getMonth() + 1).padStart(2, "0");
+        var day = String(parsed.getDate()).padStart(2, "0");
+        return year + "-" + month + "-" + day;
+      }
+
+      function projectGanttRelativeStartIso(dueIso, item) {
+        if (!dueIso || !item || item.due_relative_start_days == null || item.due_relative_start_days === "") {
+          return item && item.start_date ? String(item.start_date).slice(0, 10) : "";
+        }
+        return projectGanttAddDaysIso(dueIso, -Math.max(0, Number(item.due_relative_start_days || 0)));
+      }
+
+      function applyProjectGanttTrackVisual(track, item, dueIso, startIso) {
+        if (!track || !item || !dueIso) return;
+        var marker = track.querySelector(".project-gantt-marker");
+        var span = track.querySelector(".project-gantt-span");
+        var startHandle = track.querySelector('[data-gantt-handle="start"]');
+        var endHandle = track.querySelector('[data-gantt-handle="end"]');
+        var endPercent = ganttPercentForIso(track, dueIso);
+        if (marker) marker.style.left = endPercent.toFixed(2) + "%";
+        if (endHandle) endHandle.style.left = endPercent.toFixed(2) + "%";
+        if (startIso) {
+          var startPercent = ganttPercentForIso(track, startIso);
+          if (startHandle) startHandle.style.left = startPercent.toFixed(2) + "%";
+          if (span) {
+            span.style.left = startPercent.toFixed(2) + "%";
+            span.style.width = Math.max(1.2, endPercent - startPercent).toFixed(2) + "%";
+          }
+        }
+      }
+
+      function previewProjectGanttRelativeDependents(state, referenceDueIso) {
+        if (!state || !state.track || !state.taskId || !referenceDueIso) return;
+        var panel = state.track.closest("[data-project-gantt]");
+        if (!panel) return;
+        var items = parseProjectGanttItemsLocal(panel);
+        if (!items.length) return;
+        var dueById = {};
+        dueById[String(state.taskId)] = String(referenceDueIso).slice(0, 10);
+        var changed = true;
+        var guard = 0;
+        while (changed && guard < 20) {
+          changed = false;
+          guard += 1;
+          items.forEach(function (item) {
+            if (!item || String(item.due_mode || "").trim().toLowerCase() !== "relative") return;
+            var relative = item.due_relative && typeof item.due_relative === "object" ? item.due_relative : null;
+            var referenceId = relative && relative.task_id != null ? String(relative.task_id) : "";
+            if (!referenceId || !dueById[referenceId]) return;
+            var nextDueIso = projectGanttAddDaysIso(dueById[referenceId], Number(relative.days || 0));
+            if (!nextDueIso || dueById[String(item.id)] === nextDueIso) return;
+            dueById[String(item.id)] = nextDueIso;
+            changed = true;
+            var dependentTrack = panel.querySelector('[data-gantt-track][data-task-id="' + String(item.id) + '"]');
+            if (!dependentTrack || String(item.id) === String(state.taskId)) return;
+            applyProjectGanttTrackVisual(dependentTrack, item, nextDueIso, projectGanttRelativeStartIso(nextDueIso, item));
+          });
+        }
+        state.dependentPreviewPanel = panel;
+      }
+
+      function propagateProjectGanttRelativeDependentsLocal(referenceTask) {
+        if (!referenceTask || !referenceTask.id || !referenceTask.project_id || !referenceTask.due_at) return;
+        document.querySelectorAll('[data-project-gantt][data-project-id="' + String(referenceTask.project_id) + '"]').forEach(function (panel) {
+          var items = parseProjectGanttItemsLocal(panel);
+          if (!items.length) return;
+          var byId = {};
+          items.forEach(function (item) {
+            if (item && item.id != null) byId[String(item.id)] = item;
+          });
+          var referenceId = String(referenceTask.id);
+          if (byId[referenceId]) {
+            Object.assign(byId[referenceId], referenceTask);
+          }
+          var dueById = {};
+          dueById[referenceId] = String(referenceTask.due_at).slice(0, 10);
+          var changedAny = false;
+          var changed = true;
+          var guard = 0;
+          while (changed && guard < 20) {
+            changed = false;
+            guard += 1;
+            items.forEach(function (item) {
+              if (!item || String(item.due_mode || "").trim().toLowerCase() !== "relative") return;
+              var relative = item.due_relative && typeof item.due_relative === "object" ? item.due_relative : null;
+              var parentId = relative && relative.task_id != null ? String(relative.task_id) : "";
+              if (!parentId || !dueById[parentId]) return;
+              var nextDueIso = projectGanttAddDaysIso(dueById[parentId], Number(relative.days || 0));
+              if (!nextDueIso) return;
+              dueById[String(item.id)] = nextDueIso;
+              if (String(item.due_at || "").slice(0, 10) !== nextDueIso) {
+                item.due_at = nextDueIso;
+                changedAny = true;
+                changed = true;
+              }
+              if (relative) {
+                relative.due_at = dueById[parentId];
+              }
+              var nextStartIso = projectGanttRelativeStartIso(nextDueIso, item);
+              if (String(item.start_date || "").slice(0, 10) !== String(nextStartIso || "").slice(0, 10)) {
+                item.start_date = nextStartIso || "";
+                changedAny = true;
+              }
+            });
+          }
+          if (!changedAny) return;
+          panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
+          var modePanel = typeof panel.closest === "function" ? panel.closest('[data-project-mode-panel="gantt"]') : null;
+          if (!modePanel || !modePanel.hidden) {
+            if (typeof window.__renderProjectGantt === "function") {
+              window.__renderProjectGantt(panel);
+            }
+          }
+        });
+      }
 
       var activeGanttDrag = null;
       var activeGanttTooltipEl = null;
@@ -21792,10 +22326,34 @@
         return rangeDays <= 0 ? 0 : (clamped / rangeDays) * 100;
       }
 
+      function ganttIsoDayDiff(laterIso, earlierIso) {
+        var laterDate = new Date(String(laterIso || "").slice(0, 10) + "T00:00:00");
+        var earlierDate = new Date(String(earlierIso || "").slice(0, 10) + "T00:00:00");
+        if (Number.isNaN(laterDate.getTime()) || Number.isNaN(earlierDate.getTime())) return null;
+        return Math.round((laterDate.getTime() - earlierDate.getTime()) / 86400000);
+      }
+
+      function ganttIsoAddDays(isoValue, dayDelta) {
+        var parsed = new Date(String(isoValue || "").slice(0, 10) + "T00:00:00");
+        if (Number.isNaN(parsed.getTime())) return "";
+        parsed.setDate(parsed.getDate() + Number(dayDelta || 0));
+        return ganttIsoDateString(parsed);
+      }
+
       function applyGanttDragPreview(state) {
         if (!state || !state.track || !state.elements) return;
         var startIso = state.handle === "start" ? state.nextIso : state.task.start_date;
         var endIso = state.handle === "end" ? state.nextIso : state.task.due_at;
+        if (
+          state.handle === "end"
+          && String(state.task && state.task.due_mode || "").trim().toLowerCase() === "relative"
+          && state.task
+          && state.task.due_relative_start_days != null
+          && state.task.due_relative_start_days !== ""
+          && endIso
+        ) {
+          startIso = ganttIsoAddDays(endIso, -Math.max(0, Number(state.task.due_relative_start_days || 0)));
+        }
         if (state.handle === "start" && !state.elements.span && endIso) {
           var previewSpan = document.createElement("span");
           previewSpan.className = "project-gantt-span status-open";
@@ -21824,9 +22382,112 @@
 
       function commitGanttDrag(state, nextIso) {
         if (!state || !state.taskId || !nextIso) return;
-        var patchBody = state.handle === "start"
-          ? { start_date: nextIso }
-          : { due_at: nextIso, due_mode: "date", start_date: state.task && state.task.start_date ? state.task.start_date : "" };
+        var taskDueMode = String(state.task && state.task.due_mode || "").trim().toLowerCase();
+        var relativeDue = state.task && state.task.due_relative && typeof state.task.due_relative === "object"
+          ? state.task.due_relative
+          : null;
+        var patchBody = null;
+        var optimisticTask = state.task ? Object.assign({}, state.task, {
+          due_relative: state.task.due_relative && typeof state.task.due_relative === "object"
+            ? Object.assign({}, state.task.due_relative)
+            : state.task.due_relative,
+        }) : null;
+        var rollbackTask = optimisticTask ? Object.assign({}, optimisticTask, {
+          due_relative: optimisticTask.due_relative && typeof optimisticTask.due_relative === "object"
+            ? Object.assign({}, optimisticTask.due_relative)
+            : optimisticTask.due_relative,
+        }) : null;
+        var hasOptimisticTaskUpdate = false;
+        if (taskDueMode === "relative") {
+          if (!relativeDue || !relativeDue.task_id) {
+            if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+              window.__updateProjectGanttItemLocal(state.task);
+            }
+            return;
+          }
+          if (state.handle === "end") {
+            var referenceDueIso = relativeDue.due_at ? String(relativeDue.due_at).slice(0, 10) : "";
+            var nextRelativeDays = ganttIsoDayDiff(nextIso, referenceDueIso);
+            if (nextRelativeDays == null) {
+              if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+                window.__updateProjectGanttItemLocal(state.task);
+              }
+              return;
+            }
+            patchBody = {
+              due_mode: "relative",
+              due_relative_task_id: relativeDue.task_id,
+              due_relative_days: String(nextRelativeDays),
+            };
+            if (optimisticTask) {
+              optimisticTask.due_at = nextIso;
+              optimisticTask.due_mode = "relative";
+              if (!optimisticTask.due_relative || typeof optimisticTask.due_relative !== "object") {
+                optimisticTask.due_relative = {};
+              }
+              optimisticTask.due_relative.task_id = relativeDue.task_id;
+              optimisticTask.due_relative.task_title = relativeDue.task_title || "";
+              optimisticTask.due_relative.due_at = relativeDue.due_at || "";
+              optimisticTask.due_relative.days = nextRelativeDays;
+              if (optimisticTask.due_relative_start_days != null && optimisticTask.due_relative_start_days !== "") {
+                optimisticTask.start_date = ganttIsoAddDays(nextIso, -Math.max(0, Number(optimisticTask.due_relative_start_days || 0)));
+              }
+              hasOptimisticTaskUpdate = true;
+            }
+          } else if (state.handle === "start") {
+            var dueIso = state.task && state.task.due_at ? String(state.task.due_at).slice(0, 10) : "";
+            var nextStartDays = ganttIsoDayDiff(dueIso, nextIso);
+            if (nextStartDays == null) {
+              if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+                window.__updateProjectGanttItemLocal(state.task);
+              }
+              return;
+            }
+            patchBody = {
+              due_mode: "relative",
+              due_relative_task_id: relativeDue.task_id,
+              due_relative_start_days: String(Math.max(0, nextStartDays)),
+            };
+            if (optimisticTask) {
+              optimisticTask.start_date = nextIso;
+              optimisticTask.due_mode = "relative";
+              optimisticTask.due_relative_start_days = Math.max(0, nextStartDays);
+              if (!optimisticTask.due_relative || typeof optimisticTask.due_relative !== "object") {
+                optimisticTask.due_relative = {};
+              }
+              optimisticTask.due_relative.task_id = relativeDue.task_id;
+              optimisticTask.due_relative.task_title = relativeDue.task_title || "";
+              optimisticTask.due_relative.due_at = relativeDue.due_at || "";
+              hasOptimisticTaskUpdate = true;
+            }
+          }
+        }
+        if (!patchBody) {
+          if (state.handle === "end" && taskDueMode !== "date") {
+            if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+              window.__updateProjectGanttItemLocal(state.task);
+            }
+            return;
+          }
+          patchBody = state.handle === "start"
+            ? { start_date: nextIso }
+            : { due_at: nextIso, due_mode: "date", start_date: state.task && state.task.start_date ? state.task.start_date : "" };
+        }
+        if (state.handle === "end") {
+          var propagationTask = optimisticTask ? Object.assign({}, optimisticTask) : (state.task ? Object.assign({}, state.task) : null);
+          if (propagationTask) {
+            propagationTask.due_at = nextIso;
+            if (!propagationTask.due_mode) {
+              propagationTask.due_mode = taskDueMode || "date";
+            }
+            if (typeof window.__updateProjectGanttItemLocal === "function") {
+              window.__updateProjectGanttItemLocal(propagationTask);
+            }
+            propagateProjectGanttRelativeDependentsLocal(propagationTask);
+          }
+        } else if (hasOptimisticTaskUpdate && optimisticTask && typeof window.__updateProjectGanttItemLocal === "function") {
+          window.__updateProjectGanttItemLocal(optimisticTask);
+        }
         fetch("/api/tasks/" + encodeURIComponent(state.taskId), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -21842,7 +22503,9 @@
           })
           .catch(function (err) {
             console.error("gantt drag update failed", err);
-            if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
+            if (hasOptimisticTaskUpdate && rollbackTask && typeof window.__updateProjectGanttItemLocal === "function") {
+              window.__updateProjectGanttItemLocal(rollbackTask);
+            } else if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
               window.__updateProjectGanttItemLocal(state.task);
             }
           });
@@ -21884,6 +22547,13 @@
           try {
             state.handleEl.releasePointerCapture(state.pointerId);
           } catch (_err) {}
+        }
+        var willCommit = commit && (
+          (state.clearOnClick && state.nextIso === state.originalIso)
+          || (state.nextIso && (state.nextIso !== state.originalIso || state.commitOnClick))
+        );
+        if (state.dependentPreviewPanel && !willCommit && typeof window.__renderProjectGantt === "function") {
+          window.__renderProjectGantt(state.dependentPreviewPanel);
         }
         if (commit && state.clearOnClick && state.nextIso === state.originalIso) {
           clearGanttStartDate(state);
@@ -22861,6 +23531,9 @@
         dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
         dueInput.setAttribute("data-due-mode", task.due_mode || (task.due_at ? "date" : "none"));
         dueInput.setAttribute("data-start-date", task.start_date ? String(task.start_date).slice(0, 10) : "");
+        if (typeof window.__setDueInputRelativeData === "function") {
+          window.__setDueInputRelativeData(dueInput, task.due_relative || null);
+        }
         if (typeof window.__updateDueDisplay === "function") {
           window.__updateDueDisplay(dueInput);
         }
@@ -23214,7 +23887,7 @@
                 <span class="todo-mobile-due-text">${escapeHtml(dueCompactLabel)}</span>
                 <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
               </div>
-              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" value="${dueValue}" ${task.locked ? "disabled" : ""} />
+              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" data-due-relative-task-id="${task.due_relative && task.due_relative.task_id ? escapeHtml(String(task.due_relative.task_id)) : ""}" data-due-relative-task-title="${task.due_relative && task.due_relative.task_title ? escapeHtml(String(task.due_relative.task_title)) : ""}" data-due-relative-days="${task.due_relative && task.due_relative.days != null ? escapeHtml(String(task.due_relative.days)) : "0"}" value="${dueValue}" ${task.locked ? "disabled" : ""} />
             </div>
             ${statusControlHtml}
           </div>
@@ -23225,6 +23898,10 @@
       var statusHost = item.querySelector('[data-task-status-host]');
       if (statusHost) {
         statusHost._taskPayload = task;
+      }
+      var todoDueInput = item.querySelector('.due-input[data-task-id="' + task.id + '"]');
+      if (todoDueInput && typeof window.__updateDueDisplay === "function") {
+        window.__updateDueDisplay(todoDueInput);
       }
       return item;
     }
@@ -24144,6 +24821,125 @@
       });
     }
 
+    function bindTaskRelativeDueInput() {
+      if (!taskSettingsRelativeDueTaskEl || taskSettingsRelativeDueTaskEl.dataset.boundRelativeDue === "1") return;
+      taskSettingsRelativeDueTaskEl.dataset.boundRelativeDue = "1";
+      disableLocalInputSuggestions(taskSettingsRelativeDueTaskEl);
+      taskSettingsRelativeDueTaskEl._suggestRequestToken = 0;
+      taskSettingsRelativeDueTaskEl._submitSuggestItem = function (item) {
+        if (!item || !item.id) return;
+        taskSettingsRelativeDueTaskEl.dataset.selectedTaskId = String(item.id);
+        taskSettingsRelativeDueTaskEl.value = item.title || "";
+        if (taskSettingsDueModeEl) {
+          taskSettingsDueModeEl.value = "relative";
+          syncTaskSettingsDueControl();
+        }
+        persistEntitySettings();
+      };
+
+      function presentRelativeDueResults(rawResults, requestToken) {
+        if (!taskSettingsRelativeDueTaskEl || Number(taskSettingsRelativeDueTaskEl._suggestRequestToken || 0) !== requestToken) return;
+        var results = Array.isArray(rawResults) ? rawResults.filter(function (item) {
+          return item
+            && item.entity_type === "task"
+            && String(item.id || "") !== String(currentTaskId || "");
+        }).map(function (item) {
+          var metaBits = [];
+          if (item.project_name) metaBits.push(item.project_name);
+          if (item.group_name) metaBits.push(item.group_name);
+          if (item.due_at) metaBits.push("Due " + String(item.due_at).slice(0, 10));
+          return Object.assign({}, item, {
+            label: item.title || "Task",
+            meta_label: metaBits.join(" · "),
+            suggest_icon_html: renderReadonlyTaskStatusIconHtml(item),
+          });
+        }) : [];
+        showLocalAssignSuggest(taskSettingsRelativeDueTaskEl, results, {
+          disableSpecialSuggestions: true,
+        });
+      }
+
+      function loadRelativeDueSuggestions() {
+        var value = taskSettingsRelativeDueTaskEl.value.trim();
+        var requestToken = (Number(taskSettingsRelativeDueTaskEl._suggestRequestToken || 0) + 1);
+        taskSettingsRelativeDueTaskEl._suggestRequestToken = requestToken;
+        showLocalAssignSuggestLoading(taskSettingsRelativeDueTaskEl, "Loading tasks…");
+        fetch(
+          "/api/tasks/search?q=" + encodeURIComponent(value) +
+          "&entity_type=task" +
+          "&exclude_task_id=" + encodeURIComponent(String(currentTaskId || "")),
+          { credentials: "same-origin" }
+        )
+          .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+          .then(function (data) {
+            presentRelativeDueResults(data.results || [], requestToken);
+          })
+          .catch(function (error) {
+            if (!taskSettingsRelativeDueTaskEl || Number(taskSettingsRelativeDueTaskEl._suggestRequestToken || 0) !== requestToken) return;
+            console.error("relative due task search failed", error);
+            var localResults = localTaskSearchResults(value, {
+              excludeTaskId: currentTaskId || "",
+            });
+            if (localResults.length) {
+              presentRelativeDueResults(localResults, requestToken);
+              return;
+            }
+            showLocalAssignSuggestError(taskSettingsRelativeDueTaskEl, "Could not load tasks", loadRelativeDueSuggestions);
+          });
+      }
+
+      taskSettingsRelativeDueTaskEl.addEventListener("input", function () {
+        taskSettingsRelativeDueTaskEl.dataset.selectedTaskId = "";
+        loadRelativeDueSuggestions();
+      });
+      taskSettingsRelativeDueTaskEl.addEventListener("focus", function () {
+        if (taskSettingsDueModeEl && String(taskSettingsDueModeEl.value || "") !== "relative") {
+          taskSettingsDueModeEl.value = "relative";
+          syncTaskSettingsDueControl();
+        }
+        loadRelativeDueSuggestions();
+      });
+      taskSettingsRelativeDueTaskEl.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          hideLocalAssignSuggest(taskSettingsRelativeDueTaskEl);
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsRelativeDueTaskEl, 1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          if (typeof window.__moveSuggestSelection === "function" && window.__moveSuggestSelection(taskSettingsRelativeDueTaskEl, -1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+        if (event.key !== "Enter" && event.key !== "Tab") return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (taskSettingsRelativeDueTaskEl._suggestItems && taskSettingsRelativeDueTaskEl._suggestItems.length) {
+          var active = typeof window.__getActiveSuggestItem === "function"
+            ? window.__getActiveSuggestItem(taskSettingsRelativeDueTaskEl)
+            : taskSettingsRelativeDueTaskEl._suggestItems[0];
+          if (active && typeof taskSettingsRelativeDueTaskEl._submitSuggestItem === "function") {
+            taskSettingsRelativeDueTaskEl._submitSuggestItem(active);
+            hideLocalAssignSuggest(taskSettingsRelativeDueTaskEl);
+          }
+        }
+      });
+      taskSettingsRelativeDueTaskEl.addEventListener("blur", function () {
+        window.setTimeout(function () {
+          if (!taskSettingsRelativeDueTaskEl) return;
+          if (taskSettingsRelativeDueTaskEl.dataset.assignSelecting === "1") return;
+          hideLocalAssignSuggest(taskSettingsRelativeDueTaskEl);
+        }, 120);
+      });
+    }
+
     function bindTaskPollInputs() {
       if (drawer.dataset.boundTaskPoll === "1") return;
       drawer.dataset.boundTaskPoll = "1";
@@ -24406,6 +25202,9 @@
         taskSettingsPrerequisiteEl.value = "";
         taskSettingsPrerequisiteEl.dataset.assignSelecting = "0";
         taskSettingsPrerequisiteEl.dataset.selectedTaskId = "";
+      }
+      if (taskSettingsRelativeDueTaskEl) {
+        taskSettingsRelativeDueTaskEl.dataset.assignSelecting = "0";
       }
       loadTaskMeta(taskId, taskTitle, projectName);
       drawer.classList.add("open");
@@ -24700,13 +25499,20 @@
       if (activeGanttDrag.handle === "start" && activeGanttDrag.task.due_at && nextIso > activeGanttDrag.task.due_at.slice(0, 10)) {
         nextIso = activeGanttDrag.task.due_at.slice(0, 10);
       }
-      if (activeGanttDrag.handle === "end" && activeGanttDrag.task.start_date && nextIso < activeGanttDrag.task.start_date.slice(0, 10)) {
+      var activeGanttHasRelativeStart = String(activeGanttDrag.task && activeGanttDrag.task.due_mode || "").trim().toLowerCase() === "relative"
+        && activeGanttDrag.task
+        && activeGanttDrag.task.due_relative_start_days != null
+        && activeGanttDrag.task.due_relative_start_days !== "";
+      if (activeGanttDrag.handle === "end" && !activeGanttHasRelativeStart && activeGanttDrag.task.start_date && nextIso < activeGanttDrag.task.start_date.slice(0, 10)) {
         nextIso = activeGanttDrag.task.start_date.slice(0, 10);
       }
       setGanttHoverLinePercent(activeGanttDrag.track, ganttPercentForIso(activeGanttDrag.track, nextIso), nextIso);
       if (nextIso === activeGanttDrag.nextIso) return;
       activeGanttDrag.nextIso = nextIso;
       applyGanttDragPreview(activeGanttDrag);
+      if (activeGanttDrag.handle === "end") {
+        previewProjectGanttRelativeDependents(activeGanttDrag, nextIso);
+      }
     });
 
     document.addEventListener("pointerup", function () {
@@ -25733,11 +26539,15 @@
       }, true);
     }
 
-    [taskSettingsTitleEl, taskSettingsDueEl, taskSettingsDueModeEl, taskSettingsStartDateEl, taskSettingsStatusEl, projectSettingsStartDateEl, projectSettingsEndDateEl].filter(Boolean).forEach(function (input) {
+    [taskSettingsTitleEl, taskSettingsDueEl, taskSettingsDueModeEl, taskSettingsStartDateEl, taskSettingsRelativeDueDaysEl, taskSettingsRelativeStartDaysEl, taskSettingsStatusEl, projectSettingsStartDateEl, projectSettingsEndDateEl].filter(Boolean).forEach(function (input) {
       if (input === taskSettingsStatusEl) return;
       if (input === taskSettingsDueModeEl) {
         input.addEventListener('change', function () {
           syncTaskSettingsDueControl();
+          if (String(taskSettingsDueModeEl.value || "") === "relative" && taskSettingsRelativeDueTaskEl && !taskSettingsRelativeDueTaskEl.dataset.selectedTaskId) {
+            taskSettingsRelativeDueTaskEl.focus();
+            return;
+          }
           persistEntitySettings();
         });
         return;
@@ -25787,6 +26597,13 @@
           }
           return;
         }
+        if (mode === "relative") {
+          var relativeWrap = window.__activeDueMenuEl ? window.__activeDueMenuEl.querySelector("[data-due-mode-relative-wrap]") : null;
+          var relativeTaskInput = window.__activeDueMenuEl ? window.__activeDueMenuEl.querySelector("[data-due-mode-relative-task-input]") : null;
+          if (relativeWrap) relativeWrap.hidden = false;
+          if (relativeTaskInput) relativeTaskInput.focus();
+          return;
+        }
         targetInput.value = "";
         if (typeof window.__applyDueInput === "function") {
           window.__applyDueInput(targetInput);
@@ -25796,7 +26613,7 @@
         }
         return;
       }
-      if (!event.target.closest(".todo-assignee-menu") && !event.target.closest("[data-due-cell]")) {
+      if (!event.target.closest(".todo-assignee-menu") && !event.target.closest(".assign-suggest") && !event.target.closest("[data-due-cell]")) {
         if (typeof window.__closeDueModeMenu === "function") {
           window.__closeDueModeMenu();
         }
@@ -25882,6 +26699,9 @@
     }
     if (taskSettingsPrerequisiteEl) {
       bindTaskPrerequisiteInput();
+    }
+    if (taskSettingsRelativeDueTaskEl) {
+      bindTaskRelativeDueInput();
     }
     document.addEventListener("click", function (event) {
       var removePrerequisiteButton = event.target.closest("[data-remove-prerequisite]");

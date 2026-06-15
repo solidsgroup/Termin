@@ -236,6 +236,25 @@ def _serialize_task(
     meta = info.get("meta") or {}
     start_date = str(meta.get("start_date") or "").strip() or None
     due_mode = str(meta.get("due_mode") or "").strip().lower()
+    try:
+        due_relative_task_id = int(meta.get("due_relative_task_id") or 0) or None
+    except (TypeError, ValueError):
+        due_relative_task_id = None
+    try:
+        due_relative_days = int(meta.get("due_relative_days") or 0)
+    except (TypeError, ValueError):
+        due_relative_days = 0
+    try:
+        due_relative_start_days = int(meta.get("due_relative_start_days")) if meta.get("due_relative_start_days") not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        due_relative_start_days = None
+    due_relative_title = ""
+    due_relative_due_at = None
+    if due_relative_task_id:
+        relative_task = Task.query.get(due_relative_task_id)
+        if relative_task:
+            due_relative_title = relative_task.title
+            due_relative_due_at = relative_task.due_at.isoformat() if relative_task.due_at else None
     poll_raw = meta.get("poll") if isinstance(meta.get("poll"), dict) else {}
     poll_options = []
     if isinstance(poll_raw.get("options"), list):
@@ -255,7 +274,7 @@ def _serialize_task(
     if task_type not in {"standard", "poll"}:
         task_type = "standard"
     updated_at = getattr(task, "updated_at", None)
-    if due_mode not in {"asap", "date"}:
+    if due_mode not in {"asap", "date", "relative"}:
         due_mode = "date" if task.due_at else "none"
     return {
         "id": task.id,
@@ -272,6 +291,13 @@ def _serialize_task(
         "attachments": list(info.get("attachments") or []),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": due_mode,
+        "due_relative": {
+            "task_id": due_relative_task_id,
+            "task_title": due_relative_title,
+            "days": due_relative_days,
+            "due_at": due_relative_due_at,
+        },
+        "due_relative_start_days": due_relative_start_days,
         "start_date": start_date,
         "locked": bool(task.locked),
         "status": task.status,
@@ -401,6 +427,11 @@ def build_dashboard_bootstrap(user) -> dict:
                 "status_percentage": int((status_map.get(prerequisite_task.id) or {}).get("percentage_complete") or 0),
                 "due_at": prerequisite_task.due_at.isoformat() if prerequisite_task.due_at else None,
                 "due_mode": str((load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("due_mode") or "").strip().lower() or ("date" if prerequisite_task.due_at else "none"),
+                "due_relative": {
+                    "task_id": (load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("due_relative_task_id"),
+                    "task_title": "",
+                    "days": (load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("due_relative_days") or 0,
+                },
                 "start_date": str((load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("start_date") or "").strip() or None,
                 "locked": bool(prerequisite_task.locked),
             }

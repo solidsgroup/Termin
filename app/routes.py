@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import escape
 import json
 from pathlib import Path
@@ -156,12 +156,15 @@ DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
 DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown"
-TASK_DUE_MODE_OPTIONS = {"none", "date", "asap"}
+TASK_DUE_MODE_OPTIONS = {"none", "date", "asap", "relative"}
 TASK_TYPE_OPTIONS = {"standard", "poll"}
 TASK_LOCKED_PROTECTED_FIELDS = {
     "title",
     "due_at",
     "due_mode",
+    "due_relative_days",
+    "due_relative_start_days",
+    "due_relative_task_id",
     "start_date",
     "status",
     "user_status",
@@ -268,7 +271,24 @@ def _task_changed_field_labels(
         labels.append("title")
     if (old_status or "").strip() != (new_status or "").strip():
         labels.append("status")
-    if (old_due_mode or "none") != (new_due_mode or "none") or bool(old_due_at) != bool(new_due_at) or (old_due_at and new_due_at and old_due_at != new_due_at):
+    old_meta = (old_info_payload or {}).get("meta") or {}
+    new_meta = (new_info_payload or {}).get("meta") or {}
+    old_relative_due = (
+        str(old_meta.get("due_relative_task_id") or "").strip(),
+        str(old_meta.get("due_relative_days") or "0").strip(),
+        str(old_meta.get("due_relative_start_days") or "").strip(),
+    )
+    new_relative_due = (
+        str(new_meta.get("due_relative_task_id") or "").strip(),
+        str(new_meta.get("due_relative_days") or "0").strip(),
+        str(new_meta.get("due_relative_start_days") or "").strip(),
+    )
+    if (
+        (old_due_mode or "none") != (new_due_mode or "none")
+        or bool(old_due_at) != bool(new_due_at)
+        or (old_due_at and new_due_at and old_due_at != new_due_at)
+        or old_relative_due != new_relative_due
+    ):
         labels.append("due date")
     if (old_start_date or "").strip() != (new_start_date or "").strip():
         labels.append("start date")
@@ -366,6 +386,8 @@ def _task_due_history_value(*, due_mode: str | None, due_at) -> str:
     normalized_mode = str(due_mode or "none").strip().lower()
     if normalized_mode == "asap":
         return "ASAP"
+    if normalized_mode == "relative":
+        return "relative"
     if normalized_mode != "date" or not due_at:
         return "no date"
     return '"' + due_at.strftime("%Y-%m-%d") + '"'
@@ -971,7 +993,7 @@ def _mentioned_users(body: str | None, *, exclude_user_id: int | None = None):
 def _task_due_mode(task: Task) -> str:
     info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     mode = str(info.get("meta", {}).get("due_mode") or "").strip().lower()
-    if mode in {"asap", "date"}:
+    if mode in {"asap", "date", "relative"}:
         return mode
     if task.due_at:
         return "date"
@@ -986,6 +1008,93 @@ def _normalize_due_mode(value: str | None, *, fallback: str = "date") -> str:
 def _task_start_date(task: Task) -> str:
     info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     return str((info.get("meta") or {}).get("start_date") or "").strip()
+
+
+def _task_due_relative(task: Task | None) -> dict:
+    if not task:
+        return {"task_id": None, "task_title": "", "days": 0}
+    info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info.get("meta") if isinstance(info, dict) else {}
+    raw_task_id = (meta or {}).get("due_relative_task_id")
+    try:
+        relative_task_id = int(raw_task_id) if raw_task_id not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        relative_task_id = None
+    try:
+        days = int((meta or {}).get("due_relative_days") or 0)
+    except (TypeError, ValueError):
+        days = 0
+    relative_title = ""
+    relative_due_at = None
+    if relative_task_id:
+        relative_task = Task.query.get(relative_task_id)
+        if relative_task:
+            relative_title = relative_task.title
+            relative_due_at = relative_task.due_at.isoformat() if relative_task.due_at else None
+    return {
+        "task_id": relative_task_id,
+        "task_title": relative_title,
+        "days": days,
+        "due_at": relative_due_at,
+    }
+
+
+def _task_due_relative_start_days(task: Task | None) -> int | None:
+    if not task:
+        return None
+    info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    meta = info.get("meta") if isinstance(info, dict) else {}
+    raw = (meta or {}).get("due_relative_start_days")
+    if raw in (None, "", "null"):
+        return None
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_relative_start_from_meta(task: Task, meta: dict) -> tuple[bool, str | None]:
+    raw_days = meta.get("due_relative_start_days")
+    if raw_days in (None, "", "null"):
+        meta.pop("due_relative_start_days", None)
+        meta.pop("start_date", None)
+        return True, None
+    try:
+        days = int(raw_days)
+    except (TypeError, ValueError):
+        return False, "Invalid relative start day offset"
+    if days < 0:
+        return False, "Relative start day offset must be non-negative"
+    meta["due_relative_start_days"] = str(days)
+    if task.due_at:
+        meta["start_date"] = (task.due_at.date() - timedelta(days=days)).isoformat()
+    else:
+        meta.pop("start_date", None)
+    return True, None
+
+
+def _apply_relative_due_from_meta(task: Task, meta: dict) -> tuple[bool, str | None]:
+    raw_task_id = meta.get("due_relative_task_id")
+    try:
+        relative_task_id = int(raw_task_id) if raw_task_id not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        return False, "Invalid relative task"
+    if not relative_task_id:
+        task.due_at = None
+        return True, None
+    if int(relative_task_id) == int(task.id or 0):
+        return False, "Relative due date cannot reference the same task"
+    relative_task = Task.query.get(relative_task_id)
+    if not relative_task:
+        return False, "Relative task not found"
+    try:
+        days = int(meta.get("due_relative_days") or 0)
+    except (TypeError, ValueError):
+        return False, "Invalid relative day offset"
+    meta["due_relative_task_id"] = str(relative_task_id)
+    meta["due_relative_days"] = str(days)
+    task.due_at = relative_task.due_at + timedelta(days=days) if relative_task.due_at else None
+    return _apply_relative_start_from_meta(task, meta)
 
 
 def _task_status_mode(task: Task) -> str:
@@ -1244,18 +1353,41 @@ def _set_task_start_date(task: Task, start_date_raw) -> tuple[bool, str | None]:
     return True, None
 
 
-def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bool, str | None]:
+def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw, due_relative_task_id_raw=None, due_relative_days_raw=None, due_relative_start_days_raw=None) -> tuple[bool, str | None]:
     info_payload = load_info_payload(task.info, task.link)
     meta = dict(info_payload.get("meta") or {})
-    mode = _normalize_due_mode(due_mode_raw, fallback="date" if due_at_raw else "none")
+    fallback_mode = _task_due_mode(task) if getattr(task, "id", None) else ("date" if due_at_raw else "none")
+    mode = _normalize_due_mode(due_mode_raw, fallback=fallback_mode)
     if mode == "none":
         task.due_at = None
         meta.pop("due_mode", None)
         meta.pop("start_date", None)
+        meta.pop("due_relative_task_id", None)
+        meta.pop("due_relative_days", None)
+        meta.pop("due_relative_start_days", None)
     elif mode == "asap":
         task.due_at = None
         meta["due_mode"] = "asap"
         meta.pop("start_date", None)
+        meta.pop("due_relative_task_id", None)
+        meta.pop("due_relative_days", None)
+        meta.pop("due_relative_start_days", None)
+    elif mode == "relative":
+        meta["due_mode"] = "relative"
+        meta.pop("start_date", None)
+        if due_relative_task_id_raw is not None:
+            meta["due_relative_task_id"] = str(due_relative_task_id_raw or "").strip()
+        if due_relative_days_raw is not None:
+            meta["due_relative_days"] = str(due_relative_days_raw or 0).strip()
+        if due_relative_start_days_raw is not None:
+            raw_start_days = str(due_relative_start_days_raw or "").strip()
+            if raw_start_days:
+                meta["due_relative_start_days"] = raw_start_days
+            else:
+                meta.pop("due_relative_start_days", None)
+        ok, error = _apply_relative_due_from_meta(task, meta)
+        if not ok:
+            return ok, error
     else:
         if due_at_raw == "":
             task.due_at = None
@@ -1265,6 +1397,9 @@ def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw) -> tuple[bo
             except ValueError:
                 return False, "Invalid due_at format"
         meta["due_mode"] = "date"
+        meta.pop("due_relative_task_id", None)
+        meta.pop("due_relative_days", None)
+        meta.pop("due_relative_start_days", None)
     info_payload["meta"] = meta
     task.info = normalize_info_payload(info_payload, task.link)
     return True, None
@@ -1736,6 +1871,8 @@ def _serialize_task_prerequisite_row(prerequisite: TaskPrerequisite) -> dict | N
         "prereq_blocked": bool(status_meta.get("prereq_blocked")) if isinstance(status_meta, dict) else False,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "due_relative": _task_due_relative(task),
+        "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
         "locked": bool(task.locked),
     }
@@ -1775,6 +1912,8 @@ def _serialize_task_dependent_row(prerequisite: TaskPrerequisite) -> dict | None
         "prereq_blocked": bool(status_meta.get("prereq_blocked")) if isinstance(status_meta, dict) else False,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "due_relative": _task_due_relative(task),
+        "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
         "locked": bool(task.locked),
     }
@@ -1839,6 +1978,39 @@ def _task_impacted_ids(seed_task_ids) -> list[int]:
         ordered.append(current_id)
         pending.extend(_task_dependent_ids(current_id))
     return ordered
+
+
+def _refresh_relative_due_dependents(seed_task_ids) -> list[int]:
+    pending = [int(task_id) for task_id in (seed_task_ids or []) if task_id]
+    seen_refs: set[int] = set()
+    changed_ids: list[int] = []
+    while pending:
+        reference_id = pending.pop(0)
+        if reference_id in seen_refs:
+            continue
+        seen_refs.add(reference_id)
+        for candidate in Task.query.filter(Task.id != reference_id).all():
+            info_payload = load_info_payload(candidate.info, candidate.link)
+            meta = dict((info_payload.get("meta") if isinstance(info_payload, dict) else {}) or {})
+            if str(meta.get("due_mode") or "").strip().lower() != "relative":
+                continue
+            try:
+                relative_task_id = int(meta.get("due_relative_task_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if relative_task_id != reference_id:
+                continue
+            old_due_at = candidate.due_at
+            old_start_date = _task_start_date(candidate)
+            ok, _error = _apply_relative_due_from_meta(candidate, meta)
+            if not ok:
+                continue
+            info_payload["meta"] = meta
+            candidate.info = normalize_info_payload(info_payload, candidate.link)
+            if (old_due_at != candidate.due_at or old_start_date != _task_start_date(candidate)) and int(candidate.id) not in changed_ids:
+                changed_ids.append(int(candidate.id))
+                pending.append(int(candidate.id))
+    return changed_ids
 
 
 def _touch_tasks(task_ids) -> list[Task]:
@@ -1987,6 +2159,8 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "due_relative": _task_due_relative(task),
+        "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
         "status": task.status,
         "task_type": _task_type(task),
@@ -2196,6 +2370,9 @@ def create_task():
     group_id = payload.get("group_id")
     due_at = payload.get("due_at")
     due_mode = payload.get("due_mode")
+    due_relative_task_id = payload.get("due_relative_task_id")
+    due_relative_days = payload.get("due_relative_days")
+    due_relative_start_days = payload.get("due_relative_start_days")
     start_date = payload.get("start_date")
     assignee_email = payload.get("assignee_email")
     task_type = payload.get("task_type")
@@ -2233,12 +2410,33 @@ def create_task():
         due_at=None,
         owner_calendar_opt_in=project.default_owner_calendar_opt_in,
     )
-    ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
+    if _normalize_due_mode(due_mode, fallback="none") == "relative":
+        try:
+            relative_task_id = int(due_relative_task_id)
+        except (TypeError, ValueError):
+            return {"error": "relative task is required"}, 400
+        relative_task = Task.query.get(relative_task_id)
+        if not relative_task or not _can_access_task(user, relative_task):
+            return {"error": "relative task not found"}, 404
+    ok, error = _apply_task_due_payload(
+        task,
+        due_at_raw=due_at,
+        due_mode_raw=due_mode,
+        due_relative_task_id_raw=due_relative_task_id,
+        due_relative_days_raw=due_relative_days,
+        due_relative_start_days_raw=due_relative_start_days,
+    )
     if not ok:
         return {"error": error}, 400
-    ok, error = _set_task_start_date(task, start_date if _task_due_mode(task) == "date" else "")
-    if not ok:
-        return {"error": error}, 400
+    task_due_mode = _task_due_mode(task)
+    if task_due_mode == "date":
+        ok, error = _set_task_start_date(task, start_date)
+        if not ok:
+            return {"error": error}, 400
+    elif task_due_mode != "relative":
+        ok, error = _set_task_start_date(task, "")
+        if not ok:
+            return {"error": error}, 400
     normalized_poll = _normalize_task_poll_payload(poll)
     _set_task_type(task, task_type)
     _set_task_poll(task, normalized_poll)
@@ -2352,6 +2550,9 @@ def update_task(task_id: int):
     status_user_id = payload.get("status_user_id")
     due_at = payload.get("due_at")
     due_mode = payload.get("due_mode")
+    due_relative_task_id = payload.get("due_relative_task_id")
+    due_relative_days = payload.get("due_relative_days")
+    due_relative_start_days = payload.get("due_relative_start_days")
     start_date = payload.get("start_date")
     status_mode = payload.get("status_mode")
     status_percentage = payload.get("status_percentage")
@@ -2426,14 +2627,35 @@ def update_task(task_id: int):
         task.info = normalize_info_payload(info_payload, task.link)
     elif links is not None:
         task.info = normalize_info_payload(info_payload, task.link)
-    if due_at is not None or due_mode is not None:
-        ok, error = _apply_task_due_payload(task, due_at_raw=due_at, due_mode_raw=due_mode)
+    if due_at is not None or due_mode is not None or due_relative_start_days is not None:
+        if _normalize_due_mode(due_mode, fallback=_task_due_mode(task)) == "relative":
+            try:
+                relative_task_id = int(due_relative_task_id if due_relative_task_id is not None else _task_due_relative(task).get("task_id"))
+            except (TypeError, ValueError):
+                return {"error": "relative task is required"}, 400
+            relative_task = Task.query.get(relative_task_id)
+            if not relative_task or not _can_access_task(user, relative_task):
+                return {"error": "relative task not found"}, 404
+        ok, error = _apply_task_due_payload(
+            task,
+            due_at_raw=due_at,
+            due_mode_raw=due_mode,
+            due_relative_task_id_raw=due_relative_task_id,
+            due_relative_days_raw=due_relative_days,
+            due_relative_start_days_raw=due_relative_start_days,
+        )
         if not ok:
             return {"error": error}, 400
-    if start_date is not None or due_at is not None or due_mode is not None:
-        ok, error = _set_task_start_date(task, start_date if _task_due_mode(task) == "date" else "")
-        if not ok:
-            return {"error": error}, 400
+    if start_date is not None or due_at is not None or due_mode is not None or due_relative_start_days is not None:
+        task_due_mode = _task_due_mode(task)
+        if task_due_mode == "date":
+            ok, error = _set_task_start_date(task, start_date)
+            if not ok:
+                return {"error": error}, 400
+        elif task_due_mode != "relative":
+            ok, error = _set_task_start_date(task, "")
+            if not ok:
+                return {"error": error}, 400
     if description is not None:
         task.description = description
     if description_format is not None:
@@ -2459,6 +2681,7 @@ def update_task(task_id: int):
         except Exception:
             pass
     db.session.commit()
+    relative_due_changed_ids = _refresh_relative_due_dependents([task.id])
     new_due_mode = _task_due_mode(task)
     new_start_date = _task_start_date(task)
     new_status_mode = _task_status_mode(task)
@@ -2552,7 +2775,7 @@ def update_task(task_id: int):
         )
         log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
         db.session.commit()
-    impacted_ids = _task_impacted_ids([task.id])
+    impacted_ids = _task_impacted_ids([task.id] + relative_due_changed_ids)
     impacted_tasks = _touch_tasks(impacted_ids)
     if impacted_tasks:
         emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
@@ -2591,6 +2814,8 @@ def update_task(task_id: int):
         "dependents": _serialize_task_dependents(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "due_relative": _task_due_relative(task),
+        "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "description": task.description,
@@ -2647,6 +2872,8 @@ def get_task(task_id: int):
         "dependents": _serialize_task_dependents(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "due_relative": _task_due_relative(task),
+        "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
