@@ -6156,6 +6156,291 @@
         white-space: nowrap;
       }
 
+      .project-gantt-day-mask {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid color-mix(in srgb, var(--project-color) 14%, var(--border));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--panel) 94%, transparent);
+      }
+
+      .project-gantt-day-mask[hidden] {
+        display: none !important;
+      }
+
+      .project-gantt-day-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        cursor: pointer;
+      }
+
+      .project-gantt-day-chip input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .project-gantt-day-chip span {
+        min-width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .project-gantt-day-chip input:checked + span {
+        color: var(--ink);
+        background: color-mix(in srgb, var(--project-color, var(--accent)) 22%, transparent);
+      }
+
+      .project-gantt-day-chip input:focus-visible + span {
+        outline: 2px solid color-mix(in srgb, var(--accent) 48%, transparent);
+        outline-offset: 2px;
+      }
+
+      .project-gantt-range-controls {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 0 0 6px;
+      }
+
+      .project-gantt-range-add,
+      .project-gantt-range-chip,
+      .project-gantt-range-dialog button {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid color-mix(in srgb, var(--project-color) 18%, var(--border));
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
+        color: var(--ink);
+        border-radius: 999px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .project-gantt-range-add {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        font-size: 11px;
+        font-weight: 750;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .project-gantt-range-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+        flex: 1 1 320px;
+      }
+
+      .project-gantt-range-chip {
+        --gantt-range-color: var(--project-color, var(--accent));
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        max-width: 100%;
+        min-height: 30px;
+        padding: 5px 9px;
+        border: 1px solid color-mix(in srgb, var(--project-color) 16%, var(--border));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--project-color, var(--accent)) 8%, var(--panel));
+        text-align: left;
+      }
+
+      .project-gantt-range-chip-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--gantt-range-color);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--gantt-range-color) 18%, transparent);
+        flex: 0 0 auto;
+      }
+
+      .project-gantt-range-chip-label {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .project-gantt-range-chip-dates {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .project-gantt-range-add:hover,
+      .project-gantt-range-chip:hover {
+        color: var(--ink);
+        border-color: color-mix(in srgb, var(--project-color) 34%, var(--border));
+        background: color-mix(in srgb, var(--project-color) 10%, var(--panel) 90%);
+      }
+
+      .project-gantt-range-dialog-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1400;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(0, 0, 0, 0.44);
+      }
+
+      .project-gantt-range-dialog-backdrop[hidden] {
+        display: none !important;
+      }
+
+      .project-gantt-range-dialog {
+        width: min(460px, 100%);
+        border: 1px solid color-mix(in srgb, var(--border) 78%, var(--ink) 22%);
+        border-radius: 18px;
+        background: var(--panel);
+        color: var(--ink);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+        overflow: hidden;
+      }
+
+      .project-gantt-range-dialog-header,
+      .project-gantt-range-dialog-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+      }
+
+      .project-gantt-range-dialog-header {
+        justify-content: space-between;
+        border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+      }
+
+      .project-gantt-range-dialog-kicker {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .project-gantt-range-dialog h3 {
+        margin: 2px 0 0;
+        font-size: 18px;
+      }
+
+      .project-gantt-range-dialog-close {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+
+      .project-gantt-range-dialog-body {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      .project-gantt-range-dialog-date-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .project-gantt-range-dialog-field {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .project-gantt-range-dialog-field input {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--panel) 92%, var(--panel-alt) 8%);
+        color: var(--ink);
+        font: inherit;
+        font-size: 13px;
+        letter-spacing: normal;
+        text-transform: none;
+        padding: 9px 10px;
+      }
+
+      .project-gantt-range-dialog-field input:focus {
+        outline: none;
+        border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+      }
+
+      .project-gantt-range-dialog-actions {
+        border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+      }
+
+      .project-gantt-range-dialog-spacer {
+        flex: 1 1 auto;
+      }
+
+      .project-gantt-range-dialog-actions button {
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .project-gantt-range-dialog-save {
+        background: color-mix(in srgb, var(--accent) 28%, var(--panel) 72%) !important;
+      }
+
+      .project-gantt-range-dialog-delete {
+        color: #ef4444 !important;
+        border-color: color-mix(in srgb, #ef4444 36%, var(--border)) !important;
+      }
+
+      .project-gantt-range-color-palette {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 4px 0 0;
+      }
+
+      .project-gantt-range-dialog .project-gantt-range-color-choice {
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        border: 2px solid color-mix(in srgb, var(--border) 74%, transparent);
+        background: var(--gantt-range-color);
+        background-color: var(--gantt-range-color);
+        box-shadow: inset 0 0 0 2px color-mix(in srgb, white 18%, transparent);
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .project-gantt-range-dialog .project-gantt-range-color-choice.is-selected {
+        border-color: color-mix(in srgb, var(--ink) 76%, var(--gantt-range-color) 24%);
+        box-shadow:
+          inset 0 0 0 2px color-mix(in srgb, white 22%, transparent),
+          0 0 0 3px color-mix(in srgb, var(--gantt-range-color) 22%, transparent);
+      }
+
       .project-gantt-mark-control select {
         appearance: none;
         -webkit-appearance: none;
@@ -6182,6 +6467,24 @@
         outline: none;
         border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+      }
+
+      .project-gantt-export-btn {
+        border: 1px solid color-mix(in srgb, var(--project-color) 18%, var(--border)) !important;
+        background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%) !important;
+        color: var(--ink) !important;
+        box-shadow: none;
+      }
+
+      .project-gantt-export-btn:hover {
+        border-color: color-mix(in srgb, var(--project-color) 34%, var(--border)) !important;
+        background: color-mix(in srgb, var(--project-color) 10%, var(--panel) 90%) !important;
+      }
+
+      body[data-theme="light"] .project-gantt-export-btn {
+        background: color-mix(in srgb, white 96%, var(--panel-alt) 4%) !important;
+        border-color: color-mix(in srgb, var(--border) 86%, white 14%) !important;
+        color: var(--ink) !important;
       }
 
       .project-gantt-export-button {
@@ -6288,7 +6591,7 @@
       .project-gantt-axis-track {
         position: relative;
         min-width: 0;
-        height: 36px;
+        height: 46px;
       }
 
       .project-gantt-axis-line {
@@ -6305,6 +6608,64 @@
         position: absolute;
         inset: 0;
         pointer-events: none;
+      }
+
+      .project-gantt-range-band {
+        --gantt-range-color: var(--project-color, var(--accent));
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        min-width: 2px;
+        background:
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--gantt-range-color) 20%, transparent),
+            color-mix(in srgb, var(--gantt-range-color) 9%, transparent)
+          );
+        border-left: 1px solid color-mix(in srgb, var(--gantt-range-color) 32%, transparent);
+        border-right: 1px solid color-mix(in srgb, var(--gantt-range-color) 24%, transparent);
+        z-index: 0;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+
+      .project-gantt-range-label {
+        position: absolute;
+        left: 50%;
+        top: -2px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 18px;
+        max-width: max(88px, calc(100% - 12px));
+        padding: 2px 7px;
+        border: 1px solid color-mix(in srgb, var(--gantt-range-color) 34%, var(--border));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--panel) 78%, var(--gantt-range-color) 22%);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: color-mix(in srgb, var(--ink) 76%, var(--gantt-range-color) 24%);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        pointer-events: none;
+        transform: translate(-50%, -100%);
+        z-index: 3;
+      }
+
+      .project-gantt-range-controls {
+        padding: 2px 0 4px;
+      }
+
+      .project-gantt-range-band {
+        pointer-events: none;
+      }
+
+      .project-gantt-range-label {
+        cursor: pointer;
+        pointer-events: auto;
       }
 
       .project-gantt-guide {
@@ -6325,7 +6686,7 @@
 
       .project-gantt-axis-edge {
         position: absolute;
-        top: 0;
+        top: 24px;
         font-size: 11px;
         color: var(--muted);
         white-space: nowrap;
@@ -6341,7 +6702,7 @@
 
       .project-gantt-axis-label {
         position: absolute;
-        top: 0;
+        top: 24px;
         transform: translateX(-50%);
         font-size: 11px;
         color: color-mix(in srgb, var(--project-color) 56%, var(--ink));
