@@ -22146,15 +22146,19 @@
         return projectGanttAddDaysIso(dueIso, -Math.max(0, Number(item.due_relative_start_days || 0)));
       }
 
-      function applyProjectGanttTrackVisual(track, item, dueIso, startIso) {
+      function applyProjectGanttTrackVisual(track, item, dueIso, startIso, relativeAnchorIso) {
         if (!track || !item || !dueIso) return;
         var marker = track.querySelector(".project-gantt-marker");
         var span = track.querySelector(".project-gantt-span");
         var startHandle = track.querySelector('[data-gantt-handle="start"]');
         var endHandle = track.querySelector('[data-gantt-handle="end"]');
+        var relativeAnchor = track.querySelector(".project-gantt-relative-anchor");
         var endPercent = ganttPercentForIso(track, dueIso);
         if (marker) marker.style.left = endPercent.toFixed(2) + "%";
         if (endHandle) endHandle.style.left = endPercent.toFixed(2) + "%";
+        if (relativeAnchor && relativeAnchorIso) {
+          relativeAnchor.style.left = ganttPercentForIso(track, relativeAnchorIso).toFixed(2) + "%";
+        }
         if (startIso) {
           var startPercent = ganttPercentForIso(track, startIso);
           if (startHandle) startHandle.style.left = startPercent.toFixed(2) + "%";
@@ -22165,14 +22169,43 @@
         }
       }
 
+      function clearProjectGanttDragRelated(panel) {
+        if (!panel) return;
+        panel.querySelectorAll(".is-gantt-drag-related").forEach(function (node) {
+          node.classList.remove("is-gantt-drag-related");
+        });
+        panel.querySelectorAll(".is-gantt-active-drag-row").forEach(function (node) {
+          node.classList.remove("is-gantt-active-drag-row");
+        });
+      }
+
+      function markProjectGanttDragRelatedTrack(track) {
+        if (!track) return;
+        track.classList.add("is-gantt-drag-related");
+        var row = track.closest(".project-gantt-row");
+        if (row) {
+          row.classList.add("is-gantt-drag-related");
+        }
+      }
+
       function previewProjectGanttRelativeDependents(state, referenceDueIso) {
         if (!state || !state.track || !state.taskId || !referenceDueIso) return;
         var panel = state.track.closest("[data-project-gantt]");
         if (!panel) return;
         var items = parseProjectGanttItemsLocal(panel);
         if (!items.length) return;
+        clearProjectGanttDragRelated(panel);
+        markProjectGanttDragRelatedTrack(state.track);
         var dueById = {};
         dueById[String(state.taskId)] = String(referenceDueIso).slice(0, 10);
+        var activeItem = items.find(function (item) {
+          return String(item && item.id || "") === String(state.taskId);
+        });
+        var activeRelative = activeItem && activeItem.due_relative && typeof activeItem.due_relative === "object" ? activeItem.due_relative : null;
+        var activeReferenceId = activeRelative && activeRelative.task_id != null ? String(activeRelative.task_id) : "";
+        if (activeReferenceId) {
+          markProjectGanttDragRelatedTrack(panel.querySelector('[data-gantt-track][data-task-id="' + activeReferenceId + '"]'));
+        }
         var changed = true;
         var guard = 0;
         while (changed && guard < 20) {
@@ -22189,7 +22222,8 @@
             changed = true;
             var dependentTrack = panel.querySelector('[data-gantt-track][data-task-id="' + String(item.id) + '"]');
             if (!dependentTrack || String(item.id) === String(state.taskId)) return;
-            applyProjectGanttTrackVisual(dependentTrack, item, nextDueIso, projectGanttRelativeStartIso(nextDueIso, item));
+            markProjectGanttDragRelatedTrack(dependentTrack);
+            applyProjectGanttTrackVisual(dependentTrack, item, nextDueIso, projectGanttRelativeStartIso(nextDueIso, item), dueById[referenceId]);
           });
         }
         state.dependentPreviewPanel = panel;
@@ -22540,6 +22574,11 @@
         activeGanttDrag = null;
         document.body.classList.remove("is-gantt-dragging");
         hideGanttTooltip();
+        if (state.dependentPreviewPanel) {
+          clearProjectGanttDragRelated(state.dependentPreviewPanel);
+        } else if (state.track) {
+          clearProjectGanttDragRelated(state.track.closest("[data-project-gantt]"));
+        }
         if (state.tempPreviewSpan && state.tempPreviewSpan.parentNode) {
           state.tempPreviewSpan.remove();
         }
@@ -25475,6 +25514,10 @@
         commitOnClick: handleType === "start" && !originalStart && !!provisionalStart,
         clearOnClick: handleType === "start" && !!originalStart,
       };
+      var activeGanttRow = track.closest(".project-gantt-row");
+      if (activeGanttRow) {
+        activeGanttRow.classList.add("is-gantt-active-drag-row");
+      }
       if (handle.setPointerCapture) {
         try {
           handle.setPointerCapture(event.pointerId);

@@ -6960,14 +6960,26 @@
 
       .project-gantt-row:hover,
       .project-gantt-row:focus-within {
-        background: color-mix(in srgb, var(--project-color, var(--accent)) 11%, transparent);
+        background:
+          linear-gradient(90deg, color-mix(in srgb, var(--project-color, var(--accent)) 20%, transparent), transparent 74%),
+          color-mix(in srgb, var(--project-color, var(--accent)) 10%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 24%, transparent);
+      }
+
+      .project-gantt-row.is-gantt-active-drag-row {
+        background:
+          linear-gradient(90deg, color-mix(in srgb, var(--project-color, var(--accent)) 24%, transparent), transparent 72%),
+          color-mix(in srgb, var(--project-color, var(--accent)) 13%, transparent);
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent)) 32%, transparent),
+          0 4px 14px color-mix(in srgb, var(--project-color, var(--accent)) 10%, transparent);
       }
 
       .project-gantt-row.is-gantt-guide-intersecting {
         background: color-mix(in srgb, var(--project-color, var(--accent)) 7%, transparent);
       }
 
-      body.is-gantt-dragging .project-gantt-row.is-gantt-relative-reference {
+      body.is-gantt-dragging .project-gantt-row.is-gantt-drag-related.is-gantt-relative-reference {
         background: color-mix(in srgb, #f5c542 8%, transparent);
       }
 
@@ -7167,7 +7179,7 @@
         background: color-mix(in srgb, white 34%, currentColor 66%);
       }
 
-      body.is-gantt-dragging .project-gantt-span.is-relative-due {
+      body.is-gantt-dragging .is-gantt-drag-related .project-gantt-span.is-relative-due {
         background:
           linear-gradient(
             90deg,
@@ -7184,19 +7196,19 @@
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--project-color) 10%, transparent);
       }
 
-      body.is-gantt-dragging .project-gantt-marker.is-relative-due {
+      body.is-gantt-dragging .is-gantt-drag-related .project-gantt-marker.is-relative-due {
         background: color-mix(in srgb, #f5c542 68%, var(--project-color, var(--accent)) 32%);
         box-shadow:
           0 0 0 2px color-mix(in srgb, var(--panel) 86%, transparent),
           0 0 0 5px color-mix(in srgb, #f5c542 32%, transparent);
       }
 
-      body.is-gantt-dragging .project-gantt-track.is-gantt-relative-reference::before {
+      body.is-gantt-dragging .project-gantt-track.is-gantt-drag-related.is-gantt-relative-reference::before {
         height: 4px;
         background: color-mix(in srgb, #f5c542 34%, var(--project-color, var(--accent)) 28%);
       }
 
-      body.is-gantt-dragging .project-gantt-track.is-gantt-relative-reference .project-gantt-marker {
+      body.is-gantt-dragging .project-gantt-track.is-gantt-drag-related.is-gantt-relative-reference .project-gantt-marker {
         box-shadow:
           0 0 0 3px color-mix(in srgb, var(--panel) 78%, transparent),
           0 0 0 6px color-mix(in srgb, #f5c542 34%, transparent),
@@ -7232,14 +7244,14 @@
 
       .project-gantt-relative-anchor.is-in-project {
         width: 6px;
-        opacity: 0.8;
       }
 
-      body:not(.is-gantt-dragging) .project-gantt-relative-anchor.is-in-project {
+      body:not(.is-gantt-dragging) .project-gantt-relative-anchor.is-in-project,
+      body.is-gantt-dragging .project-gantt-relative-anchor.is-in-project {
         opacity: 0;
       }
 
-      body.is-gantt-dragging .project-gantt-relative-anchor {
+      body.is-gantt-dragging .is-gantt-drag-related .project-gantt-relative-anchor {
         opacity: 1;
       }
 
