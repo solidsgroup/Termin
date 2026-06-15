@@ -9936,11 +9936,32 @@
       return String(Math.abs(days)) + " day" + (Math.abs(days) === 1 ? "" : "s") + " " + (days > 0 ? "after " : "before ") + title;
     }
 
+    function resolveDueRelativeTaskTitle(input, explicitTitle) {
+      var title = String(explicitTitle || "").trim();
+      if (title) return title;
+      var taskId = input ? String(input.getAttribute("data-due-relative-task-id") || "").trim() : "";
+      if (!taskId) return "";
+      if (typeof window.__dashboardTaskEntity === "function") {
+        var task = window.__dashboardTaskEntity(taskId);
+        if (task && task.title) return String(task.title);
+      }
+      var rowTitle = document.querySelector('.editable[data-task-id="' + taskId + '"][data-field="title"], .todo-item-title[data-task-id="' + taskId + '"]');
+      if (rowTitle) {
+        var text = String(rowTitle.textContent || "").trim();
+        if (text) return text;
+      }
+      return "";
+    }
+
     function dueRelativeInputDescription(input, compact) {
       if (!input) return "";
+      var title = resolveDueRelativeTaskTitle(input, input.getAttribute("data-due-relative-task-title") || "");
+      if (title) {
+        input.setAttribute("data-due-relative-task-title", title);
+      }
       return dueRelativeDescription(
         input.getAttribute("data-due-relative-days") || "0",
-        input.getAttribute("data-due-relative-task-title") || "",
+        title,
         compact
       );
     }
@@ -11440,11 +11461,32 @@
       return String(Math.abs(days)) + " day" + (Math.abs(days) === 1 ? "" : "s") + " " + (days > 0 ? "after " : "before ") + title;
     };
 
+    const resolveDueRelativeTaskTitle = (input, explicitTitle) => {
+      const title = String(explicitTitle || "").trim();
+      if (title) return title;
+      const taskId = input ? String(input.getAttribute("data-due-relative-task-id") || "").trim() : "";
+      if (!taskId) return "";
+      if (typeof window.__dashboardTaskEntity === "function") {
+        const task = window.__dashboardTaskEntity(taskId);
+        if (task && task.title) return String(task.title);
+      }
+      const rowTitle = document.querySelector('.editable[data-task-id="' + taskId + '"][data-field="title"], .todo-item-title[data-task-id="' + taskId + '"]');
+      if (rowTitle) {
+        const text = String(rowTitle.textContent || "").trim();
+        if (text) return text;
+      }
+      return "";
+    };
+
     const dueInputRelativeDescription = (input, compact) => {
       if (!input) return "";
+      const title = resolveDueRelativeTaskTitle(input, input.getAttribute("data-due-relative-task-title") || "");
+      if (title) {
+        input.setAttribute("data-due-relative-task-title", title);
+      }
       return formatDueRelativeDescription(
         input.getAttribute("data-due-relative-days") || "0",
-        input.getAttribute("data-due-relative-task-title") || "",
+        title,
         compact
       );
     };
@@ -11453,7 +11495,7 @@
       if (!input) return;
       const data = relative || {};
       input.setAttribute("data-due-relative-task-id", data.task_id ? String(data.task_id) : "");
-      input.setAttribute("data-due-relative-task-title", data.task_title ? String(data.task_title) : "");
+      input.setAttribute("data-due-relative-task-title", resolveDueRelativeTaskTitle(input, data.task_title || ""));
       input.setAttribute("data-due-relative-days", data.days != null ? String(data.days) : "0");
     };
 
@@ -11515,6 +11557,13 @@
     };
 
     window.__updateDueDisplay = updateDueDisplay;
+    window.__refreshDueDisplays = function () {
+      document.querySelectorAll(".due-input[data-task-id]").forEach(function (input) {
+        if (typeof window.__updateDueDisplay === "function") {
+          window.__updateDueDisplay(input);
+        }
+      });
+    };
 
     const showDueInput = (input) => {
       if (!input) return;
@@ -16204,6 +16253,9 @@
       if (typeof window.__renderTodoBoardFromStore === "function") {
         window.__renderTodoBoardFromStore();
       }
+      if (typeof window.__refreshDueDisplays === "function") {
+        window.__refreshDueDisplays();
+      }
       syncProjectRooms();
       return dashboardBootstrapStore;
     }
@@ -16226,6 +16278,9 @@
       refreshDashboardHomeFromTodo();
       if (typeof window.__renderTodoActiveTasksFromStore === "function") {
         window.__renderTodoActiveTasksFromStore();
+      }
+      if (entityType === "tasks" && typeof window.__refreshDueDisplays === "function") {
+        window.__refreshDueDisplays();
       }
     }
 
