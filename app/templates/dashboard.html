@@ -6141,12 +6141,13 @@
         var projectDescriptionHtml = String(project.rendered_description || "").trim();
 	        var ganttEnabled = !!(project.start_date && project.end_date);
           var initialGanttMarkUnits = ganttEnabled
-            ? projectGanttMarkUnits(String(project.id), new Date(String(project.start_date).slice(0, 10) + "T00:00:00"), new Date(String(project.end_date).slice(0, 10) + "T00:00:00"))
+            ? projectGanttMarkUnits(String(project.id), new Date(String(project.start_date).slice(0, 10) + "T00:00:00"), new Date(String(project.end_date).slice(0, 10) + "T00:00:00"), project.gantt_ranges || [])
             : null;
 	        var board = document.createElement("div");
 	        var projectColor = resolveProjectColor(project);
 	        board.className = "tree-project-board";
 	        board.setAttribute("data-tree-project-board", String(project.id));
+          board.setAttribute("data-project-gantt-ranges", JSON.stringify(normalizeProjectGanttRanges(project.gantt_ranges || [])));
 	        board.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
 	        board.style.setProperty("--project-color", projectColor);
 	        board.innerHTML =
@@ -6202,7 +6203,7 @@
           '</div>' +
           '</div>' +
           (ganttEnabled
-            ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden>' + buildProjectGanttToolbarHtml(project.id, true, initialGanttMarkUnits) + '<div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-items="[]"></div></div>'
+            ? '<div class="project-board-mode-panel" data-project-mode-panel="gantt" hidden>' + buildProjectGanttToolbarHtml(project.id, true, initialGanttMarkUnits) + '<div class="project-gantt" data-project-gantt data-project-id="' + String(project.id) + '" data-project-start-date="' + escapeTreeText(project.start_date || "") + '" data-project-end-date="' + escapeTreeText(project.end_date || "") + '" data-project-gantt-ranges="' + escapeTreeText(JSON.stringify(normalizeProjectGanttRanges(project.gantt_ranges || []))) + '" data-project-gantt-items="[]"></div></div>'
             : '');
         if (!project.is_direct) {
           window.setTimeout(function () {
@@ -6695,7 +6696,7 @@
           return { major: "day", minor: "week" };
         }
 
-        function projectGanttMarkUnits(projectId, startDate, endDate) {
+        function projectGanttMarkUnits(projectId, startDate, endDate, projectRanges) {
           var defaults = defaultProjectGanttMarkUnits(startDate, endDate);
           var state = loadProjectGanttMarkSettings();
           var row = state[String(projectId || "")] || {};
@@ -6704,7 +6705,7 @@
             minor: String(row.minor || defaults.minor || "week"),
             majorDays: normalizeProjectGanttDayMask(row.majorDays),
             minorDays: normalizeProjectGanttDayMask(row.minorDays),
-            ranges: normalizeProjectGanttRanges(row.ranges),
+            ranges: normalizeProjectGanttRanges(projectRanges),
           };
         }
 
@@ -6801,6 +6802,46 @@
           }));
         }
 
+        function projectGanttRangesForBoard(board) {
+          if (!board) return [];
+          var raw = board.getAttribute("data-project-gantt-ranges") || "[]";
+          try {
+            return normalizeProjectGanttRanges(JSON.parse(raw));
+          } catch (err) {
+            return [];
+          }
+        }
+
+        function setProjectGanttRangesForBoard(board, ranges) {
+          if (!board) return;
+          var normalized = normalizeProjectGanttRanges(ranges);
+          var encoded = JSON.stringify(normalized);
+          board.setAttribute("data-project-gantt-ranges", encoded);
+          var gantt = board.querySelector("[data-project-gantt]");
+          if (gantt) gantt.setAttribute("data-project-gantt-ranges", encoded);
+        }
+
+        function persistProjectGanttRanges(board, projectId, ranges) {
+          if (!board || !projectId) return;
+          var normalized = normalizeProjectGanttRanges(ranges);
+          setProjectGanttRangesForBoard(board, normalized);
+          fetch("/api/projects/" + encodeURIComponent(projectId), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ gantt_ranges: normalized }),
+          }).then(function (response) {
+            if (!response.ok) throw new Error("Failed to save Gantt ranges");
+            return response.json().catch(function () { return {}; });
+          }).then(function (data) {
+            if (data && Array.isArray(data.gantt_ranges)) {
+              setProjectGanttRangesForBoard(board, data.gantt_ranges);
+            }
+          }).catch(function (error) {
+            console.error("saveProjectGanttRanges failed", error);
+          });
+        }
+
         function currentProjectGanttSettingsForBoard(board) {
           if (!board) return null;
           var projectId = String(board.getAttribute("data-tree-project-board") || "");
@@ -6813,7 +6854,7 @@
           current.minor = minorSelect ? String(minorSelect.value || "week") : (current.minor || "week");
           current.majorDays = projectGanttDayMaskFromControls(board, projectId, "major");
           current.minorDays = projectGanttDayMaskFromControls(board, projectId, "minor");
-          current.ranges = normalizeProjectGanttRanges(current.ranges);
+          current.ranges = projectGanttRangesForBoard(board);
           return {
             projectId: projectId,
             state: state,
@@ -6838,8 +6879,16 @@
           current.majorDays = normalizeProjectGanttDayMask(current.majorDays);
           current.minorDays = normalizeProjectGanttDayMask(current.minorDays);
           current.ranges = normalizeProjectGanttRanges(current.ranges);
-          snapshot.state[snapshot.projectId] = current;
+          var shouldPersistRanges = Object.prototype.hasOwnProperty.call(updates || {}, "ranges");
+          var localCurrent = Object.assign({}, current);
+          delete localCurrent.ranges;
+          snapshot.state[snapshot.projectId] = localCurrent;
           saveProjectGanttMarkSettings(snapshot.state);
+          if (shouldPersistRanges) {
+            persistProjectGanttRanges(board, snapshot.projectId, current.ranges);
+          } else {
+            setProjectGanttRangesForBoard(board, current.ranges);
+          }
           syncProjectGanttDayMaskVisibility(board);
           renderProjectGanttRangeControls(board, snapshot.projectId, current.ranges);
           var gantt = board.querySelector("[data-project-gantt]");
@@ -7489,9 +7538,9 @@
 	        var items = parseProjectGanttItems(panel)
 	          .filter(function (item) { return !!item; });
           var projectId = String(panel.getAttribute("data-project-id") || "");
-          var markUnits = projectGanttMarkUnits(projectId, startDate, endDate);
-	        var intervals = buildProjectGanttIntervals(startDate, endDate, markUnits);
         var ganttBoard = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
+          var markUnits = projectGanttMarkUnits(projectId, startDate, endDate, projectGanttRangesForBoard(ganttBoard));
+	        var intervals = buildProjectGanttIntervals(startDate, endDate, markUnits);
         var ganttProjectNameNode = ganttBoard ? ganttBoard.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
         var ganttProjectName = ganttProjectNameNode ? String(ganttProjectNameNode.textContent || "").trim() : "";
         if (ganttBoard && items.length) {
@@ -8056,7 +8105,7 @@
             var startRaw = String(gantt.getAttribute("data-project-start-date") || "").trim();
             var endRaw = String(gantt.getAttribute("data-project-end-date") || "").trim();
             if (startRaw && endRaw) {
-              var markUnits = projectGanttMarkUnits(projectId, new Date(startRaw + "T00:00:00"), new Date(endRaw + "T00:00:00"));
+              var markUnits = projectGanttMarkUnits(projectId, new Date(startRaw + "T00:00:00"), new Date(endRaw + "T00:00:00"), projectGanttRangesForBoard(board));
               var majorSelect = board.querySelector('[data-project-gantt-major="' + projectId + '"]');
               var minorSelect = board.querySelector('[data-project-gantt-minor="' + projectId + '"]');
               if (majorSelect) majorSelect.value = markUnits.major;

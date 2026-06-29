@@ -122,6 +122,39 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertIn('data-dashboard-current-view="dashboard"', root_response.get_data(as_text=True))
         self.assertIn('data-dashboard-current-view="dashboard"', dashboard_response.get_data(as_text=True))
 
+    def test_project_gantt_ranges_persist_in_project_payloads(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Planning")
+            project.start_date = datetime(2026, 1, 1).date()
+            project.end_date = datetime(2026, 3, 31).date()
+            db.session.commit()
+            project_id = sqlalchemy_inspect(project).identity[0]
+
+        self.login(self.client, owner_id)
+        ranges = [
+            {
+                "id": "range-alpha",
+                "label": "Conference travel",
+                "start": "2026-02-03",
+                "end": "2026-02-10",
+                "color": "#4cc9f0",
+            }
+        ]
+
+        patch_response = self.client.patch(f"/api/projects/{project_id}", json={"gantt_ranges": ranges})
+        self.assertEqual(patch_response.status_code, 200)
+        self.assertEqual(patch_response.get_json()["gantt_ranges"], ranges)
+
+        project_response = self.client.get(f"/api/projects/{project_id}")
+        self.assertEqual(project_response.status_code, 200)
+        self.assertEqual(project_response.get_json()["gantt_ranges"], ranges)
+
+        snapshot_response = self.client.get(f"/api/projects/{project_id}/tree_snapshot")
+        self.assertEqual(snapshot_response.status_code, 200)
+        self.assertEqual(snapshot_response.get_json()["project"]["gantt_ranges"], ranges)
+
     def test_same_bucket_task_move_returns_affected_positions(self):
         with self.app.app_context():
             owner = self.create_user("owner@example.com", "Owner")

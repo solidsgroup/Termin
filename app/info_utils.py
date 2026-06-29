@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import datetime
 from html import escape
@@ -14,7 +15,38 @@ ALLOWED_ATTRS = {
     "a": {"href", "target", "rel"},
     "span": {"class", "data-mentioned-user-id", "data-mentioned-email"},
 }
-ALLOWED_META_KEYS = {"due_mode", "due_relative_days", "due_relative_start_days", "due_relative_task_id", "follow_project_members", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
+ALLOWED_META_KEYS = {"due_mode", "due_relative_days", "due_relative_start_days", "due_relative_task_id", "follow_project_members", "gantt_ranges", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
+
+
+def _normalize_gantt_ranges(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    ranges = []
+    seen_ids = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        start = str(item.get("start") or "").strip()[:10]
+        end = str(item.get("end") or "").strip()[:10]
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", start) or not re.match(r"^\d{4}-\d{2}-\d{2}$", end):
+            continue
+        if end < start:
+            start, end = end, start
+        range_id = str(item.get("id") or f"range-{index}").strip()
+        if not range_id or range_id in seen_ids:
+            range_id = uuid.uuid4().hex[:12]
+        seen_ids.add(range_id)
+        color = str(item.get("color") or "").strip()
+        if not re.match(r"^#[0-9a-fA-F]{6}$", color):
+            color = "#4cc9f0"
+        ranges.append({
+            "id": range_id,
+            "label": str(item.get("label") or "Range").strip() or "Range",
+            "start": start,
+            "end": end,
+            "color": color,
+        })
+    return ranges
 
 
 def _normalize_poll_meta(value) -> dict:
@@ -196,6 +228,11 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
             if key == "poll":
                 meta[key] = _normalize_poll_meta(value)
                 continue
+            if key == "gantt_ranges":
+                ranges = _normalize_gantt_ranges(value)
+                if ranges:
+                    meta[key] = ranges
+                continue
             text = str(value).strip()
             if not text:
                 continue
@@ -247,6 +284,11 @@ def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> 
                 continue
             if key == "poll":
                 meta[key] = _normalize_poll_meta(value)
+                continue
+            if key == "gantt_ranges":
+                ranges = _normalize_gantt_ranges(value)
+                if ranges:
+                    meta[key] = ranges
                 continue
             text = str(value).strip()
             if not text:

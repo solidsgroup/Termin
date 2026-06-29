@@ -618,6 +618,7 @@ def _serialize_project_payload(project: Project) -> dict:
         "description_format": project.description_format or "markdown",
         "start_date": project.start_date.isoformat() if getattr(project, "start_date", None) else None,
         "end_date": project.end_date.isoformat() if getattr(project, "end_date", None) else None,
+        "gantt_ranges": (info_payload.get("meta") or {}).get("gantt_ranges", []),
     }
 
 

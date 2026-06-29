@@ -130,6 +130,26 @@ from app.utils import current_user, display_name_for_user, is_admin as user_is_a
 api_bp = Blueprint("api", __name__)
 
 
+
+
+def _project_gantt_ranges(project: Project | None) -> list[dict]:
+    if not project:
+        return []
+    info = load_info_payload(getattr(project, "info", None), getattr(project, "link", None))
+    ranges = (info.get("meta") or {}).get("gantt_ranges")
+    return ranges if isinstance(ranges, list) else []
+
+
+def _set_project_gantt_ranges(project: Project, ranges) -> None:
+    info = load_info_payload(getattr(project, "info", None), getattr(project, "link", None))
+    meta = info.get("meta") if isinstance(info.get("meta"), dict) else {}
+    if ranges:
+        meta["gantt_ranges"] = ranges
+    else:
+        meta.pop("gantt_ranges", None)
+    info["meta"] = meta
+    project.info = normalize_info_payload(info, project.link)
+
 def _public_url(endpoint: str, **values) -> str:
     base_url = str(current_app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
     if base_url:
@@ -2898,6 +2918,7 @@ def get_project(project_id: int):
         "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),
         "start_date": project.start_date.isoformat() if project.start_date else None,
         "end_date": project.end_date.isoformat() if project.end_date else None,
+        "gantt_ranges": _project_gantt_ranges(project),
         "is_direct": bool(project.is_direct),
         "created_at": project.created_at.isoformat() if project.created_at else None,
     }, 200
@@ -3735,6 +3756,7 @@ def update_project(project_id: int):
     description_format = payload.get("description_format")
     start_date_raw = payload.get("start_date", "__missing__")
     end_date_raw = payload.get("end_date", "__missing__")
+    gantt_ranges_raw = payload.get("gantt_ranges", "__missing__")
     if (
         name is None
         and division_id == "__missing__"
@@ -3744,6 +3766,7 @@ def update_project(project_id: int):
         and description_format is None
         and start_date_raw == "__missing__"
         and end_date_raw == "__missing__"
+        and gantt_ranges_raw == "__missing__"
     ):
         return {"error": "name, links, division_id, or dates are required"}, 400
     if name is not None and not _can_manage_project(user, project_id):
@@ -3753,6 +3776,8 @@ def update_project(project_id: int):
     if (description is not None or description_format is not None) and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if (start_date_raw != "__missing__" or end_date_raw != "__missing__") and not _can_manage_project(user, project_id):
+        return {"error": "unauthorized"}, 403
+    if gantt_ranges_raw != "__missing__" and not _can_manage_project(user, project_id):
         return {"error": "unauthorized"}, 403
     if division_id != "__missing__" and not _can_access_project(user, project_id):
         return {"error": "unauthorized"}, 403
@@ -3839,6 +3864,10 @@ def update_project(project_id: int):
                 return {"error": "invalid end_date"}, 400
     if project.start_date and project.end_date and project.end_date < project.start_date:
         return {"error": "end_date must be on or after start_date"}, 400
+    if gantt_ranges_raw != "__missing__":
+        if not isinstance(gantt_ranges_raw, list):
+            return {"error": "invalid gantt_ranges"}, 400
+        _set_project_gantt_ranges(project, gantt_ranges_raw)
     if links is not None:
         try:
             cache_favicons_for_links(current_app._get_current_object(), _info_payload_for(project).get("links", []))
@@ -3873,6 +3902,7 @@ def update_project(project_id: int):
         "links": _info_payload_for(project).get("links", []),
         "start_date": project.start_date.isoformat() if project.start_date else None,
         "end_date": project.end_date.isoformat() if project.end_date else None,
+        "gantt_ranges": _project_gantt_ranges(project),
         "description": project.description,
         "description_format": project.description_format or DEFAULT_PROJECT_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(project.description, project.description_format, DEFAULT_PROJECT_DESCRIPTION_FORMAT),
