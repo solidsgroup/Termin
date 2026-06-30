@@ -3731,8 +3731,24 @@
       <div class="inbox-view">
         <div class="panel inbox-panel">
           <div class="inbox-header">
-            <div class="inbox-title">Inbox</div>
-            <div class="inbox-count" data-inbox-count>{{ inbox_items|length }} items</div>
+            <div class="inbox-header-main">
+              <div class="inbox-title">Inbox</div>
+              <div class="inbox-count" data-inbox-count>{{ inbox_items|length }} items</div>
+            </div>
+            <div class="inbox-filters" aria-label="Inbox filters">
+              <label class="inbox-filter">
+                <span>Actor</span>
+                <select data-inbox-actor-filter>
+                  <option value="">All actors</option>
+                </select>
+              </label>
+              <label class="inbox-filter">
+                <span>Action</span>
+                <select data-inbox-action-filter>
+                  <option value="">All actions</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div class="inbox-list" data-inbox-feed>
             {% for item in inbox_items %}
@@ -16989,16 +17005,98 @@
       return parsed.toLocaleString([], options);
     }
 
+    function inboxActorName(item) {
+      var kind = String(item && item.kind || "");
+      if (kind === "comment") {
+        return String(item.sender_name || (item.detail_payload && item.detail_payload.actor_name) || item.task_title || "Activity");
+      }
+      return String((item && item.detail_payload && item.detail_payload.actor_name) || (item && item.sender_name) || (item && item.task_title) || "Activity");
+    }
+
+    function inboxActionLabel(kind) {
+      var normalized = String(kind || "").trim();
+      var labels = {
+        comment: "Message",
+        task_completed: "Completed",
+        task_due_changed: "Due date changed",
+        task_due_cleared: "Due date removed",
+        task_due_asap: "Marked ASAP",
+        task_status_changed: "Status changed",
+        task_renamed: "Renamed",
+        assignment_added: "Assigned",
+        task_moved: "Moved",
+        task_created: "Created",
+        project_shared: "Project added",
+        project_removed: "Project removed",
+        task_update: "Updated",
+      };
+      if (labels[normalized]) return labels[normalized];
+      return normalized ? normalized.replace(/_/g, " ").replace(/\b\w/g, function (letter) { return letter.toUpperCase(); }) : "Update";
+    }
+
+    function inboxFilterKey(value) {
+      return String(value == null ? "" : value).trim().toLowerCase();
+    }
+
+    function syncInboxFilterOptions(items) {
+      var actorSelect = document.querySelector("[data-inbox-actor-filter]");
+      var actionSelect = document.querySelector("[data-inbox-action-filter]");
+      if (!actorSelect && !actionSelect) return;
+      var rows = Array.isArray(items) ? items : [];
+      if (actorSelect) {
+        var selectedActor = actorSelect.value || "";
+        var actorMap = Object.create(null);
+        rows.forEach(function (item) {
+          var name = inboxActorName(item).trim();
+          if (!name) return;
+          actorMap[inboxFilterKey(name)] = name;
+        });
+        var actors = Object.keys(actorMap).sort(function (a, b) { return actorMap[a].localeCompare(actorMap[b]); });
+        actorSelect.innerHTML = '<option value="">All actors</option>' + actors.map(function (key) {
+          return '<option value="' + escapeHtml(key) + '">' + escapeHtml(actorMap[key]) + '</option>';
+        }).join("");
+        actorSelect.value = actors.indexOf(selectedActor) === -1 ? "" : selectedActor;
+      }
+      if (actionSelect) {
+        var selectedAction = actionSelect.value || "";
+        var actionMap = Object.create(null);
+        rows.forEach(function (item) {
+          var kind = String(item && item.kind || "").trim();
+          if (!kind) return;
+          actionMap[kind] = inboxActionLabel(kind);
+        });
+        var actions = Object.keys(actionMap).sort(function (a, b) { return actionMap[a].localeCompare(actionMap[b]); });
+        actionSelect.innerHTML = '<option value="">All actions</option>' + actions.map(function (kind) {
+          return '<option value="' + escapeHtml(kind) + '">' + escapeHtml(actionMap[kind]) + '</option>';
+        }).join("");
+        actionSelect.value = actions.indexOf(selectedAction) === -1 ? "" : selectedAction;
+      }
+    }
+
+    function filteredInboxItems(items) {
+      var actorSelect = document.querySelector("[data-inbox-actor-filter]");
+      var actionSelect = document.querySelector("[data-inbox-action-filter]");
+      var actorFilter = actorSelect ? inboxFilterKey(actorSelect.value) : "";
+      var actionFilter = actionSelect ? String(actionSelect.value || "") : "";
+      return (Array.isArray(items) ? items : []).filter(function (item) {
+        if (actorFilter && inboxFilterKey(inboxActorName(item)) !== actorFilter) return false;
+        if (actionFilter && String(item && item.kind || "") !== actionFilter) return false;
+        return true;
+      });
+    }
+
     function renderInboxFeed(items) {
       var list = document.querySelector("[data-inbox-feed]");
       if (!list) return;
       var countEl = document.querySelector("[data-inbox-count]");
-      var rows = Array.isArray(items) ? items.slice(0, 100) : [];
+      var allRows = Array.isArray(items) ? items.slice(0, 100) : [];
+      syncInboxFilterOptions(allRows);
+      var rows = filteredInboxItems(allRows);
       if (countEl) {
-        countEl.textContent = rows.length + " item" + (rows.length === 1 ? "" : "s");
+        countEl.textContent = rows.length + " item" + (rows.length === 1 ? "" : "s") + (rows.length === allRows.length ? "" : " of " + allRows.length);
       }
       if (!rows.length) {
-        list.innerHTML = '<div class="inbox-empty">No activity yet.</div>';
+        list.innerHTML = '<div class="inbox-empty">' + (allRows.length ? "No activity matches these filters." : "No activity yet.") + '</div>';
         return;
       }
       list.innerHTML = rows.map(function (item) {
@@ -17030,9 +17128,7 @@
           project_name: item.project_name || "",
           kind: kind || "task_update",
         };
-        var actorName = kind === "comment"
-          ? String(item.sender_name || (item.detail_payload && item.detail_payload.actor_name) || item.task_title || "Activity")
-          : String((item.detail_payload && item.detail_payload.actor_name) || item.sender_name || item.task_title || "Activity");
+        var actorName = inboxActorName(item);
         var taskLabel = escapeHtml(item.task_title || "Task");
         var previewText = (kind === "comment" && Number(item.unread_count || 0) > 1)
           ? escapeHtml(String(Number(item.unread_count || 0)) + " new messages")
@@ -26117,6 +26213,11 @@
 
     var inboxFeedEl = document.querySelector("[data-inbox-feed]");
     if (inboxFeedEl) {
+      document.querySelectorAll("[data-inbox-actor-filter], [data-inbox-action-filter]").forEach(function (select) {
+        select.addEventListener("change", function () {
+          renderInboxFeed(latestInboxItems);
+        });
+      });
       renderInboxFeed(latestInboxItems);
       inboxFeedEl.addEventListener("click", function (event) {
         var button = event.target.closest("[data-inbox-open]");

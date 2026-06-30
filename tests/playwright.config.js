@@ -1,9 +1,12 @@
+const fs = require('fs');
 const path = require('path');
 const { defineConfig } = require('@playwright/test');
 
 const reportFolder = path.resolve(__dirname, 'playwright-report-gallery');
 const e2ePort = Number(process.env.TERMIN_E2E_PORT || process.env.PORT || 5010);
 const e2eBaseURL = process.env.TERMIN_E2E_BASE_URL || `http://127.0.0.1:${e2ePort}`;
+const venvPython = path.resolve(__dirname, '..', '.venv', 'bin', 'python3');
+const e2ePython = process.env.TERMIN_E2E_PYTHON || (fs.existsSync(venvPython) ? venvPython : 'python3');
 
 module.exports = defineConfig({
   testDir: path.resolve(__dirname, 'playwright'),
@@ -23,7 +26,7 @@ module.exports = defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'python3 tests/e2e_server.py',
+    command: `${e2ePython} tests/e2e_server.py`,
     cwd: path.resolve(__dirname, '..'),
     env: {
       ...process.env,

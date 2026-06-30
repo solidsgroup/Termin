@@ -2852,6 +2852,50 @@
         border-bottom: 1px solid var(--border);
       }
 
+      .inbox-header-main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .inbox-filters {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        min-width: 0;
+        flex-wrap: wrap;
+      }
+
+      .inbox-filter {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .inbox-filter select {
+        max-width: 190px;
+        min-width: 128px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--panel-alt) 86%, transparent);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0;
+        text-transform: none;
+        padding: 0 28px 0 9px;
+      }
+
       .inbox-title {
         font-size: 13px;
         font-weight: 800;
@@ -10470,6 +10514,26 @@
         .inbox-item {
           padding-left: 14px;
           padding-right: 14px;
+        }
+
+        .inbox-header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .inbox-filters {
+          justify-content: flex-start;
+          width: 100%;
+        }
+
+        .inbox-filter {
+          flex: 1 1 150px;
+        }
+
+        .inbox-filter select {
+          min-width: 0;
+          max-width: none;
+          width: 100%;
         }
 
         .panel,
