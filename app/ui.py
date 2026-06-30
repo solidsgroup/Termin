@@ -53,7 +53,7 @@ from app.notification_emailer import (
     normalize_notification_email_frequency,
     send_notification_digest_email,
 )
-from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, GroupTemplate, GroupTemplateTask, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
+from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, DiscussionEvent, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, GroupTemplate, GroupTemplateTask, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
 from app.models import TeamInvite, ProjectTeamShare
 from app.models import UserNotificationPreference
 from app.team_shares import accessible_project_ids_for_user, project_access_user_ids, project_has_team_access
@@ -418,6 +418,13 @@ def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> 
             elif comment.collaborator_id:
                 collaborator = collaborators.get(comment.collaborator_id)
                 sender_name = (collaborator.display_name or collaborator.email) if collaborator else ""
+        if comment:
+            if comment.user_id:
+                detail.setdefault("actor_user_id", comment.user_id)
+            elif comment.collaborator_id:
+                detail.setdefault("actor_collaborator_id", comment.collaborator_id)
+            if sender_name:
+                detail.setdefault("actor_name", sender_name)
         actor_name = str(detail.get("actor_name") or "").strip()
         task_label = str((task.title if task else (detail.get("project_name") or (project.name if project else "Project"))) or "Task").strip()
         inbox_preview = ""
@@ -556,6 +563,111 @@ def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> 
         })
     return items
 
+
+
+def _inbox_history_kind(event: DiscussionEvent) -> str:
+    entity_type = str(getattr(event, "entity_type", "") or "").strip().lower()
+    action = str(getattr(event, "kind", "") or "updated").strip().lower()
+    body = str(getattr(event, "body", "") or "").strip().lower()
+    is_task_scoped = entity_type == "task" or " task " in (" " + body + " ")
+    if is_task_scoped:
+        if action == "created" or " created task " in (" " + body + " "):
+            return "task_created"
+        if action == "moved" or " moved task " in (" " + body + " "):
+            return "task_moved"
+        if action == "deleted" or " deleted task " in (" " + body + " "):
+            return "task_deleted"
+        if "marked as completed" in body or 'updated the progress to "100%"' in body:
+            return "task_completed"
+        if "due date" in body:
+            return "task_due_changed"
+        if "changed the title" in body:
+            return "task_renamed"
+        return "task_update"
+    if entity_type == "project":
+        return "project_" + (action or "updated")
+    if entity_type == "group":
+        return "group_" + (action or "updated")
+    return action or "updated"
+
+
+def _inbox_history_summary(kind: str) -> str:
+    labels = {
+        "task_created": "Task created",
+        "task_moved": "Task moved",
+        "task_deleted": "Task deleted",
+        "task_completed": "Task completed",
+        "task_due_changed": "Due date changed",
+        "task_renamed": "Task renamed",
+        "task_update": "Task updated",
+        "project_created": "Project created",
+        "project_updated": "Project updated",
+        "project_deleted": "Project deleted",
+        "group_created": "Group created",
+        "group_updated": "Group updated",
+        "group_deleted": "Group deleted",
+    }
+    return labels.get(kind, kind.replace("_", " ").title() if kind else "Activity")
+
+
+def _build_inbox_history_items(rows: list[DiscussionEvent], *, user: User) -> list[dict]:
+    if not rows:
+        return []
+    task_ids = {row.task_id for row in rows if row.task_id}
+    task_ids.update(row.entity_id for row in rows if row.entity_type == "task" and row.entity_id)
+    project_ids = {row.project_id for row in rows if row.project_id}
+    project_ids.update(row.entity_id for row in rows if row.entity_type == "project" and row.entity_id)
+    group_ids = {row.group_id for row in rows if row.group_id}
+    group_ids.update(row.entity_id for row in rows if row.entity_type == "group" and row.entity_id)
+    actor_ids = {row.actor_user_id for row in rows if row.actor_user_id}
+    tasks = {row.id: row for row in Task.query.filter(Task.id.in_(task_ids)).all()} if task_ids else {}
+    projects = {row.id: row for row in Project.query.filter(Project.id.in_(project_ids)).all()} if project_ids else {}
+    groups = {row.id: row for row in Group.query.filter(Group.id.in_(group_ids)).all()} if group_ids else {}
+    actors = {row.id: row for row in User.query.filter(User.id.in_(actor_ids)).all()} if actor_ids else {}
+    items = []
+    for row in rows:
+        actor = actors.get(row.actor_user_id) if row.actor_user_id else None
+        actor_name = display_name_for_user(actor) or (actor.email if actor else "") or "Someone"
+        actor_avatar_url = actor.avatar_url if actor and actor.avatar_url else ""
+        task = tasks.get(row.task_id) if row.task_id else (tasks.get(row.entity_id) if row.entity_type == "task" else None)
+        project = projects.get(row.project_id) if row.project_id else None
+        group = groups.get(row.group_id) if row.group_id else None
+        if not project and task and task.project_id:
+            project = projects.get(task.project_id) or Project.query.get(task.project_id)
+        if not group and task and task.group_id:
+            group = groups.get(task.group_id) or Group.query.get(task.group_id)
+        if not project and row.entity_type == "project":
+            project = projects.get(row.entity_id)
+        if not group and row.entity_type == "group":
+            group = groups.get(row.entity_id)
+        kind = _inbox_history_kind(row)
+        title = task.title if task else (project.name if project else (group.name if group else "Activity"))
+        items.append({
+            "id": "history:" + str(row.id),
+            "task_id": task.id if task else (row.task_id or ""),
+            "task_title": title or "Activity",
+            "project_id": project.id if project else (row.project_id or ""),
+            "project_name": project.name if project else "",
+            "group_id": group.id if group else (row.group_id or ""),
+            "group_name": group.name if group else "",
+            "sender_name": actor_name,
+            "detail_payload": {
+                "actor_user_id": row.actor_user_id or "",
+                "actor_name": actor_name,
+                "actor_avatar_url": actor_avatar_url,
+            },
+            "summary": _inbox_history_summary(kind),
+            "preview": row.body or _inbox_history_summary(kind),
+            "inbox_preview": row.body or _inbox_history_summary(kind),
+            "comment_preview": row.body or _inbox_history_summary(kind),
+            "unread_count": 0,
+            "created_at": row.created_at,
+            "created_at_iso": row.created_at.isoformat() if row.created_at else "",
+            "read": True,
+            "pinned": False,
+            "kind": kind,
+        })
+    return items
 
 def _sidebar_order_tokens(user) -> list[str]:
     accessible_projects = _accessible_projects_for_user(user)
@@ -1998,7 +2110,42 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         .limit(100)
         .all()
     )
-    inbox_items = _build_notification_items(inbox_notification_rows, user_id=user.id) + build_discussion_activity_items(discussion_rows, user_id=user.id)
+    inbox_project_ids = set(project_ids)
+    inbox_task_ids = set(visible_dashboard_task_ids)
+    inbox_group_ids = set(todo_groups.keys())
+    inbox_group_ids.update(group.id for group in groups)
+    for context in tree_project_contexts:
+        inbox_group_ids.update(group.id for group in context.get("groups", []))
+    inbox_history_filters = []
+    if inbox_task_ids:
+        inbox_history_filters.append(
+            (DiscussionEvent.entity_type == "task")
+            & or_(DiscussionEvent.task_id.in_(inbox_task_ids), DiscussionEvent.entity_id.in_(inbox_task_ids))
+        )
+    if inbox_project_ids:
+        inbox_history_filters.append(
+            (DiscussionEvent.entity_type == "project")
+            & (DiscussionEvent.task_id.is_(None))
+            & (DiscussionEvent.entity_id.in_(inbox_project_ids))
+        )
+    if inbox_group_ids:
+        inbox_history_filters.append(
+            (DiscussionEvent.entity_type == "group")
+            & (DiscussionEvent.task_id.is_(None))
+            & (DiscussionEvent.entity_id.in_(inbox_group_ids))
+        )
+    inbox_history_rows = (
+        DiscussionEvent.query.filter(or_(*inbox_history_filters))
+        .order_by(DiscussionEvent.created_at.desc(), DiscussionEvent.id.desc())
+        .limit(300)
+        .all()
+        if inbox_history_filters else []
+    )
+    inbox_items = (
+        _build_notification_items(inbox_notification_rows, user_id=user.id)
+        + build_discussion_activity_items(discussion_rows, user_id=user.id)
+        + _build_inbox_history_items(inbox_history_rows, user=user)
+    )
     inbox_items.sort(key=lambda item: item.get("created_at") or datetime.min, reverse=True)
     inbox_items_json = [{key: value for key, value in item.items() if key != "created_at"} for item in inbox_items]
     todo_groups_by_date = []

@@ -2840,7 +2840,11 @@
 
       .inbox-panel {
         padding: 0;
-        overflow: hidden;
+        overflow: visible;
+      }
+
+      body[data-theme-family="lcars"] .inbox-panel {
+        overflow: visible;
       }
 
       .inbox-header {
@@ -2894,6 +2898,102 @@
         letter-spacing: 0;
         text-transform: none;
         padding: 0 28px 0 9px;
+      }
+
+      .inbox-actor-dropdown {
+        position: relative;
+        min-width: 170px;
+      }
+
+      .inbox-actor-trigger {
+        width: 100%;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--panel-alt) 86%, transparent);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0;
+        text-transform: none;
+        padding: 0 9px;
+        cursor: pointer;
+      }
+
+      .inbox-actor-caret {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .inbox-actor-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 2600;
+        width: min(280px, calc(100vw - 28px));
+        max-height: 340px;
+        overflow: auto;
+        padding: 10px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .inbox-actor-actions {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+
+      .inbox-actor-actions .btn {
+        flex: 1 1 0;
+        min-height: 28px;
+        padding: 5px 8px;
+        font-size: 11px;
+      }
+
+      .inbox-actor-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .inbox-actor-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 6px 4px;
+        border-radius: 8px;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .inbox-actor-row:hover {
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+      }
+
+      .inbox-actor-row input {
+        flex: 0 0 auto;
+        width: 15px;
+        height: 15px;
+        margin: 0;
+      }
+
+      .inbox-actor-row span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .inbox-title {
@@ -10534,6 +10634,17 @@
           min-width: 0;
           max-width: none;
           width: 100%;
+        }
+
+        .inbox-actor-dropdown {
+          min-width: 0;
+          width: 100%;
+        }
+
+        .inbox-actor-menu {
+          left: 0;
+          right: auto;
+          width: min(280px, calc(100vw - 28px));
         }
 
         .panel,

@@ -3736,12 +3736,22 @@
               <div class="inbox-count" data-inbox-count>{{ inbox_items|length }} items</div>
             </div>
             <div class="inbox-filters" aria-label="Inbox filters">
-              <label class="inbox-filter">
+              <div class="inbox-filter inbox-actor-filter">
                 <span>Actor</span>
-                <select data-inbox-actor-filter>
-                  <option value="">All actors</option>
-                </select>
-              </label>
+                <div class="inbox-actor-dropdown" data-inbox-actor-dropdown>
+                  <button class="inbox-actor-trigger" type="button" data-inbox-actor-trigger aria-expanded="false">
+                    <span data-inbox-actor-summary>Everyone but me</span>
+                    <span class="inbox-actor-caret" aria-hidden="true">▾</span>
+                  </button>
+                  <div class="inbox-actor-menu" data-inbox-actor-menu hidden>
+                    <div class="inbox-actor-actions">
+                      <button class="btn secondary" type="button" data-inbox-actors-just-me>Just me</button>
+                      <button class="btn secondary" type="button" data-inbox-actors-everyone-but-me>Everyone but me</button>
+                    </div>
+                    <div class="inbox-actor-list" data-inbox-actor-list></div>
+                  </div>
+                </div>
+              </div>
               <label class="inbox-filter">
                 <span>Action</span>
                 <select data-inbox-action-filter>
@@ -16909,7 +16919,7 @@
 
     function saveInboxCache() {
       try {
-        sessionStorage.setItem("termin:inbox-cache", JSON.stringify((Array.isArray(latestInboxItems) ? latestInboxItems : []).slice(0, 100)));
+        sessionStorage.setItem("termin:inbox-cache", JSON.stringify((Array.isArray(latestInboxItems) ? latestInboxItems : []).slice(0, 500)));
       } catch (err) {}
     }
 
@@ -17005,12 +17015,40 @@
       return parsed.toLocaleString([], options);
     }
 
+    var inboxActorFilterSelectedKeys = null;
+    var inboxActorFilterTouched = false;
+    var inboxActorCanonicalNameKeys = Object.create(null);
+
     function inboxActorName(item) {
       var kind = String(item && item.kind || "");
       if (kind === "comment") {
         return String(item.sender_name || (item.detail_payload && item.detail_payload.actor_name) || item.task_title || "Activity");
       }
       return String((item && item.detail_payload && item.detail_payload.actor_name) || (item && item.sender_name) || (item && item.task_title) || "Activity");
+    }
+
+    function inboxActorRawKey(item) {
+      var detail = item && item.detail_payload ? item.detail_payload : {};
+      var actorUserId = detail.actor_user_id || item && item.actor_user_id || "";
+      var actorCollaboratorId = detail.actor_collaborator_id || item && item.actor_collaborator_id || "";
+      if (actorUserId) return "user:" + String(actorUserId);
+      if (actorCollaboratorId) return "collaborator:" + String(actorCollaboratorId);
+      return "name:" + inboxFilterKey(inboxActorName(item));
+    }
+
+    function inboxActorKey(item) {
+      var rawKey = inboxActorRawKey(item);
+      if (rawKey.indexOf("name:") !== 0) return rawKey;
+      var labelKey = inboxFilterKey(inboxActorName(item));
+      return inboxActorCanonicalNameKeys[labelKey] || rawKey;
+    }
+
+    function inboxCurrentUserActorKey() {
+      return currentUserId ? "user:" + String(currentUserId) : "name:" + inboxFilterKey(currentUserDisplayName || currentUserEmail || "Me");
+    }
+
+    function inboxCurrentUserActorLabel() {
+      return String(currentUserDisplayName || currentUserEmail || "Me");
     }
 
     function inboxActionLabel(kind) {
@@ -17026,8 +17064,15 @@
         assignment_added: "Assigned",
         task_moved: "Moved",
         task_created: "Created",
+        task_deleted: "Deleted",
         project_shared: "Project added",
         project_removed: "Project removed",
+        project_created: "Project created",
+        project_updated: "Project updated",
+        project_deleted: "Project deleted",
+        group_created: "Group created",
+        group_updated: "Group updated",
+        group_deleted: "Group deleted",
         task_update: "Updated",
       };
       if (labels[normalized]) return labels[normalized];
@@ -17038,24 +17083,114 @@
       return String(value == null ? "" : value).trim().toLowerCase();
     }
 
-    function syncInboxFilterOptions(items) {
-      var actorSelect = document.querySelector("[data-inbox-actor-filter]");
-      var actionSelect = document.querySelector("[data-inbox-action-filter]");
-      if (!actorSelect && !actionSelect) return;
-      var rows = Array.isArray(items) ? items : [];
-      if (actorSelect) {
-        var selectedActor = actorSelect.value || "";
-        var actorMap = Object.create(null);
-        rows.forEach(function (item) {
-          var name = inboxActorName(item).trim();
-          if (!name) return;
-          actorMap[inboxFilterKey(name)] = name;
+    function collectInboxActorOptions(rows) {
+      var actorMap = Object.create(null);
+      var labelKeyMap = Object.create(null);
+      var selfKey = inboxCurrentUserActorKey();
+      var selfLabel = inboxCurrentUserActorLabel();
+      actorMap[selfKey] = selfLabel;
+      labelKeyMap[inboxFilterKey(selfLabel)] = selfKey;
+      rows.forEach(function (item) {
+        var name = inboxActorName(item).trim();
+        if (!name) return;
+        var key = inboxActorRawKey(item);
+        var labelKey = inboxFilterKey(name);
+        var existingKey = labelKeyMap[labelKey];
+        if (existingKey && existingKey !== key) {
+          // Merge name-only fallbacks with actor-id keys so the same person is not listed twice.
+          if (existingKey.indexOf("name:") === 0 && key.indexOf("name:") !== 0) {
+            delete actorMap[existingKey];
+            labelKeyMap[labelKey] = key;
+          } else {
+            return;
+          }
+        } else {
+          labelKeyMap[labelKey] = key;
+        }
+        actorMap[key] = name;
+      });
+      inboxActorCanonicalNameKeys = Object.create(null);
+      Object.keys(labelKeyMap).forEach(function (labelKey) {
+        inboxActorCanonicalNameKeys[labelKey] = labelKeyMap[labelKey];
+      });
+      return Object.keys(actorMap).sort(function (a, b) {
+        if (a === selfKey) return -1;
+        if (b === selfKey) return 1;
+        return actorMap[a].localeCompare(actorMap[b]);
+      }).map(function (key) {
+        return { key: key, label: actorMap[key], isMe: key === selfKey };
+      });
+    }
+
+    function ensureInboxActorSelection(options) {
+      var keys = options.map(function (option) { return option.key; });
+      var selfKey = inboxCurrentUserActorKey();
+      if (!Array.isArray(inboxActorFilterSelectedKeys)) {
+        inboxActorFilterSelectedKeys = keys.filter(function (key) { return key !== selfKey; });
+        return;
+      }
+      var selectedMap = Object.create(null);
+      inboxActorFilterSelectedKeys.forEach(function (key) { selectedMap[key] = true; });
+      if (!inboxActorFilterTouched) {
+        keys.forEach(function (key) {
+          if (key !== selfKey) selectedMap[key] = true;
         });
-        var actors = Object.keys(actorMap).sort(function (a, b) { return actorMap[a].localeCompare(actorMap[b]); });
-        actorSelect.innerHTML = '<option value="">All actors</option>' + actors.map(function (key) {
-          return '<option value="' + escapeHtml(key) + '">' + escapeHtml(actorMap[key]) + '</option>';
+      }
+      inboxActorFilterSelectedKeys = keys.filter(function (key) { return selectedMap[key]; });
+    }
+
+    function selectedInboxActorMap() {
+      var map = Object.create(null);
+      (Array.isArray(inboxActorFilterSelectedKeys) ? inboxActorFilterSelectedKeys : []).forEach(function (key) {
+        map[key] = true;
+      });
+      return map;
+    }
+
+    function setInboxActorSelection(keys) {
+      inboxActorFilterTouched = true;
+      inboxActorFilterSelectedKeys = Array.isArray(keys) ? keys.slice() : [];
+      renderInboxFeed(latestInboxItems);
+    }
+
+    function updateInboxActorSummary(options) {
+      var summary = document.querySelector("[data-inbox-actor-summary]");
+      if (!summary) return;
+      var selectedMap = selectedInboxActorMap();
+      var selfKey = inboxCurrentUserActorKey();
+      var selectedCount = options.filter(function (option) { return selectedMap[option.key]; }).length;
+      var nonSelfCount = options.filter(function (option) { return option.key !== selfKey; }).length;
+      var selectedNonSelfCount = options.filter(function (option) { return option.key !== selfKey && selectedMap[option.key]; }).length;
+      var selfSelected = !!selectedMap[selfKey];
+      if (selectedCount === 0) {
+        summary.textContent = "No actors";
+      } else if (selfSelected && selectedCount === 1) {
+        summary.textContent = "Just me";
+      } else if (!selfSelected && selectedNonSelfCount === nonSelfCount) {
+        summary.textContent = "Everyone but me";
+      } else if (selectedCount === options.length) {
+        summary.textContent = "All actors";
+      } else {
+        summary.textContent = selectedCount + " actor" + (selectedCount === 1 ? "" : "s");
+      }
+    }
+
+    function syncInboxFilterOptions(items) {
+      var actorList = document.querySelector("[data-inbox-actor-list]");
+      var actionSelect = document.querySelector("[data-inbox-action-filter]");
+      if (!actorList && !actionSelect) return;
+      var rows = Array.isArray(items) ? items : [];
+      if (actorList) {
+        var actorOptions = collectInboxActorOptions(rows);
+        ensureInboxActorSelection(actorOptions);
+        var selectedMap = selectedInboxActorMap();
+        actorList.innerHTML = actorOptions.map(function (option) {
+          return '<label class="inbox-actor-row">'
+            + '<input type="checkbox" data-inbox-actor-option="' + escapeHtml(option.key) + '"' + (selectedMap[option.key] ? ' checked' : '') + ' />'
+            + '<span>' + escapeHtml(option.label) + (option.isMe ? ' (me)' : '') + '</span>'
+            + '</label>';
         }).join("");
-        actorSelect.value = actors.indexOf(selectedActor) === -1 ? "" : selectedActor;
+        updateInboxActorSummary(actorOptions);
       }
       if (actionSelect) {
         var selectedAction = actionSelect.value || "";
@@ -17074,12 +17209,12 @@
     }
 
     function filteredInboxItems(items) {
-      var actorSelect = document.querySelector("[data-inbox-actor-filter]");
       var actionSelect = document.querySelector("[data-inbox-action-filter]");
-      var actorFilter = actorSelect ? inboxFilterKey(actorSelect.value) : "";
+      var selectedActors = selectedInboxActorMap();
+      var hasActorFilter = Array.isArray(inboxActorFilterSelectedKeys);
       var actionFilter = actionSelect ? String(actionSelect.value || "") : "";
       return (Array.isArray(items) ? items : []).filter(function (item) {
-        if (actorFilter && inboxFilterKey(inboxActorName(item)) !== actorFilter) return false;
+        if (hasActorFilter && !selectedActors[inboxActorKey(item)]) return false;
         if (actionFilter && String(item && item.kind || "") !== actionFilter) return false;
         return true;
       });
@@ -17089,11 +17224,15 @@
       var list = document.querySelector("[data-inbox-feed]");
       if (!list) return;
       var countEl = document.querySelector("[data-inbox-count]");
-      var allRows = Array.isArray(items) ? items.slice(0, 100) : [];
+      var allRows = Array.isArray(items) ? items : [];
       syncInboxFilterOptions(allRows);
-      var rows = filteredInboxItems(allRows);
+      var matchingRows = filteredInboxItems(allRows);
+      var rows = matchingRows.slice(0, 100);
       if (countEl) {
-        countEl.textContent = rows.length + " item" + (rows.length === 1 ? "" : "s") + (rows.length === allRows.length ? "" : " of " + allRows.length);
+        var visibleText = matchingRows.length + " item" + (matchingRows.length === 1 ? "" : "s");
+        if (matchingRows.length !== allRows.length) visibleText += " of " + allRows.length;
+        if (matchingRows.length > rows.length) visibleText += " (showing " + rows.length + ")";
+        countEl.textContent = visibleText;
       }
       if (!rows.length) {
         list.innerHTML = '<div class="inbox-empty">' + (allRows.length ? "No activity matches these filters." : "No activity yet.") + '</div>';
@@ -17418,7 +17557,7 @@
         var bId = String(b && b.id != null ? b.id : "");
         return bId.localeCompare(aId);
       });
-      return next.slice(0, 100);
+      return next.slice(0, 500);
     }
 
     function updateInboxItemsForTask(task) {
@@ -26213,11 +26352,49 @@
 
     var inboxFeedEl = document.querySelector("[data-inbox-feed]");
     if (inboxFeedEl) {
-      document.querySelectorAll("[data-inbox-actor-filter], [data-inbox-action-filter]").forEach(function (select) {
-        select.addEventListener("change", function () {
+      var inboxActorDropdown = document.querySelector("[data-inbox-actor-dropdown]");
+      var inboxActorTrigger = document.querySelector("[data-inbox-actor-trigger]");
+      var inboxActorMenu = document.querySelector("[data-inbox-actor-menu]");
+      var inboxActionSelect = document.querySelector("[data-inbox-action-filter]");
+      if (inboxActionSelect) {
+        inboxActionSelect.addEventListener("change", function () {
           renderInboxFeed(latestInboxItems);
         });
-      });
+      }
+      if (inboxActorTrigger && inboxActorMenu) {
+        inboxActorTrigger.addEventListener("click", function (event) {
+          event.preventDefault();
+          var isHidden = inboxActorMenu.hasAttribute("hidden");
+          inboxActorMenu.toggleAttribute("hidden", !isHidden);
+          inboxActorTrigger.setAttribute("aria-expanded", isHidden ? "true" : "false");
+        });
+        document.addEventListener("click", function (event) {
+          if (!inboxActorDropdown || inboxActorDropdown.contains(event.target)) return;
+          inboxActorMenu.setAttribute("hidden", "");
+          inboxActorTrigger.setAttribute("aria-expanded", "false");
+        });
+        inboxActorMenu.addEventListener("change", function (event) {
+          var checkbox = event.target.closest("[data-inbox-actor-option]");
+          if (!checkbox) return;
+          var keys = Array.from(inboxActorMenu.querySelectorAll("[data-inbox-actor-option]:checked")).map(function (input) {
+            return input.getAttribute("data-inbox-actor-option") || "";
+          }).filter(Boolean);
+          setInboxActorSelection(keys);
+        });
+        inboxActorMenu.addEventListener("click", function (event) {
+          var options = collectInboxActorOptions(Array.isArray(latestInboxItems) ? latestInboxItems : []);
+          if (event.target.closest("[data-inbox-actors-just-me]")) {
+            event.preventDefault();
+            setInboxActorSelection([inboxCurrentUserActorKey()]);
+            return;
+          }
+          if (event.target.closest("[data-inbox-actors-everyone-but-me]")) {
+            event.preventDefault();
+            var selfKey = inboxCurrentUserActorKey();
+            setInboxActorSelection(options.map(function (option) { return option.key; }).filter(function (key) { return key !== selfKey; }));
+          }
+        });
+      }
       renderInboxFeed(latestInboxItems);
       inboxFeedEl.addEventListener("click", function (event) {
         var button = event.target.closest("[data-inbox-open]");

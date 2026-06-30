@@ -163,6 +163,8 @@ def build_discussion_activity_items(rows: list[UserDiscussionActivity], *, user_
             "detail_payload": {
                 "actor_name": actor_name,
                 "actor_avatar_url": actor_avatar_url,
+                "actor_user_id": row.last_actor_user_id or "",
+                "actor_collaborator_id": row.last_actor_collaborator_id or "",
             },
             "summary": actor_name + " commented",
             "preview": row.last_preview or "New comment",
