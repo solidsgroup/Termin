@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% macro render_tree_project_complete_icon(project, tree_project_completion) %}
+  {% set completion = tree_project_completion.get(project.id, {}) if tree_project_completion is defined else {} %}
+  {% if completion.get('complete') %}
+    <span class="tree-project-complete-icon" data-tree-project-complete-icon title="All tasks complete" aria-label="All tasks complete"><i class="fa-regular fa-circle-check" aria-hidden="true"></i></span>
+  {% endif %}
+{% endmacro %}
 {% macro render_project_item(project, selected_project, member_project_ids, user, project_viewers, shared_project_ids, shared_out_project_ids, top_level=False, color=None) %}
   {% set can_manage = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
   {% set project_color = color or '#2a3442' %}
@@ -3466,8 +3472,9 @@
                   {% for project in projects_by_division.get(division.id, []) %}
                     <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-division-id="{{ division.id }}" style="--division-color: {{ division_color_map.get(division.id, '#4cc9f0') }};">
                       {% set tree_can_manage_project = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
-                      <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" draggable="true">
+                      <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" data-tree-project-complete="{{ 1 if tree_project_completion.get(project.id, {}).get('complete') else 0 }}" data-tree-project-complete-task-count="{{ tree_project_completion.get(project.id, {}).get('task_count', 0) }}" draggable="true">
                         <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
+                          {{ render_tree_project_complete_icon(project, tree_project_completion) }}
                           <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
                         </button>
                         {% if shared_project_ids and project.id in shared_project_ids %}
@@ -3507,8 +3514,9 @@
                   {% for project in unassigned_projects if not project.is_direct %}
                     <div class="todo-tree-node is-project" data-tree-project-node="{{ project.id }}" data-tree-division-id="none">
                       {% set tree_can_manage_project = project.owner_id == user.id or (member_project_ids and project.id in member_project_ids) %}
-                      <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" draggable="true">
+                      <div class="todo-tree-row" data-project-context="{{ project.id }}" data-project-manage="{{ 1 if tree_can_manage_project else 0 }}" data-tree-project-row="{{ project.id }}" data-tree-project-complete="{{ 1 if tree_project_completion.get(project.id, {}).get('complete') else 0 }}" data-tree-project-complete-task-count="{{ tree_project_completion.get(project.id, {}).get('task_count', 0) }}" draggable="true">
                         <button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="{{ project.id }}" data-tree-project-id="{{ project.id }}">
+                          {{ render_tree_project_complete_icon(project, tree_project_completion) }}
                           <span class="todo-tree-label">{{ project_display_names.get(project.id, project.name) }}</span>
                         </button>
                         {% if shared_project_ids and project.id in shared_project_ids %}
@@ -5986,6 +5994,10 @@
         return wrapper;
       }
 
+      function treeProjectCompleteIconHtml(hidden) {
+        return '<span class="tree-project-complete-icon" data-tree-project-complete-icon title="All tasks complete" aria-label="All tasks complete"' + (hidden ? ' hidden' : '') + '><i class="fa-regular fa-circle-check" aria-hidden="true"></i></span>';
+      }
+
 	      function buildTreeProjectNode(project, canManage) {
 	        if (!project || !project.id) return null;
         function escapeTreeText(value) {
@@ -6002,14 +6014,19 @@
             ? '<span class="shared-with-me-icon is-sharing-out" title="Sharing with others" aria-label="Sharing with others"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>'
             : '';
 	        var hasGroups = Number(project.group_count || 0) > 0;
+        var completion = project.completion && typeof project.completion === "object" ? project.completion : {};
+        var completionTaskCount = Math.max(0, Number(completion.task_count || project.task_count || 0));
+        var isCompleteProject = !!completion.complete;
+        var completionIconHtml = isCompleteProject ? treeProjectCompleteIconHtml(false) : "";
 	        var node = document.createElement("div");
 	        node.className = "todo-tree-node is-project";
 	        node.setAttribute("data-tree-project-node", String(project.id));
 	        node.setAttribute("data-tree-division-id", project.division_id === null || project.division_id === undefined ? "none" : String(project.division_id));
 	        node.style.setProperty("--project-color", resolveProjectColor(project));
 	        node.innerHTML =
-          '<div class="todo-tree-row" data-project-context="' + String(project.id) + '" data-project-manage="' + (canManage ? "1" : "0") + '" data-tree-project-row="' + String(project.id) + '" draggable="true">' +
+          '<div class="todo-tree-row" data-project-context="' + String(project.id) + '" data-project-manage="' + (canManage ? "1" : "0") + '" data-tree-project-row="' + String(project.id) + '" data-tree-project-complete="' + (isCompleteProject ? "1" : "0") + '" data-tree-project-complete-task-count="' + String(completionTaskCount) + '" draggable="true">' +
             '<button class="tree-select-button" type="button" data-tree-select-type="project" data-tree-select-id="' + String(project.id) + '" data-tree-project-id="' + String(project.id) + '">' +
+              completionIconHtml +
               '<span class="todo-tree-label">' + escapeTreeText(project.display_name || project.name || "Project") + '</span>' +
             '</button>' +
             shareIconHtml +
@@ -6526,6 +6543,23 @@
           : buildTreeProjectNode(project, canManage);
         if (!node) return false;
         if (!isDirectProject && !isTeamProject) {
+          var oldCompletionRow = existingNode ? existingNode.querySelector('[data-tree-project-row="' + String(project.id) + '"]') : null;
+          var newCompletionRow = node.querySelector('[data-tree-project-row="' + String(project.id) + '"]');
+          if (oldCompletionRow && newCompletionRow && !project.completion) {
+            newCompletionRow.setAttribute("data-tree-project-complete", oldCompletionRow.getAttribute("data-tree-project-complete") || "0");
+            newCompletionRow.setAttribute("data-tree-project-complete-task-count", oldCompletionRow.getAttribute("data-tree-project-complete-task-count") || "0");
+            if (oldCompletionRow.getAttribute("data-tree-project-complete") === "1") {
+              var newCompletionButton = newCompletionRow.querySelector('.tree-select-button[data-tree-select-type="project"]');
+              var newCompletionLabel = newCompletionButton ? newCompletionButton.querySelector('.todo-tree-label') : null;
+              if (newCompletionButton && !newCompletionButton.querySelector('[data-tree-project-complete-icon]')) {
+                if (newCompletionLabel) {
+                  newCompletionLabel.insertAdjacentHTML('beforebegin', treeProjectCompleteIconHtml(false));
+                } else {
+                  newCompletionButton.insertAdjacentHTML('afterbegin', treeProjectCompleteIconHtml(false));
+                }
+              }
+            }
+          }
           node.classList.remove("is-collapsed");
           var projectToggle = node.querySelector('[data-tree-toggle-project="' + String(project.id) + '"]');
           if (projectToggle) {
@@ -16332,6 +16366,9 @@
         window.__refreshDueDisplays();
       }
       syncProjectRooms();
+      if (typeof syncAllTreeProjectCompletionIcons === "function") {
+        syncAllTreeProjectCompletionIcons();
+      }
       return dashboardBootstrapStore;
     }
 
@@ -16378,6 +16415,9 @@
         reconcileLocalTaskStatusOverride(task);
       }
       mergeDashboardEntity("tasks", task);
+      if (task.project_id && typeof syncTreeProjectCompletionIcon === "function") {
+        syncTreeProjectCompletionIcon(task.project_id);
+      }
       if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return;
       var taskId = String(task.id);
       var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
@@ -16392,7 +16432,11 @@
     }
 
     function removeDashboardTask(taskId) {
+      var existingTask = dashboardTaskEntity(taskId);
       removeDashboardEntity("tasks", taskId);
+      if (existingTask && existingTask.project_id && typeof syncTreeProjectCompletionIcon === "function") {
+        syncTreeProjectCompletionIcon(existingTask.project_id);
+      }
       if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return;
       dashboardBootstrapStore.views.todo.task_ids = (dashboardBootstrapStore.views.todo.task_ids || []).filter(function (value) {
         return String(value) !== String(taskId);
@@ -19687,6 +19731,74 @@
       if (states.length && states.every(function (state) { return state === "complete"; })) return "complete";
       if (states.some(function (state) { return state === "critical"; })) return "critical";
       return decorateStatusState(task, "open");
+    }
+
+
+    function treeProjectCompleteIconHtml(hidden) {
+      return '<span class="tree-project-complete-icon" data-tree-project-complete-icon title="All tasks complete" aria-label="All tasks complete"' + (hidden ? ' hidden' : '') + '><i class="fa-regular fa-circle-check" aria-hidden="true"></i></span>';
+    }
+
+    function treeProjectCompletionDetails(projectId) {
+      var normalizedProjectId = String(projectId || "");
+      if (!normalizedProjectId) return { taskCount: 0, complete: false };
+      var taskMap = dashboardEntityMap("tasks");
+      var tasks = Object.keys(taskMap || {}).map(function (taskId) { return taskMap[taskId]; }).filter(function (task) {
+        return task && String(task.project_id || "") === normalizedProjectId;
+      });
+      return {
+        taskCount: tasks.length,
+        complete: tasks.length > 1 && tasks.every(function (task) {
+          return String(taskAggregateStatusState(task) || "").trim().toLowerCase() === "complete";
+        })
+      };
+    }
+
+    function treeProjectCompletionState(projectId) {
+      return treeProjectCompletionDetails(projectId).complete;
+    }
+
+    function syncTreeProjectCompletionIcon(projectId) {
+      var normalizedProjectId = String(projectId || "");
+      if (!normalizedProjectId) return;
+      var details = treeProjectCompletionDetails(normalizedProjectId);
+      var selectorProjectId = window.CSS && typeof window.CSS.escape === "function"
+        ? window.CSS.escape(normalizedProjectId)
+        : normalizedProjectId.replace(/\"/g, '\\"');
+      document.querySelectorAll('[data-tree-project-row="' + selectorProjectId + '"]').forEach(function (row) {
+        if (row.hasAttribute("data-project-team") || row.hasAttribute("data-project-direct")) return;
+        var serverTaskCount = Math.max(0, Number(row.getAttribute("data-tree-project-complete-task-count") || 0));
+        var complete = details.taskCount < serverTaskCount
+          ? row.getAttribute("data-tree-project-complete") === "1"
+          : details.complete;
+        if (details.taskCount >= serverTaskCount) {
+          row.setAttribute("data-tree-project-complete", complete ? "1" : "0");
+          row.setAttribute("data-tree-project-complete-task-count", String(details.taskCount));
+        }
+        var button = row.querySelector('.tree-select-button[data-tree-select-type="project"]');
+        if (!button) return;
+        var icon = button.querySelector('[data-tree-project-complete-icon]');
+        if (complete && !icon) {
+          var label = button.querySelector('.todo-tree-label');
+          if (label) {
+            label.insertAdjacentHTML('beforebegin', treeProjectCompleteIconHtml(false));
+          } else {
+            button.insertAdjacentHTML('afterbegin', treeProjectCompleteIconHtml(false));
+          }
+          return;
+        }
+        if (icon) {
+          icon.hidden = !complete;
+        }
+      });
+    }
+
+    function syncAllTreeProjectCompletionIcons() {
+      var projectIds = Object.create(null);
+      document.querySelectorAll('[data-tree-project-row]').forEach(function (row) {
+        var projectId = row.getAttribute('data-tree-project-row') || row.getAttribute('data-tree-project-id') || '';
+        if (projectId) projectIds[String(projectId)] = true;
+      });
+      Object.keys(projectIds).forEach(syncTreeProjectCompletionIcon);
     }
 
     function taskStatusBlockedByPrereq(task) {

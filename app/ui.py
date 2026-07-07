@@ -1729,6 +1729,10 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         project_ungrouped_tasks: list[Task] = []
         project_tasks = _task_ordering(Task.query.filter_by(project_id=project.id)).all()
         project_status_map = task_status_meta_map(project_tasks, viewer_user_id=user.id)
+        project_completed = len(project_tasks) > 1 and all(
+            str((project_status_map.get(task.id) or {}).get("aggregate_state") or "").strip().lower() == "complete"
+            for task in project_tasks
+        )
         project_groups = Group.query.filter_by(project_id=project.id).order_by(Group.position.asc(), Group.id.asc()).all()
         project_tasks_by_group = {group.id: [] for group in project_groups}
         group_name_by_id = {group.id: group.name for group in project_groups}
@@ -1756,6 +1760,10 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
             "color": project_color,
             "is_github_project": project_is_github,
             "division_id": pref.division_id if pref else None,
+            "completion": {
+                "task_count": len(project_tasks),
+                "complete": project_completed,
+            },
             "project_info": load_info_payload(project.info, project.link),
             "group_info_by_id": {
                 group.id: load_info_payload(group.info, group.link)
@@ -1870,6 +1878,10 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     selected_project_display_name = project_display_names.get(selected_project.id, selected_project.name) if selected_project else ""
     tree_source_projects = standard_projects + team_projects + direct_projects
     tree_project_contexts = [build_project_context(project) for project in tree_source_projects]
+    tree_project_completion = {
+        context["project"].id: context.get("completion") or {"task_count": 0, "complete": False}
+        for context in tree_project_contexts
+    }
     tree_groups_by_project: dict[int, list[Group]] = {
         context["project"].id: context["groups"]
         for context in tree_project_contexts
@@ -2243,6 +2255,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         shared_out_group_ids=shared_out_group_ids,
         selected_project_display_name=selected_project_display_name,
         tree_project_contexts=tree_project_contexts,
+        tree_project_completion=tree_project_completion,
         tree_groups_by_project=tree_groups_by_project,
         todo_groups_by_date=todo_groups_by_date,
         todo_assignee_options=todo_assignee_options,
