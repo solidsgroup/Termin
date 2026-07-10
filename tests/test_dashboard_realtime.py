@@ -31,7 +31,8 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app.extensions import db, socketio
-from app.models import Assignment, DevMailboxMessage, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskUserStatus, TeamInvite, User
+from app.info_utils import normalize_info_payload
+from app.models import Assignment, DevMailboxMessage, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskPrerequisite, TaskUserStatus, TeamInvite, User
 from app.realtime import emit_task_updated
 
 
@@ -121,6 +122,75 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(dashboard_response.status_code, 200)
         self.assertIn('data-dashboard-current-view="dashboard"', root_response.get_data(as_text=True))
         self.assertIn('data-dashboard-current-view="dashboard"', dashboard_response.get_data(as_text=True))
+
+    def test_copy_group_to_other_projects_copies_tasks_and_internal_prerequisites(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            peer = self.create_user("peer@example.com", "Peer")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            source_project = self.create_project(owner, "Source")
+            target_project = self.create_project(owner, "Target")
+            direct_project = self.create_project(owner, "Direct", is_direct=True, direct_peer=peer)
+            source_group = Group(
+                project_id=source_project.id,
+                name="Launch",
+                position=1,
+                color="#4cc9f0",
+                info=normalize_info_payload({"html": "<p>group notes</p>", "attachments": []}),
+                link="https://example.com/group",
+                description="Group description",
+                description_format="markdown",
+            )
+            db.session.add(source_group)
+            db.session.flush()
+            first = Task(
+                project_id=source_project.id,
+                group_id=source_group.id,
+                creator_user_id=owner.id,
+                title="First",
+                position=1,
+                status="open",
+                status_mode="single",
+                info=normalize_info_payload({"html": "<p>first</p>", "attachments": []}),
+            )
+            second = Task(
+                project_id=source_project.id,
+                group_id=source_group.id,
+                creator_user_id=owner.id,
+                title="Second",
+                position=2,
+                status="complete",
+                status_mode="single",
+                info=normalize_info_payload({"html": "<p>second</p>", "attachments": []}),
+            )
+            db.session.add_all([first, second])
+            db.session.flush()
+            db.session.add(TaskPrerequisite(task_id=second.id, prerequisite_task_id=first.id))
+            db.session.commit()
+            source_group_id = source_group.id
+            target_project_id = target_project.id
+            direct_project_id = direct_project.id
+
+        self.login(self.client, owner_id)
+        response = self.client.post(
+            f"/api/groups/{source_group_id}/copy",
+            json={"project_ids": [target_project_id, direct_project_id]},
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(len(payload["groups"]), 2)
+        self.assertEqual({row["project_id"] for row in payload["groups"]}, {target_project_id, direct_project_id})
+
+        with self.app.app_context():
+            for project_id in (target_project_id, direct_project_id):
+                copied_group = Group.query.filter_by(project_id=project_id, name="Launch").one()
+                self.assertEqual(copied_group.color, "#4cc9f0")
+                self.assertEqual(copied_group.link, "https://example.com/group")
+                copied_tasks = Task.query.filter_by(group_id=copied_group.id).order_by(Task.position.asc()).all()
+                self.assertEqual([task.title for task in copied_tasks], ["First", "Second"])
+                self.assertTrue(all(task.project_id == project_id for task in copied_tasks))
+                copied_prerequisite = TaskPrerequisite.query.filter_by(task_id=copied_tasks[1].id).one()
+                self.assertEqual(copied_prerequisite.prerequisite_task_id, copied_tasks[0].id)
 
     def test_project_gantt_ranges_persist_in_project_payloads(self):
         with self.app.app_context():

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from html import escape
 import json
@@ -4340,37 +4341,40 @@ def delete_group(group_id: int):
     return {"status": "deleted"}, 200
 
 
-@api_bp.post("/groups/<int:group_id>/duplicate")
-@login_required
-def duplicate_group(group_id: int):
-    user = current_user()
-    group = Group.query.get(group_id)
-    if not group:
-        return {"error": "group not found"}, 404
-    if not _can_manage_project(user, group.project_id):
-        return {"error": "unauthorized"}, 403
-
-    max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=group.project_id).scalar() or 0
+def _copy_group_to_project(source_group: Group, target_project_id: int, *, actor_user_id: int, name: str | None = None) -> tuple[Group, dict[int, int]]:
+    max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=target_project_id).scalar() or 0
     new_group = Group(
-        project_id=group.project_id,
-        name=f"{group.name} Copy",
+        project_id=target_project_id,
+        name=(name or source_group.name),
         position=max_pos + 1,
-        color=group.color,
+        color=source_group.color,
+        info=deepcopy(source_group.info),
+        link=source_group.link,
+        description=source_group.description,
+        description_format=source_group.description_format,
     )
     db.session.add(new_group)
     db.session.flush()
 
-    task_map = {}
-    for task in Task.query.filter_by(group_id=group.id).order_by(Task.position.asc(), Task.id.asc()).all():
+    task_map: dict[int, int] = {}
+    source_tasks = Task.query.filter_by(group_id=source_group.id).order_by(Task.position.asc(), Task.id.asc()).all()
+    for task in source_tasks:
         new_task = Task(
-            project_id=task.project_id,
+            project_id=target_project_id,
             group_id=new_group.id,
-            creator_user_id=user.id,
+            creator_user_id=actor_user_id,
             position=task.position,
             title=task.title,
             description=task.description,
+            description_format=task.description_format,
+            info=deepcopy(task.info),
+            link=task.link,
             due_at=task.due_at,
+            locked=task.locked,
             status=task.status,
+            status_mode=task.status_mode,
+            per_user_status_enabled=task.per_user_status_enabled,
+            assign_group_members=task.assign_group_members,
             owner_calendar_opt_in=task.owner_calendar_opt_in,
         )
         db.session.add(new_task)
@@ -4388,12 +4392,22 @@ def duplicate_group(group_id: int):
             new_prerequisite_task_id = task_map.get(prerequisite.prerequisite_task_id)
             if not new_task_id or not new_prerequisite_task_id:
                 continue
-            db.session.add(
-                TaskPrerequisite(
-                    task_id=new_task_id,
-                    prerequisite_task_id=new_prerequisite_task_id,
-                )
-            )
+            db.session.add(TaskPrerequisite(task_id=new_task_id, prerequisite_task_id=new_prerequisite_task_id))
+
+    return new_group, task_map
+
+
+@api_bp.post("/groups/<int:group_id>/duplicate")
+@login_required
+def duplicate_group(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_manage_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+
+    new_group, _task_map = _copy_group_to_project(group, group.project_id, actor_user_id=user.id, name=f"{group.name} Copy")
 
     db.session.commit()
     tasks = Task.query.filter_by(group_id=new_group.id).order_by(Task.position.asc(), Task.id.asc()).all()
@@ -4407,6 +4421,67 @@ def duplicate_group(group_id: int):
         "color": new_group.color,
         "tasks": [_serialize_task_row(task) for task in tasks],
     }, 201
+
+
+@api_bp.post("/groups/<int:group_id>/copy")
+@login_required
+def copy_group_to_projects(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_manage_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+
+    payload = request.get_json(silent=True) or {}
+    raw_project_ids = payload.get("project_ids")
+    if not isinstance(raw_project_ids, list) or not raw_project_ids:
+        return {"error": "project_ids is required"}, 400
+
+    target_ids = []
+    for raw_id in raw_project_ids:
+        try:
+            project_id = int(raw_id)
+        except (TypeError, ValueError):
+            return {"error": "invalid project_id"}, 400
+        if project_id == group.project_id or project_id in target_ids:
+            continue
+        target_ids.append(project_id)
+
+    if not target_ids:
+        return {"error": "no target projects selected"}, 400
+
+    for project_id in target_ids:
+        target_project = Project.query.get(project_id)
+        if not target_project:
+            return {"error": f"project {project_id} not found"}, 404
+        if not _can_manage_project(user, project_id):
+            return {"error": f"unauthorized for project {project_id}"}, 403
+
+    copied_groups = []
+    for project_id in target_ids:
+        new_group, _task_map = _copy_group_to_project(group, project_id, actor_user_id=user.id, name=group.name)
+        copied_groups.append(new_group)
+
+    db.session.commit()
+
+    response_groups = []
+    for new_group in copied_groups:
+        tasks = Task.query.filter_by(group_id=new_group.id).order_by(Task.position.asc(), Task.id.asc()).all()
+        log_group_history(new_group, actor=user, action="created")
+        response_groups.append({
+            "id": new_group.id,
+            "name": new_group.name,
+            "project_id": new_group.project_id,
+            "color": new_group.color,
+            "tasks": [_serialize_task_row(task) for task in tasks],
+        })
+
+    db.session.commit()
+    for new_group in copied_groups:
+        emit_group_created(new_group, actor_user_id=user.id)
+
+    return {"groups": response_groups}, 201
 
 
 @api_bp.post("/groups/<int:group_id>/promote")

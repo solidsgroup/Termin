@@ -2488,6 +2488,55 @@
     }
   }
 
+  .copy-group-project-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    max-height: min(54vh, 420px);
+    overflow: auto;
+    padding-right: 2px;
+  }
+
+  .copy-group-project-option {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--panel) 94%, var(--accent) 6%);
+    cursor: pointer;
+  }
+
+  .copy-group-project-option:hover {
+    border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  }
+
+  .copy-group-project-option input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+
+  .copy-group-project-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-weight: 650;
+  }
+
+  .copy-group-project-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
   .todo-check-toggle {
     flex: 0 0 auto;
     width: 24px;
@@ -4298,6 +4347,7 @@
   </div>
   <button data-action="share">Share</button>
   <button data-action="duplicate">Duplicate</button>
+  <button data-action="copy-group">Copy to other projects</button>
   <button data-action="delete">Delete</button>
 </div>
 
@@ -4326,6 +4376,19 @@
     <div id="share-list" class="share-list"></div>
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
       <button class="btn secondary" type="button" id="share-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="copy-group-modal" class="modal">
+  <div class="panel">
+    <h3 id="copy-group-title">Copy Group</h3>
+    <div class="footer-note" id="copy-group-subtitle">Choose target projects.</div>
+    <div class="copy-group-project-list" id="copy-group-project-list"></div>
+    <div id="copy-group-status" class="footer-note" style="margin-top: 8px;"></div>
+    <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+      <button class="btn secondary" type="button" id="copy-group-cancel">Cancel</button>
+      <button class="btn" type="button" id="copy-group-submit" disabled>Copy</button>
     </div>
   </div>
 </div>
@@ -9229,9 +9292,11 @@
             ? action === "rename" || action === "delete" || action === "color" || action === "add-project" || action === "move-up" || action === "move-down"
             : action === "share"
               ? type === "project"
+              : action === "copy-group"
+                ? type === "group"
               : action === "promote-project"
                 ? type === "group"
-              : action === "add-group"
+              : action === "add-group" || action === "add-group-template"
                 ? type === "project"
                 : action === "add-project"
                   ? false
@@ -9537,6 +9602,10 @@
         } else if (action === "add-group-template") {
           if (typeof window.__openGroupTemplateModal === "function") {
             window.__openGroupTemplateModal(id);
+          }
+        } else if (action === "copy-group") {
+          if (typeof window.__openCopyGroupModal === "function") {
+            window.__openCopyGroupModal(id);
           }
         } else if (action === "promote-project") {
           fetch("/api/groups/" + id + "/promote", {
@@ -11330,7 +11399,7 @@
       panel.className = "panel group";
       panel.style.setProperty("--group-color", groupColor);
       panel.innerHTML = `
-        <div class="group-header" ${canManageGroup ? `draggable="true" data-drag-group="${groupData.id}"` : ""} data-group-context="${groupData.id}">
+        <div class="group-header" ${canManageGroup ? `draggable="true" data-drag-group="${groupData.id}"` : ""} data-group-context="${groupData.id}" data-group-manage="${canManageGroup ? "1" : "0"}">
           <h3 class="group-title">
             <span class="group-title-text${canManageGroup ? " editable" : ""}" ${canManageGroup ? `contenteditable="true"` : ""} data-group-id="${groupData.id}" data-field="name">${escapeHtml(groupData.name || "Untitled Group")}</span>
             <span class="task-link-badges" data-entity-link-badges="group:${groupData.id}">${renderInlineTaskLinkBadges((groupData && groupData.links) || (groupData && groupData.link ? [groupData.link] : []))}</span>
@@ -12615,6 +12684,13 @@
     const shareCancel = document.getElementById("share-cancel");
     const shareStatus = document.getElementById("share-status");
     const shareList = document.getElementById("share-list");
+    const copyGroupModal = document.getElementById("copy-group-modal");
+    const copyGroupTitle = document.getElementById("copy-group-title");
+    const copyGroupSubtitle = document.getElementById("copy-group-subtitle");
+    const copyGroupProjectList = document.getElementById("copy-group-project-list");
+    const copyGroupStatus = document.getElementById("copy-group-status");
+    const copyGroupCancel = document.getElementById("copy-group-cancel");
+    const copyGroupSubmit = document.getElementById("copy-group-submit");
     const directProjectModal = document.getElementById("direct-project-modal");
     const directProjectInput = document.getElementById("direct-project-input");
     const directProjectSuggest = document.getElementById("direct-project-suggest");
@@ -12653,6 +12729,7 @@
     let infoContext = null;
     let currentContext = null;
     let shareContext = null;
+    let copyGroupContext = null;
     let shareSuggestResults = [];
     let shareSuggestActiveIndex = -1;
     let directProjectResults = [];
@@ -12661,6 +12738,17 @@
     let quickTaskSelection = { projectId: "", groupId: "" };
     let quickTaskAssigneeCache = {};
     let quickTaskDueModeValue = "asap";
+    const copyGroupProjectFallback = [
+      {% for context in tree_project_contexts %}
+      {
+        id: {{ context.project.id|tojson }},
+        name: {{ context.display_name|tojson }},
+        can_manage: {{ context.can_manage_project|tojson }},
+        is_direct: {{ context.project.is_direct|tojson }},
+        is_team: {{ context.project.is_team|tojson }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ];
 
     const hideContextMenu = () => {
       if (contextMenu) contextMenu.style.display = "none";
@@ -12736,6 +12824,8 @@
           ? action === "rename" || action === "delete" || action === "color" || action === "add-project" || action === "move-up" || action === "move-down"
           : type === "direct_project"
             ? action === "delete"
+            : action === "copy-group"
+              ? type === "group"
             : action === "promote-project"
               ? type === "group"
             : action === "add-group" || action === "add-group-template"
@@ -12822,6 +12912,167 @@
       loadShareMembers();
     };
     window.__openShareModal = openShareModal;
+
+    const copyGroupManageableProjectIds = () => {
+      const store = (typeof window !== "undefined" && window.__dashboardBootstrapStore) ? window.__dashboardBootstrapStore : null;
+      if (!store || !store.access || !Array.isArray(store.access.manageable_project_ids)) return [];
+      return store.access.manageable_project_ids.map((value) => String(value));
+    };
+
+    const copyGroupProjectCandidates = (sourceProjectId) => {
+      const store = (typeof window !== "undefined" && window.__dashboardBootstrapStore) ? window.__dashboardBootstrapStore : null;
+      const projectMap = store && store.entities && store.entities.projects ? store.entities.projects : null;
+      const sourceId = String(sourceProjectId || "");
+      const manageableIds = new Set(copyGroupManageableProjectIds());
+      const rawProjects = projectMap
+        ? Object.keys(projectMap).map((projectId) => projectMap[projectId])
+        : copyGroupProjectFallback;
+      const seen = new Set();
+      return rawProjects
+        .filter((project) => {
+          if (!project || project.id === undefined || project.id === null) return false;
+          const projectId = String(project.id);
+          if (!projectId || projectId === sourceId || seen.has(projectId)) return false;
+          seen.add(projectId);
+          if (project.can_manage || project.can_manage_project) return true;
+          return manageableIds.has(projectId);
+        })
+        .map((project) => ({
+          id: String(project.id),
+          name: project.display_name || project.name || "Untitled Project",
+          is_direct: !!project.is_direct,
+          is_team: !!project.is_team,
+        }))
+        .sort((a, b) => {
+          const rank = (project) => project.is_team ? 0 : (project.is_direct ? 2 : 1);
+          const rankDelta = rank(a) - rank(b);
+          if (rankDelta) return rankDelta;
+          return a.name.localeCompare(b.name);
+        });
+    };
+
+    const cssString = (value) => {
+      if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(value));
+      return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+    };
+
+    const copyGroupSourceProjectId = (groupId) => {
+      const entity = typeof dashboardGroupEntity === "function" ? dashboardGroupEntity(groupId) : null;
+      if (entity && entity.project_id) return String(entity.project_id);
+      const header = document.querySelector(`[data-group-context="${cssString(groupId)}"]`);
+      if (header && header.getAttribute("data-tree-project-id")) return String(header.getAttribute("data-tree-project-id"));
+      const board = header ? header.closest("[data-tree-project-board]") : null;
+      if (board && board.getAttribute("data-tree-project-board")) return String(board.getAttribute("data-tree-project-board"));
+      const section = header ? header.closest(".group-card, .group-section, [data-group-id]") : null;
+      const table = section ? section.querySelector(".tasks-table[data-project-id]") : null;
+      if (table && table.getAttribute("data-project-id")) return String(table.getAttribute("data-project-id"));
+      return "";
+    };
+
+    const copyGroupName = (groupId) => {
+      const entity = typeof dashboardGroupEntity === "function" ? dashboardGroupEntity(groupId) : null;
+      if (entity && entity.name) return entity.name;
+      const titleNode = document.querySelector(`.group-title-text[data-group-id="${cssString(groupId)}"]`);
+      return titleNode ? titleNode.textContent.trim() : "Group";
+    };
+
+    const copyGroupKindMeta = (project) => {
+      if (project.is_team) return { label: "Team", icon: "fa-users" };
+      if (project.is_direct) return { label: "Direct", icon: "fa-user-group" };
+      return { label: "Project", icon: "fa-diagram-project" };
+    };
+
+    const updateCopyGroupSubmitState = () => {
+      if (!copyGroupSubmit || !copyGroupProjectList) return;
+      const count = copyGroupProjectList.querySelectorAll("[data-copy-group-project]:checked").length;
+      copyGroupSubmit.disabled = count === 0;
+      copyGroupSubmit.textContent = count > 0 ? `Copy to ${count} project${count === 1 ? "" : "s"}` : "Copy";
+    };
+
+    const renderCopyGroupProjectChoices = (projects) => {
+      if (!copyGroupProjectList) return;
+      if (!projects.length) {
+        copyGroupProjectList.innerHTML = '<div class="footer-note">No other manageable projects.</div>';
+        updateCopyGroupSubmitState();
+        return;
+      }
+      copyGroupProjectList.innerHTML = projects.map((project) => {
+        const kind = copyGroupKindMeta(project);
+        return (
+          '<label class="copy-group-project-option">' +
+            '<input type="checkbox" value="' + escapeHtml(project.id) + '" data-copy-group-project />' +
+            '<span class="copy-group-project-name">' + escapeHtml(project.name) + '</span>' +
+            '<span class="copy-group-project-kind"><i class="fa-solid ' + kind.icon + '" aria-hidden="true"></i>' + escapeHtml(kind.label) + '</span>' +
+          '</label>'
+        );
+      }).join("");
+      updateCopyGroupSubmitState();
+    };
+
+    const openCopyGroupModal = (groupId) => {
+      if (!copyGroupModal || !groupId) return;
+      const sourceProjectId = copyGroupSourceProjectId(groupId);
+      copyGroupContext = { groupId: String(groupId), sourceProjectId };
+      if (copyGroupTitle) copyGroupTitle.textContent = `Copy ${copyGroupName(groupId) || "Group"}`;
+      if (copyGroupSubtitle) copyGroupSubtitle.textContent = "Choose the projects that should receive this group.";
+      if (copyGroupStatus) copyGroupStatus.textContent = "";
+      renderCopyGroupProjectChoices(copyGroupProjectCandidates(sourceProjectId));
+      copyGroupModal.style.display = "flex";
+    };
+    window.__openCopyGroupModal = openCopyGroupModal;
+
+    const closeCopyGroupModal = () => {
+      if (!copyGroupModal) return;
+      copyGroupModal.style.display = "none";
+      copyGroupContext = null;
+      if (copyGroupProjectList) copyGroupProjectList.innerHTML = "";
+      if (copyGroupStatus) copyGroupStatus.textContent = "";
+      if (copyGroupSubmit) {
+        copyGroupSubmit.disabled = true;
+        copyGroupSubmit.textContent = "Copy";
+      }
+    };
+
+    const submitCopyGroupModal = () => {
+      if (!copyGroupContext || !copyGroupProjectList || !copyGroupSubmit) return;
+      const projectIds = Array.prototype.slice.call(copyGroupProjectList.querySelectorAll("[data-copy-group-project]:checked"))
+        .map((input) => input.value)
+        .filter(Boolean);
+      if (!projectIds.length) return;
+      copyGroupSubmit.disabled = true;
+      if (copyGroupStatus) copyGroupStatus.textContent = "Copying...";
+      fetch(`/api/groups/${copyGroupContext.groupId}/copy`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_ids: projectIds }),
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          if (!result.ok || !result.data || !Array.isArray(result.data.groups)) {
+            throw new Error(result.data && result.data.error ? result.data.error : "Copy failed");
+          }
+          result.data.groups.forEach((group) => {
+            if (group && group.id && typeof window.__insertTreeGroupLocal === "function") {
+              window.__insertTreeGroupLocal(group);
+            }
+          });
+          closeCopyGroupModal();
+        })
+        .catch((error) => {
+          if (copyGroupStatus) copyGroupStatus.textContent = error && error.message ? error.message : "Copy failed.";
+          updateCopyGroupSubmitState();
+        });
+    };
+
+    if (copyGroupCancel) copyGroupCancel.addEventListener("click", closeCopyGroupModal);
+    if (copyGroupSubmit) copyGroupSubmit.addEventListener("click", submitCopyGroupModal);
+    if (copyGroupProjectList) copyGroupProjectList.addEventListener("change", updateCopyGroupSubmitState);
+    if (copyGroupModal) {
+      copyGroupModal.addEventListener("click", (event) => {
+        if (event.target === copyGroupModal) closeCopyGroupModal();
+      });
+    }
 
     const closeShareModal = () => {
       if (!shareModal) return;
@@ -14006,6 +14257,9 @@
         }
         if (action === "add-group-template" && typeof window.__openGroupTemplateModal === "function") {
           window.__openGroupTemplateModal(id);
+        }
+        if (action === "copy-group" && typeof window.__openCopyGroupModal === "function") {
+          openCopyGroupModal(id);
         }
         if (action === "promote-project") {
           fetch(`/api/groups/${id}/promote`, {
