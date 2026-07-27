@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from html import escape
 import json
+from threading import Lock, Thread
 
 from app.extensions import db
 from app.info_utils import normalize_info_payload
-from app.models import Assignment, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Group, Project, ProjectSidebarPreference, Task
+from app.models import Assignment, ExternalIdentity, GitHubIssueLink, GitHubSyncState, Group, Project, ProjectSidebarPreference, Task, User
 from app.oauth import oauth
 from app.sidebar_layout import insert_project_position
 
@@ -16,6 +17,8 @@ class GitHubSyncError(Exception):
 
 
 SYNC_INTERVAL_SECONDS = 60
+_background_sync_lock = Lock()
+_background_sync_user_ids: set[int] = set()
 
 
 def github_identity_for_user(user_id: int) -> ExternalIdentity | None:
@@ -408,3 +411,42 @@ def sync_github_issues_for_user(user) -> dict:
         "total": len(items),
         "last_synced_at": state.last_synced_at,
     }
+
+
+def schedule_github_sync_for_user(app, user_id: int) -> bool:
+    normalized_user_id = int(user_id)
+    with _background_sync_lock:
+        if normalized_user_id in _background_sync_user_ids:
+            return False
+        _background_sync_user_ids.add(normalized_user_id)
+
+    def worker() -> None:
+        try:
+            with app.app_context():
+                user = db.session.get(User, normalized_user_id)
+                if not user or not should_sync_github_issues(normalized_user_id):
+                    return
+                sync_github_issues_for_user(user)
+        except GitHubSyncError as exc:
+            app.logger.warning(
+                "Background GitHub sync skipped for user %s: %s",
+                normalized_user_id,
+                exc,
+            )
+        except Exception:
+            app.logger.exception(
+                "Background GitHub sync failed for user %s",
+                normalized_user_id,
+            )
+        finally:
+            with app.app_context():
+                db.session.remove()
+            with _background_sync_lock:
+                _background_sync_user_ids.discard(normalized_user_id)
+
+    Thread(
+        target=worker,
+        name=f"termin-github-sync-{normalized_user_id}",
+        daemon=True,
+    ).start()
+    return True

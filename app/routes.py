@@ -27,7 +27,7 @@ from app.discussion_history import (
     log_task_history,
     serialized_discussion_events_for_entity,
 )
-from app.github_sync import GitHubSyncError, github_identity_for_user, should_sync_github_issues, sync_github_issues_for_user
+from app.github_sync import github_identity_for_user, schedule_github_sync_for_user, should_sync_github_issues
 from app.group_templates import serialize_group_template
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, normalize_email, search_users_by_identity
@@ -1759,12 +1759,8 @@ def sync_github():
         return {"error": "github not connected"}, 400
     if not should_sync_github_issues(user.id):
         return {"ok": True, "skipped": True}
-    try:
-        result = sync_github_issues_for_user(user)
-    except GitHubSyncError as exc:
-        current_app.logger.warning("Background GitHub sync skipped for user %s: %s", user.id, exc)
-        return {"error": str(exc)}, 400
-    return {"ok": True, "result": result}
+    scheduled = schedule_github_sync_for_user(current_app._get_current_object(), user.id)
+    return {"ok": True, "scheduled": scheduled}, (202 if scheduled else 200)
 
 
 def _can_access_task(user, task: Task) -> bool:
@@ -1847,8 +1843,12 @@ def _serialize_simple_comment(comment, author: User | None, *, project_id: int |
     return payload
 
 
-def _serialize_assignment_row(assignment: Assignment) -> dict:
-    account_user = User.query.get(assignment.user_id) if assignment.user_id else None
+_UNSET = object()
+
+
+def _serialize_assignment_row(assignment: Assignment, *, account_user=_UNSET) -> dict:
+    if account_user is _UNSET:
+        account_user = User.query.get(assignment.user_id) if assignment.user_id else None
     return {
         "id": assignment.id,
         "task_id": assignment.task_id,
@@ -1861,8 +1861,9 @@ def _serialize_assignment_row(assignment: Assignment) -> dict:
     }
 
 
-def _serialize_follower_row(follower: TaskFollower) -> dict:
-    account_user = User.query.get(follower.user_id) if follower.user_id else None
+def _serialize_follower_row(follower: TaskFollower, *, account_user=_UNSET) -> dict:
+    if account_user is _UNSET:
+        account_user = User.query.get(follower.user_id) if follower.user_id else None
     return {
         "id": follower.id,
         "task_id": follower.task_id,
@@ -1873,11 +1874,17 @@ def _serialize_follower_row(follower: TaskFollower) -> dict:
     }
 
 
-def _serialize_task_prerequisite_row(prerequisite: TaskPrerequisite) -> dict | None:
-    task = Task.query.get(prerequisite.prerequisite_task_id)
+def _serialize_task_prerequisite_row(
+    prerequisite: TaskPrerequisite,
+    *,
+    task=_UNSET,
+    status_meta: dict | None = None,
+) -> dict | None:
+    if task is _UNSET:
+        task = Task.query.get(prerequisite.prerequisite_task_id)
     if not task:
         return None
-    status_meta = task_status_meta(task)
+    resolved_status_meta = status_meta if status_meta is not None else task_status_meta(task)
     return {
         "id": prerequisite.id,
         "task_id": prerequisite.task_id,
@@ -1888,8 +1895,8 @@ def _serialize_task_prerequisite_row(prerequisite: TaskPrerequisite) -> dict | N
         "status": task.status,
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
-        "status_meta": status_meta,
-        "prereq_blocked": bool(status_meta.get("prereq_blocked")) if isinstance(status_meta, dict) else False,
+        "status_meta": resolved_status_meta,
+        "prereq_blocked": bool(resolved_status_meta.get("prereq_blocked")) if isinstance(resolved_status_meta, dict) else False,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "due_relative": _task_due_relative(task),
@@ -1913,11 +1920,17 @@ def _serialize_task_prerequisites(task_id: int) -> list[dict]:
     return serialized
 
 
-def _serialize_task_dependent_row(prerequisite: TaskPrerequisite) -> dict | None:
-    task = Task.query.get(prerequisite.task_id)
+def _serialize_task_dependent_row(
+    prerequisite: TaskPrerequisite,
+    *,
+    task=_UNSET,
+    status_meta: dict | None = None,
+) -> dict | None:
+    if task is _UNSET:
+        task = Task.query.get(prerequisite.task_id)
     if not task:
         return None
-    status_meta = task_status_meta(task)
+    resolved_status_meta = status_meta if status_meta is not None else task_status_meta(task)
     return {
         "id": prerequisite.id,
         "task_id": prerequisite.task_id,
@@ -1929,8 +1942,8 @@ def _serialize_task_dependent_row(prerequisite: TaskPrerequisite) -> dict | None
         "status": task.status,
         "status_mode": _task_status_mode(task),
         "status_percentage": _task_status_percentage(task),
-        "status_meta": status_meta,
-        "prereq_blocked": bool(status_meta.get("prereq_blocked")) if isinstance(status_meta, dict) else False,
+        "status_meta": resolved_status_meta,
+        "prereq_blocked": bool(resolved_status_meta.get("prereq_blocked")) if isinstance(resolved_status_meta, dict) else False,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "due_relative": _task_due_relative(task),
@@ -2150,20 +2163,39 @@ def _merge_comment_links(item, body: str) -> bool:
     return True
 
 
-def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dict:
+def _serialize_task_row(
+    task: Task,
+    *,
+    viewer_user_id: int | None = None,
+    status_meta: dict | None = None,
+    assignments: list[Assignment] | None = None,
+    followers: list[TaskFollower] | None = None,
+    creator=_UNSET,
+    users_by_id: dict[int, User] | None = None,
+    prerequisites: list[dict] | None = None,
+    dependents: list[dict] | None = None,
+) -> dict:
     info = load_info_payload(task.info)
-    assignments = (
-        Assignment.query.filter_by(task_id=task.id)
-        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
-        .all()
+    if assignments is None:
+        assignments = (
+            Assignment.query.filter_by(task_id=task.id)
+            .order_by(Assignment.created_at.asc(), Assignment.id.asc())
+            .all()
+        )
+    if followers is None:
+        followers = (
+            TaskFollower.query.filter_by(task_id=task.id)
+            .order_by(TaskFollower.created_at.asc(), TaskFollower.id.asc())
+            .all()
+        )
+    resolved_status_meta = (
+        status_meta
+        if status_meta is not None
+        else task_status_meta(task, viewer_user_id=viewer_user_id)
     )
-    followers = (
-        TaskFollower.query.filter_by(task_id=task.id)
-        .order_by(TaskFollower.created_at.asc(), TaskFollower.id.asc())
-        .all()
-    )
-    status_meta = task_status_meta(task, viewer_user_id=viewer_user_id)
-    creator = User.query.get(task.creator_user_id) if task.creator_user_id else None
+    if creator is _UNSET:
+        creator = User.query.get(task.creator_user_id) if task.creator_user_id else None
+    resolved_users_by_id = users_by_id or {}
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -2193,7 +2225,7 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
         "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
         "follow_project_members": _task_follow_project_members(task),
         "project_follower_members": _serialize_project_follower_members(task) if _task_follow_project_members(task) else [],
-        "status_meta": status_meta,
+        "status_meta": resolved_status_meta,
         "description": task.description,
         "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(
@@ -2202,10 +2234,22 @@ def _serialize_task_row(task: Task, *, viewer_user_id: int | None = None) -> dic
             DEFAULT_TASK_DESCRIPTION_FORMAT,
         ),
         "info": info,
-        "assignments": [_serialize_assignment_row(row) for row in assignments],
-        "followers": [_serialize_follower_row(row) for row in followers],
-        "prerequisites": _serialize_task_prerequisites(task.id),
-        "dependents": _serialize_task_dependents(task.id),
+        "assignments": [
+            _serialize_assignment_row(
+                row,
+                account_user=resolved_users_by_id.get(int(row.user_id)) if row.user_id else None,
+            )
+            for row in assignments
+        ] if users_by_id is not None else [_serialize_assignment_row(row) for row in assignments],
+        "followers": [
+            _serialize_follower_row(
+                row,
+                account_user=resolved_users_by_id.get(int(row.user_id)) if row.user_id else None,
+            )
+            for row in followers
+        ] if users_by_id is not None else [_serialize_follower_row(row) for row in followers],
+        "prerequisites": prerequisites if prerequisites is not None else _serialize_task_prerequisites(task.id),
+        "dependents": dependents if dependents is not None else _serialize_task_dependents(task.id),
     }
 
 
@@ -2941,11 +2985,103 @@ def get_project_tree_snapshot(project_id: int):
         .order_by(Task.position.asc(), Task.id.asc())
         .all()
     )
-    status_map = task_status_meta_map(tasks, viewer_user_id=user.id) if tasks else {}
+    task_ids = [int(task.id) for task in tasks]
+    assignment_rows = (
+        Assignment.query.filter(Assignment.task_id.in_(task_ids))
+        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
+        .all()
+        if task_ids else []
+    )
+    assignments_by_task: dict[int, list[Assignment]] = {task_id: [] for task_id in task_ids}
+    for assignment in assignment_rows:
+        assignments_by_task.setdefault(assignment.task_id, []).append(assignment)
+    follower_rows = (
+        TaskFollower.query.filter(TaskFollower.task_id.in_(task_ids))
+        .order_by(TaskFollower.created_at.asc(), TaskFollower.id.asc())
+        .all()
+        if task_ids else []
+    )
+    followers_by_task: dict[int, list[TaskFollower]] = {task_id: [] for task_id in task_ids}
+    for follower in follower_rows:
+        followers_by_task.setdefault(follower.task_id, []).append(follower)
+    prerequisite_rows = (
+        TaskPrerequisite.query.filter(
+            or_(
+                TaskPrerequisite.task_id.in_(task_ids),
+                TaskPrerequisite.prerequisite_task_id.in_(task_ids),
+            )
+        )
+        .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+        .all()
+        if task_ids else []
+    )
+    related_task_ids = {
+        int(related_id)
+        for row in prerequisite_rows
+        for related_id in (row.task_id, row.prerequisite_task_id)
+        if related_id
+    }
+    related_tasks_by_id = {int(task.id): task for task in tasks}
+    missing_related_ids = sorted(related_task_ids.difference(related_tasks_by_id))
+    if missing_related_ids:
+        for related_task in Task.query.filter(Task.id.in_(missing_related_ids)).all():
+            related_tasks_by_id[int(related_task.id)] = related_task
+    related_status_map = (
+        task_status_meta_map(list(related_tasks_by_id.values()), viewer_user_id=user.id)
+        if related_tasks_by_id else {}
+    )
+    status_map = {
+        task_id: related_status_map.get(task_id, {})
+        for task_id in task_ids
+    }
+    account_user_ids = {
+        int(account_user_id)
+        for account_user_id in (
+            [row.user_id for row in assignment_rows]
+            + [row.user_id for row in follower_rows]
+            + [task.creator_user_id for task in tasks]
+        )
+        if account_user_id
+    }
+    users_by_id = {
+        int(account_user.id): account_user
+        for account_user in User.query.filter(User.id.in_(sorted(account_user_ids))).all()
+    } if account_user_ids else {}
+    prerequisites_by_task: dict[int, list[dict]] = {task_id: [] for task_id in task_ids}
+    dependents_by_task: dict[int, list[dict]] = {task_id: [] for task_id in task_ids}
+    for prerequisite in prerequisite_rows:
+        if prerequisite.task_id in prerequisites_by_task:
+            prerequisite_task = related_tasks_by_id.get(int(prerequisite.prerequisite_task_id))
+            payload = _serialize_task_prerequisite_row(
+                prerequisite,
+                task=prerequisite_task,
+                status_meta=related_status_map.get(int(prerequisite.prerequisite_task_id), {}),
+            )
+            if payload:
+                prerequisites_by_task[prerequisite.task_id].append(payload)
+        if prerequisite.prerequisite_task_id in dependents_by_task:
+            dependent_task = related_tasks_by_id.get(int(prerequisite.task_id))
+            payload = _serialize_task_dependent_row(
+                prerequisite,
+                task=dependent_task,
+                status_meta=related_status_map.get(int(prerequisite.task_id), {}),
+            )
+            if payload:
+                dependents_by_task[prerequisite.prerequisite_task_id].append(payload)
     tasks_by_group: dict[int, list[dict]] = {group.id: [] for group in groups}
     ungrouped_tasks: list[dict] = []
     for task in tasks:
-        row = _serialize_task_row(task, viewer_user_id=user.id)
+        row = _serialize_task_row(
+            task,
+            viewer_user_id=user.id,
+            status_meta=status_map.get(task.id, {}),
+            assignments=assignments_by_task.get(task.id, []),
+            followers=followers_by_task.get(task.id, []),
+            creator=users_by_id.get(int(task.creator_user_id)) if task.creator_user_id else None,
+            users_by_id=users_by_id,
+            prerequisites=prerequisites_by_task.get(task.id, []),
+            dependents=dependents_by_task.get(task.id, []),
+        )
         if task.group_id and task.group_id in tasks_by_group:
             tasks_by_group[task.group_id].append(row)
         else:

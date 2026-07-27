@@ -7,8 +7,11 @@ import types
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Event
+from time import perf_counter, perf_counter_ns
+from unittest.mock import patch
 
-from sqlalchemy import inspect as sqlalchemy_inspect
+from sqlalchemy import event, inspect as sqlalchemy_inspect
 
 
 TEST_ROOT = Path(tempfile.mkdtemp(prefix="termin-tests-"))
@@ -30,9 +33,10 @@ if "pywebpush" not in sys.modules:
     sys.modules["pywebpush"] = pywebpush_stub
 
 from app import create_app
+from app import favicon_cache
 from app.extensions import db, socketio
 from app.info_utils import normalize_info_payload
-from app.models import Assignment, DevMailboxMessage, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskPrerequisite, TaskUserStatus, TeamInvite, User
+from app.models import Assignment, DevMailboxMessage, ExternalIdentity, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskPrerequisite, TaskUserStatus, TeamInvite, User
 from app.realtime import emit_task_updated
 
 
@@ -225,6 +229,103 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(snapshot_response.status_code, 200)
         self.assertEqual(snapshot_response.get_json()["project"]["gantt_ranges"], ranges)
 
+    def test_tree_snapshot_query_count_stays_bounded_as_tasks_grow(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Large project")
+            tasks = [
+                Task(
+                    project_id=project.id,
+                    creator_user_id=owner.id,
+                    title=f"Task {index}",
+                    position=index,
+                    status="open",
+                )
+                for index in range(40)
+            ]
+            db.session.add_all(tasks)
+            db.session.flush()
+            db.session.add_all([
+                Assignment(task_id=task.id, user_id=owner.id, status="assigned")
+                for task in tasks
+            ])
+            db.session.commit()
+            project_id = project.id
+            engine = db.engine
+
+        self.login(self.client, owner_id)
+        statements = []
+
+        def record_statement(_connection, _cursor, statement, _parameters, _context, _executemany):
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record_statement)
+        try:
+            response = self.client.get(f"/api/projects/{project_id}/tree_snapshot")
+        finally:
+            event.remove(engine, "before_cursor_execute", record_statement)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        task_count = len(payload["ungrouped_tasks"]) + sum(
+            len(group["tasks"])
+            for group in payload["groups"]
+        )
+        self.assertEqual(task_count, 40)
+        self.assertLessEqual(
+            len(statements),
+            30,
+            f"Tree snapshot issued {len(statements)} SQL statements for 40 tasks",
+        )
+
+    def test_favicon_cache_miss_returns_while_discovery_runs_in_background(self):
+        target = f"https://favicon-perf-{perf_counter_ns()}.invalid/example"
+        worker_started = Event()
+        release_worker = Event()
+
+        def slow_cache(_app, _target):
+            worker_started.set()
+            release_worker.wait(timeout=2)
+            return False
+
+        try:
+            with patch("app.favicon_cache.cache_favicon_for_link", side_effect=slow_cache):
+                with self.app.test_request_context("/link-favicon"):
+                    started_at = perf_counter()
+                    response = favicon_cache.favicon_response_for_link(self.app, target)
+                    elapsed = perf_counter() - started_at
+
+                self.assertEqual(response.headers.get("X-Termin-Favicon-Pending"), "1")
+                self.assertLess(elapsed, 0.1)
+                self.assertTrue(worker_started.wait(timeout=1))
+                response.close()
+        finally:
+            release_worker.set()
+
+    def test_automatic_github_sync_is_scheduled_without_blocking_request(self):
+        with self.app.app_context():
+            owner = self.create_user("github-owner@example.com", "GitHub Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            db.session.add(ExternalIdentity(
+                user_id=owner_id,
+                provider="github",
+                provider_user_id="github-owner",
+                access_token="test-token",
+            ))
+            db.session.commit()
+
+        self.login(self.client, owner_id)
+        with patch("app.routes.schedule_github_sync_for_user", return_value=True) as schedule_sync:
+            started_at = perf_counter()
+            response = self.client.post("/api/github/sync")
+            elapsed = perf_counter() - started_at
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.get_json(), {"ok": True, "scheduled": True})
+        self.assertLess(elapsed, 0.1)
+        schedule_sync.assert_called_once()
+
     def test_same_bucket_task_move_returns_affected_positions(self):
         with self.app.app_context():
             owner = self.create_user("owner@example.com", "Owner")
@@ -313,8 +414,8 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Assigned to me", html)
         self.assertNotIn("Assigned to someone else", html)
-        self.assertRegex(html, r"Overdue</div>\s*<div class=\"dashboard-stat-value\">1</div>")
-        self.assertRegex(html, r"Today / ASAP</div>\s*<div class=\"dashboard-stat-value\">0</div>")
+        self.assertRegex(html, r"Overdue</div>\s*<div class=\"dashboard-stat-value\"[^>]*>1</div>")
+        self.assertRegex(html, r"Today / ASAP</div>\s*<div class=\"dashboard-stat-value\"[^>]*>0</div>")
 
     def test_dashboard_overdue_count_excludes_completed_assigned_tasks(self):
         with self.app.app_context():
@@ -345,7 +446,7 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Overdue open", html)
         self.assertNotIn("Overdue complete", html)
-        self.assertRegex(html, r"Overdue</div>\s*<div class=\"dashboard-stat-value\">1</div>")
+        self.assertRegex(html, r"Overdue</div>\s*<div class=\"dashboard-stat-value\"[^>]*>1</div>")
 
     def test_dashboard_action_items_only_include_tasks_assigned_to_current_user(self):
         with self.app.app_context():

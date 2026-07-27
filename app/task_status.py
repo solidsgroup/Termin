@@ -146,6 +146,20 @@ def load_task_collaborator_status_rows(task_ids: list[int]) -> dict[int, list[Ta
     return rows_by_task
 
 
+def load_task_assignment_rows(task_ids: list[int]) -> dict[int, list[Assignment]]:
+    rows_by_task: dict[int, list[Assignment]] = {}
+    if not task_ids:
+        return rows_by_task
+    rows = (
+        Assignment.query.filter(Assignment.task_id.in_(task_ids))
+        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
+        .all()
+    )
+    for row in rows:
+        rows_by_task.setdefault(row.task_id, []).append(row)
+    return rows_by_task
+
+
 def summarize_status_values(values: list[str]) -> list[dict]:
     counts = Counter(normalize_task_status(value) for value in values if normalize_task_status(value))
 
@@ -231,6 +245,8 @@ def _base_task_status_meta(
     viewer_email: str | None = None,
     rows_by_task: dict[int, list[TaskUserStatus]] | None = None,
     collaborator_rows_by_task: dict[int, list[TaskCollaboratorStatus]] | None = None,
+    assignments_by_task: dict[int, list[Assignment]] | None = None,
+    users_by_id: dict[int, User] | None = None,
 ) -> dict:
     if rows_by_task is None:
         rows_by_task = load_task_user_status_rows([task.id] if task and task.id else [])
@@ -238,13 +254,15 @@ def _base_task_status_meta(
         collaborator_rows_by_task = load_task_collaborator_status_rows([task.id] if task and task.id else [])
     rows = list((rows_by_task or {}).get(task.id, []))
     collaborator_rows = list((collaborator_rows_by_task or {}).get(task.id, []))
-    assignments = (
-        Assignment.query.filter_by(task_id=task.id)
-        .order_by(Assignment.created_at.asc(), Assignment.id.asc())
-        .all()
-        if task and task.id
-        else []
-    )
+    if assignments_by_task is None:
+        assignments_by_task = load_task_assignment_rows([task.id] if task and task.id else [])
+    assignments = list((assignments_by_task or {}).get(task.id, []))
+    if users_by_id is None:
+        assignment_user_ids = sorted({int(row.user_id) for row in assignments if row.user_id is not None})
+        users_by_id = {
+            int(account_user.id): account_user
+            for account_user in User.query.filter(User.id.in_(assignment_user_ids)).all()
+        } if assignment_user_ids else {}
     row_by_user_id = {
         int(row.user_id): row
         for row in rows
@@ -266,7 +284,7 @@ def _base_task_status_meta(
         normalized_email = (assignment.email or "").strip().lower()
         assignment_row = row_by_user_id.get(int(assignment.user_id)) if assignment.user_id is not None else row_by_email.get(normalized_email)
         effective_status = normalize_task_status(assignment_row.status if assignment_row else "open")
-        account_user = User.query.get(assignment.user_id) if assignment.user_id is not None else None
+        account_user = users_by_id.get(int(assignment.user_id)) if assignment.user_id is not None else None
         display_email = (account_user.email if account_user and account_user.email else assignment.email) or ""
         display_name = (account_user.display_name if account_user and account_user.display_name else display_email) or "User"
         statuses.append(
@@ -468,6 +486,17 @@ def task_status_meta_map(tasks: list[Task], *, viewer_user_id: int | None = None
     all_task_ids = list(task_map.keys())
     rows_by_task = load_task_user_status_rows(all_task_ids)
     collaborator_rows_by_task = load_task_collaborator_status_rows(all_task_ids)
+    assignments_by_task = load_task_assignment_rows(all_task_ids)
+    assignment_user_ids = sorted({
+        int(assignment.user_id)
+        for assignments in assignments_by_task.values()
+        for assignment in assignments
+        if assignment.user_id is not None
+    })
+    users_by_id = {
+        int(account_user.id): account_user
+        for account_user in User.query.filter(User.id.in_(assignment_user_ids)).all()
+    } if assignment_user_ids else {}
     base_meta_map = {
         task_id: _base_task_status_meta(
             task,
@@ -475,6 +504,8 @@ def task_status_meta_map(tasks: list[Task], *, viewer_user_id: int | None = None
             viewer_email=viewer_email,
             rows_by_task=rows_by_task,
             collaborator_rows_by_task=collaborator_rows_by_task,
+            assignments_by_task=assignments_by_task,
+            users_by_id=users_by_id,
         )
         for task_id, task in task_map.items()
     }

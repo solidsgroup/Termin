@@ -2725,6 +2725,32 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Verify the sidebar trigger becomes visible and opens the mobile sidebar drawer.', page);
   });
 
+  test('tree navigation does not eagerly build the hidden todo board', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['performance', 'navigation', 'todo', 'tree']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await page.waitForFunction(() => !!window.__dashboardBootstrapStore);
+
+    const hiddenTodoItems = page.locator('.todo-board[data-todo-client-board="1"] .todo-item');
+    await expect(hiddenTodoItems).toHaveCount(0);
+    await steps.step('Verify Tree loads without constructing the offscreen Todo task list.', page);
+
+    await page.locator('.view-switcher [data-dashboard-view-target="todo"]').click();
+    await page.waitForURL(/\/todo/);
+    await expect(page.locator('.todo-board[data-todo-client-board="1"] .todo-item').first()).toBeVisible();
+
+    const treeSwitchStartedAt = Date.now();
+    await page.locator('.view-switcher [data-dashboard-view-target="tree"]').click();
+    await page.waitForURL(/\/tree\/project\//);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    expect(Date.now() - treeSwitchStartedAt).toBeLessThan(1500);
+    await steps.step('Open Todo on demand, then verify returning to the loaded Tree view stays responsive.', page);
+  });
+
   test('todo updates live when another user changes task title', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'todo', 'title']);

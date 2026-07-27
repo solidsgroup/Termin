@@ -1,6 +1,6 @@
 const STATIC_CACHE = "termin-static-v2";
 const SHELL_CACHE = "termin-shell-v2";
-const FAVICON_CACHE = "termin-favicons-v2";
+const FAVICON_CACHE = "termin-favicons-v3";
 const faviconInflight = new Map();
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
@@ -121,7 +121,11 @@ async function cacheFirst(cacheName, request) {
   }
   const networkPromise = fetch(normalizedFaviconUrl || request)
     .then(function (response) {
-      if (response && response.ok) {
+      if (
+        response &&
+        response.ok &&
+        response.headers.get("X-Termin-Favicon-Pending") !== "1"
+      ) {
         cache.put(cacheKey, response.clone());
       }
       return response;

@@ -6478,6 +6478,7 @@
             row.setAttribute("data-task-position", String(task.position));
           }
           row.setAttribute("data-status-state", window.__treeSnapshotTaskStatusState(task));
+          row.setAttribute("data-task-locked", task.locked ? "1" : "0");
           var rowStatusHost = row.querySelector('[data-task-status-host="' + task.id + '"]');
           if (rowStatusHost) {
             if (typeof window.__renderTaskStatusHost === "function") {
@@ -6489,18 +6490,39 @@
               }
             }
           }
-          if (typeof window.__applyTaskRowUpdate === "function") {
-            window.__applyTaskRowUpdate(task);
-          }
           var dueInput = row.querySelector('.due-input[data-task-id="' + task.id + '"]');
           if (dueInput) {
             dueInput.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
+            dueInput.dataset.originalValue = dueInput.value;
+            dueInput.setAttribute("data-due-mode", task.due_mode || (dueInput.value ? "date" : "none"));
+            dueInput.setAttribute("data-start-date", task.start_date ? String(task.start_date).slice(0, 10) : "");
+            if (typeof window.__setDueInputRelativeData === "function") {
+              window.__setDueInputRelativeData(dueInput, task.due_relative || null);
+            }
             if (typeof window.__updateDueDisplay === "function") {
               window.__updateDueDisplay(dueInput);
             }
           }
           if (typeof window.__renderTaskAssignments === "function") {
-            window.__renderTaskAssignments(task.id, task.assignments || []);
+            window.__renderTaskAssignments(task.id, task.assignments || [], {
+              root: row,
+              taskMeta: task,
+              skipFilters: true,
+              skipSort: true,
+            });
+          }
+          if (task.locked) {
+            row.querySelectorAll(
+              '.editable[data-field="title"], .editable[data-field="status"], .due-input, .assign-input, ' +
+              '.assign-add-btn, [data-remove-assignment], [data-task-multi-status-trigger]'
+            ).forEach(function (control) {
+              if (control.matches("[data-task-poll-trigger]")) return;
+              if (control.matches(".editable")) {
+                control.setAttribute("contenteditable", "false");
+              } else {
+                control.disabled = true;
+              }
+            });
           }
         });
       }
@@ -19037,10 +19059,19 @@
     var faviconDataUrlCache = null;
     var faviconDataUrlCachePersistTimer = null;
     var faviconFetchInflight = Object.create(null);
-    var faviconDataUrlCacheKey = "termin.faviconDataUrlCache.v1";
+    var faviconDataUrlCacheKey = "termin.faviconDataUrlCache.v2";
     var faviconDataUrlCacheMaxEntries = 128;
-    var faviconResponseCacheName = "termin-favicons-v2";
+    var faviconResponseCacheName = "termin-favicons-v3";
     var transparentPixelDataUrl = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+    var deferredFaviconObserver = typeof window.IntersectionObserver === "function"
+      ? new window.IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            deferredFaviconObserver.unobserve(entry.target);
+            warmFaviconDataUrlFor(entry.target.getAttribute("data-favicon-origin") || "");
+          });
+        }, { rootMargin: "200px" })
+      : null;
 
     function faviconUrlFor(link) {
       if (!link) return "";
@@ -19179,8 +19210,9 @@
         });
     }
 
-    function hydrateDeferredFaviconImages() {
-      document.querySelectorAll("img[data-favicon-origin]").forEach(function (img) {
+    function hydrateDeferredFaviconImages(root) {
+      var scope = root && typeof root.querySelectorAll === "function" ? root : document;
+      scope.querySelectorAll("img[data-favicon-origin]").forEach(function (img) {
         var origin = String(img.getAttribute("data-favicon-origin") || "").trim();
         if (!origin) return;
         var cached = cachedFaviconDataUrlFor(origin);
@@ -19190,7 +19222,11 @@
           }
           return;
         }
-        warmFaviconDataUrlFor(origin);
+        if (deferredFaviconObserver) {
+          deferredFaviconObserver.observe(img);
+        } else if (img.getBoundingClientRect().top < window.innerHeight + 200) {
+          warmFaviconDataUrlFor(origin);
+        }
       });
     }
 
@@ -19207,10 +19243,16 @@
           })
             .then(function (response) {
               if (!response.ok) throw new Error("favicon fetch failed");
+              if (response.headers.get("X-Termin-Favicon-Pending") === "1") {
+                window.setTimeout(function () {
+                  warmFaviconDataUrlFor(origin);
+                }, 1500);
+                return null;
+              }
               return response.blob();
             })
             .then(function (blob) {
-              return blobToDataUrl(blob);
+              return blob ? blobToDataUrl(blob) : "";
             });
         })
         .then(function (dataUrl) {
@@ -19234,7 +19276,6 @@
           var favicon = faviconUrlFor(link);
           var origin = faviconOriginFor(link);
           if (!favicon) return "";
-          warmFaviconDataUrlFor(origin);
           return (
             '<a class="task-link-badge" href="' + escapeHtml(link) + '" target="_blank" rel="noreferrer noopener" title="' + escapeHtml(link) + '">' +
               '<img src="' + escapeHtml(favicon) + '" alt="" referrerpolicy="no-referrer" loading="lazy" decoding="async"' + (origin ? ' data-favicon-origin="' + escapeHtml(origin) + '"' : '') + ' />' +
@@ -22495,13 +22536,16 @@
       if (!taskId || typeof window.__renderAssignmentBadge !== "function") return false;
       var opts = options || {};
       var updated = false;
-      var taskMeta = typeof window.__taskMetaForAssignments === "function"
-        ? window.__taskMetaForAssignments(taskId)
-        : null;
+      var taskMeta = opts.taskMeta || (
+        typeof window.__taskMetaForAssignments === "function"
+          ? window.__taskMetaForAssignments(taskId)
+          : null
+      );
       var assignmentKeys = typeof window.__taskAssignmentKeysFromData === "function"
         ? window.__taskAssignmentKeysFromData(taskMeta, assignments || [])
         : "";
-      document.querySelectorAll('.assignments [data-assign-input="task"][data-target-id="' + taskId + '"]').forEach(function (input) {
+      var scope = opts.root && typeof opts.root.querySelectorAll === "function" ? opts.root : document;
+      scope.querySelectorAll('.assignments [data-assign-input="task"][data-target-id="' + taskId + '"]').forEach(function (input) {
         var container = input.closest(".assignments");
         if (!container) return;
         var hasEmailCollaborator = false;
@@ -22571,13 +22615,22 @@
         insertOverflowBadge(Math.max(0, totalBadges - Math.min(totalBadges, 2)));
         updated = true;
       });
-      document.querySelectorAll('.todo-item[data-task-id="' + taskId + '"]').forEach(function (item) {
+      var todoItems = Array.from(scope.querySelectorAll('.todo-item[data-task-id="' + taskId + '"]'));
+      if (
+        scope.matches &&
+        scope.matches('.todo-item[data-task-id="' + taskId + '"]')
+      ) {
+        todoItems.push(scope);
+      }
+      todoItems.forEach(function (item) {
         item.setAttribute("data-assignee-keys", assignmentKeys);
       });
       if (!opts.skipFilters && typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
-      applyTaskTableSortForTask(taskId);
+      if (!opts.skipSort) {
+        applyTaskTableSortForTask(taskId);
+      }
       return updated;
     }
     window.__renderTaskAssignments = renderTaskAssignments;
@@ -24687,11 +24740,20 @@
     }
     window.__setDashboardPaneLoading = setDashboardPaneLoading;
 
+    var todoBoardNeedsRender = true;
+
     function renderTodoBoardFromStore(options) {
       var startedAt = performance.now();
       var opts = options || {};
       var board = document.querySelector(".todo-board[data-todo-client-board='1']");
       if (!board) return false;
+      var currentView = typeof window.__getDashboardCurrentView === "function"
+        ? window.__getDashboardCurrentView()
+        : "";
+      if (currentView && currentView !== "todo" && opts.renderWhenHidden !== true) {
+        todoBoardNeedsRender = true;
+        return false;
+      }
       board.classList.remove("is-ready");
       board.classList.add("is-pending");
       if (opts.showLoading !== false) {
@@ -24706,6 +24768,7 @@
       if (!taskIds.length) {
         board.innerHTML = '<div class="panel" data-todo-empty-panel><h3>No tasks</h3><p class="footer-note">No visible tasks yet.</p></div>';
         board.setAttribute("data-todo-board-ready", "1");
+        todoBoardNeedsRender = false;
         board.classList.remove("is-pending");
         board.classList.add("is-ready");
         recordClientPerf("todo-render", startedAt, { task_count: 0 });
@@ -24748,6 +24811,10 @@
           }
         });
       board.appendChild(fragment);
+      todoBoardNeedsRender = false;
+      if (typeof window.__hydrateDeferredFaviconImages === "function") {
+        window.__hydrateDeferredFaviconImages(board);
+      }
       board.setAttribute("data-todo-board-ready", "1");
       var revealTodoBoard = function () {
         board.classList.remove("is-pending");
@@ -24796,6 +24863,12 @@
 
     function scheduleTodoBoardWarmup() {
       if (todoBoardWarmupScheduled) return;
+      if (
+        typeof window.__getDashboardCurrentView === "function" &&
+        window.__getDashboardCurrentView() !== "todo"
+      ) {
+        return;
+      }
       var board = document.querySelector(".todo-board[data-todo-client-board='1']");
       if (!board) return;
       var alreadyRendered = board.getAttribute("data-todo-board-ready") === "1" && !!board.querySelector(".todo-item, [data-todo-empty-panel]");
@@ -29256,10 +29329,18 @@
       }
 
       function syncTreeSelectionAfterEnsure() {
+        var selectedProjectId = projectIdForSelection(currentSelection)
+          || (currentSelection && currentSelection.type === "project" ? String(currentSelection.id || "") : "");
+        var selectedBoard = selectedProjectId
+          ? document.querySelector('[data-tree-project-board="' + selectedProjectId + '"]')
+          : null;
         if (typeof restoreAllTreeTaskTableSortStates === "function") {
-          restoreAllTreeTaskTableSortStates(document.querySelector("[data-tree-board]") || document);
+          restoreAllTreeTaskTableSortStates(selectedBoard || document.querySelector("[data-tree-board]") || document);
         }
         applySelection(currentSelection, { syncHistory: false });
+        if (typeof window.__hydrateDeferredFaviconImages === "function") {
+          window.__hydrateDeferredFaviconImages(selectedBoard || treeBoard || document);
+        }
         focusTreeSidebarSelection(currentSelection);
         if (treeBoard && treeBoard.querySelector("[data-tree-project-board]")) {
           removeTreeLoadingPanels();
@@ -30413,9 +30494,7 @@
         board.style.setProperty("--todo-control-due", "24px");
         board.style.setProperty("--todo-control-status", "76px");
         board.style.setProperty("--todo-control-assignees", "76px");
-        document.querySelectorAll(".todo-item-controls").forEach(function (controls) {
-          controls.style.setProperty("--todo-control-offset", "0px");
-        });
+        board.style.setProperty("--todo-control-offset", "0px");
       }
 
       function refreshTodoBoardLayout() {
@@ -30431,24 +30510,11 @@
         var board = document.querySelector(".todo-board[data-todo-client-board='1']");
         if (!board) return;
         var alreadyRendered = board.getAttribute("data-todo-board-ready") === "1" && !!board.querySelector(".todo-item, [data-todo-empty-panel]");
-        if (alreadyRendered) return;
+        if (alreadyRendered && !todoBoardNeedsRender) return;
         setDashboardPaneLoading("todo", true);
         window.requestAnimationFrame(function () {
           window.__renderTodoBoardFromStore();
         });
-      });
-      document.addEventListener("termin:dashboard-view-change", function (event) {
-        var detail = event && event.detail ? event.detail : null;
-        if (!detail) return;
-        if (detail.currentView === "dashboard" || detail.currentView === "inbox" || detail.currentView === "tree") {
-          if (shouldDeferStartupWarmups()) return;
-          scheduleTodoBoardWarmup();
-        }
-      });
-      window.addEventListener("load", function () {
-        if (shouldDeferStartupWarmups()) return;
-        if (typeof window.__getDashboardCurrentView === "function" && window.__getDashboardCurrentView() === "todo") return;
-        scheduleTodoBoardWarmup();
       });
     })();
 

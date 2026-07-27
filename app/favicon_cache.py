@@ -2,13 +2,26 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
+from threading import Lock
+from time import monotonic
 from urllib.parse import quote, urljoin, urlparse
 
 import requests
 from flask import Flask, Response, send_from_directory
 
 _FAVICON_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+_FAVICON_FAILURE_TTL_SECONDS = 60 * 60
+_FAVICON_BACKGROUND_WORKERS = 2
+_FAVICON_MAX_PENDING = 64
+_favicon_executor = ThreadPoolExecutor(
+    max_workers=_FAVICON_BACKGROUND_WORKERS,
+    thread_name_prefix="termin-favicon",
+)
+_favicon_lock = Lock()
+_favicon_inflight: set[str] = set()
+_favicon_failures: dict[str, float] = {}
 
 
 def canonical_favicon_target(target: str) -> str:
@@ -44,6 +57,13 @@ def placeholder_response(app: Flask):
     response = send_from_directory(app.static_folder, "icons/link-badge.svg", mimetype="image/svg+xml")
     response.headers["X-Termin-Favicon-Source"] = "placeholder"
     return _apply_cache_headers(response, "placeholder-link-badge-v1")
+
+
+def pending_placeholder_response(app: Flask):
+    response = placeholder_response(app)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Termin-Favicon-Pending"] = "1"
+    return response
 
 
 def _favicon_response(payload: bytes, content_type: str, source: str):
@@ -207,6 +227,39 @@ def cache_favicons_for_links(app: Flask, links: list[str] | tuple[str, ...] | No
             continue
 
 
+def schedule_favicon_cache(app: Flask, target: str) -> bool:
+    cache_target = canonical_favicon_target(target)
+    if not cache_target or _load_cached(app, cache_target):
+        return False
+    now = monotonic()
+    with _favicon_lock:
+        failed_at = _favicon_failures.get(cache_target)
+        if failed_at is not None:
+            if now - failed_at < _FAVICON_FAILURE_TTL_SECONDS:
+                return False
+            _favicon_failures.pop(cache_target, None)
+        if cache_target in _favicon_inflight:
+            return True
+        if len(_favicon_inflight) >= _FAVICON_MAX_PENDING:
+            return False
+        _favicon_inflight.add(cache_target)
+
+    def worker() -> None:
+        succeeded = False
+        try:
+            succeeded = cache_favicon_for_link(app, target)
+        finally:
+            with _favicon_lock:
+                _favicon_inflight.discard(cache_target)
+                if succeeded:
+                    _favicon_failures.pop(cache_target, None)
+                else:
+                    _favicon_failures[cache_target] = monotonic()
+
+    _favicon_executor.submit(worker)
+    return True
+
+
 def favicon_response_for_link(app: Flask, target: str):
     target = str(target or "").strip()
     parsed = urlparse(target)
@@ -218,11 +271,9 @@ def favicon_response_for_link(app: Flask, target: str):
     try:
         cached = _load_cached(app, cache_target)
         if cached is None:
-            if not cache_favicon_for_link(app, target):
-                return placeholder_response(app)
-            cached = _load_cached(app, cache_target)
-            if cached is None:
-                return placeholder_response(app)
+            if schedule_favicon_cache(app, target):
+                return pending_placeholder_response(app)
+            return placeholder_response(app)
         payload, content_type, source = cached
         return _favicon_response(payload, content_type, source)
     except Exception:
