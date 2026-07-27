@@ -619,4 +619,5 @@ def build_dashboard_changes(user, *, since: datetime) -> dict:
             "notifications": [],
         },
     }
+    payload.pop("entities", None)
     return payload

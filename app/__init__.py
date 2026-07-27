@@ -1,3 +1,4 @@
+import gzip
 import os
 from time import perf_counter
 
@@ -41,6 +42,37 @@ def _should_profile_request(path: str) -> bool:
     if normalized.startswith("/api/tasks/"):
         return True
     return any(normalized.startswith(prefix) for prefix in _PROFILED_PATH_PREFIXES)
+
+
+def _compress_response_if_supported(response):
+    if (
+        request.method == "HEAD"
+        or response.status_code < 200
+        or response.status_code in (204, 304)
+        or response.direct_passthrough
+        or response.headers.get("Content-Encoding")
+        or request.accept_encodings["gzip"] <= 0
+    ):
+        return response
+    content_type = str(response.content_type or "").lower()
+    if not (
+        content_type.startswith("text/")
+        or content_type.startswith("application/json")
+        or content_type.startswith("application/javascript")
+        or content_type.startswith("image/svg+xml")
+    ):
+        return response
+    body = response.get_data()
+    if len(body) < 1024:
+        return response
+    compressed = gzip.compress(body, compresslevel=5, mtime=0)
+    if len(compressed) >= len(body):
+        return response
+    response.set_data(compressed)
+    response.headers["Content-Encoding"] = "gzip"
+    response.headers["Content-Length"] = str(len(compressed))
+    response.vary.add("Accept-Encoding")
+    return response
 
 
 def _manifest_color(value: str | None, fallback: str = "#10141b") -> str:
@@ -418,7 +450,7 @@ def create_app() -> Flask:
             response.cache_control.public = True
             response.cache_control.max_age = 31536000
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        return response
+        return _compress_response_if_supported(response)
 
     @app.context_processor
     def inject_template_globals():

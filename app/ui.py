@@ -2006,7 +2006,6 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         for assignment in assignment_rows:
             assignments_by_task.setdefault(assignment.task_id, []).append(assignment)
         for task in visible_tasks:
-            info_by_task[task.id] = load_info_payload(task.info, task.link)
             if task.assign_group_members:
                 group_assignment_members_by_task[task.id] = serialize_group_assignment_members(task)
 

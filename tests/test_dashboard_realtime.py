@@ -1,3 +1,4 @@
+import gzip
 import os
 import re
 import shutil
@@ -126,6 +127,41 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(dashboard_response.status_code, 200)
         self.assertIn('data-dashboard-current-view="dashboard"', root_response.get_data(as_text=True))
         self.assertIn('data-dashboard-current-view="dashboard"', dashboard_response.get_data(as_text=True))
+
+    def test_dashboard_uses_cached_stylesheets_and_gzip(self):
+        with self.app.app_context():
+            user = self.create_user("owner@example.com", "Owner")
+            user_id = sqlalchemy_inspect(user).identity[0]
+
+        self.login(self.client, user_id)
+        response = self.client.get("/dashboard", headers={"Accept-Encoding": "gzip"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Content-Encoding"), "gzip")
+        self.assertIn("Accept-Encoding", response.headers.get("Vary", ""))
+        html = gzip.decompress(response.get_data()).decode("utf-8")
+        self.assertIn("/static/base.css?v=", html)
+        self.assertIn("/static/dashboard.css?v=", html)
+
+    def test_dashboard_changes_omits_full_entity_store(self):
+        with self.app.app_context():
+            user = self.create_user("owner@example.com", "Owner")
+            user_id = sqlalchemy_inspect(user).identity[0]
+            project = self.create_project(user, "Delta")
+            self.create_task(project, "Delta task", creator=user)
+
+        self.login(self.client, user_id)
+        bootstrap_response = self.client.get("/api/dashboard-bootstrap")
+        cursor = bootstrap_response.get_json()["dashboard"]["meta"]["cursor"]
+        changes_response = self.client.get(
+            "/api/dashboard-changes",
+            query_string={"cursor": cursor},
+        )
+
+        self.assertEqual(changes_response.status_code, 200)
+        dashboard = changes_response.get_json()["dashboard"]
+        self.assertNotIn("entities", dashboard)
+        self.assertIn("changes", dashboard)
 
     def test_copy_group_to_other_projects_copies_tasks_and_internal_prerequisites(self):
         with self.app.app_context():
