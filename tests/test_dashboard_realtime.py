@@ -36,9 +36,10 @@ if "pywebpush" not in sys.modules:
 from app import create_app
 from app import favicon_cache
 from app.extensions import db, socketio
-from app.info_utils import normalize_info_payload
+from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import Assignment, DevMailboxMessage, ExternalIdentity, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskPrerequisite, TaskUserStatus, TeamInvite, User
 from app.realtime import emit_task_updated
+from app.task_status import task_status_meta
 
 
 class DashboardRealtimeTestCase(unittest.TestCase):
@@ -162,6 +163,60 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         dashboard = changes_response.get_json()["dashboard"]
         self.assertNotIn("entities", dashboard)
         self.assertIn("changes", dashboard)
+
+    def test_poll_incomplete_assignees_follow_results_visibility(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            member = self.create_user("member@example.com", "Member")
+            project = self.create_project(owner, "Poll policy")
+            task = self.create_task(project, "Private poll", creator=owner)
+            self.add_assignment(task, user=owner)
+            self.add_assignment(task, user=member)
+            task.info = normalize_info_payload(
+                {
+                    "meta": {
+                        "task_type": "poll",
+                        "poll": {
+                            "question": "Choose one",
+                            "results_visibility": "creator",
+                            "options": [{"id": "option-a", "label": "Option A"}],
+                            "responses": [
+                                {
+                                    "user_id": member.id,
+                                    "email": member.email,
+                                    "option_ids": ["option-a"],
+                                }
+                            ],
+                        },
+                    }
+                }
+            )
+            db.session.add(task)
+            db.session.commit()
+
+            owner_meta = task_status_meta(task, viewer_user_id=owner.id)
+            member_meta = task_status_meta(task, viewer_user_id=member.id)
+
+            self.assertTrue(owner_meta["poll_results_visible"])
+            self.assertEqual(
+                [row["display_name"] for row in owner_meta["poll_incomplete_assignees"]],
+                ["Owner"],
+            )
+            self.assertFalse(member_meta["poll_results_visible"])
+            self.assertEqual(member_meta["poll_incomplete_assignees"], [])
+
+            info = load_info_payload(task.info, task.link)
+            info["meta"]["poll"]["results_visibility"] = "everyone"
+            task.info = normalize_info_payload(info, task.link)
+            db.session.add(task)
+            db.session.commit()
+            member_meta = task_status_meta(task, viewer_user_id=member.id)
+
+            self.assertTrue(member_meta["poll_results_visible"])
+            self.assertEqual(
+                [row["display_name"] for row in member_meta["poll_incomplete_assignees"]],
+                ["Owner"],
+            )
 
     def test_copy_group_to_other_projects_copies_tasks_and_internal_prerequisites(self):
         with self.app.app_context():

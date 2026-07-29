@@ -1132,7 +1132,11 @@ test.describe('dashboard and realtime flows', () => {
     await openPollDialogFromTree(ownerPage, pollTask.id);
     await expect(ownerPage.locator('#poll-response-options [data-poll-response-option="venue-a"] .poll-response-responder')).toHaveCount(1);
     await expect(ownerPage.locator('#poll-response-options [data-poll-response-option="venue-b"] .poll-response-responder')).toHaveCount(0);
-    await steps.step('Open the poll as the owner and verify the selected option shows the responder avatar when results are visible to everyone.', ownerPage);
+    const ownerPending = ownerPage.locator('#poll-response-pending');
+    await expect(ownerPending).toBeVisible();
+    await expect(ownerPending.locator('.poll-response-pending-label')).toHaveText('Awaiting response (1)');
+    await expect(ownerPending.locator('.poll-response-pending-avatar[aria-label="Owner"]')).toHaveCount(1);
+    await steps.step('Open the poll as the owner and verify responder and awaiting-response avatars are visible.', ownerPage);
 
     await ownerContext.close();
     await memberContext.close();
@@ -1179,11 +1183,15 @@ test.describe('dashboard and realtime flows', () => {
     await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
     await openPollDialogFromTree(ownerPage, pollTask.id);
     await expect(ownerPage.locator('#poll-response-options [data-poll-response-option="creator-a"] .poll-response-responder')).toHaveCount(1);
-    await steps.step('Open the creator-only poll as the owner and verify the responder avatar is visible to the creator.', ownerPage);
+    await expect(ownerPage.locator('#poll-response-pending')).toBeVisible();
+    await expect(ownerPage.locator('#poll-response-pending .poll-response-pending-avatar[aria-label="Owner"]')).toHaveCount(1);
+    await steps.step('Open the creator-only poll as the owner and verify responder and awaiting-response avatars are visible to the creator.', ownerPage);
 
     await openPollDialogFromTree(memberPage, pollTask.id);
     await expect(memberPage.locator('#poll-response-options .poll-response-responder')).toHaveCount(0);
-    await steps.step('Open the same poll as the non-creator and verify responder avatars are hidden.', memberPage);
+    await expect(memberPage.locator('#poll-response-pending')).toBeHidden();
+    await expect(memberPage.locator('#poll-response-pending-avatars .poll-response-responder')).toHaveCount(0);
+    await steps.step('Open the same poll as the non-creator and verify responder and awaiting-response identities are hidden.', memberPage);
 
     await ownerContext.close();
     await memberContext.close();

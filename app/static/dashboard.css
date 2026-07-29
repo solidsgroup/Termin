@@ -1214,6 +1214,40 @@ body[data-theme="light"] .task-status-poll-button {
   object-fit: cover;
 }
 
+.poll-response-pending {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 2px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.poll-response-pending[hidden] {
+  display: none;
+}
+
+.poll-response-pending-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.poll-response-pending-avatars {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.poll-response-pending-avatar {
+  border-style: dashed;
+  opacity: 0.82;
+}
+
 .poll-response-option.is-disabled {
   opacity: 0.62;
   cursor: default;

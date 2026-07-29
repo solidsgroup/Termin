@@ -1481,6 +1481,10 @@
       <button class="btn secondary" type="button" id="poll-response-close">Close</button>
     </div>
     <div class="poll-response-options" id="poll-response-options"></div>
+    <div class="poll-response-pending" id="poll-response-pending" hidden>
+      <div class="poll-response-pending-label" id="poll-response-pending-label">Awaiting response</div>
+      <div class="poll-response-pending-avatars" id="poll-response-pending-avatars"></div>
+    </div>
     <div class="poll-response-actions">
       <div class="poll-response-note" id="poll-response-note"></div>
       <div style="display:flex; gap:8px;">
@@ -13532,6 +13536,9 @@
     var pollResponseQuestionEl = document.getElementById("poll-response-question");
     var pollResponseMetaEl = document.getElementById("poll-response-meta");
     var pollResponseOptionsEl = document.getElementById("poll-response-options");
+    var pollResponsePendingEl = document.getElementById("poll-response-pending");
+    var pollResponsePendingLabelEl = document.getElementById("poll-response-pending-label");
+    var pollResponsePendingAvatarsEl = document.getElementById("poll-response-pending-avatars");
     var pollResponseNoteEl = document.getElementById("poll-response-note");
     var pollResponseCloseEl = document.getElementById("poll-response-close");
     var pollResponseClearEl = document.getElementById("poll-response-clear");
@@ -17074,6 +17081,7 @@
         poll_results_visibility: String(meta.poll_results_visibility || "everyone"),
         poll_results_visible: !!meta.poll_results_visible,
         poll_option_results: Array.isArray(meta.poll_option_results) ? meta.poll_option_results.slice() : [],
+        poll_incomplete_assignees: Array.isArray(meta.poll_incomplete_assignees) ? meta.poll_incomplete_assignees.slice() : [],
         poll_viewer_option_ids: Array.isArray(meta.poll_viewer_option_ids) ? meta.poll_viewer_option_ids.slice() : [],
         task_status: baseStatus,
         task_status_state: decorateStatusState(task, getStatusState(baseStatus)),
@@ -17392,6 +17400,26 @@
       if (pollResponseOptionsEl) {
         pollResponseOptionsEl.innerHTML = "";
       }
+      if (pollResponsePendingEl) {
+        pollResponsePendingEl.hidden = true;
+      }
+      if (pollResponsePendingAvatarsEl) {
+        pollResponsePendingAvatarsEl.innerHTML = "";
+      }
+    }
+
+    function renderPollParticipantAvatar(participant, extraClass) {
+      var label = participant && (participant.display_name || participant.email)
+        ? String(participant.display_name || participant.email)
+        : "User";
+      var initial = label.trim().slice(0, 1).toUpperCase();
+      var avatarUrl = participant && participant.avatar_url ? String(participant.avatar_url) : "";
+      return '' +
+        '<span class="poll-response-responder' + (avatarUrl ? ' has-photo' : '') + (extraClass ? ' ' + extraClass : '') + '" title="' + escapeHtml(label) + '" aria-label="' + escapeHtml(label) + '">' +
+          (avatarUrl
+            ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.poll-response-responder&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />'
+            : escapeHtml(initial)) +
+        '</span>';
     }
 
     function renderTaskPollDialog(task) {
@@ -17434,6 +17462,20 @@
       if (pollResponseSaveEl) {
         pollResponseSaveEl.disabled = !canRespond;
       }
+      var incompleteAssignees = resultsVisible && Array.isArray(meta.poll_incomplete_assignees)
+        ? meta.poll_incomplete_assignees
+        : [];
+      if (pollResponsePendingEl) {
+        pollResponsePendingEl.hidden = incompleteAssignees.length === 0;
+      }
+      if (pollResponsePendingLabelEl) {
+        pollResponsePendingLabelEl.textContent = "Awaiting response (" + String(incompleteAssignees.length) + ")";
+      }
+      if (pollResponsePendingAvatarsEl) {
+        pollResponsePendingAvatarsEl.innerHTML = incompleteAssignees.map(function (assignee) {
+          return renderPollParticipantAvatar(assignee, "poll-response-pending-avatar");
+        }).join("");
+      }
       if (!poll.options.length) {
         pollResponseOptionsEl.innerHTML = '<div class="footer-note">No poll options configured yet.</div>';
       } else {
@@ -17445,15 +17487,7 @@
             ? (
                 '<div class="poll-response-responders">' +
                 responders.map(function (responder) {
-                  var label = responder && (responder.display_name || responder.email) ? String(responder.display_name || responder.email) : "User";
-                  var initial = label.trim().slice(0, 1).toUpperCase();
-                  var avatarUrl = responder && responder.avatar_url ? String(responder.avatar_url) : "";
-                  return '' +
-                    '<span class="poll-response-responder' + (avatarUrl ? ' has-photo' : '') + '" title="' + escapeHtml(label) + '">' +
-                      (avatarUrl
-                        ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.closest(&quot;.poll-response-responder&quot;).classList.remove(&quot;has-photo&quot;); this.remove();" />'
-                        : escapeHtml(initial)) +
-                    '</span>';
+                  return renderPollParticipantAvatar(responder, "");
                 }).join("") +
                 '</div>'
               )

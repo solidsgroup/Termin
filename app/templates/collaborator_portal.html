@@ -511,6 +511,40 @@
       display: block;
     }
 
+    .poll-response-pending {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 2px 4px;
+      border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    }
+
+    .poll-response-pending[hidden] {
+      display: none;
+    }
+
+    .poll-response-pending-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .poll-response-pending-avatars {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .poll-response-pending .poll-response-responder {
+      border-style: dashed;
+      opacity: 0.82;
+    }
+
     .poll-response-actions {
       display: flex;
       align-items: center;
@@ -616,6 +650,10 @@
         <button class="btn secondary" type="button" id="collab-poll-response-close">Close</button>
       </div>
       <div class="poll-response-options" id="collab-poll-response-options"></div>
+      <div class="poll-response-pending" id="collab-poll-response-pending" hidden>
+        <div class="poll-response-pending-label" id="collab-poll-response-pending-label">Awaiting response</div>
+        <div class="poll-response-pending-avatars" id="collab-poll-response-pending-avatars"></div>
+      </div>
       <div class="poll-response-actions">
         <div class="poll-response-note" id="collab-poll-response-note"></div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -639,6 +677,9 @@
       const pollQuestionEl = document.getElementById("collab-poll-response-question");
       const pollMetaEl = document.getElementById("collab-poll-response-meta");
       const pollOptionsEl = document.getElementById("collab-poll-response-options");
+      const pollPendingEl = document.getElementById("collab-poll-response-pending");
+      const pollPendingLabelEl = document.getElementById("collab-poll-response-pending-label");
+      const pollPendingAvatarsEl = document.getElementById("collab-poll-response-pending-avatars");
       const pollNoteEl = document.getElementById("collab-poll-response-note");
       const pollCloseEl = document.getElementById("collab-poll-response-close");
       const pollClearEl = document.getElementById("collab-poll-response-clear");
@@ -784,6 +825,8 @@
         pollDialogEl.hidden = true;
         pollDialogEl.setAttribute("aria-hidden", "true");
         if (pollOptionsEl) pollOptionsEl.innerHTML = "";
+        if (pollPendingEl) pollPendingEl.hidden = true;
+        if (pollPendingAvatarsEl) pollPendingAvatarsEl.innerHTML = "";
       }
 
       function renderPollStatusLabel(meta) {
@@ -827,6 +870,16 @@
         }
         if (pollClearEl) pollClearEl.disabled = !canRespond;
         if (pollSaveEl) pollSaveEl.disabled = !canRespond;
+        var incompleteAssignees = meta.poll_results_visible && Array.isArray(meta.poll_incomplete_assignees)
+          ? meta.poll_incomplete_assignees
+          : [];
+        if (pollPendingEl) pollPendingEl.hidden = incompleteAssignees.length === 0;
+        if (pollPendingLabelEl) {
+          pollPendingLabelEl.textContent = "Awaiting response (" + String(incompleteAssignees.length) + ")";
+        }
+        if (pollPendingAvatarsEl) {
+          pollPendingAvatarsEl.innerHTML = incompleteAssignees.map(renderResponderAvatar).join("");
+        }
         var options = Array.isArray(poll.options) ? poll.options : [];
         if (!options.length) {
           pollOptionsEl.innerHTML = '<div class="footer-note">No poll options configured yet.</div>';

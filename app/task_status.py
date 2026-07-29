@@ -345,6 +345,7 @@ def _base_task_status_meta(
         poll_complete_count = 0
         poll_viewer_option_ids: list[str] = []
         poll_viewer_has_response = False
+        poll_incomplete_assignees: list[dict] = []
         can_view_results = str(poll_payload.get("results_visibility") or "everyone") == "everyone" or (
             viewer_user_id is not None and task.creator_user_id is not None and int(viewer_user_id) == int(task.creator_user_id)
         )
@@ -397,6 +398,15 @@ def _base_task_status_meta(
             assignee["state"] = "complete" if responded else "open"
             if responded:
                 poll_complete_count += 1
+            elif can_view_results:
+                poll_incomplete_assignees.append(
+                    {
+                        "user_id": assignee.get("user_id"),
+                        "email": str(assignee.get("email") or "").strip().lower(),
+                        "display_name": str(assignee.get("display_name") or assignee.get("email") or "User"),
+                        "avatar_url": assignee.get("avatar_url"),
+                    }
+                )
             if viewer_user_id is not None and assignee.get("user_id") is not None and int(assignee["user_id"]) == int(viewer_user_id):
                 poll_viewer_option_ids = option_ids
                 poll_viewer_has_response = responded
@@ -432,6 +442,7 @@ def _base_task_status_meta(
             "poll_results_visibility": str(poll_payload.get("results_visibility") or "everyone"),
             "poll_results_visible": can_view_results,
             "poll_option_results": poll_option_results,
+            "poll_incomplete_assignees": poll_incomplete_assignees,
             "poll_total_count": poll_total_count,
             "poll_complete_count": poll_complete_count,
             "poll_viewer_option_ids": poll_viewer_option_ids,
