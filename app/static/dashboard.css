@@ -817,8 +817,35 @@ body[data-theme="dark"] .project-gantt-guide.is-today {
   gap: 8px;
 }
 
-.no-assignee-badge {
+.no-assignee-badge,
+.table .assignments .badge.user.no-assignee-badge {
   border-style: dashed;
+  border-color: color-mix(in srgb, var(--muted) 48%, transparent);
+  background: color-mix(in srgb, var(--muted) 12%, var(--panel));
+  color: var(--muted);
+}
+
+.badge.user.no-assignee-badge .badge-icon,
+.table .assignments .badge.user.no-assignee-badge .badge-icon,
+.todo-assignments .badge.user.no-assignee-badge .badge-icon {
+  border-color: color-mix(in srgb, var(--muted) 52%, transparent);
+  background: color-mix(in srgb, var(--muted) 22%, var(--panel));
+  color: var(--muted);
+}
+
+.discussion-assignment-row--no-assignee {
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+}
+
+.discussion-assignment-avatar--no-assignee {
+  border-color: color-mix(in srgb, var(--muted) 52%, transparent);
+  background: color-mix(in srgb, var(--muted) 18%, var(--panel));
+  color: var(--muted);
+}
+
+.discussion-assignment-pill.is-no-assignee {
+  border-color: color-mix(in srgb, var(--muted) 42%, transparent);
+  background: color-mix(in srgb, var(--muted) 10%, var(--panel));
   color: var(--muted);
 }
 

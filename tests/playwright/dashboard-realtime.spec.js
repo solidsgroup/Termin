@@ -2708,6 +2708,108 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Set the same task back to Open and verify the row and status button return to the Open state.', page);
   });
 
+  test('tree no-assignee selection is immediate and remains a single badge', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Tree no-assignee badge regression task',
+      due_at: isoDateWithOffset(1),
+      due_mode: 'date',
+    });
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, task.id);
+    const taskRow = page.locator(`[data-task-row-id="${task.id}"]`).first();
+    const assignments = taskRow.locator('.assignments').first();
+
+    await page.evaluate((taskId) => {
+      const container = document.querySelector(`[data-task-row-id="${taskId}"] .assignments`);
+      window.__treeNoAssigneeBadgeCounts = [];
+      const recordCount = () => {
+        window.__treeNoAssigneeBadgeCounts.push(container.querySelectorAll('.no-assignee-badge').length);
+      };
+      window.__treeNoAssigneeObserver = new MutationObserver(recordCount);
+      window.__treeNoAssigneeObserver.observe(container, { childList: true, subtree: true });
+      recordCount();
+    }, String(task.id));
+
+    await page.route(`**/api/tasks/${task.id}`, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+      await route.continue();
+    });
+
+    await assignments.locator('.assign-add-btn').click();
+    const noAssigneeOption = page.locator('.assign-suggest .assign-suggest-no-assignee');
+    await expect(noAssigneeOption).toBeVisible();
+    const patchResponse = page.waitForResponse((response) => (
+      response.request().method() === 'PATCH'
+      && response.url().endsWith(`/api/tasks/${task.id}`)
+    ));
+    await noAssigneeOption.click();
+    await page.waitForTimeout(150);
+    const badgeCountBeforeResponse = await assignments.locator('.no-assignee-badge').count();
+    await patchResponse;
+
+    await page.evaluate((taskId) => {
+      const currentTask = window.__dashboardTaskEntity(taskId);
+      window.__renderTaskAssignments(taskId, currentTask.assignments || []);
+      window.__renderTaskAssignments(taskId, currentTask.assignments || []);
+    }, String(task.id));
+    await page.waitForTimeout(100);
+
+    const observedCounts = await page.evaluate(() => {
+      window.__treeNoAssigneeObserver.disconnect();
+      return window.__treeNoAssigneeBadgeCounts.slice();
+    });
+    expect(Math.max(...observedCounts)).toBe(1);
+    expect(badgeCountBeforeResponse).toBe(1);
+    const treeNoAssigneeBadge = assignments.locator('.no-assignee-badge');
+    await expect(treeNoAssigneeBadge).toHaveCount(1);
+    await expect(treeNoAssigneeBadge).toContainText('No assignee');
+    await expect(treeNoAssigneeBadge).toHaveCSS('border-style', 'dashed');
+    const noAssigneeColors = await treeNoAssigneeBadge.evaluate((badge) => {
+      const icon = badge.querySelector('.badge-icon');
+      const accentProbe = document.createElement('span');
+      accentProbe.style.color = 'var(--accent)';
+      document.body.appendChild(accentProbe);
+      const accent = getComputedStyle(accentProbe).color;
+      accentProbe.remove();
+      return {
+        border: getComputedStyle(badge).borderColor,
+        iconBackground: getComputedStyle(icon).backgroundColor,
+        accent,
+      };
+    });
+    expect(noAssigneeColors.border).not.toBe(noAssigneeColors.accent);
+    expect(noAssigneeColors.iconBackground).not.toBe(noAssigneeColors.accent);
+
+    await taskRow.locator(`[data-open-settings="${task.id}"]`).click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await page.locator('[data-drawer-tab="settings"]').click();
+    const drawerNoAssigneeRow = page.locator('#task-settings-assignments [data-assignee-intent="none"]');
+    await expect(drawerNoAssigneeRow).toBeVisible();
+    await expect(drawerNoAssigneeRow).toContainText('No assignee');
+    await expect(drawerNoAssigneeRow).toContainText('Intentionally unassigned');
+    await expect(drawerNoAssigneeRow.locator('[data-remove-assignee-intent]')).toBeEnabled();
+    await page.locator('#discussion-close').click();
+    await expect(page.locator('#discussion-drawer')).not.toHaveClass(/open/);
+
+    const clearResponse = page.waitForResponse((response) => (
+      response.request().method() === 'PATCH'
+      && response.url().endsWith(`/api/tasks/${task.id}`)
+    ));
+    await treeNoAssigneeBadge.locator('[data-remove-assignee-intent]').click();
+    await page.waitForTimeout(150);
+    await expect(assignments.locator('.no-assignee-badge')).toHaveCount(0);
+    await clearResponse;
+    const clearedTask = await fetchTaskViaApi(page, task.id);
+    expect(clearedTask.assignee_mode).toBe('default');
+  });
+
   test('off-tree updates are visible when navigating into tree later', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'tree', 'navigation', 'cache']);

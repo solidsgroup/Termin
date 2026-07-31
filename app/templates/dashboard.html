@@ -3713,7 +3713,7 @@
           if (task.locked) {
             row.querySelectorAll(
               '.editable[data-field="title"], .editable[data-field="status"], .due-input, .assign-input, ' +
-              '.assign-add-btn, [data-remove-assignment], [data-task-multi-status-trigger]'
+              '.assign-add-btn, [data-remove-assignment], [data-remove-assignee-intent], [data-task-multi-status-trigger]'
             ).forEach(function (control) {
               if (control.matches("[data-task-poll-trigger]")) return;
               if (control.matches(".editable")) {
@@ -9714,6 +9714,17 @@
         return;
       }
 
+      const removeNoAssignee = event.target.closest("[data-remove-assignee-intent]");
+      if (removeNoAssignee) {
+        event.preventDefault();
+        const taskId = removeNoAssignee.getAttribute("data-remove-assignee-intent") || currentTaskId;
+        if (!taskId || window.__taskIdIsLocked(taskId)) return;
+        if (typeof window.__clearTaskNoAssignee === "function") {
+          window.__clearTaskNoAssignee(taskId);
+        }
+        return;
+      }
+
       const removeAssignment = event.target.closest("[data-remove-assignment]");
       if (removeAssignment) {
         const assignmentId = removeAssignment.getAttribute("data-remove-assignment");
@@ -14245,7 +14256,7 @@
         input.disabled = isLocked;
       });
       document.querySelectorAll('[data-task-row-id="' + normalizedTaskId + '"], .todo-item[data-task-id="' + normalizedTaskId + '"]').forEach(function (row) {
-        row.querySelectorAll(".assign-add-btn, [data-remove-assignment], [data-task-multi-status-trigger]").forEach(function (button) {
+        row.querySelectorAll(".assign-add-btn, [data-remove-assignment], [data-remove-assignee-intent], [data-task-multi-status-trigger]").forEach(function (button) {
           button.disabled = isLocked;
         });
       });
@@ -15663,15 +15674,37 @@
         : null;
     }
 
-    function markTaskNoAssigneeFromInput(input) {
-      var taskId = assignmentTaskIdForInput(input);
+    function updateTaskAssigneeMode(taskId, assigneeMode, taskHint) {
       if (!taskId) return Promise.resolve(null);
-      return fetch("/api/tasks/" + encodeURIComponent(taskId), {
+      var normalizedMode = String(assigneeMode || "default") === "none" ? "none" : "default";
+      var request = fetch("/api/tasks/" + encodeURIComponent(taskId), {
         method: "PATCH",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignee_mode: "none" }),
-      })
+        body: JSON.stringify({ assignee_mode: normalizedMode }),
+      });
+      var currentTask = taskHint || (
+        typeof window.__taskMetaForAssignments === "function"
+          ? window.__taskMetaForAssignments(taskId)
+          : null
+      ) || {};
+      var optimisticTask = Object.assign({}, currentTask, {
+        id: currentTask.id || taskId,
+        assignee_mode: normalizedMode,
+      });
+      if (normalizedMode === "none") {
+        optimisticTask.assign_group_members = false;
+        optimisticTask.group_assignment_members = [];
+        optimisticTask.assignments = [];
+      }
+      if (typeof mergeDashboardTask === "function") mergeDashboardTask(optimisticTask);
+      else if (typeof window.__mergeDashboardTask === "function") window.__mergeDashboardTask(optimisticTask);
+      if (typeof applyTaskRowUpdate === "function") applyTaskRowUpdate(optimisticTask);
+      if (String(currentTaskId || "") === String(taskId)) {
+        currentTaskData = Object.assign({}, currentTaskData || {}, optimisticTask);
+        renderTaskSettings();
+      }
+      return request
         .then(function (response) {
           return response.json().catch(function () { return {}; }).then(function (data) {
             return { ok: response.ok, data: data };
@@ -15679,7 +15712,7 @@
         })
         .then(function (result) {
           if (!result.ok || !result.data || !result.data.id) {
-            console.error("markTaskNoAssignee failed", result.data || result);
+            console.error("updateTaskAssigneeMode failed", result.data || result);
             return null;
           }
           var task = result.data;
@@ -15693,7 +15726,15 @@
           return task;
         });
     }
+
+    function markTaskNoAssigneeFromInput(input) {
+      var taskId = assignmentTaskIdForInput(input);
+      return updateTaskAssigneeMode(taskId, "none", assignmentTaskForInput(input));
+    }
     window.__markTaskNoAssigneeFromInput = markTaskNoAssigneeFromInput;
+    window.__clearTaskNoAssignee = function (taskId) {
+      return updateTaskAssigneeMode(taskId, "default");
+    };
 
     function withAssignSpecialSuggestions(input, results) {
       var list = typeof window.__withAddMeSuggestion === "function"
@@ -16667,6 +16708,23 @@
     hydrateDeferredFaviconImages();
 
     function renderSettingsAssignmentRows(assignments) {
+      if (currentTaskData && String(currentTaskData.assignee_mode || "default") === "none") {
+        return (
+          '<div class="discussion-assignment-row discussion-assignment-row--no-assignee" data-assignee-intent="none">' +
+            '<div class="discussion-assignment-user">' +
+              '<button class="discussion-assignment-avatar discussion-assignment-avatar--no-assignee" type="button" data-remove-assignee-intent="' + escapeHtml(String(currentTaskId || currentTaskData.id || "")) + '" aria-label="Remove no assignee designation">' +
+                '<span class="badge-initial"><i class="fa-solid fa-minus" aria-hidden="true"></i></span>' +
+                '<span class="badge-x">×</span>' +
+              '</button>' +
+              '<div class="discussion-assignment-meta">' +
+                '<div class="discussion-assignment-name">No assignee</div>' +
+                '<div class="discussion-assignment-email">Intentionally unassigned</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="discussion-assignment-status"><span class="discussion-assignment-pill is-no-assignee">Not assigned</span></div>' +
+          '</div>'
+        );
+      }
       if (currentTaskData && currentTaskData.assign_group_members) {
         var projectAssignmentCount = Array.isArray(currentTaskData.group_assignment_members) ? currentTaskData.group_assignment_members.length : 0;
         var projectRow = (
@@ -18255,9 +18313,10 @@
       });
       if (taskSettingsAssignmentsEl) {
         var assignments = Array.isArray(task.assignments) ? task.assignments : [];
-        taskSettingsAssignmentsEl.style.display = assignments.length ? "" : "none";
+        var hasNoAssigneeIntent = String(task.assignee_mode || "default") === "none";
+        taskSettingsAssignmentsEl.style.display = assignments.length || hasNoAssigneeIntent ? "" : "none";
         taskSettingsAssignmentsEl.innerHTML = renderSettingsAssignmentRows(assignments);
-        taskSettingsAssignmentsEl.querySelectorAll("[data-remove-assignment]").forEach(function (button) {
+        taskSettingsAssignmentsEl.querySelectorAll("[data-remove-assignment], [data-remove-assignee-intent]").forEach(function (button) {
           button.disabled = locked;
         });
       }
@@ -20146,13 +20205,7 @@
         var container = input.closest(".assignments");
         if (!container) return;
         var hasEmailCollaborator = false;
-        container.querySelectorAll("[data-assignment-id]").forEach(function (node) {
-          node.remove();
-        });
-        container.querySelectorAll("[data-group-assignment-badge]").forEach(function (node) {
-          node.remove();
-        });
-        container.querySelectorAll("[data-assignment-overflow]").forEach(function (node) {
+        container.querySelectorAll("[data-assignment-id], [data-group-assignment-badge], [data-assignment-overflow], [data-assignee-intent], .no-assignee-badge").forEach(function (node) {
           node.remove();
         });
         var assignAction = container.querySelector(".assign-action");
@@ -20190,7 +20243,7 @@
         }
         if (taskMeta && String(taskMeta.assignee_mode || "default") === "none") {
           totalBadges += 1;
-          insertBadgeHtml('<span class="badge user no-assignee-badge" title="Intentionally unassigned"><span class="badge-icon"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="badge-label">No assignee</span></span>');
+          insertBadgeHtml('<span class="badge user no-assignee-badge" data-assignee-intent="none" title="Intentionally unassigned. Click to remove."><button class="badge-icon" type="button" data-remove-assignee-intent="' + escapeHtml(String(taskId)) + '" aria-label="Remove no assignee designation"><span class="badge-initial"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="badge-x">×</span></button><span class="badge-label">No assignee</span></span>');
         } else if (taskMeta && taskMeta.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
           totalBadges += 1;
           insertBadgeHtml(window.__renderGroupAssignmentBadge(taskId, taskMeta.group_assignment_members || []));
