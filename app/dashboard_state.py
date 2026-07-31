@@ -108,8 +108,12 @@ def _todo_bucket_rank(task: Task) -> tuple[int, str]:
     info_payload = load_info_payload(task.info, task.link)
     due_mode = str((info_payload.get("meta") or {}).get("due_mode") or "").strip().lower()
     due_date = task.due_at.date() if task.due_at else None
+    if due_mode == "urgent" and not task.due_at:
+        return (-1, "urgent")
     if due_mode == "asap" and not task.due_at:
         return (1, "asap")
+    if due_mode == "low_priority" and not task.due_at:
+        return (11, "low_priority")
     if due_date is None:
         return (10, "none")
     if due_date < today:
@@ -274,7 +278,7 @@ def _serialize_task(
     if task_type not in {"standard", "poll"}:
         task_type = "standard"
     updated_at = getattr(task, "updated_at", None)
-    if due_mode not in {"asap", "date", "relative"}:
+    if due_mode not in {"asap", "urgent", "low_priority", "date", "relative"}:
         due_mode = "date" if task.due_at else "none"
     return {
         "id": task.id,
@@ -291,6 +295,7 @@ def _serialize_task(
         "attachments": list(info.get("attachments") or []),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": due_mode,
+        "assignee_mode": "none" if str(meta.get("assignee_mode") or "").strip().lower() == "none" else "default",
         "due_relative": {
             "task_id": due_relative_task_id,
             "task_title": due_relative_title,
@@ -507,7 +512,7 @@ def build_dashboard_bootstrap(user) -> dict:
             "user_id": user.id,
             "generated_at": now_utc.isoformat(),
             "cursor": now_utc.isoformat(),
-            "schema_version": 4,
+            "schema_version": 5,
         },
         "entities": {
             "divisions": {

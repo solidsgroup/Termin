@@ -177,7 +177,7 @@ DESCRIPTION_FORMAT_OPTIONS = {"plain", "markdown", "restructuredtext", "html"}
 DEFAULT_PROJECT_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_GROUP_DESCRIPTION_FORMAT = "markdown"
 DEFAULT_TASK_DESCRIPTION_FORMAT = "markdown"
-TASK_DUE_MODE_OPTIONS = {"none", "date", "asap", "relative"}
+TASK_DUE_MODE_OPTIONS = {"none", "date", "asap", "urgent", "low_priority", "relative"}
 TASK_TYPE_OPTIONS = {"standard", "poll"}
 TASK_LOCKED_PROTECTED_FIELDS = {
     "title",
@@ -194,6 +194,7 @@ TASK_LOCKED_PROTECTED_FIELDS = {
     "status_percentage",
     "per_user_status_enabled",
     "assign_group_members",
+    "assignee_mode",
     "task_type",
     "poll",
 }
@@ -276,6 +277,8 @@ def _task_changed_field_labels(
     new_status_mode: str | None,
     old_assign_group_members: bool,
     new_assign_group_members: bool,
+    old_assignee_mode: str,
+    new_assignee_mode: str,
     old_follow_project_members: bool,
     new_follow_project_members: bool,
     old_description: str | None,
@@ -327,6 +330,8 @@ def _task_changed_field_labels(
         labels.append("status mode")
     if bool(old_assign_group_members) != bool(new_assign_group_members):
         labels.append("assignment mode")
+    if old_assignee_mode != new_assignee_mode:
+        labels.append("assignee intent")
     if bool(old_follow_project_members) != bool(new_follow_project_members):
         labels.append("follower mode")
     if (old_description or "") != (new_description or ""):
@@ -407,6 +412,10 @@ def _task_due_history_value(*, due_mode: str | None, due_at) -> str:
     normalized_mode = str(due_mode or "none").strip().lower()
     if normalized_mode == "asap":
         return "ASAP"
+    if normalized_mode == "urgent":
+        return "urgent"
+    if normalized_mode == "low_priority":
+        return "low priority"
     if normalized_mode == "relative":
         return "relative"
     if normalized_mode != "date" or not due_at:
@@ -1014,7 +1023,7 @@ def _mentioned_users(body: str | None, *, exclude_user_id: int | None = None):
 def _task_due_mode(task: Task) -> str:
     info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     mode = str(info.get("meta", {}).get("due_mode") or "").strip().lower()
-    if mode in {"asap", "date", "relative"}:
+    if mode in {"asap", "urgent", "low_priority", "date", "relative"}:
         return mode
     if task.due_at:
         return "date"
@@ -1024,6 +1033,30 @@ def _task_due_mode(task: Task) -> str:
 def _normalize_due_mode(value: str | None, *, fallback: str = "date") -> str:
     mode = (str(value or fallback).strip().lower() or fallback)
     return mode if mode in TASK_DUE_MODE_OPTIONS else fallback
+
+
+def _task_assignee_mode(task: Task | None) -> str:
+    if not task:
+        return "default"
+    info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    return "none" if str((info.get("meta") or {}).get("assignee_mode") or "").strip().lower() == "none" else "default"
+
+
+def _set_task_assignee_mode(task: Task, value) -> tuple[bool, str | None]:
+    mode = str(value or "default").strip().lower()
+    if mode not in {"default", "none"}:
+        return False, "invalid assignee mode"
+    if mode == "none" and getattr(task, "id", None) and Assignment.query.filter_by(task_id=task.id).first():
+        return False, "remove existing assignees before selecting no assignee"
+    info = load_info_payload(task.info, task.link)
+    meta = dict(info.get("meta") or {})
+    if mode == "none":
+        meta["assignee_mode"] = "none"
+    else:
+        meta.pop("assignee_mode", None)
+    info["meta"] = meta
+    task.info = normalize_info_payload(info, task.link)
+    return True, None
 
 
 def _task_start_date(task: Task) -> str:
@@ -1386,9 +1419,9 @@ def _apply_task_due_payload(task: Task, *, due_at_raw, due_mode_raw, due_relativ
         meta.pop("due_relative_task_id", None)
         meta.pop("due_relative_days", None)
         meta.pop("due_relative_start_days", None)
-    elif mode == "asap":
+    elif mode in {"asap", "urgent", "low_priority"}:
         task.due_at = None
-        meta["due_mode"] = "asap"
+        meta["due_mode"] = mode
         meta.pop("start_date", None)
         meta.pop("due_relative_task_id", None)
         meta.pop("due_relative_days", None)
@@ -1899,6 +1932,7 @@ def _serialize_task_prerequisite_row(
         "prereq_blocked": bool(resolved_status_meta.get("prereq_blocked")) if isinstance(resolved_status_meta, dict) else False,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "assignee_mode": _task_assignee_mode(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -1946,6 +1980,7 @@ def _serialize_task_dependent_row(
         "prereq_blocked": bool(resolved_status_meta.get("prereq_blocked")) if isinstance(resolved_status_meta, dict) else False,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "assignee_mode": _task_assignee_mode(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -2200,6 +2235,7 @@ def _serialize_task_row(
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "creator_user_id": task.creator_user_id,
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
         "locked": bool(task.locked),
         "creator": {
@@ -2212,6 +2248,7 @@ def _serialize_task_row(
         "title": task.title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "assignee_mode": _task_assignee_mode(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -2440,11 +2477,14 @@ def create_task():
     due_relative_start_days = payload.get("due_relative_start_days")
     start_date = payload.get("start_date")
     assignee_email = payload.get("assignee_email")
+    assignee_mode = payload.get("assignee_mode")
     task_type = payload.get("task_type")
     poll = payload.get("poll")
 
     if not title or not project_id:
         return {"error": "title and project_id are required"}, 400
+    if assignee_email and str(assignee_mode or "").strip().lower() == "none":
+        return {"error": "a task cannot have an assignee and no-assignee mode"}, 400
 
     project = Project.query.get(project_id)
     if not project:
@@ -2491,6 +2531,9 @@ def create_task():
         due_relative_days_raw=due_relative_days,
         due_relative_start_days_raw=due_relative_start_days,
     )
+    if not ok:
+        return {"error": error}, 400
+    ok, error = _set_task_assignee_mode(task, assignee_mode)
     if not ok:
         return {"error": error}, 400
     task_due_mode = _task_due_mode(task)
@@ -2600,6 +2643,7 @@ def update_task(task_id: int):
     old_info_payload = _info_payload_for(task)
     old_per_user_status_enabled = bool(task.per_user_status_enabled)
     old_assign_group_members = bool(task.assign_group_members)
+    old_assignee_mode = _task_assignee_mode(task)
     old_follow_project_members = _task_follow_project_members(task)
     old_description = task.description
     old_description_format = task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT
@@ -2626,6 +2670,7 @@ def update_task(task_id: int):
     info = payload.get("info")
     per_user_status_enabled = payload.get("per_user_status_enabled")
     assign_group_members = payload.get("assign_group_members")
+    assignee_mode = payload.get("assignee_mode")
     follow_project_members = payload.get("follow_project_members")
     description = payload.get("description")
     description_format = payload.get("description_format")
@@ -2658,6 +2703,7 @@ def update_task(task_id: int):
         next_group_mode = bool(assign_group_members)
         task.assign_group_members = next_group_mode
         if next_group_mode:
+            _set_task_assignee_mode(task, "default")
             sync_group_task_assignments(task)
     if user_status is not None:
         target_user_id = user.id
@@ -2721,6 +2767,12 @@ def update_task(task_id: int):
             ok, error = _set_task_start_date(task, "")
             if not ok:
                 return {"error": error}, 400
+    if assignee_mode is not None:
+        if bool(task.assign_group_members) and str(assignee_mode or "").strip().lower() == "none":
+            return {"error": "group-assigned tasks cannot use no-assignee mode"}, 400
+        ok, error = _set_task_assignee_mode(task, assignee_mode)
+        if not ok:
+            return {"error": error}, 400
     if description is not None:
         task.description = description
     if description_format is not None:
@@ -2769,6 +2821,8 @@ def update_task(task_id: int):
         new_status_mode=new_status_mode,
         old_assign_group_members=old_assign_group_members,
         new_assign_group_members=bool(task.assign_group_members),
+        old_assignee_mode=old_assignee_mode,
+        new_assignee_mode=_task_assignee_mode(task),
         old_follow_project_members=old_follow_project_members,
         new_follow_project_members=_task_follow_project_members(task),
         old_description=old_description,
@@ -2803,8 +2857,8 @@ def update_task(task_id: int):
                 "new_due_mode": new_due_mode or "none",
                 "old_due_at": old_due_at.isoformat() if old_due_at else "",
                 "new_due_at": task.due_at.isoformat() if task.due_at else "",
-                "old_due_label": old_due_at.strftime("%Y-%m-%d") if old_due_at else ("ASAP" if old_due_mode == "asap" else ""),
-                "new_due_label": task.due_at.strftime("%Y-%m-%d") if task.due_at else ("ASAP" if new_due_mode == "asap" else ""),
+                "old_due_label": _task_due_history_value(due_mode=old_due_mode, due_at=old_due_at),
+                "new_due_label": _task_due_history_value(due_mode=new_due_mode, due_at=task.due_at),
             })
         elif notification_kind in {"task_status_changed", "task_completed"}:
             detail_payload.update({
@@ -2844,8 +2898,6 @@ def update_task(task_id: int):
     impacted_tasks = _touch_tasks(impacted_ids)
     if impacted_tasks:
         emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
-        for impacted_task in impacted_tasks:
-            emit_task_updated(impacted_task, actor_user_id=user.id)
     emit_task_notification_updates(task, exclude_user_id=user.id)
     info_payload = _info_payload_for(task)
     status_meta = task_status_meta(task, viewer_user_id=user.id)
@@ -2853,6 +2905,7 @@ def update_task(task_id: int):
     followers = TaskFollower.query.filter_by(task_id=task.id).all()
     return {
         "id": task.id,
+        "creator_user_id": task.creator_user_id,
         "title": task.title,
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
         "position": task.position,
@@ -2879,6 +2932,7 @@ def update_task(task_id: int):
         "dependents": _serialize_task_dependents(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "assignee_mode": _task_assignee_mode(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -2906,6 +2960,7 @@ def get_task(task_id: int):
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "creator_user_id": task.creator_user_id,
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
         "position": task.position,
         "group_name": (Group.query.get(task.group_id).name if task.group_id else None),
@@ -2937,6 +2992,7 @@ def get_task(task_id: int):
         "dependents": _serialize_task_dependents(task.id),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "assignee_mode": _task_assignee_mode(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -5689,8 +5745,6 @@ def delete_task(task_id: int):
         impacted_tasks = Task.query.filter(Task.id.in_(impacted_ids)).all()
         if impacted_tasks:
             emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
-            for impacted_task in impacted_tasks:
-                emit_task_updated(impacted_task, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
@@ -5732,6 +5786,7 @@ def create_assignment():
         email=email,
     )
     if existing_assignment:
+        _set_task_assignee_mode(task, "default")
         existing_assignment = _collapse_duplicate_task_assignments(
             task_id=task.id,
             account_user_id=account_user.id if account_user else None,
@@ -5773,6 +5828,7 @@ def create_assignment():
         status="assigned" if account_user else "draft",
     )
     db.session.add(assignment)
+    _set_task_assignee_mode(task, "default")
     db.session.commit()
     assignment = _collapse_duplicate_task_assignments(
         task_id=task.id,
@@ -5822,6 +5878,7 @@ def assign_all_task_members(task_id: int):
     if _task_is_locked(task):
         return _locked_task_response()
     task.assign_group_members = True
+    _set_task_assignee_mode(task, "default")
     changes = sync_group_task_assignments(task)
     db.session.commit()
     actor_name = display_name_for_user(user) or user.email or "Someone"

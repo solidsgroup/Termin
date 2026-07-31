@@ -136,7 +136,7 @@
   <body class="is-page-loading" data-theme="{{ active_theme }}" data-theme-family="{{ active_theme_name }}" data-current-view="{{ current_view or '' }}">
     <header>
       <div class="header-brand">
-        {% if current_view is defined and current_view in ['dashboard', 'tree', 'todo', 'inbox'] %}
+        {% if current_view is defined and current_view in ['dashboard', 'tree', 'todo', 'inbox', 'problems'] %}
         <button class="mobile-sidebar-trigger" type="button" data-mobile-sidebar-trigger aria-label="Open navigation" aria-expanded="false">
           <i class="fa-solid fa-bars" aria-hidden="true"></i>
         </button>
@@ -178,6 +178,14 @@
                   <div class="view-search-empty">Type at least 2 characters.</div>
                 </div>
               </div>
+            </div>
+          {% endif %}
+          {% if current_view is defined %}
+            <div class="notifications-shell alerts-shell" data-notifications-menu data-alerts-menu hidden>
+              <button class="notifications-trigger alerts-trigger" type="button" aria-haspopup="menu" aria-expanded="false" data-notifications-trigger title="Alerts" aria-label="Alerts">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+              </button>
+              <div class="notifications-menu alerts-menu" role="menu" data-alerts-menu-content></div>
             </div>
           {% endif %}
           {% if task_notifications is defined %}
@@ -326,7 +334,7 @@
         {% endif %}
       </div>
     </header>
-    {% if current_view is defined and current_view in ['dashboard', 'tree', 'todo', 'inbox'] %}
+    {% if current_view is defined and current_view in ['dashboard', 'tree', 'todo', 'inbox', 'problems'] %}
       <nav class="mobile-bottom-nav" data-mobile-bottom-nav aria-label="Primary">
         <div class="mobile-bottom-nav-slot" data-mobile-bottom-nav-slot></div>
       </nav>

@@ -355,7 +355,7 @@
       {% set task_status_state = task_status_payload.get('aggregate_state') or task_status_payload.get('my_status_state') or status_state(task.status) %}
       {% set github_meta = github_task_meta.get(task.id) %}
       {% set can_move_task = not github_meta %}
-      <tr class="task-row{% if can_move_task %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-task-locked="{{ 1 if task.locked else 0 }}" data-status-state="{{ task_status_state }}">
+      <tr class="task-row{% if can_move_task %} task-row-draggable{% endif %}{% if github_meta %} github-task-row{% endif %}" data-task-row-id="{{ task.id }}" data-task-id="{{ task.id }}" data-task-position="{{ task.position }}" data-task-locked="{{ 1 if task.locked else 0 }}" data-status-state="{{ task_status_state }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}">
         <td>
           <div class="row-controls">
             {% if can_move_task %}
@@ -456,7 +456,7 @@
 {% endblock %}
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
-<div class="layout dashboard-layout{% if current_view in ['dashboard', 'inbox'] %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
+<div class="layout dashboard-layout{% if current_view in ['dashboard', 'inbox', 'problems'] %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
   <aside class="sidebar todo-tree dashboard-sidebar" data-dashboard-sidebar data-todo-tree data-tree-sidebar>
     <div class="dashboard-sidebar-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-sidebar-pane="todo">
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
@@ -929,6 +929,23 @@
         </div>
       </div>
     </div>
+    <div class="dashboard-view-pane{% if current_view == 'problems' %} is-active{% endif %}" data-dashboard-view="problems">
+      <div class="dashboard-pane-loading" data-dashboard-pane-loading="problems" aria-hidden="true">
+        <div class="dashboard-pane-loading-chip">
+          <span class="dashboard-pane-spinner" aria-hidden="true"></span>
+          <span>Loading problem tasks…</span>
+        </div>
+      </div>
+      <section class="problems-view">
+        <header class="problems-header">
+          <div>
+            <p>The following tasks are missing an assignee or date designation.</p>
+          </div>
+          <div class="problems-count" data-problems-count>0</div>
+        </header>
+        <div class="problems-list" data-problems-list></div>
+      </section>
+    </div>
     <div class="dashboard-view-pane{% if current_view == 'tree' %} is-active{% endif %}" data-dashboard-view="tree">
       <div class="dashboard-pane-loading" data-dashboard-pane-loading="tree" aria-hidden="true">
         <div class="dashboard-pane-loading-chip">
@@ -1318,9 +1335,11 @@
 	          <div class="discussion-setting-due-wrap">
 	            <select id="task-settings-due-mode" aria-label="Due mode">
               <option value="none">No Date</option>
+              <option value="urgent">Urgent</option>
               <option value="asap">ASAP</option>
               <option value="date">Date</option>
               <option value="relative">Relative</option>
+              <option value="low_priority">Low priority</option>
             </select>
 	            <input id="task-settings-due" type="date" aria-label="Due date" />
 	          </div>
@@ -1633,7 +1652,9 @@
           <div class="quick-task-due-row">
             <div class="quick-task-due-mode" id="quick-task-due-mode">
               <button class="quick-task-due-mode-button is-active" type="button" data-quick-task-due-mode="asap">ASAP</button>
+              <button class="quick-task-due-mode-button" type="button" data-quick-task-due-mode="urgent">Urgent</button>
               <button class="quick-task-due-mode-button" type="button" data-quick-task-due-mode="date">Date</button>
+              <button class="quick-task-due-mode-button" type="button" data-quick-task-due-mode="low_priority">Low priority</button>
             </div>
             <input id="quick-task-date" class="quick-task-date-input" type="date" hidden disabled />
           </div>
@@ -2307,6 +2328,7 @@
       tr.setAttribute("data-task-row-id", String(taskId));
       tr.setAttribute("data-task-id", String(taskId));
       tr.setAttribute("data-status-state", "open");
+      tr.setAttribute("data-due-mode", String(infoMeta.due_mode || "none").toLowerCase());
       tr.innerHTML =
         '<td>' +
           '<div class="row-controls">' +
@@ -7156,6 +7178,12 @@
               mergedAssignments = mergedAssignments.filter(function (row) { return String(row.id) !== String(data.id); });
               mergedAssignments.push(data);
               taskMeta.assignments = mergedAssignments;
+              var updatedTaskMeta = Object.assign({}, taskMeta, {
+                assignments: mergedAssignments,
+                assignee_mode: "default",
+              });
+              if (typeof mergeDashboardTask === "function") mergeDashboardTask(updatedTaskMeta);
+              else if (typeof window.__mergeDashboardTask === "function") window.__mergeDashboardTask(updatedTaskMeta);
               var host = document.querySelector('[data-task-status-host="' + targetId + '"]');
               if (host && host._taskPayload) {
                 host._taskPayload = Object.assign({}, host._taskPayload, { assignments: mergedAssignments });
@@ -7270,7 +7298,10 @@
     }
 
     function formatDueSummary(dueValue, createdValue, dueMode) {
-      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
+      var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent") return "Urgent";
+      if (normalizedMode === "asap") return "ASAP";
+      if (normalizedMode === "low_priority") return "Low priority";
       var today = new Date();
       var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       if (dueValue) {
@@ -7293,7 +7324,9 @@
 
     function formatDueCompactLabel(dueValue, createdValue, dueMode) {
       var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent") return "Urgent";
       if (normalizedMode === "asap") return "ASAP";
+      if (normalizedMode === "low_priority") return "Low";
       if (dueValue) return formatCompactCalendarDate(dueValue);
       if (createdValue) return formatCompactCalendarDate(createdValue);
       return formatCompactCalendarDate(new Date().toISOString().slice(0, 10)) || "Today";
@@ -7344,7 +7377,10 @@
     }
 
     function formatTreeDueLabel(dueValue, dueMode) {
-      if (String(dueMode || "").toLowerCase() === "asap") return "ASAP";
+      var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent") return "Urgent";
+      if (normalizedMode === "asap") return "ASAP";
+      if (normalizedMode === "low_priority") return "Low priority";
       if (dueValue) return formatCompactCalendarDate(dueValue);
       return "No Date";
     }
@@ -7376,6 +7412,10 @@
       var startValue = input.getAttribute("data-start-date");
       var dueMode = input.getAttribute("data-due-mode");
       var normalizedDueMode = String(dueMode || "").toLowerCase();
+      var taskRow = input.closest('[data-task-row-id], .todo-item[data-task-id]');
+      if (taskRow) {
+        taskRow.setAttribute("data-due-mode", normalizedDueMode || (dueValue ? "date" : "none"));
+      }
       var relativeText = normalizedDueMode === "relative" ? dueRelativeInputDescription(input, true) : "";
       var isTodo = !!(cell && cell.closest(".todo-item"));
       if (label) {
@@ -7389,8 +7429,8 @@
         mobileText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode) + (relativeText ? " · " + relativeText : "");
       }
       if (summary) {
-        summary.title = normalizedDueMode === "asap"
-          ? "ASAP"
+        summary.title = ["urgent", "asap", "low_priority"].indexOf(normalizedDueMode) >= 0
+          ? formatDueSummary("", "", normalizedDueMode)
           : (normalizedDueMode === "relative"
             ? ((dueValue ? "Due " + dueValue + " · " : "Due ") + dueRelativeInputDescription(input, false))
             : (dueValue ? "Due " + dueValue : "No Date"));
@@ -8308,6 +8348,14 @@
           const hasSuggest = input._suggestItems && input._suggestItems.length;
           if (!looksLikeEmail && hasSuggest && (event.key === "Enter" || event.key === "Tab")) {
             const active = getActiveSuggestItem(input);
+            if (active && active.is_disabled) return;
+            if (active && active.is_no_assignee && typeof window.__markTaskNoAssigneeFromInput === "function") {
+              window.__markTaskNoAssigneeFromInput(input);
+              input.value = "";
+              hideSuggest(input);
+              collapseInlineAssignInput(input);
+              return;
+            }
             if (active && active.is_add_all) {
               const container = input.closest(".assignments");
               createAssignmentsForGroup(targetId, container);
@@ -8337,6 +8385,7 @@
         }
       });
     };
+	    window.__bindAssignInput = bindAssignInput;
 
     const manageableGroupIds = new Set({{ (manageable_group_ids | list)|tojson }});
     const canManageProjectTasks = {{ 'true' if can_manage_project else 'false' }};
@@ -8404,6 +8453,7 @@
       tr.dataset.taskRowId = String(id);
       tr.dataset.taskId = String(id);
       tr.dataset.taskPosition = String((info && info.position) || "");
+      tr.dataset.dueMode = String(infoMeta.due_mode || (due ? "date" : "none")).toLowerCase();
       tr.innerHTML = `
         <td>
           <div class="row-controls">
@@ -8737,10 +8787,12 @@
       input.blur();
       if (action && !action.querySelector(".assign-add-btn")) {
         const btn = document.createElement("button");
-        btn.className = "assign-add-btn";
+        const snapshot = input._assignAddButtonSnapshot || {};
+        btn.className = snapshot.className || "assign-add-btn";
         btn.type = "button";
-        btn.title = "Assign";
-        btn.textContent = "+";
+        btn.title = snapshot.title || "Assign";
+        if (snapshot.ariaLabel) btn.setAttribute("aria-label", snapshot.ariaLabel);
+        btn.innerHTML = snapshot.innerHTML || "+";
         action.appendChild(btn);
       }
     };
@@ -8811,7 +8863,9 @@
 
     const formatDueCompactLabel = (dueValue, createdValue, dueMode) => {
       const normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent") return "Urgent";
       if (normalizedMode === "asap") return "ASAP";
+      if (normalizedMode === "low_priority") return "Low";
       if (dueValue) return formatCompactCalendarDate(dueValue);
       if (createdValue) return formatCompactCalendarDate(createdValue);
       return formatCompactCalendarDate(new Date().toISOString().slice(0, 10)) || "Today";
@@ -8821,7 +8875,9 @@
 
     const formatTreeDueLabel = (dueValue, dueMode) => {
       const normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent") return "Urgent";
       if (normalizedMode === "asap") return "ASAP";
+      if (normalizedMode === "low_priority") return "Low priority";
       if (dueValue) return formatCompactCalendarDate(dueValue);
       return "No Date";
     };
@@ -8904,6 +8960,10 @@
       const startValue = input.getAttribute("data-start-date");
       const dueMode = input.getAttribute("data-due-mode");
       const normalizedDueMode = String(dueMode || "").toLowerCase();
+      const taskRow = input.closest('[data-task-row-id], .todo-item[data-task-id]');
+      if (taskRow) {
+        taskRow.setAttribute("data-due-mode", normalizedDueMode || (dueValue ? "date" : "none"));
+      }
       const relativeText = normalizedDueMode === "relative" ? dueInputRelativeDescription(input, true) : "";
       const isTodo = !!(dueCell && dueCell.closest(".todo-item"));
       const label = summary.querySelector(".due-summary-label");
@@ -8918,8 +8978,8 @@
       if (mobileText && isTodo) {
         mobileText.textContent = formatDueCompactLabel(dueValue, createdValue, dueMode) + (relativeText ? " · " + relativeText : "");
       }
-      summary.title = normalizedDueMode === "asap"
-        ? "ASAP"
+      summary.title = ["urgent", "asap", "low_priority"].indexOf(normalizedDueMode) >= 0
+        ? (normalizedDueMode === "urgent" ? "Urgent" : (normalizedDueMode === "asap" ? "ASAP" : "Low priority"))
         : (normalizedDueMode === "relative"
           ? ((dueValue ? `Due ${dueValue} · ` : "Due ") + dueInputRelativeDescription(input, false))
           : (dueValue ? `Due ${dueValue}` : "No Date"));
@@ -8997,18 +9057,27 @@
       const currentMode = String(input.getAttribute("data-due-mode") || (input.value ? "date" : "none")).toLowerCase();
       const menu = document.createElement("div");
       const dueRect = dueCell.getBoundingClientRect();
-      menu.className = "todo-assignee-menu";
+      const dueModeOptions = [
+        { mode: "none", label: "No date", icon: "fa-solid fa-calendar-xmark" },
+        { mode: "urgent", label: "Urgent", icon: "fa-solid fa-triangle-exclamation" },
+        { mode: "asap", label: "ASAP", icon: "fa-solid fa-forward-fast" },
+        { mode: "date", label: "Date", icon: "fa-regular fa-calendar" },
+        { mode: "relative", label: "Relative date", icon: "fa-solid fa-link" },
+        { mode: "low_priority", label: "Low priority", icon: "fa-solid fa-arrow-down" },
+      ];
+      const dueModeActionsHtml = dueModeOptions.map(function (option) {
+        const isActive = currentMode === option.mode;
+        return '<button class="btn secondary due-mode-icon-button' + (isActive ? ' is-active' : '') + '" type="button" data-due-mode-action="' + option.mode + '" aria-label="' + option.label + '" title="' + option.label + '" aria-pressed="' + (isActive ? 'true' : 'false') + '"><i class="' + option.icon + '" aria-hidden="true"></i></button>';
+      }).join("");
+      menu.className = "todo-assignee-menu due-mode-menu";
       menu.style.position = "fixed";
-      menu.style.width = "min(340px, calc(100vw - 24px))";
+      menu.style.width = "min(280px, calc(100vw - 24px))";
       menu.style.maxWidth = "calc(100vw - 24px)";
       menu.style.top = Math.round(dueCell.getBoundingClientRect().bottom + 6) + "px";
       menu.style.zIndex = "600";
       menu.innerHTML =
-        '<div class="todo-assignee-actions" style="margin:0;">' +
-          '<button class="btn secondary' + (currentMode === "none" ? ' is-active' : '') + '" type="button" data-due-mode-action="none">No Date</button>' +
-          '<button class="btn secondary' + (currentMode === "asap" ? ' is-active' : '') + '" type="button" data-due-mode-action="asap">ASAP</button>' +
-          '<button class="btn secondary' + (currentMode === "date" ? ' is-active' : '') + '" type="button" data-due-mode-action="date">Date</button>' +
-          '<button class="btn secondary' + (currentMode === "relative" ? ' is-active' : '') + '" type="button" data-due-mode-action="relative">Relative</button>' +
+        '<div class="todo-assignee-actions due-mode-actions" style="margin:0;">' +
+          dueModeActionsHtml +
         '</div>' +
         '<div data-due-mode-date-wrap style="margin-top:8px; display:' + (currentMode === "date" ? 'block' : 'none') + ';">' +
           '<input type="date" data-due-mode-date-input style="width:100%; border:1px solid var(--border); background:color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%); color:var(--ink); border-radius:10px; padding:7px 10px; font:inherit; font-size:13px;" value="' + (input.value || "") + '" />' +
@@ -9022,7 +9091,7 @@
           '</div>' +
         '</div>';
       document.body.appendChild(menu);
-      var menuWidth = Math.min(340, Math.max(220, menu.offsetWidth || 340));
+      var menuWidth = Math.min(280, Math.max(220, menu.offsetWidth || 280));
       var left = Math.round(dueRect.right - menuWidth);
       left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
       menu.style.left = left + "px";
@@ -9319,16 +9388,22 @@
 	      results.forEach((item) => {
 	        const btn = document.createElement("button");
 	        btn.type = "button";
-	        const label = item.is_add_me ? "Add me" : item.is_add_all ? "Add all in project" : (item.type === "user" ? (item.display_name || item.email) : item.email);
-	        const meta = (item.is_add_me || item.is_add_all) ? "" : `<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
+	        const label = item.label || (item.is_add_me ? "Assign me" : item.is_add_all ? "Assign group" : item.is_no_assignee ? "No assignee" : (item.type === "user" ? (item.display_name || item.email) : item.email));
+	        const meta = item.meta_label
+	          ? `<span class="assign-meta">${escapeHtml(item.meta_label)}</span>`
+	          : (item.is_add_me || item.is_add_all || item.is_no_assignee) ? "" : `<span class="assign-meta">${item.accepted_count || 0} accepts</span>`;
 	        const avatar = item.is_add_me
 	          ? `<span class="assign-suggest-avatar is-add-me">+</span>`
             : item.is_add_all
             ? `<span class="assign-suggest-avatar is-add-me">++</span>`
+	          : item.is_no_assignee
+	          ? `<span class="assign-suggest-avatar is-no-assignee"><i class="fa-solid fa-minus" aria-hidden="true"></i></span>`
 	          : item.avatar_url
 	          ? `<span class="assign-suggest-avatar"><img src="${escapeHtml(item.avatar_url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent='${escapeHtml(label.charAt(0).toUpperCase())}'; this.remove();" /></span>`
 	          : `<span class="assign-suggest-avatar">${escapeHtml(label.charAt(0).toUpperCase())}</span>`;
 	        btn.innerHTML = `${avatar}<span class="assign-suggest-copy"><span class="assign-suggest-label">${escapeHtml(label)}</span>${meta}</span>`;
+	        if (item.is_no_assignee) btn.classList.add("assign-suggest-no-assignee");
+	        if (item.is_disabled) btn.disabled = true;
 	        btn.addEventListener("mousedown", (event) => {
 	          event.preventDefault();
 	          input.dataset.assignSelecting = "1";
@@ -9342,7 +9417,12 @@
           input.dataset.assignSelecting = "0";
           const targetType = input.getAttribute("data-assign-input");
           const targetId = input.getAttribute("data-target-id");
-          if (item.is_add_all) {
+          if (item.is_disabled) return;
+          if (item.is_no_assignee && typeof window.__markTaskNoAssigneeFromInput === "function") {
+            window.__markTaskNoAssigneeFromInput(input);
+            input.value = "";
+            collapseInlineAssignInput(input);
+          } else if (item.is_add_all) {
             const container = input.closest(".assignments");
             createAssignmentsForGroup(targetId, container);
             input.value = "";
@@ -9638,8 +9718,8 @@
       if (removeAssignment) {
         const assignmentId = removeAssignment.getAttribute("data-remove-assignment");
         if (!assignmentId) return;
-        const taskScope = removeAssignment.closest("[data-task-row-id], .todo-item[data-task-id]");
-        const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id")) : currentTaskId;
+        const taskScope = removeAssignment.closest("[data-task-row-id], .todo-item[data-task-id], [data-problem-task-id]");
+        const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id") || taskScope.getAttribute("data-problem-task-id")) : currentTaskId;
         if (window.__taskIdIsLocked(scopedTaskId)) return;
         fetch(`/api/assignments/${assignmentId}`, { method: "DELETE" })
           .then((res) => res.json().catch(() => ({})))
@@ -9708,12 +9788,18 @@
 
       const assignAdd = event.target.closest(".assign-add-btn");
       if (assignAdd) {
-        const taskScope = assignAdd.closest("[data-task-row-id], .todo-item[data-task-id]");
-        const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id")) : "";
+        const taskScope = assignAdd.closest("[data-task-row-id], .todo-item[data-task-id], [data-problem-task-id]");
+        const scopedTaskId = taskScope ? (taskScope.getAttribute("data-task-row-id") || taskScope.getAttribute("data-task-id") || taskScope.getAttribute("data-problem-task-id")) : "";
         if (window.__taskIdIsLocked(scopedTaskId)) return;
         const action = assignAdd.closest(".assign-action");
         const input = action ? action.querySelector(".assign-input") : null;
         if (input) {
+          input._assignAddButtonSnapshot = {
+            className: assignAdd.className,
+            title: assignAdd.title,
+            ariaLabel: assignAdd.getAttribute("aria-label") || "",
+            innerHTML: assignAdd.innerHTML,
+          };
           input.classList.remove("hidden");
           input.focus();
         }
@@ -10729,7 +10815,7 @@
     }
 
     function quickTaskSetDueMode(mode) {
-      quickTaskDueModeValue = mode === "date" ? "date" : "asap";
+      quickTaskDueModeValue = ["asap", "urgent", "date", "low_priority"].indexOf(mode) >= 0 ? mode : "asap";
       if (quickTaskDueMode) {
         quickTaskDueMode.querySelectorAll("[data-quick-task-due-mode]").forEach(function (button) {
           button.classList.toggle("is-active", button.getAttribute("data-quick-task-due-mode") === quickTaskDueModeValue);
@@ -13578,8 +13664,8 @@
     var dashboardBootstrapStore = null;
     var dashboardStorePersistTimer = null;
     var dashboardBootstrapCacheDisabled = false;
-    var dashboardBootstrapCacheSchemaVersion = 4;
-    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v4.user." + String(currentUserId);
+    var dashboardBootstrapCacheSchemaVersion = 5;
+    var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v5.user." + String(currentUserId);
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
     var terminClientPerfEvents = [];
     var pollSettingsPersistTimer = 0;
@@ -13826,6 +13912,12 @@
       if (typeof window.__renderTodoBoardFromStore === "function") {
         window.__renderTodoBoardFromStore();
       }
+      if (typeof window.__renderProblemTasksFromStore === "function") {
+        window.__renderProblemTasksFromStore();
+      }
+      if (typeof window.__refreshDashboardAlerts === "function") {
+        window.__refreshDashboardAlerts();
+      }
       if (typeof window.__refreshDueDisplays === "function") {
         window.__refreshDueDisplays();
       }
@@ -13867,6 +13959,10 @@
       if (entityType === "tasks" && typeof window.__refreshDueDisplays === "function") {
         window.__refreshDueDisplays();
       }
+      if (entityType === "tasks") {
+        if (typeof window.__renderProblemTasksFromStore === "function") window.__renderProblemTasksFromStore();
+        if (typeof window.__refreshDashboardAlerts === "function") window.__refreshDashboardAlerts();
+      }
     }
 
     function removeDashboardEntity(entityType, entityId) {
@@ -13878,6 +13974,10 @@
       }
       if (entityType === "tasks" || entityType === "projects" || entityType === "groups") {
         refreshDashboardHomeFromTodo();
+      }
+      if (entityType === "tasks") {
+        if (typeof window.__renderProblemTasksFromStore === "function") window.__renderProblemTasksFromStore();
+        if (typeof window.__refreshDashboardAlerts === "function") window.__refreshDashboardAlerts();
       }
     }
 
@@ -14168,7 +14268,7 @@
 
     function taskDueModeValue(task) {
       var mode = String((task && task.due_mode) || "").trim().toLowerCase();
-      if (mode === "asap" || mode === "date" || mode === "relative") return mode;
+      if (["asap", "urgent", "low_priority", "date", "relative"].indexOf(mode) >= 0) return mode;
       if (task && task.due_at) return "date";
       return "none";
     }
@@ -15547,14 +15647,77 @@
       return "";
     }
 
+    function assignmentTaskIdForInput(input) {
+      if (!input) return "";
+      if (input === taskSettingsAssigneeEl) return String(currentTaskId || "");
+      if (input.getAttribute("data-assign-input") !== "task") return "";
+      return String(input.getAttribute("data-target-id") || "");
+    }
+
+    function assignmentTaskForInput(input) {
+      var taskId = assignmentTaskIdForInput(input);
+      if (!taskId) return null;
+      if (String(currentTaskId || "") === taskId && currentTaskData) return currentTaskData;
+      return typeof window.__taskMetaForAssignments === "function"
+        ? window.__taskMetaForAssignments(taskId)
+        : null;
+    }
+
+    function markTaskNoAssigneeFromInput(input) {
+      var taskId = assignmentTaskIdForInput(input);
+      if (!taskId) return Promise.resolve(null);
+      return fetch("/api/tasks/" + encodeURIComponent(taskId), {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignee_mode: "none" }),
+      })
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: response.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (!result.ok || !result.data || !result.data.id) {
+            console.error("markTaskNoAssignee failed", result.data || result);
+            return null;
+          }
+          var task = result.data;
+          if (typeof mergeDashboardTask === "function") mergeDashboardTask(task);
+          else if (typeof window.__mergeDashboardTask === "function") window.__mergeDashboardTask(task);
+          if (typeof applyTaskRowUpdate === "function") applyTaskRowUpdate(task);
+          if (String(currentTaskId || "") === String(task.id)) {
+            currentTaskData = Object.assign({}, currentTaskData || {}, task);
+            renderTaskSettings();
+          }
+          return task;
+        });
+    }
+    window.__markTaskNoAssigneeFromInput = markTaskNoAssigneeFromInput;
+
     function withAssignSpecialSuggestions(input, results) {
       var list = typeof window.__withAddMeSuggestion === "function"
         ? window.__withAddMeSuggestion(results)
         : (Array.isArray(results) ? results.slice() : []);
-      if (assignInputProjectId(input)) {
+      var projectId = assignInputProjectId(input);
+      if (projectId) {
         list.splice(1, 0, {
           type: "action",
           is_add_all: true,
+          email: "",
+          accepted_count: 0,
+        });
+      }
+      var taskId = assignmentTaskIdForInput(input);
+      if (taskId) {
+        var task = assignmentTaskForInput(input) || {};
+        var hasAssignments = (Array.isArray(task.assignments) && task.assignments.length > 0) || !!task.assign_group_members;
+        list.splice(projectId ? 2 : 1, 0, {
+          type: "action",
+          is_no_assignee: true,
+          is_disabled: hasAssignments,
+          label: "No assignee",
+          meta_label: hasAssignments ? "Remove current assignees first" : "Intentionally unassigned",
           email: "",
           accepted_count: 0,
         });
@@ -15614,26 +15777,28 @@
         items.forEach(function (item) {
           var btn = document.createElement("button");
           btn.type = "button";
-          var label = item.label || (item.is_add_me ? "Add me" : item.is_add_all ? "Add all in project" : (item.type === "user" ? (item.display_name || item.email) : item.email));
+          var label = item.label || (item.is_add_me ? "Assign me" : item.is_add_all ? "Assign group" : item.is_no_assignee ? "No assignee" : (item.type === "user" ? (item.display_name || item.email) : item.email));
           var initial = escapeHtml(label.charAt(0).toUpperCase());
           var meta = "";
-          if (!(item.is_add_me || item.is_add_all)) {
-            if (item.meta_label) {
-              meta = '<span class="assign-meta">' + escapeHtml(item.meta_label) + '</span>';
-            } else {
-              meta = '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
-            }
+          if (item.meta_label) {
+            meta = '<span class="assign-meta">' + escapeHtml(item.meta_label) + '</span>';
+          } else if (!(item.is_add_me || item.is_add_all || item.is_no_assignee)) {
+            meta = '<span class="assign-meta">' + (item.accepted_count || 0) + " accepts</span>";
           }
           var avatar = item.is_add_me
             ? '<span class="assign-suggest-avatar is-add-me">+</span>'
             : item.is_add_all
             ? '<span class="assign-suggest-avatar is-add-me">++</span>'
+            : item.is_no_assignee
+            ? '<span class="assign-suggest-avatar is-no-assignee"><i class="fa-solid fa-minus" aria-hidden="true"></i></span>'
             : item.suggest_icon_html
             ? '<span class="assign-suggest-avatar assign-suggest-avatar--task-status">' + item.suggest_icon_html + '</span>'
             : item.avatar_url
             ? '<span class="assign-suggest-avatar"><img src="' + escapeHtml(item.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=' + JSON.stringify(label.charAt(0).toUpperCase()) + '; this.remove();" /></span>'
             : '<span class="assign-suggest-avatar">' + initial + "</span>";
           btn.innerHTML = avatar + '<span class="assign-suggest-copy"><span class="assign-suggest-label">' + escapeHtml(label) + "</span>" + meta + "</span>";
+          if (item.is_no_assignee) btn.classList.add("assign-suggest-no-assignee");
+          if (item.is_disabled) btn.disabled = true;
           if (item.is_error) {
             btn.classList.add("assign-suggest-error");
           }
@@ -15650,6 +15815,7 @@
           btn.addEventListener("click", function (event) {
             event.preventDefault();
             input.dataset.assignSelecting = "0";
+            if (item.is_disabled) return;
             if (item.is_error) {
               if (typeof item.retry === "function") {
                 item.retry();
@@ -15882,8 +16048,15 @@
       var nextMonthStart = new Date(nowDay.getFullYear(), nowDay.getMonth() + 1, 1);
       var monthAfterNextStart = new Date(nowDay.getFullYear(), nowDay.getMonth() + 2, 1);
 
-      if (String(dueMode || "").toLowerCase() === "asap" && !dueDay) {
+      var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent" && !dueDay) {
+        return { key: "urgent", label: "Urgent", rank: -1 };
+      }
+      if (normalizedMode === "asap" && !dueDay) {
         return { key: "asap", label: "ASAP", rank: 1 };
+      }
+      if (normalizedMode === "low_priority" && !dueDay) {
+        return { key: "low_priority", label: "Low Priority", rank: 11 };
       }
       if (!dueDay) {
         return { key: "none", label: "No Due Date", rank: 10 };
@@ -15903,6 +16076,7 @@
     }
 
     function todoBucketRank(key) {
+      if (key === "urgent") return -1;
       if (key === "overdue") return 0;
       if (key === "asap") return 1;
       if (key === "today") return 1;
@@ -15913,8 +16087,16 @@
       if (key === "three_weeks") return 6;
       if (key === "this_month") return 7;
       if (key === "next_month") return 8;
+      if (key === "low_priority") return 11;
       if (key === "later") return 9;
       return 10;
+    }
+
+    function todoBucketHeadingHtml(bucket) {
+      if (bucket && bucket.key === "urgent") {
+        return '<span class="todo-urgent-heading-title"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>' + escapeHtml(bucket.label || "Urgent") + '</span></span>';
+      }
+      return escapeHtml(bucket && bucket.label ? bucket.label : "Tasks");
     }
 
     function ensureTodoGroup(bucket) {
@@ -15925,7 +16107,7 @@
       var panel = document.createElement("div");
       panel.className = "panel todo-date-group";
       panel.setAttribute("data-todo-date-key", bucket.key);
-      panel.innerHTML = '<div class="todo-date-heading">' + bucket.label + '</div><div class="todo-list"></div>';
+      panel.innerHTML = '<div class="todo-date-heading">' + todoBucketHeadingHtml(bucket) + '</div><div class="todo-list"></div>';
       var nextGroup = Array.prototype.find.call(board.querySelectorAll(".todo-date-group"), function (group) {
         return todoBucketRank(group.getAttribute("data-todo-date-key") || "") > bucket.rank;
       });
@@ -15939,7 +16121,7 @@
       var panel = document.createElement("div");
       panel.className = "panel todo-date-group";
       panel.setAttribute("data-todo-date-key", bucket.key);
-      panel.innerHTML = '<div class="todo-date-heading">' + bucket.label + '</div><div class="todo-list"></div>';
+      panel.innerHTML = '<div class="todo-date-heading">' + todoBucketHeadingHtml(bucket) + '</div><div class="todo-list"></div>';
       return panel;
     }
 
@@ -18492,6 +18674,176 @@
     }
 
     var recentTaskSnapshotCache = {};
+    var pendingTaskMutations = {};
+    var taskMutationRequestQueues = {};
+    var taskMutationSequence = 0;
+
+    function taskMutationEntry(taskId, create) {
+      var key = String(taskId || "").trim();
+      if (!key) return null;
+      if (!pendingTaskMutations[key] && create) {
+        pendingTaskMutations[key] = { taskId: key, mutations: [] };
+      }
+      return pendingTaskMutations[key] || null;
+    }
+
+    function beginTaskMutation(taskId, payload) {
+      var entry = taskMutationEntry(taskId, true);
+      if (!entry) return null;
+      var token = String(++taskMutationSequence);
+      entry.mutations.push({
+        token: token,
+        payload: payload && typeof payload === "object" ? Object.assign({}, payload) : {},
+      });
+      return { taskId: entry.taskId, token: token };
+    }
+
+    function applyPendingTaskMutations(task) {
+      if (!task || !task.id) return task;
+      var entry = taskMutationEntry(task.id, false);
+      if (!entry || !entry.mutations.length) return task;
+      var resolved = Object.assign({}, task);
+      var directFields = [
+        "title", "due_at", "due_mode", "start_date", "status", "user_status",
+        "status_mode", "status_percentage", "per_user_status_enabled", "locked",
+        "assignee_mode", "assign_group_members", "task_type", "poll", "link",
+        "links", "info", "description", "description_format", "project_id",
+        "group_id", "position"
+      ];
+      entry.mutations.forEach(function (mutation) {
+        var patch = mutation.payload || {};
+        directFields.forEach(function (field) {
+          if (!Object.prototype.hasOwnProperty.call(patch, field)) return;
+          resolved[field] = patch[field];
+        });
+        if (Object.prototype.hasOwnProperty.call(patch, "due_relative_task_id") || Object.prototype.hasOwnProperty.call(patch, "due_relative_days")) {
+          resolved.due_relative = Object.assign({}, resolved.due_relative || {}, {
+            task_id: Object.prototype.hasOwnProperty.call(patch, "due_relative_task_id")
+              ? patch.due_relative_task_id
+              : (resolved.due_relative && resolved.due_relative.task_id),
+            days: Object.prototype.hasOwnProperty.call(patch, "due_relative_days")
+              ? patch.due_relative_days
+              : (resolved.due_relative && resolved.due_relative.days),
+          });
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "status")
+          || Object.prototype.hasOwnProperty.call(patch, "user_status")
+          || Object.prototype.hasOwnProperty.call(patch, "status_mode")
+          || Object.prototype.hasOwnProperty.call(patch, "status_percentage")
+        ) {
+          var statusMeta = Object.assign({}, resolved.status_meta || {});
+          if (Object.prototype.hasOwnProperty.call(patch, "status")) {
+            statusMeta.task_status = patch.status;
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "user_status")) {
+            statusMeta.my_status = patch.user_status;
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "status_mode")) {
+            statusMeta.mode = patch.status_mode;
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "status_percentage")) {
+            statusMeta.percentage_complete = patch.status_percentage;
+          }
+          resolved.status_meta = statusMeta;
+        }
+      });
+      return resolved;
+    }
+
+    function settleTaskMutation(handle, ok, task) {
+      if (!handle || !handle.taskId || !handle.token) return;
+      var entry = taskMutationEntry(handle.taskId, false);
+      if (!entry) return;
+      entry.mutations = entry.mutations.filter(function (mutation) {
+        return mutation.token !== handle.token;
+      });
+      if (ok && task && task.id) {
+        var resolvedTask = resolveFreshestTaskPayload(task);
+        rememberRecentTaskSnapshot(resolvedTask);
+        if (typeof mergeDashboardTask === "function") {
+          mergeDashboardTask(resolvedTask);
+        }
+        if (typeof applyTaskRowUpdate === "function") {
+          applyTaskRowUpdate(resolvedTask);
+        }
+      }
+      if (!entry.mutations.length) {
+        delete pendingTaskMutations[entry.taskId];
+        if (!ok && typeof fetchTaskSnapshot === "function") {
+          fetchTaskSnapshot(entry.taskId, { preferCache: false }).then(function (freshTask) {
+            if (!freshTask) return;
+            if (typeof mergeDashboardTask === "function") mergeDashboardTask(freshTask);
+            if (typeof applyTaskRowUpdate === "function") applyTaskRowUpdate(freshTask);
+          });
+        }
+      }
+    }
+
+    function taskPatchRequestDetails(input, init) {
+      var method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+      if (method !== "PATCH") return null;
+      var rawUrl = typeof input === "string" ? input : (input && input.url ? input.url : "");
+      if (!rawUrl) return null;
+      var parsedUrl;
+      try {
+        parsedUrl = new URL(rawUrl, window.location.href);
+      } catch (_error) {
+        return null;
+      }
+      if (parsedUrl.origin !== window.location.origin) return null;
+      var match = parsedUrl.pathname.match(/^\/api\/tasks\/(\d+)$/);
+      if (!match) return null;
+      var body = init && typeof init.body === "string" ? init.body : "";
+      var payload = {};
+      if (body) {
+        try {
+          payload = JSON.parse(body) || {};
+        } catch (_error) {
+          payload = {};
+        }
+      }
+      return { taskId: match[1], payload: payload };
+    }
+
+    function installTaskMutationFetchCoordinator() {
+      if (window.__terminTaskMutationFetchInstalled) return;
+      var originalFetch = window.fetch.bind(window);
+      window.__terminTaskMutationFetchInstalled = true;
+      window.fetch = function (input, init) {
+        var details = taskPatchRequestDetails(input, init);
+        if (!details) return originalFetch(input, init);
+        var handle = beginTaskMutation(details.taskId, details.payload);
+        var previousRequest = taskMutationRequestQueues[details.taskId] || Promise.resolve();
+        var requestPromise = previousRequest.catch(function () {}).then(function () {
+          return originalFetch(input, init);
+        });
+        var queueTail = requestPromise.then(function () {}, function () {});
+        taskMutationRequestQueues[details.taskId] = queueTail;
+        queueTail.then(function () {
+          if (taskMutationRequestQueues[details.taskId] === queueTail) {
+            delete taskMutationRequestQueues[details.taskId];
+          }
+        });
+        return requestPromise.then(function (response) {
+          response.clone().json().then(function (data) {
+            settleTaskMutation(handle, response.ok, data);
+          }).catch(function () {
+            settleTaskMutation(handle, false, null);
+          });
+          return response;
+        }, function (error) {
+          settleTaskMutation(handle, false, null);
+          throw error;
+        });
+      };
+    }
+
+    window.__pendingTaskMutationCount = function (taskId) {
+      var entry = taskMutationEntry(taskId, false);
+      return entry ? entry.mutations.length : 0;
+    };
+    installTaskMutationFetchCoordinator();
 
     function rememberRecentTaskSnapshot(task) {
       if (!task || !task.id) return;
@@ -18584,7 +18936,7 @@
 
     function resolveFreshestTaskPayload(task) {
       if (!task || !task.id) return task;
-      return selectNewerTaskPayload(latestKnownTaskPayload(task.id), task);
+      return applyPendingTaskMutations(selectNewerTaskPayload(latestKnownTaskPayload(task.id), task));
     }
 
     function fetchTaskSnapshot(taskId, options) {
@@ -19675,6 +20027,12 @@
           currentAssignments.push(assignment);
         }
         taskMeta.assignments = currentAssignments;
+        if (typeof mergeDashboardTask === "function") {
+          mergeDashboardTask(Object.assign({}, taskMeta, {
+            assignments: currentAssignments,
+            assignee_mode: "default",
+          }));
+        }
         var host = document.querySelector('[data-task-status-host="' + assignment.task_id + '"]');
         if (host && host._taskPayload) {
           host._taskPayload = Object.assign({}, host._taskPayload, { assignments: currentAssignments });
@@ -19751,6 +20109,21 @@
       if (typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
+      if (taskMeta) {
+        var canonicalAssignments = Array.isArray(taskMeta.assignments) ? taskMeta.assignments.slice() : [];
+        if (payload.action === "deleted") {
+          canonicalAssignments = canonicalAssignments.filter(function (row) { return String(row.id) !== String(assignment.id); });
+        } else {
+          canonicalAssignments = canonicalAssignments.filter(function (row) { return String(row.id) !== String(assignment.id); });
+          canonicalAssignments.push(assignment);
+        }
+        if (typeof mergeDashboardTask === "function") {
+          mergeDashboardTask(Object.assign({}, taskMeta, {
+            assignments: canonicalAssignments,
+            assignee_mode: "default",
+          }));
+        }
+      }
       queueAssignmentImpactTaskRefresh(assignment.task_id);
       refreshDashboardHomeFromTodo();
       return updated;
@@ -19815,7 +20188,10 @@
             container.insertBefore(badge, assignAction || input);
           }
         }
-        if (taskMeta && taskMeta.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
+        if (taskMeta && String(taskMeta.assignee_mode || "default") === "none") {
+          totalBadges += 1;
+          insertBadgeHtml('<span class="badge user no-assignee-badge" title="Intentionally unassigned"><span class="badge-icon"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="badge-label">No assignee</span></span>');
+        } else if (taskMeta && taskMeta.assign_group_members && typeof window.__renderGroupAssignmentBadge === "function") {
           totalBadges += 1;
           insertBadgeHtml(window.__renderGroupAssignmentBadge(taskId, taskMeta.group_assignment_members || []));
           var extraAssignments = typeof window.__extraAssignmentsForGroup === "function"
@@ -19923,6 +20299,7 @@
         matched = true;
         var isTodoRow = row.classList && row.classList.contains("todo-item");
         row.setAttribute("data-status-state", isTodoRow ? myStatusState : aggregateState);
+        row.setAttribute("data-due-mode", normalizedDueMode);
         row.setAttribute("data-completed-window", todoCompletedWindowFor(normalizedDue, normalizedDueMode));
         if (effectiveTask.position !== undefined && effectiveTask.position !== null) {
           row.setAttribute("data-task-position", String(effectiveTask.position));
@@ -21528,6 +21905,7 @@
       );
       if (!row) return false;
       row.setAttribute("data-task-position", String(task.position || ""));
+      row.setAttribute("data-due-mode", task.due_mode || (task.due_at ? "date" : "none"));
       var tbody = table.querySelector('tbody[data-task-dropzone="1"]');
       if (tbody) {
         insertTaskRowByPosition(tbody, row, task.id, task.position);
@@ -21686,6 +22064,7 @@
 
     function todoCompletedWindowFor(dueValue, dueMode) {
       var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent" && !dueValue) return "future";
       if (normalizedMode === "asap" && !dueValue) return "asap";
       if (!dueValue) return "future";
       var today = new Date();
@@ -21699,7 +22078,9 @@
 
     function todoActiveTaskDueLabel(dueValue, dueMode) {
       var normalizedMode = String(dueMode || "").toLowerCase();
+      if (normalizedMode === "urgent" && !dueValue) return "urgent";
       if (normalizedMode === "asap" && !dueValue) return "ASAP";
+      if (normalizedMode === "low_priority" && !dueValue) return "low priority";
       if (!dueValue) return "";
       var today = new Date();
       var nowDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -22110,6 +22491,184 @@
       return true;
     }
     window.__renderTodoBoardFromStore = renderTodoBoardFromStore;
+
+    function problemTaskFlags(task) {
+      if (!task || String(task.creator_user_id || "") !== String(currentUserId || "")) return null;
+      if (task.github_meta) return null;
+      if (String(taskAggregateStatusState(task) || "open") === "complete") return null;
+      var assignments = Array.isArray(task.assignments) ? task.assignments : [];
+      var missingAssignee = assignments.length === 0 && String(task.assignee_mode || "default") !== "none";
+      var dueMode = String(task.due_mode || (task.due_at ? "date" : "none")).trim().toLowerCase();
+      var hasDueDate = !!String(task.due_at || "").trim();
+      var missingDate = dueMode === "none" || (dueMode === "date" && !hasDueDate);
+      if (!missingAssignee && !missingDate) return null;
+      return { missingAssignee: missingAssignee, missingDate: missingDate };
+    }
+    window.__problemTaskFlags = problemTaskFlags;
+
+    function problemTasksFromStore() {
+      return Object.values(dashboardEntityMap("tasks"))
+        .map(function (task) { return { task: task, flags: problemTaskFlags(task) }; })
+        .filter(function (entry) { return !!entry.flags; })
+        .sort(function (a, b) {
+          return String(a.task.title || "").localeCompare(String(b.task.title || ""));
+        });
+    }
+
+    function renderProblemTasksFromStore() {
+      var list = document.querySelector("[data-problems-list]");
+      var count = document.querySelector("[data-problems-count]");
+      if (!list || !dashboardBootstrapStore) return false;
+      var entries = problemTasksFromStore();
+      if (count) count.textContent = String(entries.length);
+      list.innerHTML = "";
+      if (!entries.length) {
+        list.innerHTML = '<div class="panel problems-empty"><i class="fa-regular fa-circle-check" aria-hidden="true"></i><h3>No problem tasks</h3><p>Everything you created has an assignee intent and a date designation.</p></div>';
+        setDashboardPaneLoading("problems", false);
+        return true;
+      }
+      var fragment = document.createDocumentFragment();
+      entries.forEach(function (entry) {
+        var task = entry.task;
+        var item = document.createElement("article");
+        var meta = todoMetaFor(task.project_id, task.group_id);
+        var linksHtml = typeof renderTaskLinkBadges === "function" ? renderTaskLinkBadges(taskLinksFromPayload(task)) : "";
+        var assignments = Array.isArray(task.assignments) ? task.assignments : [];
+        var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+        var dueMode = String(task.due_mode || (dueValue ? "date" : "none")).toLowerCase();
+        var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
+        var projectUrl = task.project_id ? "/tree/project/" + encodeURIComponent(task.project_id) : "#";
+        var groupUrl = task.group_id ? projectUrl + "/group/" + encodeURIComponent(task.group_id) : "";
+        var assigneeHtml = "";
+        if (assignments.length) {
+          assigneeHtml = '<div class="problem-avatar-stack" aria-label="Assignees">' + assignments.map(function (assignment) {
+            var label = String(assignment.display_name || assignment.display_email || assignment.email || "Assignee");
+            var initial = (label.charAt(0) || "?").toUpperCase();
+            var avatar = assignment.avatar_url
+              ? '<img src="' + escapeHtml(assignment.avatar_url) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.textContent=\'?\'; this.remove();" />'
+              : escapeHtml(initial);
+            return '<span class="problem-avatar" title="' + escapeHtml(label) + '"' + (assignment.user_id ? ' data-user-id="' + escapeHtml(assignment.user_id) + '"' : '') + '>' + avatar + '</span>';
+          }).join("") + '</div>';
+        } else if (entry.flags.missingAssignee) {
+          assigneeHtml =
+            '<span class="assign-action problem-assign-action"><input class="assign-input hidden" placeholder="assignee@email" data-assign-input="task" data-target-id="' + escapeHtml(task.id) + '" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" /><button class="assign-add-btn problem-primary-control problem-assign-add" type="button" title="Add assignee" aria-label="Add assignee"><i class="fa-solid fa-plus" aria-hidden="true"></i></button></span>' +
+            '<button class="problem-mark-button" type="button" data-problem-no-assignee="' + escapeHtml(task.id) + '" title="Mark as not assigned"><span>Mark as not assigned</span></button>';
+        } else {
+          assigneeHtml = '<span class="problem-intent-value" data-problem-assignee-intent="none"><i class="fa-solid fa-minus" aria-hidden="true"></i><span>No assignee</span></span>';
+        }
+        item.className = "problem-task-item";
+        item.setAttribute("data-problem-task-id", String(task.id));
+        item.style.setProperty("--problem-color", meta.divisionColor || "var(--accent)");
+        item.innerHTML =
+          '<div class="problem-task-title-line">' +
+            '<button class="problem-task-title" type="button" data-open-settings="' + escapeHtml(task.id) + '" data-task-title="' + escapeHtml(task.title || "Task") + '" data-project-name="' + escapeHtml(meta.projectName || "Project") + '">' + escapeHtml(task.title || "Task") + '</button>' +
+            '<span class="problem-task-links task-link-badges" data-task-link-badges="' + escapeHtml(task.id) + '">' + linksHtml + '</span>' +
+          '</div>' +
+          '<div class="problem-task-context"><a href="' + escapeHtml(projectUrl) + '">' + escapeHtml(meta.projectName || "Project") + '</a>' +
+            (task.group_id && meta.groupName ? '<span aria-hidden="true">/</span><a href="' + escapeHtml(groupUrl) + '">' + escapeHtml(meta.groupName) + '</a>' : '') +
+          '</div>' +
+          '<div class="problem-task-remediation">' +
+            '<div class="problem-task-assignees assignments">' + assigneeHtml + '</div>' +
+            '<div class="problem-task-date-actions">' +
+              '<div class="problem-task-due due-cell' + (dueValue ? '' : ' is-empty') + '" data-due-cell data-problem-due="' + escapeHtml(task.id) + '" onclick="return window.__openDueInput(this);">' +
+                '<button class="problem-primary-control due-summary' + (dueValue ? '' : ' is-fallback') + '" type="button" data-due-summary title="' + (dueValue ? 'Change date' : 'Set date') + '" aria-label="' + (dueValue ? 'Change date' : 'Set date') + '"><i class="fa-regular fa-calendar" aria-hidden="true"></i><span class="due-summary-label">' + (dueValue ? escapeHtml(dueValue) : 'No Date') + '</span></button>' +
+                '<input class="due-input hidden" type="date" data-task-id="' + escapeHtml(task.id) + '" data-field="due_at" data-created-at="' + escapeHtml(createdValue) + '" data-due-mode="' + escapeHtml(dueMode) + '" data-due-relative-task-id="' + escapeHtml(task.due_relative && task.due_relative.task_id ? task.due_relative.task_id : '') + '" data-due-relative-task-title="' + escapeHtml(task.due_relative && task.due_relative.task_title ? task.due_relative.task_title : '') + '" data-due-relative-days="' + escapeHtml(task.due_relative && task.due_relative.days != null ? task.due_relative.days : '0') + '" value="' + escapeHtml(dueValue) + '" />' +
+              '</div>' +
+              (entry.flags.missingDate ? '<button class="problem-mark-button problem-low-priority-button" type="button" data-problem-low-priority="' + escapeHtml(task.id) + '"><span>Mark as low priority</span></button>' : '') +
+            '</div>' +
+          '</div>';
+        fragment.appendChild(item);
+        var dueInput = item.querySelector(".due-input");
+        if (dueInput && typeof window.__updateDueDisplay === "function") window.__updateDueDisplay(dueInput);
+        var assignInput = item.querySelector("[data-assign-input]");
+        if (assignInput && typeof window.__bindAssignInput === "function") window.__bindAssignInput(assignInput);
+        if (typeof window.__hydrateDeferredFaviconImages === "function") window.__hydrateDeferredFaviconImages(item);
+      });
+      list.appendChild(fragment);
+      setDashboardPaneLoading("problems", false);
+      return true;
+    }
+    window.__renderProblemTasksFromStore = renderProblemTasksFromStore;
+
+    function refreshDashboardAlerts() {
+      var shell = document.querySelector("[data-alerts-menu]");
+      var menu = shell ? shell.querySelector("[data-alerts-menu-content]") : null;
+      var trigger = shell ? shell.querySelector(".alerts-trigger") : null;
+      if (!shell || !menu || !trigger || !dashboardBootstrapStore) return;
+      var tasks = Object.values(dashboardEntityMap("tasks"));
+      var todoTaskIds = new Set((((dashboardBootstrapStore.views || {}).todo || {}).task_ids || []).map(function (taskId) {
+        return String(taskId);
+      }));
+      var urgentCount = tasks.filter(function (task) {
+        return todoTaskIds.has(String(task.id)) && String(task.due_mode || "").toLowerCase() === "urgent" && String(taskAggregateStatusState(task) || "open") !== "complete";
+      }).length;
+      var problemCount = problemTasksFromStore().length;
+      var total = urgentCount + problemCount;
+      shell.hidden = total === 0;
+      var badge = trigger.querySelector(".notifications-count");
+      if (total > 0 && !badge) {
+        badge = document.createElement("span");
+        badge.className = "notifications-count";
+        trigger.appendChild(badge);
+      }
+      if (badge) {
+        if (total > 0) badge.textContent = String(total);
+        else badge.remove();
+      }
+      var rows = [];
+      if (urgentCount) {
+        rows.push('<button class="notifications-open alert-item alert-item-urgent" type="button" data-alert-view="todo"><div class="notifications-title">Urgent tasks</div><div class="notifications-copy">' + urgentCount + ' urgent task' + (urgentCount === 1 ? ' remains' : 's remain') + ' incomplete.</div></button>');
+      }
+      if (problemCount) {
+        rows.push('<button class="notifications-open alert-item" type="button" data-alert-view="problems"><div class="notifications-title">Problem tasks</div><div class="notifications-copy">' + problemCount + ' task' + (problemCount === 1 ? '' : 's') + ' need an assignee or date.</div></button>');
+      }
+      menu.innerHTML = rows.join("");
+    }
+    window.__refreshDashboardAlerts = refreshDashboardAlerts;
+
+    document.addEventListener("click", function (event) {
+      var noAssignee = event.target.closest("[data-problem-no-assignee]");
+      var lowPriority = event.target.closest("[data-problem-low-priority]");
+      var alertItem = event.target.closest("[data-alert-view]");
+      if (alertItem) {
+        var targetView = alertItem.getAttribute("data-alert-view") || "dashboard";
+        var targetUrl = targetView === "problems" ? "/problems" : "/todo";
+        var shell = alertItem.closest("[data-alerts-menu]");
+        if (shell) shell.classList.remove("is-open");
+        if (typeof window.__setDashboardView === "function") {
+          window.__setDashboardView(targetView, { syncHistory: true, url: targetUrl });
+        } else {
+          window.location.href = targetUrl;
+        }
+        return;
+      }
+      var action = noAssignee || lowPriority;
+      if (!action) return;
+      var taskId = action.getAttribute(noAssignee ? "data-problem-no-assignee" : "data-problem-low-priority");
+      action.disabled = true;
+      fetch("/api/tasks/" + taskId, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(noAssignee ? { assignee_mode: "none" } : { due_mode: "low_priority", due_at: "" }),
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.error || "Could not update task");
+          return data;
+        });
+      }).then(function (task) {
+        mergeDashboardTask(task);
+      }).catch(function (error) {
+        action.disabled = false;
+        console.error("problem task update failed", error);
+      });
+    });
+
+    document.addEventListener("termin:dashboard-view-change", function (event) {
+      if (!event.detail || event.detail.currentView !== "problems") return;
+      setDashboardPaneLoading("problems", true);
+      window.requestAnimationFrame(renderProblemTasksFromStore);
+    });
 
     var todoBoardWarmupScheduled = false;
 
@@ -22593,6 +23152,12 @@
       taskSettingsAssigneeEl._suggestRequestToken = 0;
       taskSettingsAssigneeEl._submitSuggestItem = function (item) {
         if (!item) return;
+        if (item.is_disabled) return;
+        if (item.is_no_assignee) {
+          markTaskNoAssigneeFromInput(taskSettingsAssigneeEl);
+          taskSettingsAssigneeEl.value = "";
+          return;
+        }
         if (item.is_add_all) {
           createSettingsAssignmentsForGroup()
             .then(function (result) {
@@ -25057,6 +25622,8 @@
         currentView = "todo";
       } else if (path.indexOf("/inbox") === 0) {
         currentView = "inbox";
+      } else if (path.indexOf("/problems") === 0) {
+        currentView = "problems";
       } else {
         currentView = "tree";
       }
@@ -25109,8 +25676,10 @@
           window.history.replaceState({}, "", cleanTreePath + (url.hash || ""));
           return;
         }
-      } else if (currentView === "dashboard") {
+      } else if (currentView === "dashboard" || currentView === "problems") {
+        var cleanProblemsPath = {{ url_for('ui.problems_dashboard')|tojson }};
         var cleanDashboardPath = {{ url_for('ui.dashboard_home')|tojson }};
+        var cleanStandalonePath = currentView === "problems" ? cleanProblemsPath : cleanDashboardPath;
         if (url.searchParams.has("project_id")) {
           url.searchParams.delete("project_id");
           changed = true;
@@ -25127,11 +25696,11 @@
           url.searchParams.delete("show_completed");
           changed = true;
         }
-        if (url.pathname !== cleanDashboardPath) {
+        if (url.pathname !== cleanStandalonePath) {
           changed = true;
         }
         if (changed) {
-          window.history.replaceState({}, "", cleanDashboardPath + url.hash);
+          window.history.replaceState({}, "", cleanStandalonePath + url.hash);
           return;
         }
       } else {
@@ -25174,7 +25743,7 @@
       var viewPanes = Array.from(layout.querySelectorAll("[data-dashboard-view]"));
       var switchLinks = Array.from(document.querySelectorAll("[data-dashboard-view-target]"));
       var mobileTrigger = document.querySelector("[data-mobile-sidebar-trigger]");
-      var knownViews = { dashboard: true, tree: true, todo: true, inbox: true };
+      var knownViews = { dashboard: true, tree: true, todo: true, inbox: true, problems: true };
       var viewPaths = {};
 
       switchLinks.forEach(function (link) {
@@ -25197,6 +25766,7 @@
         if (path === "/" || path.indexOf("/dashboard") === 0) return "dashboard";
         if (path.indexOf("/todo") === 0) return "todo";
         if (path.indexOf("/inbox") === 0) return "inbox";
+        if (path.indexOf("/problems") === 0) return "problems";
         return "tree";
       }
 
@@ -25204,7 +25774,7 @@
         var nextView = knownViews[view] ? view : "dashboard";
         layout.setAttribute("data-dashboard-current-view", nextView);
         window.__dashboardCurrentView = nextView;
-        layout.classList.toggle("no-sidebar", nextView === "inbox" || nextView === "dashboard");
+        layout.classList.toggle("no-sidebar", nextView === "inbox" || nextView === "dashboard" || nextView === "problems");
         if (content) {
           content.classList.toggle("project-content", nextView !== "tree");
         }
@@ -25219,7 +25789,7 @@
           link.classList.toggle("active", link.getAttribute("data-dashboard-view-target") === nextView);
         });
         if (mobileTrigger) {
-          var hideMobileTrigger = nextView === "inbox" || nextView === "dashboard";
+          var hideMobileTrigger = nextView === "inbox" || nextView === "dashboard" || nextView === "problems";
           mobileTrigger.hidden = false;
           mobileTrigger.style.visibility = hideMobileTrigger ? "hidden" : "";
           mobileTrigger.style.pointerEvents = hideMobileTrigger ? "none" : "";
@@ -25229,7 +25799,7 @@
           }
         }
         if (sidebar) {
-          sidebar.setAttribute("aria-hidden", (nextView === "inbox" || nextView === "dashboard") ? "true" : "false");
+          sidebar.setAttribute("aria-hidden", (nextView === "inbox" || nextView === "dashboard" || nextView === "problems") ? "true" : "false");
         }
       }
 
@@ -26040,7 +26610,9 @@
           });
           return;
         }
-        var taskSnapshotPromise = fetchTaskSnapshot(task.id, { preferCache: false });
+        var taskSnapshotPromise = data.action === "created"
+          ? fetchTaskSnapshot(task.id, { preferCache: false })
+          : Promise.resolve(task);
         taskSnapshotPromise.then(function (freshTask) {
           var resolvedTask = resolveFreshestTaskPayload(freshTask && freshTask.id ? freshTask : task);
           if (!resolvedTask || !resolvedTask.id) return;

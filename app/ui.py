@@ -1121,7 +1121,7 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
             return "none"
         info_payload = task_info_map.get(task.id, {}) or {}
         due_mode = str((info_payload.get("meta") or {}).get("due_mode") or "").strip().lower()
-        if due_mode in {"asap", "date", "relative"}:
+        if due_mode in {"asap", "urgent", "low_priority", "date", "relative"}:
             return due_mode
         if task.due_at:
             return "date"
@@ -1133,6 +1133,10 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
         due_mode = task_due_mode(task)
         if due_mode == "asap":
             return "ASAP"
+        if due_mode == "urgent":
+            return "Urgent"
+        if due_mode == "low_priority":
+            return "Low priority"
         if task.due_at:
             return "Due " + task.due_at.strftime("%Y-%m-%d")
         return "Created " + task.created_at.strftime("%Y-%m-%d")
@@ -1158,10 +1162,14 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
 
     def task_sort_payload(task: Task | None) -> dict:
         due_mode = task_due_mode(task)
-        if due_mode == "asap":
+        if due_mode == "urgent":
+            bucket = -1
+        elif due_mode == "asap":
             bucket = 0
         elif due_mode == "date" and task and task.due_at:
             bucket = 1
+        elif due_mode == "low_priority":
+            bucket = 3
         else:
             bucket = 2
         project_id, group_rank, group_position, task_position = project_table_sort_key(task)
@@ -1295,10 +1303,14 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
     def entry_sort_key(item: dict) -> tuple:
         task = item.get("task")
         due_mode = str(item.get("due_mode") or "none").strip().lower()
-        if due_mode == "asap":
+        if due_mode == "urgent":
+            bucket = -1
+        elif due_mode == "asap":
             bucket = 0
         elif due_mode == "date" and task and task.due_at:
             bucket = 1
+        elif due_mode == "low_priority":
+            bucket = 3
         else:
             bucket = 2
         due_at = task.due_at if task and task.due_at else datetime.max
@@ -1588,6 +1600,12 @@ def inbox_dashboard():
     return _render_dashboard(route_view="inbox")
 
 
+@ui_bp.get("/problems")
+@login_required
+def problems_dashboard():
+    return _render_dashboard(route_view="problems")
+
+
 def _render_dashboard(route_view: str | None = None, route_project_id: int | None = None, route_group_id: int | None = None, route_task_id: int | None = None):
     user = current_user()
     now_utc = datetime.utcnow()
@@ -1598,7 +1616,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     current_view = (route_view or request.args.get("view") or "dashboard").strip().lower()
     if current_view == "project":
         current_view = "tree"
-    if current_view not in {"dashboard", "todo", "tree", "inbox"}:
+    if current_view not in {"dashboard", "todo", "tree", "inbox", "problems"}:
         current_view = "dashboard"
     show_completed = current_view in {"tree", "inbox"}
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
@@ -1964,8 +1982,12 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         due_mode = str(task_info.get("meta", {}).get("due_mode") or "").strip().lower()
         pref = sidebar_pref_map.get(project.id)
         division = next((item for item in sidebar_divisions if pref and item.id == pref.division_id), None)
-        if due_mode == "asap" and not task.due_at:
+        if due_mode == "urgent" and not task.due_at:
+            bucket_key, bucket_label, bucket_rank = ("urgent", "Urgent", -1)
+        elif due_mode == "asap" and not task.due_at:
             bucket_key, bucket_label, bucket_rank = ("asap", "ASAP", 1)
+        elif due_mode == "low_priority" and not task.due_at:
+            bucket_key, bucket_label, bucket_rank = ("low_priority", "Low Priority", 11)
         else:
             bucket_key, bucket_label, bucket_rank = todo_bucket(task.due_at.date() if task.due_at else None)
         todo_items.append(

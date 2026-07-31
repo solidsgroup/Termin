@@ -132,11 +132,18 @@ def _task_due_mode(task: Task | None) -> str:
         return "none"
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     mode = str(info_payload.get("meta", {}).get("due_mode") or "").strip().lower()
-    if mode in {"asap", "date", "relative"}:
+    if mode in {"asap", "urgent", "low_priority", "date", "relative"}:
         return mode
     if task.due_at:
         return "date"
     return "none"
+
+
+def _task_assignee_mode(task: Task | None) -> str:
+    if not task:
+        return "default"
+    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
+    return "none" if str((info_payload.get("meta") or {}).get("assignee_mode") or "").strip().lower() == "none" else "default"
 
 
 def _task_start_date(task: Task | None) -> str:
@@ -723,6 +730,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "creator_user_id": task.creator_user_id,
         "locked": bool(task.locked),
         "title": task.title,
         "link": task.link,
@@ -747,6 +755,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "assignee_mode": _task_assignee_mode(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -871,12 +880,14 @@ def _serialize_task_data(
         "id": task.id,
         "project_id": task.project_id,
         "group_id": task.group_id,
+        "creator_user_id": task.creator_user_id,
         "locked": bool(task.locked),
         "title": task.title,
         "link": task.link,
         "links": info_payload.get("links", []),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
+        "assignee_mode": _task_assignee_mode(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "status": task.status,
@@ -922,6 +933,7 @@ def _serialize_task_data(
         "dependents": _serialize_task_dependents(task.id),
         "status_meta": task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email),
         "created_at": task.created_at.isoformat() if task.created_at else None,
+        "updated_at": task.updated_at.isoformat() if task.updated_at else None,
     }
 
 

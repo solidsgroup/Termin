@@ -129,6 +129,70 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertIn('data-dashboard-current-view="dashboard"', root_response.get_data(as_text=True))
         self.assertIn('data-dashboard-current-view="dashboard"', dashboard_response.get_data(as_text=True))
 
+    def test_problem_task_modes_persist_and_assigning_clears_no_assignee(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = owner.id
+            project = self.create_project(owner, "Task modes")
+            project_id = project.id
+
+        self.login(self.client, owner_id)
+        create_response = self.client.post(
+            "/api/tasks",
+            json={
+                "project_id": project_id,
+                "title": "External deadline",
+                "due_mode": "urgent",
+                "assignee_mode": "none",
+            },
+        )
+
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.get_json()["task"]
+        task_id = created["id"]
+        self.assertEqual(created["creator_user_id"], owner_id)
+        self.assertEqual(created["due_mode"], "urgent")
+        self.assertEqual(created["assignee_mode"], "none")
+        self.assertIsNone(created["due_at"])
+
+        bootstrap = self.client.get("/api/dashboard-bootstrap").get_json()["dashboard"]
+        bootstrap_task = bootstrap["entities"]["tasks"][str(task_id)]
+        self.assertEqual(bootstrap_task["due_mode"], "urgent")
+        self.assertEqual(bootstrap_task["assignee_mode"], "none")
+
+        low_priority_response = self.client.patch(
+            f"/api/tasks/{task_id}",
+            json={"due_mode": "low_priority"},
+        )
+        self.assertEqual(low_priority_response.status_code, 200)
+        self.assertEqual(low_priority_response.get_json()["due_mode"], "low_priority")
+        self.assertEqual(low_priority_response.get_json()["assignee_mode"], "none")
+
+        assignment_response = self.client.post(
+            "/api/assignments",
+            json={
+                "target_type": "task",
+                "target_id": task_id,
+                "email": "owner@example.com",
+            },
+        )
+        self.assertEqual(assignment_response.status_code, 201)
+        task_response = self.client.get(f"/api/tasks/{task_id}")
+        self.assertEqual(task_response.status_code, 200)
+        self.assertEqual(task_response.get_json()["assignee_mode"], "default")
+
+    def test_problems_route_renders_problem_view(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = owner.id
+
+        self.login(self.client, owner_id)
+        response = self.client.get("/problems")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data-dashboard-current-view="problems"', response.get_data(as_text=True))
+        self.assertIn('data-problems-list', response.get_data(as_text=True))
+
     def test_dashboard_uses_cached_stylesheets_and_gzip(self):
         with self.app.app_context():
             user = self.create_user("owner@example.com", "Owner")
@@ -848,6 +912,42 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                 sorted(item["display_email"] for item in payload["assignments"]),
                 ["member@example.com", "owner@example.com"],
             )
+        finally:
+            socket_client.disconnect()
+
+    def test_task_patch_emits_one_batch_socket_update_without_individual_duplicate(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com", "Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Realtime")
+            project_id = sqlalchemy_inspect(project).identity[0]
+            task = self.create_task(project, "Socket task", creator=owner)
+            task_id = sqlalchemy_inspect(task).identity[0]
+
+        socket_client_http = self.app.test_client()
+        self.login(socket_client_http, owner_id)
+        socket_client = socketio.test_client(self.app, flask_test_client=socket_client_http)
+        try:
+            self.assertTrue(socket_client.is_connected())
+            socket_client.emit("join_project", {"project_id": project_id})
+            socket_client.get_received()
+
+            response = socket_client_http.patch(
+                f"/api/tasks/{task_id}",
+                json={"due_mode": "urgent", "due_at": ""},
+            )
+            self.assertEqual(response.status_code, 200)
+
+            received = socket_client.get_received()
+            batch_events = [event for event in received if event["name"] == "tasks_updated"]
+            individual_events = [event for event in received if event["name"] == "task_updated"]
+            self.assertEqual(len(batch_events), 1)
+            self.assertEqual(individual_events, [])
+            tasks = batch_events[0]["args"][0]["tasks"]
+            self.assertEqual([row["id"] for row in tasks].count(task_id), 1)
+            task_payload = next(row for row in tasks if row["id"] == task_id)
+            self.assertEqual(task_payload["due_mode"], "urgent")
+            self.assertTrue(task_payload["updated_at"])
         finally:
             socket_client.disconnect()
 

@@ -315,7 +315,7 @@ async function annotateTaskStatusView(page, taskId, label) {
     if (!row) return;
     row.style.outline = '3px solid #ff8c42';
     row.style.outlineOffset = '2px';
-    row.style.background = 'rgba(255, 140, 66, 0.06)';
+    row.style.backgroundColor = 'rgba(255, 140, 66, 0.06)';
     var statusNode = row.querySelector('[data-task-status-host] [data-status-state], [data-status-cell][data-status-state]');
     var debug = document.createElement('div');
     debug.setAttribute('data-playwright-task-status-debug', '1');
@@ -362,7 +362,7 @@ async function annotateLocator(page, selector, label, lines = []) {
     target.setAttribute('data-playwright-annotation-highlight', '1');
     target.style.outline = '3px solid #2f6fed';
     target.style.outlineOffset = '3px';
-    target.style.background = 'rgba(47, 111, 237, 0.06)';
+    target.style.backgroundColor = 'rgba(47, 111, 237, 0.06)';
     const overlay = document.createElement('div');
     overlay.setAttribute('data-playwright-annotation-overlay', '1');
     overlay.style.position = 'fixed';
@@ -606,6 +606,426 @@ test.describe('dashboard and realtime flows', () => {
     await page.waitForURL('**/dashboard');
     await expect(page.locator('.dashboard-home-title')).toContainText('Owner');
     await steps.step('Refresh the page and verify the URL stays on /dashboard with the Owner greeting visible.', page);
+  });
+
+  test('problem task alerts resolve intentional gaps and urgent tasks lead Todo', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    const tomorrow = isoDateWithOffset(1);
+    await login(page, state.owner.email, state.owner.password);
+
+    const urgentTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Urgent alert regression task',
+      assignee_email: state.owner.email,
+      due_mode: 'urgent',
+    });
+    const missingDateTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Problem missing date regression task',
+      assignee_email: state.owner.email,
+      link: 'https://example.com/problem-context',
+    });
+    const missingAssigneeTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Problem missing assignee regression task',
+      due_at: tomorrow,
+      due_mode: 'date',
+    });
+    const assignableTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Problem inline assignment regression task',
+      due_at: tomorrow,
+      due_mode: 'date',
+    });
+    const noAssigneePickerTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'No assignee picker regression task',
+      due_at: tomorrow,
+      due_mode: 'date',
+    });
+    const dualGapTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Problem assignee then date regression task',
+      due_mode: 'date',
+    });
+    const dualGapNoAssigneeTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Problem no-assignee then date regression task',
+      due_mode: 'date',
+    });
+    const intentionalTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Intentional external milestone regression task',
+      due_mode: 'low_priority',
+      assignee_mode: 'none',
+    });
+    const githubTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'GitHub problem exclusion regression task',
+    });
+
+    await page.goto('/dashboard');
+    const alerts = page.locator('[data-alerts-menu]');
+    await expect(alerts).toBeVisible();
+    await expect(alerts.locator('.alerts-trigger > i')).toHaveClass(/fa-triangle-exclamation/);
+    await alerts.locator('[data-notifications-trigger]').click();
+    await expect(alerts.locator('[data-alert-view="todo"]')).toContainText('Urgent tasks');
+    await expect(alerts.locator('[data-alert-view="problems"]')).toContainText('Problem tasks');
+    const alertMenuSpacing = await alerts.locator('[data-alerts-menu-content]').evaluate((menu) => {
+      const rows = Array.from(menu.querySelectorAll('.alert-item'));
+      const firstCopy = rows[0].querySelector('.notifications-copy').getBoundingClientRect();
+      const secondTitle = rows[1].querySelector('.notifications-title').getBoundingClientRect();
+      return {
+        rowHeights: rows.map((row) => Math.round(row.getBoundingClientRect().height)),
+        contentGap: Math.round(secondTitle.top - firstCopy.bottom),
+        firstPaddingTop: parseFloat(getComputedStyle(rows[0]).paddingTop),
+      };
+    });
+    expect(alertMenuSpacing.rowHeights.every((height) => height >= 58)).toBe(true);
+    expect(alertMenuSpacing.contentGap).toBeGreaterThanOrEqual(20);
+    expect(alertMenuSpacing.firstPaddingTop).toBeGreaterThanOrEqual(10);
+
+    await alerts.locator('[data-alert-view="problems"]').click();
+    await page.waitForURL('**/problems');
+    await page.evaluate((taskId) => {
+      const task = window.__dashboardTaskEntity(taskId);
+      task.github_meta = { issue_url: 'https://github.com/example/repo/issues/1', item_type: 'issue' };
+      window.__renderProblemTasksFromStore();
+      window.__refreshDashboardAlerts();
+    }, githubTask.id);
+    const missingDateRow = page.locator(`[data-problem-task-id="${missingDateTask.id}"]`);
+    const missingAssigneeRow = page.locator(`[data-problem-task-id="${missingAssigneeTask.id}"]`);
+    const assignableRow = page.locator(`[data-problem-task-id="${assignableTask.id}"]`);
+    const noAssigneePickerRow = page.locator(`[data-problem-task-id="${noAssigneePickerTask.id}"]`);
+    const dualGapRow = page.locator(`[data-problem-task-id="${dualGapTask.id}"]`);
+    const dualGapNoAssigneeRow = page.locator(`[data-problem-task-id="${dualGapNoAssigneeTask.id}"]`);
+    await expect(missingDateRow).toBeVisible();
+    await expect(missingAssigneeRow).toBeVisible();
+    await expect(assignableRow).toBeVisible();
+    await expect(noAssigneePickerRow).toBeVisible();
+    await expect(dualGapRow).toBeVisible();
+    await expect(dualGapNoAssigneeRow).toBeVisible();
+    await expect(page.locator(`[data-problem-task-id="${intentionalTask.id}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-problem-task-id="${githubTask.id}"]`)).toHaveCount(0);
+    await expect(page.locator('[data-dashboard-view-target="problems"]')).toHaveCount(0);
+    await expect(missingDateRow.locator('.problem-task-title-line .task-link-badge')).toHaveCount(1);
+    await expect(missingDateRow.locator('.problem-avatar')).toHaveCount(1);
+    await expect(missingAssigneeRow.locator('.due-input')).toHaveValue(tomorrow);
+    await expect(missingDateRow.locator('.task-pill, .todo-item-controls')).toHaveCount(0);
+    await expect(missingAssigneeRow.locator('.problem-task-assignees > :first-child')).toHaveClass(/problem-assign-action/);
+    await expect(missingAssigneeRow.locator('[data-problem-no-assignee]')).toHaveText(/Mark as not assigned/);
+    await expect(page.locator('.problems-header')).toHaveText(/The following tasks are missing an assignee or date designation\./);
+    await expect(page.locator('.problems-header')).not.toContainText('Task hygiene');
+    await noAssigneePickerRow.locator('.problem-task-title').click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    const drawerStacking = await page.evaluate(() => {
+      const header = document.querySelector('.problems-header');
+      const drawer = document.querySelector('#discussion-drawer');
+      const headerStyle = getComputedStyle(header);
+      const drawerStyle = getComputedStyle(drawer);
+      return {
+        headerPosition: headerStyle.position,
+        headerZIndex: headerStyle.zIndex,
+        drawerPosition: drawerStyle.position,
+        drawerZIndex: drawerStyle.zIndex,
+      };
+    });
+    expect(drawerStacking).toEqual({
+      headerPosition: 'static',
+      headerZIndex: 'auto',
+      drawerPosition: 'fixed',
+      drawerZIndex: '120',
+    });
+    await page.locator('[data-drawer-tab="settings"]').click();
+    await expect(page.locator('#task-settings-no-assignee')).toHaveCount(0);
+    const drawerAssigneeInput = page.locator('#task-settings-assignee');
+    await drawerAssigneeInput.focus();
+    const assignmentMenu = page.locator('.assign-suggest');
+    await expect(assignmentMenu).toBeVisible();
+    await expect(assignmentMenu.locator('button').nth(0)).toContainText('Assign me');
+    await expect(assignmentMenu.locator('button').nth(1)).toContainText('Assign group');
+    const noAssigneeOption = assignmentMenu.locator('.assign-suggest-no-assignee');
+    await expect(noAssigneeOption).toContainText('No assignee');
+    await expect(noAssigneeOption.locator('.assign-suggest-avatar')).toHaveClass(/is-no-assignee/);
+    await noAssigneeOption.click();
+    await expect(noAssigneePickerRow).toHaveCount(0);
+    const noAssigneePickerMode = await page.evaluate(async (taskId) => {
+      const response = await fetch(`/api/tasks/${taskId}`, { credentials: 'same-origin' });
+      const task = await response.json();
+      return task.assignee_mode;
+    }, noAssigneePickerTask.id);
+    expect(noAssigneePickerMode).toBe('none');
+    await page.locator('#discussion-close').click();
+    await expect(page.locator('#discussion-drawer')).not.toHaveClass(/open/);
+    await expect(missingDateRow.locator('.problem-task-date-actions > :first-child')).toHaveAttribute('data-problem-due', String(missingDateTask.id));
+    await expect(missingDateRow.locator('.problem-task-date-actions > :last-child')).toHaveText(/Mark as low priority/);
+    await expect(missingDateRow.locator('[data-problem-due] .due-summary-label')).toBeHidden();
+    await expect(missingDateRow.locator('[data-problem-low-priority]')).toHaveClass(/problem-mark-button/);
+    await expect(missingAssigneeRow.locator('[data-problem-no-assignee]')).toHaveClass(/problem-mark-button/);
+    await expect(missingDateRow.locator('[data-problem-due] .due-summary')).toHaveClass(/problem-primary-control/);
+    await expect(missingAssigneeRow.locator('.problem-assign-add')).toHaveClass(/problem-primary-control/);
+    const remediationAlignment = await missingDateRow.evaluate((row) => {
+      const assignees = row.querySelector('.problem-task-assignees').getBoundingClientRect();
+      const dates = row.querySelector('.problem-task-date-actions').getBoundingClientRect();
+      const lowPriority = row.querySelector('[data-problem-low-priority]').getBoundingClientRect();
+      const calendar = row.querySelector('[data-problem-due] .due-summary').getBoundingClientRect();
+      const card = row.getBoundingClientRect();
+      return {
+        sameLine: Math.abs((assignees.top + assignees.bottom) / 2 - (dates.top + dates.bottom) / 2) < 3,
+        ordered: assignees.left < dates.left,
+        rightGap: Math.round(card.right - dates.right),
+        lowPriorityWidth: Math.round(lowPriority.width),
+        lowPriorityHeight: Math.round(lowPriority.height),
+        calendarWidth: Math.round(calendar.width),
+        calendarHeight: Math.round(calendar.height),
+        controlHeights: Array.from(row.querySelectorAll('.problem-task-remediation button')).map((button) => Math.round(button.getBoundingClientRect().height)),
+        listGap: getComputedStyle(row.parentElement).gap,
+        rowRadius: parseFloat(getComputedStyle(row).borderRadius),
+        categoryColor: row.style.getPropertyValue('--problem-color'),
+      };
+    });
+    expect(remediationAlignment.sameLine).toBe(true);
+    expect(remediationAlignment.ordered).toBe(true);
+    expect(remediationAlignment.rightGap).toBeLessThanOrEqual(14);
+    expect(remediationAlignment.lowPriorityWidth).toBeGreaterThanOrEqual(145);
+    expect(remediationAlignment.lowPriorityHeight).toBe(24);
+    expect(remediationAlignment.calendarWidth).toBe(24);
+    expect(remediationAlignment.calendarHeight).toBe(24);
+    expect(remediationAlignment.controlHeights).toEqual([24, 24]);
+    expect(remediationAlignment.listGap).toBe('0px');
+    expect(remediationAlignment.rowRadius).toBe(0);
+    expect(remediationAlignment.categoryColor).not.toBe('');
+    const assigneeControlSizes = await missingAssigneeRow.locator('.problem-task-remediation').evaluate((remediation) => {
+      return Array.from(remediation.querySelectorAll('button')).map((button) => {
+        const bounds = button.getBoundingClientRect();
+        return { width: Math.round(bounds.width), height: Math.round(bounds.height) };
+      });
+    });
+    expect(assigneeControlSizes.map(({ height }) => height)).toEqual([24, 24, 24]);
+    expect(assigneeControlSizes[0]).toEqual({ width: 24, height: 24 });
+    const desktopViewport = page.viewportSize();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileProblemLayout = await missingAssigneeRow.evaluate((row) => {
+      const remediation = row.querySelector('.problem-task-remediation');
+      return {
+        rowOverflow: row.scrollWidth > row.clientWidth,
+        remediationOverflow: remediation.scrollWidth > remediation.clientWidth,
+        controlHeights: Array.from(remediation.querySelectorAll('button')).map((button) => Math.round(button.getBoundingClientRect().height)),
+      };
+    });
+    expect(mobileProblemLayout).toEqual({
+      rowOverflow: false,
+      remediationOverflow: false,
+      controlHeights: [24, 24, 24],
+    });
+    await page.setViewportSize(desktopViewport);
+
+    await assignableRow.locator('.problem-assign-add').click();
+    const assignInput = assignableRow.locator('[data-assign-input]');
+    await expect(assignInput).toBeVisible();
+    await page.locator('.problems-header').click();
+    const restoredAssignButton = assignableRow.locator('.problem-assign-add');
+    await expect(restoredAssignButton).toBeVisible();
+    await expect(restoredAssignButton).toHaveClass(/problem-primary-control/);
+    await expect(restoredAssignButton.locator('.fa-plus')).toHaveCount(1);
+    await expect(restoredAssignButton).toHaveAttribute('aria-label', 'Add assignee');
+    await restoredAssignButton.click();
+    await expect(assignInput).toBeVisible();
+    await assignInput.fill(state.owner.email);
+    await assignInput.press('Enter');
+    await expect(assignableRow).toHaveCount(0);
+
+    await dualGapRow.locator('.problem-assign-add').click();
+    const dualGapAssignInput = dualGapRow.locator('[data-assign-input]');
+    await dualGapAssignInput.fill(state.owner.email);
+    await dualGapAssignInput.press('Enter');
+    await expect(dualGapRow).toBeVisible();
+    await expect(dualGapRow.locator('.problem-avatar')).toHaveCount(1);
+    await expect(dualGapRow.locator('[data-problem-low-priority]')).toBeVisible();
+    await expect(dualGapRow.locator('[data-problem-no-assignee]')).toHaveCount(0);
+
+    const noAssigneePatchPromise = page.waitForResponse((response) => (
+      response.request().method() === 'PATCH'
+      && response.url().endsWith(`/api/tasks/${dualGapNoAssigneeTask.id}`)
+    ));
+    await dualGapNoAssigneeRow.locator('[data-problem-no-assignee]').click();
+    const noAssigneePatch = await noAssigneePatchPromise;
+    expect(noAssigneePatch.ok()).toBeTruthy();
+    const noAssigneePayload = await noAssigneePatch.json();
+    expect({
+      assigneeMode: noAssigneePayload.assignee_mode,
+      dueMode: noAssigneePayload.due_mode,
+      dueAt: noAssigneePayload.due_at,
+    }).toEqual({ assigneeMode: 'none', dueMode: 'date', dueAt: null });
+    await expect.poll(() => page.evaluate((taskId) => {
+      const task = window.__dashboardTaskEntity(taskId);
+      return task ? task.assignee_mode : null;
+    }, dualGapNoAssigneeTask.id)).toBe('none');
+    await expect(dualGapNoAssigneeRow).toBeVisible();
+    await expect(dualGapNoAssigneeRow.locator('[data-problem-no-assignee]')).toHaveCount(0);
+    await expect(dualGapNoAssigneeRow.locator('[data-problem-assignee-intent="none"]')).toHaveText(/No assignee/);
+    await expect(dualGapNoAssigneeRow.locator('[data-problem-low-priority]')).toBeVisible();
+    await expect(dualGapNoAssigneeRow.locator('[data-problem-due]')).toBeVisible();
+    await dualGapNoAssigneeRow.locator('[data-problem-due] .due-summary').click();
+    const dueModeMenu = page.locator('.due-mode-menu');
+    await expect(dueModeMenu).toBeVisible();
+    const dueModeButtons = dueModeMenu.locator('[data-due-mode-action]');
+    await expect(dueModeButtons).toHaveCount(6);
+    for (const label of ['No date', 'Urgent', 'ASAP', 'Date', 'Relative date', 'Low priority']) {
+      await expect(dueModeMenu.getByRole('button', { name: label, exact: true })).toBeVisible();
+    }
+    await expect(dueModeMenu.getByRole('button', { name: 'Date', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    expect(await dueModeButtons.allTextContents()).toEqual(['', '', '', '', '', '']);
+    const dueModePalette = await dueModeButtons.evaluateAll((buttons) => buttons.map((button) => {
+      const style = getComputedStyle(button);
+      return {
+        mode: button.getAttribute('data-due-mode-action'),
+        color: style.color,
+        borderColor: style.borderColor,
+        backgroundColor: style.backgroundColor,
+        boxShadow: style.boxShadow,
+      };
+    }));
+    expect(new Set(dueModePalette.map((item) => item.color)).size).toBe(6);
+    expect(new Set(dueModePalette.map((item) => item.borderColor)).size).toBe(6);
+    const activeDateMode = dueModePalette.find((item) => item.mode === 'date');
+    expect(activeDateMode.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(activeDateMode.boxShadow).not.toBe('none');
+    const dueModeLayout = await dueModeMenu.locator('.due-mode-actions').evaluate((actions) => ({
+      overflows: actions.scrollWidth > actions.clientWidth,
+      tops: Array.from(actions.querySelectorAll('button')).map((button) => Math.round(button.getBoundingClientRect().top)),
+    }));
+    expect(dueModeLayout.overflows).toBe(false);
+    expect(new Set(dueModeLayout.tops).size).toBe(1);
+    await page.locator('.problems-header').click();
+    await expect(dueModeMenu).toHaveCount(0);
+
+    await missingDateRow.locator('[data-problem-low-priority]').click();
+    await expect(missingDateRow).toHaveCount(0);
+    await missingAssigneeRow.locator('[data-problem-no-assignee]').click();
+    await expect(missingAssigneeRow).toHaveCount(0);
+
+    await alerts.locator('[data-notifications-trigger]').click();
+    await alerts.locator('[data-alert-view="todo"]').click();
+    await page.waitForURL('**/todo');
+    await expect(page.locator('.todo-board')).toHaveAttribute('data-todo-board-ready', '1');
+    const urgentGroup = page.locator('.todo-date-group').first();
+    const urgentRow = urgentGroup.locator(`.todo-item[data-task-id="${urgentTask.id}"]`);
+    await expect(urgentGroup).toHaveAttribute('data-todo-date-key', 'urgent');
+    await expect(urgentRow).toBeVisible();
+    await expect(urgentRow).toHaveAttribute('data-due-mode', 'urgent');
+    await expect(urgentGroup.locator('.todo-urgent-heading-title')).toContainText('Urgent');
+    await expect(urgentGroup.locator('.todo-urgent-heading-title > i')).toHaveClass(/fa-triangle-exclamation/);
+    await expect(urgentGroup.locator('.todo-urgent-heading-badge')).toHaveCount(0);
+    const urgentVisuals = await urgentRow.evaluate((row) => {
+      const group = row.closest('.todo-date-group');
+      const groupStyle = getComputedStyle(group);
+      const rowStyle = getComputedStyle(row);
+      const titleStyle = getComputedStyle(row.querySelector('.todo-item-title'));
+      return {
+        groupBorder: parseFloat(groupStyle.borderTopWidth),
+        groupBackground: groupStyle.backgroundImage,
+        groupShadow: groupStyle.boxShadow,
+        rowRail: parseFloat(rowStyle.borderLeftWidth),
+        rowBackground: rowStyle.backgroundImage,
+        rowShadow: rowStyle.boxShadow,
+        titleWeight: Number(titleStyle.fontWeight),
+      };
+    });
+    expect(urgentVisuals.groupBorder).toBeGreaterThanOrEqual(2);
+    expect(urgentVisuals.groupBackground).not.toBe('none');
+    expect(urgentVisuals.groupShadow).not.toBe('none');
+    expect(urgentVisuals.rowRail).toBeGreaterThanOrEqual(5);
+    expect(urgentVisuals.rowBackground).not.toBe('none');
+    expect(urgentVisuals.rowShadow).not.toBe('none');
+    expect(urgentVisuals.titleWeight).toBeGreaterThanOrEqual(800);
+
+    const completedUrgentTodoVisuals = await urgentRow.evaluate((row) => {
+      row.setAttribute('data-status-state', 'complete');
+      const rowStyle = getComputedStyle(row);
+      const titleStyle = getComputedStyle(row.querySelector('.todo-item-title'));
+      const visuals = {
+        rail: parseFloat(rowStyle.borderLeftWidth),
+        background: rowStyle.backgroundImage,
+        titleWeight: Number(titleStyle.fontWeight),
+      };
+      row.setAttribute('data-status-state', 'open');
+      return visuals;
+    });
+    expect(completedUrgentTodoVisuals.rail).toBeLessThan(5);
+    expect(completedUrgentTodoVisuals.background).toBe('none');
+    expect(completedUrgentTodoVisuals.titleWeight).toBeLessThan(800);
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, urgentTask.id);
+    const urgentTreeRow = page.locator(`[data-task-row-id="${urgentTask.id}"]`);
+    await expect(urgentTreeRow).toBeVisible();
+    await expect(urgentTreeRow).toHaveAttribute('data-due-mode', 'urgent');
+    const urgentTreeVisuals = await urgentTreeRow.evaluate((row) => {
+      const cells = row.querySelectorAll('td');
+      const rowStyle = getComputedStyle(row);
+      const firstCellStyle = getComputedStyle(cells[0]);
+      const taskCellStyle = getComputedStyle(cells[1]);
+      const titleStyle = getComputedStyle(row.querySelector('.editable[data-field="title"], .github-task-link'));
+      const dueStyle = getComputedStyle(row.querySelector('.due-summary'));
+      return {
+        rowBackground: rowStyle.backgroundImage,
+        rowRail: parseFloat(rowStyle.borderLeftWidth),
+        firstCellRail: firstCellStyle.boxShadow,
+        taskBackground: taskCellStyle.backgroundImage,
+        titleWeight: Number(titleStyle.fontWeight),
+        dueBorder: parseFloat(dueStyle.borderTopWidth),
+      };
+    });
+    expect(urgentTreeVisuals.firstCellRail).not.toBe('none');
+    expect(urgentTreeVisuals.rowBackground).not.toBe('none');
+    expect(urgentTreeVisuals.taskBackground).toBe('none');
+    expect(urgentTreeVisuals.titleWeight).toBeGreaterThanOrEqual(800);
+    expect(urgentTreeVisuals.dueBorder).toBeGreaterThanOrEqual(1);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileUrgentTreeVisuals = await urgentTreeRow.evaluate((row) => {
+      const style = getComputedStyle(row);
+      return {
+        rail: parseFloat(style.borderLeftWidth),
+        background: style.backgroundImage,
+        shadow: style.boxShadow,
+      };
+    });
+    expect(mobileUrgentTreeVisuals.rail).toBeGreaterThanOrEqual(5);
+    expect(mobileUrgentTreeVisuals.background).not.toBe('none');
+    expect(mobileUrgentTreeVisuals.shadow).not.toBe('none');
+
+    await page.setViewportSize(desktopViewport);
+    await patchTask(page, urgentTask.id, { status: 'complete' });
+    await expect(urgentTreeRow).toHaveAttribute('data-due-mode', 'urgent');
+    await expect(urgentTreeRow).toHaveAttribute('data-status-state', 'complete');
+    const completedUrgentVisuals = await urgentTreeRow.evaluate((row) => {
+      const cells = row.querySelectorAll('td');
+      const rowStyle = getComputedStyle(row);
+      const firstCellStyle = getComputedStyle(cells[0]);
+      const taskCellStyle = getComputedStyle(cells[1]);
+      const titleStyle = getComputedStyle(row.querySelector('.editable[data-field="title"], .github-task-link'));
+      return {
+        rowBackground: rowStyle.backgroundImage,
+        firstCellRail: firstCellStyle.boxShadow,
+        taskCellBackground: taskCellStyle.backgroundColor,
+        titleWeight: Number(titleStyle.fontWeight),
+      };
+    });
+    expect(completedUrgentVisuals.rowBackground).toBe('none');
+    expect(completedUrgentVisuals.firstCellRail).toBe('none');
+    expect(completedUrgentVisuals.taskCellBackground).not.toBe('rgba(0, 0, 0, 0)');
+    expect(completedUrgentVisuals.titleWeight).toBeLessThan(800);
   });
 
   test('dashboard action items remove a completed task without refresh', async ({ page, request }) => {
@@ -3032,6 +3452,12 @@ test.describe('dashboard and realtime flows', () => {
 
     await memberPage.goto(`/tree/project/${state.project.id}`);
     await waitForTreeProjectReady(memberPage, state.project.id, state.task.id);
+    const ownerTaskSnapshotGets = [];
+    ownerPage.on('request', (request) => {
+      if (request.method() === 'GET' && request.url().endsWith(`/api/tasks/${state.task.id}`)) {
+        ownerTaskSnapshotGets.push(request.url());
+      }
+    });
     await patchTask(memberPage, state.task.id, { due_at: tomorrow, due_mode: 'date' });
     await focusTreeTask(memberPage, state.task.id, 'Member changed tree due date', [`Due date should now be ${tomorrow}.`]);
     await steps.multiStep(`In the member browser, set the task due date to ${tomorrow}.`, [
@@ -3044,8 +3470,156 @@ test.describe('dashboard and realtime flows', () => {
       { name: 'owner', page: ownerPage },
     ]);
 
+    const memberTreeRow = memberPage.locator(`[data-task-row-id="${state.task.id}"]`);
+    await memberTreeRow.evaluate((row) => {
+      row.style.background = '';
+    });
+    await memberTreeRow.locator('[data-due-summary]').click();
+    const memberDueModeMenu = memberPage.locator('.due-mode-menu');
+    await expect(memberDueModeMenu).toBeVisible();
+    const urgentPatchPromise = memberPage.waitForResponse((response) => (
+      response.request().method() === 'PATCH'
+      && response.url().endsWith(`/api/tasks/${state.task.id}`)
+    ));
+    await memberDueModeMenu.getByRole('button', { name: 'Urgent', exact: true }).click();
+    expect(await memberTreeRow.getAttribute('data-due-mode')).toBe('urgent');
+    const initiatingUrgentVisuals = await memberTreeRow.evaluate((row) => ({
+      rowBackground: getComputedStyle(row).backgroundImage,
+      firstCellRail: getComputedStyle(row.querySelector('td')).boxShadow,
+      taskBackground: getComputedStyle(row.querySelector('td:nth-child(2)')).backgroundImage,
+      titleWeight: Number(getComputedStyle(row.querySelector('.editable[data-field="title"]')).fontWeight),
+    }));
+    expect(initiatingUrgentVisuals.firstCellRail).not.toBe('none');
+    expect(initiatingUrgentVisuals.rowBackground).not.toBe('none');
+    expect(initiatingUrgentVisuals.taskBackground).toBe('none');
+    expect(initiatingUrgentVisuals.titleWeight).toBeGreaterThanOrEqual(800);
+    expect((await urgentPatchPromise).ok()).toBeTruthy();
+    await expect(memberTreeRow).toHaveAttribute('data-due-mode', 'urgent');
+    const ownerTreeRow = ownerPage.locator(`[data-task-row-id="${state.task.id}"]`);
+    await expect(ownerTreeRow).toHaveAttribute('data-due-mode', 'urgent');
+    const liveUrgentVisuals = await ownerTreeRow.evaluate((row) => ({
+      rowBackground: getComputedStyle(row).backgroundImage,
+      firstCellRail: getComputedStyle(row.querySelector('td')).boxShadow,
+      taskBackground: getComputedStyle(row.querySelector('td:nth-child(2)')).backgroundImage,
+      titleWeight: Number(getComputedStyle(row.querySelector('.editable[data-field="title"]')).fontWeight),
+    }));
+    expect(liveUrgentVisuals.firstCellRail).not.toBe('none');
+    expect(liveUrgentVisuals.rowBackground).not.toBe('none');
+    expect(liveUrgentVisuals.taskBackground).toBe('none');
+    expect(liveUrgentVisuals.titleWeight).toBeGreaterThanOrEqual(800);
+    expect(ownerTaskSnapshotGets).toEqual([]);
+    await steps.multiStep('Change the task to Urgent and verify the receiving Tree view applies its urgency treatment without a refresh.', [
+      { name: 'owner', page: ownerPage },
+      { name: 'member', page: memberPage },
+    ]);
+
     await ownerContext.close();
     await memberContext.close();
+  });
+
+  test('pending local task state does not flicker when an older snapshot arrives', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+
+    const taskRow = page.locator(`[data-task-row-id="${state.task.id}"]`);
+    const initialMode = await taskRow.getAttribute('data-due-mode');
+    const staleTask = await page.evaluate((taskId) => {
+      const task = window.__dashboardTaskEntity(taskId);
+      return task ? JSON.parse(JSON.stringify(task)) : null;
+    }, state.task.id);
+    expect(staleTask).toBeTruthy();
+
+    await page.evaluate((taskId) => {
+      const row = document.querySelector(`[data-task-row-id="${taskId}"]`);
+      window.__taskDueModeTransitions = [row.getAttribute('data-due-mode')];
+      window.__taskDueModeTransitionObserver = new MutationObserver(() => {
+        window.__taskDueModeTransitions.push(row.getAttribute('data-due-mode'));
+      });
+      window.__taskDueModeTransitionObserver.observe(row, {
+        attributes: true,
+        attributeFilter: ['data-due-mode'],
+      });
+    }, state.task.id);
+
+    await page.route(`**/api/tasks/${state.task.id}`, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+      await route.continue();
+    });
+
+    await taskRow.locator('[data-due-summary]').click();
+    const dueModeMenu = page.locator('.due-mode-menu');
+    await expect(dueModeMenu).toBeVisible();
+    const patchPromise = page.waitForResponse((response) => (
+      response.request().method() === 'PATCH'
+      && response.url().endsWith(`/api/tasks/${state.task.id}`)
+    ));
+    await dueModeMenu.getByRole('button', { name: 'Urgent', exact: true }).click();
+    expect(await taskRow.getAttribute('data-due-mode')).toBe('urgent');
+    expect(await page.evaluate((taskId) => window.__pendingTaskMutationCount(taskId), state.task.id)).toBe(1);
+
+    await page.evaluate((task) => {
+      window.__applyTaskRowUpdate(task);
+    }, staleTask);
+    await page.waitForTimeout(50);
+    expect(await taskRow.getAttribute('data-due-mode')).toBe('urgent');
+
+    expect((await patchPromise).ok()).toBeTruthy();
+    await expect(taskRow).toHaveAttribute('data-due-mode', 'urgent');
+    await expect.poll(() => page.evaluate((taskId) => window.__pendingTaskMutationCount(taskId), state.task.id)).toBe(0);
+    const transitions = await page.evaluate(() => {
+      if (window.__taskDueModeTransitionObserver) {
+        window.__taskDueModeTransitionObserver.disconnect();
+      }
+      return window.__taskDueModeTransitions || [];
+    });
+    const urgentIndex = transitions.indexOf('urgent');
+    expect(urgentIndex).toBeGreaterThanOrEqual(0);
+    expect(transitions.slice(urgentIndex + 1)).not.toContain(initialMode);
+  });
+
+  test('rapid local task patches are serialized in user action order', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+
+    let activePatchCount = 0;
+    let maximumActivePatchCount = 0;
+    const receivedModes = [];
+    await page.route(`**/api/tasks/${state.task.id}`, async (route) => {
+      if (route.request().method() !== 'PATCH') {
+        await route.continue();
+        return;
+      }
+      activePatchCount += 1;
+      maximumActivePatchCount = Math.max(maximumActivePatchCount, activePatchCount);
+      receivedModes.push((route.request().postDataJSON() || {}).due_mode);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const response = await route.fetch();
+      activePatchCount -= 1;
+      await route.fulfill({ response });
+    });
+
+    const results = await page.evaluate(async (taskId) => {
+      const patch = (dueMode) => fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ due_at: '', due_mode: dueMode }),
+      }).then(async (response) => ({ ok: response.ok, task: await response.json() }));
+      return Promise.all([patch('urgent'), patch('low_priority')]);
+    }, state.task.id);
+
+    expect(results.map((result) => result.ok)).toEqual([true, true]);
+    expect(maximumActivePatchCount).toBe(1);
+    expect(receivedModes).toEqual(['urgent', 'low_priority']);
+    await expect(page.locator(`[data-task-row-id="${state.task.id}"]`)).toHaveAttribute('data-due-mode', 'low_priority');
+    const canonicalTask = await fetchTaskViaApi(page, state.task.id);
+    expect(canonicalTask.due_mode).toBe('low_priority');
   });
 
   test('tree updates live when another user changes assignments', async ({ browser, request }) => {
