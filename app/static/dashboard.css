@@ -656,16 +656,20 @@ body.task-pointer-dragging {
 }
 
 .project-gantt-export-btn {
-  margin-left: 0;
-  min-height: 32px;
-  padding: 6px 12px;
+  box-sizing: border-box;
+  height: var(--gantt-toolbar-control-height, 32px);
+  min-height: var(--gantt-toolbar-control-height, 32px);
+  margin: 0;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(10, 13, 18, 0.74);
   color: var(--text);
-  font-size: 0.76rem;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 750;
   line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   font-family: inherit;
   cursor: pointer;
   display: inline-flex;

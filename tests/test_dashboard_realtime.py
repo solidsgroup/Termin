@@ -506,6 +506,11 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             third_id = third.id
 
         self.login(self.client, owner_id)
+        socket_client = socketio.test_client(self.app, flask_test_client=self.client)
+        self.addCleanup(lambda: socket_client.disconnect() if socket_client.is_connected() else None)
+        self.assertTrue(socket_client.is_connected())
+        socket_client.emit("join_project", {"project_id": project_id})
+        socket_client.get_received()
         response = self.client.post(
             f"/api/tasks/{third_id}/move",
             json={
@@ -519,6 +524,17 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(payload["task_id"], third_id)
         affected = {row["id"]: row["position"] for row in payload.get("affected_tasks", [])}
         self.assertEqual(affected, {third_id: 1, first_id: 2, second_id: 3})
+        reorder_events = [
+            event
+            for event in socket_client.get_received()
+            if event["name"] == "tasks_updated" and event["args"][0].get("action") == "reordered"
+        ]
+        self.assertEqual(len(reorder_events), 1)
+        socket_positions = {
+            row["id"]: row["position"]
+            for row in reorder_events[0]["args"][0].get("tasks", [])
+        }
+        self.assertEqual(socket_positions, {third_id: 1, first_id: 2, second_id: 3})
 
         with self.app.app_context():
             rows = (

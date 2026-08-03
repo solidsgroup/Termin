@@ -2810,6 +2810,244 @@ test.describe('dashboard and realtime flows', () => {
     expect(clearedTask.assignee_mode).toBe('default');
   });
 
+  test('tree task reorder never reconciles through an older visible order', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const first = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Reorder stability first',
+    });
+    const second = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Reorder stability second',
+    });
+    const third = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Reorder stability third',
+    });
+    const trackedIds = [String(first.id), String(second.id), String(third.id)];
+    const expectedOrder = [String(third.id), String(first.id), String(second.id)];
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, third.id);
+    await page.evaluate((ids) => {
+      const row = document.querySelector(`[data-task-row-id="${ids[0]}"]`);
+      const tbody = row.closest('tbody[data-task-dropzone="1"]');
+      const readOrder = () => Array.from(tbody.querySelectorAll('tr[data-task-row-id]'))
+        .map((taskRow) => taskRow.getAttribute('data-task-row-id'))
+        .filter((taskId) => ids.includes(taskId));
+      window.__treeReorderOrders = [readOrder()];
+      window.__treeReorderFrameId = 0;
+      window.__treeReorderObserver = new MutationObserver(() => {
+        if (window.__treeReorderFrameId) return;
+        window.__treeReorderFrameId = requestAnimationFrame(() => {
+          window.__treeReorderFrameId = 0;
+          window.__treeReorderOrders.push(readOrder());
+        });
+      });
+      window.__treeReorderObserver.observe(tbody, { childList: true });
+    }, trackedIds);
+
+    await page.route(`**/api/tasks/${third.id}/move`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      await route.continue();
+    });
+    const moveRequest = page.waitForRequest((req) => (
+      req.method() === 'POST' && req.url().endsWith(`/api/tasks/${third.id}/move`)
+    ));
+    const moveResponse = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && response.url().endsWith(`/api/tasks/${third.id}/move`)
+    ));
+    const handle = page.locator(`[data-task-row-id="${third.id}"] [data-drag-task-handle]`);
+    const target = page.locator(`[data-task-row-id="${first.id}"]`);
+    const handleBox = await handle.boundingBox();
+    const targetBox = await target.boundingBox();
+    expect(handleBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 3, { steps: 8 });
+    await page.mouse.up();
+    await moveRequest;
+
+    const optimisticOrder = await page.evaluate((ids) => {
+      const row = document.querySelector(`[data-task-row-id="${ids[0]}"]`);
+      return Array.from(row.closest('tbody').querySelectorAll('tr[data-task-row-id]'))
+        .map((taskRow) => taskRow.getAttribute('data-task-row-id'))
+        .filter((taskId) => ids.includes(taskId));
+    }, trackedIds);
+    expect(optimisticOrder).toEqual(expectedOrder);
+    await page.evaluate((ids) => {
+      const row = document.querySelector(`[data-task-row-id="${ids[0]}"]`);
+      window.__treeReorderOrders = [Array.from(row.closest('tbody').querySelectorAll('tr[data-task-row-id]'))
+        .map((taskRow) => taskRow.getAttribute('data-task-row-id'))
+        .filter((taskId) => ids.includes(taskId))];
+      if (window.__treeReorderFrameId) cancelAnimationFrame(window.__treeReorderFrameId);
+      window.__treeReorderFrameId = 0;
+    }, trackedIds);
+
+    await page.evaluate((staleTask) => {
+      window.__applyTaskRowUpdate(staleTask);
+    }, third);
+    const orderAfterStaleSnapshot = await page.evaluate((ids) => {
+      const row = document.querySelector(`[data-task-row-id="${ids[0]}"]`);
+      return Array.from(row.closest('tbody').querySelectorAll('tr[data-task-row-id]'))
+        .map((taskRow) => taskRow.getAttribute('data-task-row-id'))
+        .filter((taskId) => ids.includes(taskId));
+    }, trackedIds);
+
+    await moveResponse;
+    await page.waitForTimeout(250);
+    const recordedOrders = await page.evaluate(() => {
+      window.__treeReorderObserver.disconnect();
+      return window.__treeReorderOrders.slice();
+    });
+    const firstOptimisticIndex = recordedOrders.findIndex((order) => (
+      order.join(',') === expectedOrder.join(',')
+    ));
+    const regressedOrders = recordedOrders.slice(firstOptimisticIndex + 1).filter((order) => (
+      order.length === trackedIds.length && order.join(',') !== expectedOrder.join(',')
+    ));
+    expect(orderAfterStaleSnapshot).toEqual(expectedOrder);
+    expect(firstOptimisticIndex).toBeGreaterThanOrEqual(0);
+    expect(regressedOrders).toEqual([]);
+  });
+
+  test('gantt ruler follows the full timeline and its header stays visible while scrolling', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const projectStart = isoDateWithOffset(-14);
+    const projectEnd = isoDateWithOffset(45);
+    const configured = await page.evaluate(async ({ projectId, projectStart, projectEnd }) => {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start_date: projectStart,
+          end_date: projectEnd,
+          gantt_ranges: [{
+            id: 'writing-window',
+            label: 'Writing window',
+            start: projectStart,
+            end: projectEnd,
+            color: '#4cc9f0',
+          }],
+        }),
+      });
+      return response.ok;
+    }, { projectId: state.project.id, projectStart, projectEnd });
+    expect(configured).toBeTruthy();
+
+    const taskPayloads = Array.from({ length: 28 }, (_, index) => ({
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: `Gantt sticky row ${String(index + 1).padStart(2, '0')}`,
+      due_mode: 'date',
+      due_at: isoDateWithOffset(index - 5),
+    }));
+    const createdTasks = await page.evaluate(async (payloads) => {
+      const tasks = [];
+      for (const payload of payloads) {
+        const response = await fetch('/api/tasks', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) return [];
+        const data = await response.json();
+        tasks.push(data.task || data);
+      }
+      return tasks;
+    }, taskPayloads);
+    expect(createdTasks).toHaveLength(taskPayloads.length);
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, createdTasks.at(-1).id);
+    const board = page.locator(`[data-tree-project-board="${state.project.id}"]`);
+    await board.locator('[data-project-mode-button="gantt"]').click();
+    const shell = board.locator('.project-gantt-shell');
+    const axis = shell.locator('.project-gantt-axis');
+    const axisTrack = axis.locator('[data-gantt-hover-track]');
+    const sectionTitle = shell.locator('.project-gantt-section-title').first();
+    await expect(axisTrack).toBeVisible();
+    await expect(sectionTitle).toBeVisible();
+
+    const toolbarMetrics = await board.locator('.project-gantt-toolbar').evaluate((toolbar) => {
+      const selectors = [
+        '[data-project-gantt-major]',
+        '[data-project-gantt-minor]',
+        '[data-project-gantt-day-mask-panel]:not([hidden])',
+        '[data-project-gantt-range-add]',
+        '.project-gantt-filter-control',
+        '[data-project-gantt-export]',
+      ];
+      return selectors.map((selector) => {
+        const control = toolbar.querySelector(selector);
+        if (!control) return null;
+        const rect = control.getBoundingClientRect();
+        return { selector, top: rect.top, height: rect.height, center: rect.top + rect.height / 2 };
+      }).filter(Boolean);
+    });
+    expect(toolbarMetrics.length).toBeGreaterThanOrEqual(5);
+    expect(Math.max(...toolbarMetrics.map((row) => row.height)) - Math.min(...toolbarMetrics.map((row) => row.height))).toBeLessThanOrEqual(1);
+    expect(Math.max(...toolbarMetrics.map((row) => row.center)) - Math.min(...toolbarMetrics.map((row) => row.center))).toBeLessThanOrEqual(1);
+    expect(toolbarMetrics.every((row) => Math.abs(row.height - 32) <= 1)).toBeTruthy();
+
+    const axisBox = await axisTrack.boundingBox();
+    const axisOuterBox = await axis.boundingBox();
+    const sectionBox = await sectionTitle.boundingBox();
+    const rangeLabelBox = await axis.locator('.project-gantt-range-label', { hasText: 'Writing window' }).boundingBox();
+    expect(axisBox).not.toBeNull();
+    expect(axisOuterBox).not.toBeNull();
+    expect(sectionBox).not.toBeNull();
+    expect(rangeLabelBox).not.toBeNull();
+    expect(rangeLabelBox.y).toBeGreaterThanOrEqual(axisOuterBox.y);
+    expect(Math.abs((axisBox.y + axisBox.height) - (axisOuterBox.y + axisOuterBox.height))).toBeLessThanOrEqual(1);
+    expect(sectionBox.y - (axisOuterBox.y + axisOuterBox.height)).toBeGreaterThanOrEqual(9);
+    const hoverPoint = {
+      x: axisBox.x + axisBox.width * 0.56,
+      y: sectionBox.y + sectionBox.height / 2,
+    };
+    const hoverPointIsTaskTrack = await page.evaluate(({ x, y }) => {
+      const target = document.elementFromPoint(x, y);
+      return !!(target && target.closest('[data-gantt-track]'));
+    }, hoverPoint);
+    expect(hoverPointIsTaskTrack).toBeFalsy();
+    await page.mouse.move(hoverPoint.x, hoverPoint.y);
+
+    await expect(shell).toHaveClass(/is-gantt-hovering/);
+    const hoverDate = axis.locator('[data-gantt-hover-date]');
+    await expect(hoverDate).toBeVisible();
+    await expect(hoverDate).toHaveText(/^[A-Z][a-z]{2} \d{2}$/);
+    const rulerOpacity = await shell.locator('.project-gantt-overlay-track').evaluate((track) => (
+      Number(getComputedStyle(track, '::after').opacity)
+    ));
+    expect(rulerOpacity).toBeGreaterThan(0.5);
+
+    const content = page.locator('[data-dashboard-content]');
+    await content.evaluate((node) => { node.scrollTop += 520; });
+    await page.waitForTimeout(100);
+    const [contentAfter, axisAfter, contentScrollTop] = await Promise.all([
+      content.boundingBox(),
+      axis.boundingBox(),
+      content.evaluate((node) => node.scrollTop),
+    ]);
+    expect(contentAfter).not.toBeNull();
+    expect(axisAfter).not.toBeNull();
+    expect(contentScrollTop).toBeGreaterThan(400);
+    expect(axisAfter.y).toBeGreaterThanOrEqual(contentAfter.y - 1);
+    expect(axisAfter.y).toBeLessThanOrEqual(contentAfter.y + 2);
+    await expect(axis.locator('.project-gantt-range-label', { hasText: 'Writing window' })).toBeVisible();
+    await expect(axis.locator('.project-gantt-axis-label').first()).toBeVisible();
+    await expect(hoverDate).toBeVisible();
+  });
+
   test('off-tree updates are visible when navigating into tree later', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['socket', 'tree', 'navigation', 'cache']);

@@ -885,6 +885,7 @@ def _serialize_task_data(
         "title": task.title,
         "link": task.link,
         "links": info_payload.get("links", []),
+        "position": task.position,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
