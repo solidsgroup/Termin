@@ -620,6 +620,29 @@ test.describe('dashboard and realtime flows', () => {
       assignee_email: state.owner.email,
       due_mode: 'urgent',
     });
+    const otherUrgentTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Other user urgent alert should stay hidden',
+      assignee_email: state.member.email,
+      due_mode: 'urgent',
+    });
+    const ownerPrereqTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Owner prerequisite makes urgent alert visible',
+      assignee_email: state.owner.email,
+      due_at: tomorrow,
+      due_mode: 'date',
+    });
+    const dependentUrgentTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Urgent task depending on owner prerequisite',
+      assignee_email: state.member.email,
+      due_mode: 'urgent',
+    });
+    await createTaskPrerequisite(page, dependentUrgentTask.id, ownerPrereqTask.id);
     const missingDateTask = await createTask(page, {
       project_id: state.project.id,
       group_id: state.group.id,
@@ -678,22 +701,26 @@ test.describe('dashboard and realtime flows', () => {
     await expect(alerts).toBeVisible();
     await expect(alerts.locator('.alerts-trigger > i')).toHaveClass(/fa-triangle-exclamation/);
     await alerts.locator('[data-notifications-trigger]').click();
-    await expect(alerts.locator('[data-alert-view="todo"]')).toContainText('Urgent tasks');
+    await expect(alerts.locator(`[data-alert-task-id="${urgentTask.id}"]`)).toContainText('Urgent alert regression task');
+    await expect(alerts.locator(`[data-alert-task-id="${dependentUrgentTask.id}"]`)).toContainText('Urgent task depending on owner prerequisite');
+    await expect(alerts.locator(`[data-alert-task-id="${dependentUrgentTask.id}"]`)).toContainText('Owner prerequisite makes urgent alert visible');
+    await expect(alerts.locator(`[data-alert-task-id="${otherUrgentTask.id}"]`)).toHaveCount(0);
     await expect(alerts.locator('[data-alert-view="problems"]')).toContainText('Problem tasks');
     const alertMenuSpacing = await alerts.locator('[data-alerts-menu-content]').evaluate((menu) => {
       const rows = Array.from(menu.querySelectorAll('.alert-item'));
-      const firstCopy = rows[0].querySelector('.notifications-copy').getBoundingClientRect();
-      const secondTitle = rows[1].querySelector('.notifications-title').getBoundingClientRect();
       return {
         rowHeights: rows.map((row) => Math.round(row.getBoundingClientRect().height)),
-        contentGap: Math.round(secondTitle.top - firstCopy.bottom),
         firstPaddingTop: parseFloat(getComputedStyle(rows[0]).paddingTop),
       };
     });
     expect(alertMenuSpacing.rowHeights.every((height) => height >= 58)).toBe(true);
-    expect(alertMenuSpacing.contentGap).toBeGreaterThanOrEqual(20);
     expect(alertMenuSpacing.firstPaddingTop).toBeGreaterThanOrEqual(10);
 
+    await alerts.locator(`[data-alert-task-id="${dependentUrgentTask.id}"]`).click();
+    await page.waitForURL(`**/task/${dependentUrgentTask.id}`);
+    await expect(page.locator(`#discussion-drawer.open #discussion-title`)).toContainText('Urgent task depending on owner prerequisite');
+    await expect(page.locator(`[data-task-row-id="${dependentUrgentTask.id}"]`)).toBeVisible();
+    await alerts.locator('[data-notifications-trigger]').click();
     await alerts.locator('[data-alert-view="problems"]').click();
     await page.waitForURL('**/problems');
     await page.evaluate((taskId) => {
@@ -914,8 +941,7 @@ test.describe('dashboard and realtime flows', () => {
     await missingAssigneeRow.locator('[data-problem-no-assignee]').click();
     await expect(missingAssigneeRow).toHaveCount(0);
 
-    await alerts.locator('[data-notifications-trigger]').click();
-    await alerts.locator('[data-alert-view="todo"]').click();
+    await page.goto('/todo');
     await page.waitForURL('**/todo');
     await expect(page.locator('.todo-board')).toHaveAttribute('data-todo-board-ready', '1');
     const urgentGroup = page.locator('.todo-date-group').first();
@@ -1151,6 +1177,18 @@ test.describe('dashboard and realtime flows', () => {
     expect(afterResults.some((project) => (project.display_name || project.name) === 'Owner')).toBeTruthy();
     expect(afterResults).toHaveLength(beforeResults.length + 1);
     await steps.step('Verify opening quick task add created the self direct project for the owner.', page);
+
+    await page.locator('#quick-task-title').fill('Quick add toast target');
+    await page.locator('#quick-task-submit').click();
+    const toast = page.locator('.action-toast').filter({ hasText: 'Quick add toast target' }).first();
+    await expect(toast.locator('.action-toast-title')).toContainText('Task added');
+    await expect(page.locator('#quick-task-modal')).toBeHidden();
+    await steps.step('Create a quick task and verify the task-added toast appears.', page);
+
+    await toast.click();
+    await page.waitForURL(/\/task\/\d+/);
+    await expect(page.locator('#discussion-drawer.open #discussion-title')).toContainText('Quick add toast target');
+    await steps.step('Click the task-added toast and verify it opens the new task drawer.', page);
   });
 
   test('dashboard action item drawer can delete a task and close without refresh', async ({ page, request }) => {

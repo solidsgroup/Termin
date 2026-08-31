@@ -2321,6 +2321,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         dashboard_notice=dashboard_notice,
         tree_selection_type=tree_selection_type,
         tree_selection_id=tree_selection_id,
+        open_task_id=open_task_id if selected_from_task_id else "",
         project_hierarchy_meta=project_hierarchy_meta,
         is_admin_user=user_is_admin(user),
         tree_dashboard_path=tree_dashboard_path,

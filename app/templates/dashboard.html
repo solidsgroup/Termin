@@ -1052,7 +1052,7 @@
         </div>
       </div>
     </div>
-    <button class="dashboard-quick-task-fab" type="button" id="dashboard-quick-task-fab"{% if current_view != 'dashboard' %} hidden{% endif %} aria-label="Quick add task" title="Quick add task">
+    <button class="dashboard-quick-task-fab" type="button" id="dashboard-quick-task-fab" aria-label="Quick add task" title="Quick add task">
       <i class="fa-solid fa-plus" aria-hidden="true"></i>
     </button>
     {% if false and selected_project %}
@@ -11075,6 +11075,20 @@
             refreshDashboardHomeFromTodo();
           }
           closeQuickTaskModal();
+          if (typeof window.__showActionToast === "function") {
+            window.__showActionToast({
+              title: "Task added",
+              body: task.title || "Task",
+              durationMs: 5200,
+              onClick: function () {
+                if (typeof navigateToAlertTask === "function") {
+                  navigateToAlertTask(task.id);
+                } else {
+                  window.location.href = "/task/" + encodeURIComponent(String(task.id));
+                }
+              },
+            });
+          }
         })
         .catch(function (error) {
           quickTaskSetStatus(error && error.message ? error.message : "Unable to create task.", true);
@@ -12025,11 +12039,7 @@
 
     function updateQuickTaskFabVisibility(nextView) {
       if (!dashboardQuickTaskFab) return;
-      var view = String(nextView || "").trim().toLowerCase();
-      dashboardQuickTaskFab.hidden = view !== "dashboard";
-      if (view !== "dashboard") {
-        closeQuickTaskModal();
-      }
+      dashboardQuickTaskFab.hidden = false;
     }
 
     if (dashboardQuickTaskFab) {
@@ -19885,6 +19895,8 @@
             taskTypeDraft = null;
           }
           currentTaskData = data || null;
+          currentTaskTitle = data && data.title ? data.title : currentTaskTitle;
+          if (titleEl) titleEl.textContent = currentTaskTitle || "Task";
           currentEntityLinks = data && Array.isArray(data.links) ? data.links : (data && data.link ? [data.link] : []);
           setDiscussionSubtitle(data && data.project_id, data && data.group_name);
           syncDiscussionAudience();
@@ -22700,18 +22712,107 @@
     }
     window.__renderProblemTasksFromStore = renderProblemTasksFromStore;
 
+    function taskAssignedToCurrentViewer(task) {
+      if (!task) return false;
+      var viewerId = String(currentUserId || "");
+      var viewerEmail = String(currentUserEmail || "").trim().toLowerCase();
+      if (Array.isArray(task.assignments)) {
+        for (var i = 0; i < task.assignments.length; i += 1) {
+          var assignment = task.assignments[i] || {};
+          if (viewerId && assignment.user_id != null && String(assignment.user_id) === viewerId) return true;
+          if (viewerEmail && assignment.email && String(assignment.email).trim().toLowerCase() === viewerEmail) return true;
+        }
+      }
+      if (task.assign_group_members && Array.isArray(task.group_assignment_members)) {
+        for (var j = 0; j < task.group_assignment_members.length; j += 1) {
+          var member = task.group_assignment_members[j] || {};
+          var memberId = member.user_id != null ? member.user_id : member.id;
+          if (viewerId && memberId != null && String(memberId) === viewerId) return true;
+          if (viewerEmail && member.email && String(member.email).trim().toLowerCase() === viewerEmail) return true;
+        }
+      }
+      return false;
+    }
+
+    function taskIsIncompleteForAlert(task) {
+      return !!task && String(taskAggregateStatusState(task) || "open") !== "complete";
+    }
+
+    function urgentTaskViewerDependency(task) {
+      if (!task || !Array.isArray(task.prerequisites)) return null;
+      var taskMap = dashboardEntityMap("tasks");
+      for (var i = 0; i < task.prerequisites.length; i += 1) {
+        var prerequisite = task.prerequisites[i] || {};
+        var prerequisiteId = prerequisite.prerequisite_task_id || prerequisite.task_id;
+        if (!prerequisiteId) continue;
+        var fullPrerequisite = taskMap[String(prerequisiteId)] || prerequisite;
+        if (!taskIsIncompleteForAlert(fullPrerequisite)) continue;
+        if (taskAssignedToCurrentViewer(fullPrerequisite)) {
+          return fullPrerequisite;
+        }
+      }
+      return null;
+    }
+
+    function urgentAlertTasksForViewer() {
+      var tasks = Object.values(dashboardEntityMap("tasks"));
+      var todoTaskIds = new Set((((dashboardBootstrapStore.views || {}).todo || {}).task_ids || []).map(function (taskId) {
+        return String(taskId);
+      }));
+      return tasks
+        .map(function (task) {
+          if (!todoTaskIds.has(String(task.id))) return null;
+          if (String(task.due_mode || "").toLowerCase() !== "urgent") return null;
+          if (!taskIsIncompleteForAlert(task)) return null;
+          if (taskAssignedToCurrentViewer(task)) {
+            return { task: task, reason: "assigned" };
+          }
+          var dependency = urgentTaskViewerDependency(task);
+          if (dependency) {
+            return { task: task, reason: "dependency", dependency: dependency };
+          }
+          return null;
+        })
+        .filter(Boolean)
+        .sort(function (a, b) {
+          return String(a.task.title || "").localeCompare(String(b.task.title || ""));
+        });
+    }
+
+    function navigateToAlertTask(taskId) {
+      var task = dashboardTaskEntity(taskId);
+      var targetUrl = "/task/" + encodeURIComponent(String(taskId));
+      var selector = "";
+      if (task && task.group_id) {
+        selector = '[data-tree-select-type="group"][data-tree-select-id="' + String(task.group_id) + '"]';
+      } else if (task && task.project_id) {
+        selector = '[data-tree-select-type="project"][data-tree-select-id="' + String(task.project_id) + '"]';
+      }
+      var treeButton = selector ? document.querySelector(selector) : null;
+      if (treeButton && typeof window.__setDashboardView === "function") {
+        treeButton.click();
+        window.__setDashboardView("tree", { syncHistory: true, url: targetUrl });
+        window.setTimeout(function () {
+          var row = document.querySelector('[data-task-row-id="' + String(taskId) + '"]') || document.getElementById("task-" + String(taskId));
+          if (row && typeof row.scrollIntoView === "function") {
+            row.scrollIntoView({ block: "center", behavior: "smooth" });
+          }
+          if (task && typeof window.__openSettings === "function") {
+            window.__openSettings(taskId, task.title || "Task", "");
+          }
+        }, 150);
+        return;
+      }
+      window.location.href = targetUrl;
+    }
+
     function refreshDashboardAlerts() {
       var shell = document.querySelector("[data-alerts-menu]");
       var menu = shell ? shell.querySelector("[data-alerts-menu-content]") : null;
       var trigger = shell ? shell.querySelector(".alerts-trigger") : null;
       if (!shell || !menu || !trigger || !dashboardBootstrapStore) return;
-      var tasks = Object.values(dashboardEntityMap("tasks"));
-      var todoTaskIds = new Set((((dashboardBootstrapStore.views || {}).todo || {}).task_ids || []).map(function (taskId) {
-        return String(taskId);
-      }));
-      var urgentCount = tasks.filter(function (task) {
-        return todoTaskIds.has(String(task.id)) && String(task.due_mode || "").toLowerCase() === "urgent" && String(taskAggregateStatusState(task) || "open") !== "complete";
-      }).length;
+      var urgentEntries = urgentAlertTasksForViewer();
+      var urgentCount = urgentEntries.length;
       var problemCount = problemTasksFromStore().length;
       var total = urgentCount + problemCount;
       shell.hidden = total === 0;
@@ -22726,8 +22827,16 @@
         else badge.remove();
       }
       var rows = [];
-      if (urgentCount) {
-        rows.push('<button class="notifications-open alert-item alert-item-urgent" type="button" data-alert-view="todo"><div class="notifications-title">Urgent tasks</div><div class="notifications-copy">' + urgentCount + ' urgent task' + (urgentCount === 1 ? ' remains' : 's remain') + ' incomplete.</div></button>');
+      urgentEntries.slice(0, 5).forEach(function (entry) {
+        var task = entry.task || {};
+        var dependencyTitle = entry.dependency ? String(entry.dependency.title || "prerequisite") : "";
+        var copy = entry.reason === "dependency"
+          ? 'Blocked by your task: ' + escapeHtml(dependencyTitle)
+          : 'Assigned to you.';
+        rows.push('<button class="notifications-open alert-item alert-item-urgent" type="button" data-alert-task-id="' + escapeHtml(String(task.id)) + '" data-alert-task-url="/task/' + encodeURIComponent(String(task.id)) + '"><div class="notifications-title">' + escapeHtml(task.title || "Urgent task") + '</div><div class="notifications-copy">' + copy + '</div></button>');
+      });
+      if (urgentEntries.length > 5) {
+        rows.push('<button class="notifications-open alert-item alert-item-urgent" type="button" data-alert-view="todo"><div class="notifications-title">More urgent tasks</div><div class="notifications-copy">' + (urgentEntries.length - 5) + ' more urgent task' + (urgentEntries.length - 5 === 1 ? '' : 's') + ' need attention.</div></button>');
       }
       if (problemCount) {
         rows.push('<button class="notifications-open alert-item" type="button" data-alert-view="problems"><div class="notifications-title">Problem tasks</div><div class="notifications-copy">' + problemCount + ' task' + (problemCount === 1 ? '' : 's') + ' need an assignee or date.</div></button>');
@@ -22739,6 +22848,13 @@
     document.addEventListener("click", function (event) {
       var noAssignee = event.target.closest("[data-problem-no-assignee]");
       var lowPriority = event.target.closest("[data-problem-low-priority]");
+      var alertTask = event.target.closest("[data-alert-task-id]");
+      if (alertTask) {
+        var alertShell = alertTask.closest("[data-alerts-menu]");
+        if (alertShell) alertShell.classList.remove("is-open");
+        navigateToAlertTask(alertTask.getAttribute("data-alert-task-id"));
+        return;
+      }
       var alertItem = event.target.closest("[data-alert-view]");
       if (alertItem) {
         var targetView = alertItem.getAttribute("data-alert-view") || "dashboard";
@@ -25996,7 +26112,7 @@
     })();
 
     var initialDrawerParams = new URLSearchParams(window.location.search);
-    var openTaskId = drawer.getAttribute("data-open-task-id") || initialDrawerParams.get("open_discussion_task_id") || "";
+    var openTaskId = drawer.getAttribute("data-open-task-id") || {{ (open_task_id or "")|tojson }} || initialDrawerParams.get("open_discussion_task_id") || "";
     var openProjectDiscussionId = initialDrawerParams.get("open_discussion_project_id") || "";
     var openGroupDiscussionId = initialDrawerParams.get("open_discussion_group_id") || "";
     if (openTaskId) {
@@ -26008,13 +26124,15 @@
           button.getAttribute("data-task-title"),
           button.getAttribute("data-project-name")
         );
-        if (window.history && window.history.replaceState) {
-          var cleanUrl = new URL(window.location.href);
-          cleanUrl.searchParams.delete("open_discussion_task_id");
-          cleanUrl.searchParams.delete("open_discussion_project_id");
-          cleanUrl.searchParams.delete("open_discussion_group_id");
-          window.history.replaceState({}, "", cleanUrl.pathname + (cleanUrl.search ? cleanUrl.search : "") + cleanUrl.hash);
-        }
+      } else {
+        openSettings(openTaskId, "Task", "");
+      }
+      if (window.history && window.history.replaceState) {
+        var cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("open_discussion_task_id");
+        cleanUrl.searchParams.delete("open_discussion_project_id");
+        cleanUrl.searchParams.delete("open_discussion_group_id");
+        window.history.replaceState({}, "", cleanUrl.pathname + (cleanUrl.search ? cleanUrl.search : "") + cleanUrl.hash);
       }
     } else if (openGroupDiscussionId) {
       loadEntityComments(

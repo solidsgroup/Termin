@@ -421,6 +421,23 @@
           node.className = "action-toast";
           node.setAttribute("role", "status");
           node.setAttribute("data-action-toast-id", id);
+          if (typeof config.onClick === "function") {
+            node.classList.add("is-clickable");
+            node.tabIndex = 0;
+            node.setAttribute("role", "button");
+            node.addEventListener("click", function (event) {
+              if (event.target && event.target.closest && event.target.closest("button, a, input, select, textarea")) return;
+              config.onClick();
+              removeToast(id);
+            });
+            node.addEventListener("keydown", function (event) {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              if (event.target && event.target.closest && event.target.closest("button, a, input, select, textarea")) return;
+              event.preventDefault();
+              config.onClick();
+              removeToast(id);
+            });
+          }
 
           var copy = document.createElement("div");
           copy.className = "action-toast-copy";
