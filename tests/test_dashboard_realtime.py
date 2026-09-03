@@ -36,7 +36,7 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app import favicon_cache
-from app.canvas_sync import CanvasAssignment, CanvasCourse, CanvasSyncError, fetch_canvas_course
+from app.canvas_sync import CanvasAssignment, CanvasCourse, CanvasSyncError, apply_canvas_course, fetch_canvas_course
 from app.extensions import db, socketio
 from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import Assignment, CanvasAssignmentLink, DevMailboxMessage, ExternalIdentity, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskComment, TaskFollower, TaskPrerequisite, TaskUserStatus, TeamInvite, User
@@ -510,6 +510,8 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                     assignment_group_id="622939",
                     assignment_group_name="Problem Sets",
                     points_possible=100.0,
+                    unlock_at="2026-08-24T05:00:00Z",
+                    start_at=datetime(2026, 8, 24, 0, 0),
                     submission_types=("on_paper",),
                 ),
             ),
@@ -532,6 +534,9 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(created_task["due_mode"], "date")
         self.assertEqual(created_task["due_at"], "2026-09-02T16:00:00")
         self.assertEqual(created_task["description_format"], "html")
+        self.assertEqual(created_task["start_date"], "2026-08-24")
+        self.assertEqual(created_task["info"]["meta"]["canvas"]["assignment_id"], "2850948")
+        self.assertEqual(created_task["info"]["meta"]["canvas"]["canvas_task_key"], "2850948")
         self.assertEqual(
             created_task["info"]["links"],
             [
@@ -639,10 +644,12 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(session.calls[0][0], source_url)
         self.assertIn("/api/v1/courses/129714/assignment_groups?", session.calls[1][0])
         self.assertIn("include%5B%5D=assignments", session.calls[1][0])
+        self.assertIn("include%5B%5D=overrides", session.calls[1][0])
         self.assertNotIn("/api/v1/courses/129714/assignments", session.calls[1][0])
         self.assertEqual(course.name, "Test Course")
         self.assertEqual([(item.assignment_id, item.title) for item in course.assignments], [("7", "Homework 1")])
         self.assertEqual(course.assignments[0].due_at, datetime(2026, 9, 2, 23, 59))
+        self.assertEqual(course.assignments[0].start_at, None)
         self.assertEqual(
             course.assignments[0].links,
             (
@@ -650,6 +657,102 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                 "https://canvas.example.edu/files/3",
             ),
         )
+
+    def test_canvas_public_assignment_overrides_import_as_separate_tasks(self):
+        source_url = "https://canvas.example.edu/courses/129714/assignments"
+
+        class FakeResponse:
+            def __init__(self, body, *, headers=None):
+                self.status_code = 200
+                self.headers = headers or {}
+                self._body = body
+
+            def iter_content(self, chunk_size):
+                del chunk_size
+                yield self._body
+
+            def close(self):
+                return None
+
+        class FakeSession:
+            def __init__(self):
+                self.headers = {}
+                self.responses = [
+                    FakeResponse(b'<title>Assignments: Flight Structures</title><script>ENV={"TIMEZONE":"America/Chicago"}</script>'),
+                    FakeResponse(json.dumps([{
+                        "id": 622940,
+                        "name": "Labs",
+                        "position": 1,
+                        "assignments": [{
+                            "id": 2850942,
+                            "name": "Lab 2",
+                            "description": '<a href="https://drive.example.edu/lab2">Lab 2</a>',
+                            "due_at": None,
+                            "unlock_at": None,
+                            "lock_at": None,
+                            "html_url": "https://canvas.example.edu/courses/129714/assignments/2850942",
+                            "position": 2,
+                            "assignment_group_id": 622940,
+                            "only_visible_to_overrides": True,
+                            "visible_to_everyone": False,
+                            "overrides": [
+                                {
+                                    "id": 424661,
+                                    "title": "Section AERE-4210-A",
+                                    "assignment_id": 2850942,
+                                    "due_at": "2026-09-14T18:55:00Z",
+                                    "unlock_at": "2026-09-09T05:00:00Z",
+                                },
+                                {
+                                    "id": 424662,
+                                    "title": "Section AERE-4210-B",
+                                    "assignment_id": 2850942,
+                                    "due_at": "2026-09-16T18:55:00Z",
+                                    "unlock_at": "2026-09-09T05:00:00Z",
+                                },
+                            ],
+                        }],
+                    }]).encode("utf-8")),
+                ]
+
+            def get(self, url, **kwargs):
+                del url, kwargs
+                return self.responses.pop(0)
+
+        with patch("app.canvas_sync.requests.Session", return_value=FakeSession()), patch("app.canvas_sync._assert_public_host"):
+            course = fetch_canvas_course(source_url)
+
+        self.assertEqual([item.assignment_id for item in course.assignments], [
+            "2850942:override:424661",
+            "2850942:override:424662",
+        ])
+        self.assertEqual([item.title for item in course.assignments], [
+            "Lab 2 - Section AERE-4210-A",
+            "Lab 2 - Section AERE-4210-B",
+        ])
+        self.assertEqual(course.assignments[0].due_at, datetime(2026, 9, 14, 13, 55))
+        self.assertEqual(course.assignments[1].due_at, datetime(2026, 9, 16, 13, 55))
+        self.assertEqual(course.assignments[0].start_at, datetime(2026, 9, 9, 0, 0))
+        self.assertEqual(course.assignments[0].source_assignment_id, "2850942")
+        self.assertEqual(course.assignments[0].override_id, "424661")
+
+        with self.app.app_context():
+            owner = self.create_user("canvas-overrides@example.com", "Canvas Overrides")
+            project = self.create_project(owner, "Coursework")
+            group = Group(project_id=project.id, name="Canvas Course", specialty_type="canvas", specialty_source_url=source_url)
+            db.session.add(group)
+            db.session.flush()
+            result = apply_canvas_course(group, course, actor_user_id=owner.id)
+            db.session.commit()
+            tasks = Task.query.filter_by(group_id=group.id).order_by(Task.position.asc()).all()
+            infos = [load_info_payload(task.info, task.link) for task in tasks]
+
+        self.assertEqual(result.as_dict(), {"created": 2, "updated": 0, "removed": 0, "total": 2})
+        self.assertEqual([task.title for task in tasks], ["Lab 2 - Section AERE-4210-A", "Lab 2 - Section AERE-4210-B"])
+        self.assertEqual([task.due_at for task in tasks], [datetime(2026, 9, 14, 13, 55), datetime(2026, 9, 16, 13, 55)])
+        self.assertEqual([info["meta"].get("start_date") for info in infos], ["2026-09-09", "2026-09-09"])
+        self.assertEqual([info["meta"]["canvas"]["assignment_id"] for info in infos], ["2850942", "2850942"])
+        self.assertEqual([info["meta"]["canvas"]["override_id"] for info in infos], ["424661", "424662"])
 
     def test_canvas_refresh_failure_is_visible_and_throttled(self):
         source_url = "https://canvas.example.edu/courses/12/assignments"

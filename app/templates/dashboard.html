@@ -18421,6 +18421,7 @@
       var task = currentTaskData || {};
       var locked = taskIsLocked(task);
       var canvasManaged = taskIsCanvasManaged(task);
+      renderCanvasGroupSettings(task);
       var meta = taskStatusMeta(task);
       var effectiveStatus = taskMyStatus(task);
       var creator = task.creator || null;
@@ -18644,25 +18645,35 @@
 
     function renderCanvasGroupSettings(entity) {
       if (!canvasGroupSettingsEl) return;
-      var isCanvas = currentEntityType === "group" && String((entity && entity.specialty_type) || "") === "canvas";
+      var isCanvasGroup = currentEntityType === "group" && String((entity && entity.specialty_type) || "") === "canvas";
+      var isCanvasTask = currentEntityType === "task" && taskIsCanvasManaged(entity || {});
+      var isCanvas = isCanvasGroup || isCanvasTask;
       canvasGroupSettingsEl.hidden = !isCanvas;
+      canvasGroupSettingsEl.style.display = isCanvas ? "" : "none";
       if (!isCanvas) return;
       var canvas = entity && entity.canvas && typeof entity.canvas === "object" ? entity.canvas : {};
-      var sourceUrl = String(canvas.source_url || "").trim();
+      var info = entity && entity.info && typeof entity.info === "object" ? entity.info : {};
+      var links = Array.isArray(info.links) ? info.links : [];
+      var sourceUrl = String(canvas.source_url || entity.link || links[0] || "").trim();
       if (canvasGroupSettingsSourceEl) {
         canvasGroupSettingsSourceEl.href = sourceUrl || "#";
         canvasGroupSettingsSourceEl.textContent = sourceUrl ? "Open assignments page" : "Source unavailable";
       }
       if (canvasGroupSettingsLastSyncEl) {
         var syncedAt = canvas.last_synced_at ? new Date(canvas.last_synced_at) : null;
-        canvasGroupSettingsLastSyncEl.textContent = syncedAt && !Number.isNaN(syncedAt.getTime())
-          ? syncedAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
-          : "Not yet refreshed";
+        canvasGroupSettingsLastSyncEl.textContent = isCanvasTask
+          ? "Managed by Canvas"
+          : (syncedAt && !Number.isNaN(syncedAt.getTime())
+            ? syncedAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+            : "Not yet refreshed");
       }
       var syncError = String(canvas.sync_error || "").trim();
       if (canvasGroupSettingsErrorEl) {
         canvasGroupSettingsErrorEl.hidden = !syncError;
         canvasGroupSettingsErrorEl.textContent = syncError;
+      }
+      if (canvasGroupSettingsRefreshEl) {
+        canvasGroupSettingsRefreshEl.hidden = !isCanvasGroup && !((entity || {}).group_id);
       }
     }
 
@@ -18854,8 +18865,11 @@
 
     if (canvasGroupSettingsRefreshEl) {
       canvasGroupSettingsRefreshEl.addEventListener("click", function () {
-        if (currentEntityType !== "group" || !currentEntityId || canvasGroupSettingsRefreshEl.disabled) return;
-        var refreshGroupId = String(currentEntityId);
+        var targetGroupId = currentEntityType === "group"
+          ? currentEntityId
+          : (currentEntityType === "task" && currentTaskData ? currentTaskData.group_id : "");
+        if (!targetGroupId || canvasGroupSettingsRefreshEl.disabled) return;
+        var refreshGroupId = String(targetGroupId);
         canvasGroupSettingsRefreshEl.disabled = true;
         if (canvasGroupSettingsStatusEl) canvasGroupSettingsStatusEl.textContent = "Refreshing…";
         fetch("/api/groups/" + encodeURIComponent(refreshGroupId) + "/canvas/refresh", {
@@ -18869,8 +18883,9 @@
             });
           })
           .then(function (result) {
-            if (String(currentEntityId || "") !== refreshGroupId || currentEntityType !== "group") return;
-            if (result.data && result.data.group) {
+            if (currentEntityType === "group" && String(currentEntityId || "") !== refreshGroupId) return;
+            if (currentEntityType === "task" && String((currentTaskData && currentTaskData.group_id) || "") !== refreshGroupId) return;
+            if (result.data && result.data.group && currentEntityType === "group") {
               currentEntityData = Object.assign({}, currentEntityData || {}, result.data.group);
               renderEntitySettings();
             }
@@ -18879,13 +18894,14 @@
             if (canvasGroupSettingsStatusEl) {
               canvasGroupSettingsStatusEl.textContent = "Updated " + Number(sync.total || 0) + " assignments.";
             }
-            var projectId = String((currentEntityData && currentEntityData.project_id) || "");
+            var projectId = String((currentEntityData && currentEntityData.project_id) || (currentTaskData && currentTaskData.project_id) || "");
             if (projectId && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
               window.__refreshTreeProjectSnapshotLocal(projectId);
             }
           })
           .catch(function (error) {
-            if (String(currentEntityId || "") !== refreshGroupId || currentEntityType !== "group") return;
+            if (currentEntityType === "group" && String(currentEntityId || "") !== refreshGroupId) return;
+            if (currentEntityType === "task" && String((currentTaskData && currentTaskData.group_id) || "") !== refreshGroupId) return;
             if (canvasGroupSettingsStatusEl) {
               canvasGroupSettingsStatusEl.textContent = error && error.message ? error.message : "Canvas refresh failed.";
             }

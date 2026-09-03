@@ -15,7 +15,7 @@ ALLOWED_ATTRS = {
     "a": {"href", "target", "rel"},
     "span": {"class", "data-mentioned-user-id", "data-mentioned-email"},
 }
-ALLOWED_META_KEYS = {"assignee_mode", "due_mode", "due_relative_days", "due_relative_start_days", "due_relative_task_id", "follow_project_members", "gantt_ranges", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
+ALLOWED_META_KEYS = {"assignee_mode", "canvas", "due_mode", "due_relative_days", "due_relative_start_days", "due_relative_task_id", "follow_project_members", "gantt_ranges", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
 
 
 def _normalize_gantt_ranges(value) -> list[dict]:
@@ -48,6 +48,35 @@ def _normalize_gantt_ranges(value) -> list[dict]:
         })
     return ranges
 
+
+def _normalize_canvas_meta(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    canvas = {}
+    text_keys = {
+        "assignment_id",
+        "canvas_task_key",
+        "assignment_group_id",
+        "assignment_group_name",
+        "override_id",
+        "override_title",
+        "unlock_at",
+        "lock_at",
+    }
+    for key in text_keys:
+        text = str(value.get(key) or "").strip()
+        if text:
+            canvas[key] = text[:1024]
+    points = value.get("points_possible")
+    if points not in (None, "", "null"):
+        try:
+            canvas["points_possible"] = float(points)
+        except (TypeError, ValueError):
+            pass
+    submission_types = value.get("submission_types")
+    if isinstance(submission_types, list):
+        canvas["submission_types"] = [str(item).strip()[:100] for item in submission_types if str(item or "").strip()]
+    return canvas
 
 def _normalize_poll_meta(value) -> dict:
     poll = value if isinstance(value, dict) else {}
@@ -225,6 +254,11 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
                 if text in {"standard", "poll"}:
                     meta[key] = text
                 continue
+            if key == "canvas":
+                canvas = _normalize_canvas_meta(value)
+                if canvas:
+                    meta[key] = canvas
+                continue
             if key == "poll":
                 meta[key] = _normalize_poll_meta(value)
                 continue
@@ -281,6 +315,11 @@ def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> 
                 text = str(value).strip().lower()
                 if text in {"standard", "poll"}:
                     meta[key] = text
+                continue
+            if key == "canvas":
+                canvas = _normalize_canvas_meta(value)
+                if canvas:
+                    meta[key] = canvas
                 continue
             if key == "poll":
                 meta[key] = _normalize_poll_meta(value)

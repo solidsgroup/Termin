@@ -71,6 +71,10 @@ class CanvasAssignment:
     points_possible: float | None = None
     unlock_at: str | None = None
     lock_at: str | None = None
+    start_at: datetime | None = None
+    source_assignment_id: str = ""
+    override_id: str = ""
+    override_title: str = ""
     submission_types: tuple[str, ...] = ()
 
 
@@ -299,7 +303,7 @@ def fetch_canvas_course(source_url: str) -> CanvasCourse:
     page_response.close()
 
     api_path = f"/api/v1/courses/{quote(course_id, safe='')}/assignment_groups"
-    query = urlencode([("include[]", "assignments"), ("per_page", "100")])
+    query = urlencode([("include[]", "assignments"), ("include[]", "overrides"), ("per_page", "100")])
     api_url = urlunparse(("https", final_page.netloc, api_path, "", query, ""))
     assignment_groups: list[dict] = []
     for _ in range(_MAX_API_PAGES):
@@ -349,11 +353,10 @@ def fetch_canvas_course(source_url: str) -> CanvasCourse:
             key=lambda pair: (position_value(pair[1].get("position"), pair[0] + 1), pair[0]),
         )
         for row_index, (_, row) in enumerate(ordered_rows):
-            assignment_id = str(row.get("id") or "").strip()
+            source_assignment_id = str(row.get("id") or "").strip()
             title = str(row.get("name") or "").strip()
-            if not assignment_id or not title or assignment_id in seen_assignment_ids:
+            if not source_assignment_id or not title:
                 continue
-            seen_assignment_ids.add(assignment_id)
             description = str(row.get("description") or "")
             html_url = str(row.get("html_url") or "").strip()
             submission_types = row.get("submission_types") if isinstance(row.get("submission_types"), list) else []
@@ -362,23 +365,55 @@ def fetch_canvas_course(source_url: str) -> CanvasCourse:
                 points_possible = float(points_possible) if points_possible is not None else None
             except (TypeError, ValueError):
                 points_possible = None
-            assignments.append(CanvasAssignment(
-                assignment_id=assignment_id,
-                title=title[:255],
-                description=description,
-                due_at=_parse_canvas_datetime(row.get("due_at"), course_timezone),
-                html_url=urljoin(normalized_source, html_url) if html_url else "",
-                links=_assignment_links(description, html_url, normalized_source),
-                position=(group_index * 100000) + row_index,
-                assignment_group_id=group_id,
-                assignment_group_name=group_name,
-                points_possible=points_possible,
-                unlock_at=str(row.get("unlock_at") or "").strip() or None,
-                lock_at=str(row.get("lock_at") or "").strip() or None,
-                submission_types=tuple(str(value) for value in submission_types if value),
-            ))
-            if len(assignments) > _MAX_ASSIGNMENTS:
-                raise CanvasSyncError("Canvas course has too many assignments to import.")
+
+            raw_overrides = row.get("overrides") if isinstance(row.get("overrides"), list) else []
+            active_overrides = [override for override in raw_overrides if isinstance(override, dict) and not override.get("unassign_item")]
+            visible_to_everyone = bool(row.get("visible_to_everyone")) or not bool(row.get("only_visible_to_overrides"))
+            variants: list[tuple[str, str, str, object, object, object]] = []
+            if active_overrides:
+                if visible_to_everyone:
+                    variants.append((source_assignment_id, "", "", row.get("due_at"), row.get("unlock_at"), row.get("lock_at")))
+                for override_index, override in enumerate(active_overrides, start=1):
+                    override_id = str(override.get("id") or override_index).strip()
+                    override_title = str(override.get("title") or "").strip() or f"Override {override_id}"
+                    variant_id = f"{source_assignment_id}:override:{override_id}"
+                    variants.append((
+                        variant_id,
+                        override_id,
+                        override_title,
+                        override.get("due_at", row.get("due_at")),
+                        override.get("unlock_at", row.get("unlock_at")),
+                        override.get("lock_at", row.get("lock_at")),
+                    ))
+            else:
+                variants.append((source_assignment_id, "", "", row.get("due_at"), row.get("unlock_at"), row.get("lock_at")))
+
+            for variant_index, (assignment_id, override_id, override_title, due_raw, unlock_raw, lock_raw) in enumerate(variants):
+                if assignment_id in seen_assignment_ids:
+                    continue
+                seen_assignment_ids.add(assignment_id)
+                display_title = title if not override_title else f"{title} - {override_title}"
+                assignments.append(CanvasAssignment(
+                    assignment_id=assignment_id,
+                    title=display_title[:255],
+                    description=description,
+                    due_at=_parse_canvas_datetime(due_raw, course_timezone),
+                    html_url=urljoin(normalized_source, html_url) if html_url else "",
+                    links=_assignment_links(description, html_url, normalized_source),
+                    position=(group_index * 100000) + (row_index * 1000) + variant_index,
+                    assignment_group_id=group_id,
+                    assignment_group_name=group_name,
+                    points_possible=points_possible,
+                    unlock_at=str(unlock_raw or "").strip() or None,
+                    lock_at=str(lock_raw or "").strip() or None,
+                    start_at=_parse_canvas_datetime(unlock_raw, course_timezone),
+                    source_assignment_id=source_assignment_id,
+                    override_id=override_id,
+                    override_title=override_title,
+                    submission_types=tuple(str(value) for value in submission_types if value),
+                ))
+                if len(assignments) > _MAX_ASSIGNMENTS:
+                    raise CanvasSyncError("Canvas course has too many assignments to import.")
 
     return CanvasCourse(
         source_url=normalized_source,
@@ -393,15 +428,20 @@ def _task_info_for_assignment(assignment: CanvasAssignment) -> str:
         "assignee_mode": "none",
         "due_mode": "date" if assignment.due_at else "none",
         "canvas": {
-            "assignment_id": assignment.assignment_id,
+            "assignment_id": assignment.source_assignment_id or assignment.assignment_id,
+            "canvas_task_key": assignment.assignment_id,
             "assignment_group_id": assignment.assignment_group_id,
             "assignment_group_name": assignment.assignment_group_name,
+            "override_id": assignment.override_id,
+            "override_title": assignment.override_title,
             "points_possible": assignment.points_possible,
             "unlock_at": assignment.unlock_at,
             "lock_at": assignment.lock_at,
             "submission_types": list(assignment.submission_types),
         },
     }
+    if assignment.start_at:
+        meta["start_date"] = assignment.start_at.date().isoformat()
     return normalize_info_payload({"links": list(assignment.links), "meta": meta}, assignment.html_url or None)
 
 
