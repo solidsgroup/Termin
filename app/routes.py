@@ -11,6 +11,17 @@ from flask import Blueprint, current_app, request, send_from_directory, url_for
 
 from markdown import markdown as render_markdown
 from app.auth import login_required
+from app.canvas_sync import (
+    CANVAS_SPECIALTY_TYPE,
+    CanvasSyncBusy,
+    CanvasSyncError,
+    apply_canvas_course,
+    canvas_group_metadata,
+    fetch_canvas_course,
+    refresh_canvas_group,
+    schedule_canvas_sync_for_user,
+    should_sync_canvas_groups_for_user,
+)
 from app.collaborators import get_or_create_collaborator_profile
 from app.dashboard_state import build_dashboard_bootstrap, build_dashboard_changes
 from app.emailer import MailDeliveryError, send_email, send_magic_link_digest_email, send_magic_link_email
@@ -118,6 +129,7 @@ from app.models import (
     CollaboratorProfile,
     GroupTemplate,
     GroupTemplateTask,
+    CanvasAssignmentLink,
     ProjectComment,
     GroupComment,
     ProjectTeamShare,
@@ -204,6 +216,13 @@ def _task_is_locked(task: Task | None) -> bool:
     return bool(task and getattr(task, "locked", False))
 
 
+def _task_is_canvas_managed(task: Task | None) -> bool:
+    if not task or not task.group_id:
+        return False
+    group = db.session.get(Group, task.group_id)
+    return bool(group and group.specialty_type == CANVAS_SPECIALTY_TYPE)
+
+
 def _task_payload_touches_locked_fields(payload: dict | None) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -212,6 +231,10 @@ def _task_payload_touches_locked_fields(payload: dict | None) -> bool:
 
 def _locked_task_response():
     return {"error": "task is locked"}, 423
+
+
+def _canvas_managed_task_response():
+    return {"error": "Canvas tasks are managed by Canvas"}, 423
 
 
 def _is_complete_status_value(status: str | None) -> bool:
@@ -1590,6 +1613,56 @@ def apply_group_template(project_id: int, template_id: int):
     }, 201
 
 
+@api_bp.post("/projects/<int:project_id>/canvas-groups")
+@login_required
+def create_canvas_group(project_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_manage_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+    payload = request.get_json(silent=True) or {}
+    source_url = str(payload.get("url") or "").strip()
+    try:
+        course = fetch_canvas_course(source_url)
+    except CanvasSyncError as exc:
+        return {"error": str(exc)}, 400
+
+    max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
+    palette = list(theme_palette(getattr(user, "theme_name", None)))
+    group = Group(
+        project_id=project.id,
+        name=course.name,
+        position=max_pos + 1,
+        color=palette[max_pos % len(palette)] if palette else None,
+        link=course.source_url,
+        info=normalize_info_payload({"links": [course.source_url]}, course.source_url),
+        specialty_type=CANVAS_SPECIALTY_TYPE,
+        specialty_source_url=course.source_url,
+    )
+    db.session.add(group)
+    try:
+        db.session.flush()
+        result = apply_canvas_course(group, course, actor_user_id=user.id)
+        log_group_history(group, actor=user, action="created")
+        for task in result.created_tasks:
+            log_task_history(task, actor=user, action="created")
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    emit_group_created(group, actor_user_id=user.id)
+    if result.created_tasks:
+        emit_tasks_updated(result.created_tasks, action="created", actor_user_id=user.id)
+    return {
+        "group": _serialize_group_payload(group),
+        "tasks": [_serialize_task_row(task, viewer_user_id=user.id) for task in result.created_tasks],
+        "sync": result.as_dict(),
+    }, 201
+
+
 @api_bp.get("/web-push")
 @login_required
 def web_push_status():
@@ -1793,6 +1866,16 @@ def sync_github():
     if not should_sync_github_issues(user.id):
         return {"ok": True, "skipped": True}
     scheduled = schedule_github_sync_for_user(current_app._get_current_object(), user.id)
+    return {"ok": True, "scheduled": scheduled}, (202 if scheduled else 200)
+
+
+@api_bp.post("/canvas/sync")
+@login_required
+def sync_canvas_groups():
+    user = current_user()
+    if not should_sync_canvas_groups_for_user(user.id):
+        return {"ok": True, "skipped": True}
+    scheduled = schedule_canvas_sync_for_user(current_app._get_current_object(), user.id)
     return {"ok": True, "scheduled": scheduled}, (202 if scheduled else 200)
 
 
@@ -2500,6 +2583,8 @@ def create_task():
         group = Group.query.filter_by(id=target_group_id, project_id=project.id).first()
         if not group:
             return {"error": "group not found"}, 404
+        if group.specialty_type == CANVAS_SPECIALTY_TYPE:
+            return {"error": "Canvas groups are managed by Canvas"}, 409
 
     if not _can_manage_task_bucket(user, project.id, group.id if group else None):
         return {"error": "unauthorized"}, 403
@@ -2676,6 +2761,8 @@ def update_task(task_id: int):
     description_format = payload.get("description_format")
     locked = payload.get("locked")
 
+    if _task_is_canvas_managed(task) and payload:
+        return _canvas_managed_task_response()
     if _task_is_locked(task) and _task_payload_touches_locked_fields(payload):
         return _locked_task_response()
 
@@ -3157,6 +3244,7 @@ def get_project_tree_snapshot(project_id: int):
                 "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
                 "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
                 "tasks": tasks_by_group.get(group.id, []),
+                **canvas_group_metadata(group),
             }
             for group in groups
         ],
@@ -3182,6 +3270,47 @@ def get_group(group_id: int):
         "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
         "created_at": group.created_at.isoformat() if group.created_at else None,
+        **canvas_group_metadata(group),
+    }, 200
+
+
+@api_bp.post("/groups/<int:group_id>/canvas/refresh")
+@login_required
+def refresh_canvas_group_now(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_manage_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+    if group.specialty_type != CANVAS_SPECIALTY_TYPE:
+        return {"error": "this is not a Canvas group"}, 400
+
+    try:
+        result = refresh_canvas_group(group, actor_user_id=user.id)
+    except CanvasSyncBusy as exc:
+        return {"error": str(exc)}, 409
+    except CanvasSyncError as exc:
+        emit_group_updated(group, actor_user_id=user.id)
+        return {"error": str(exc), "group": _serialize_group_payload(group)}, 502
+
+    emit_group_updated(group, actor_user_id=user.id)
+    changed_tasks = result.created_tasks + result.updated_tasks
+    if changed_tasks:
+        emit_tasks_updated(changed_tasks, action="canvas_synced", actor_user_id=user.id)
+    for task in result.deleted_tasks:
+        emit_task_updated(
+            task,
+            action="deleted",
+            old_project_id=task.project_id,
+            old_group_id=task.group_id,
+            actor_user_id=user.id,
+        )
+    return {
+        "group": _serialize_group_payload(group),
+        "tasks": [_serialize_task_row(task, viewer_user_id=user.id) for task in changed_tasks],
+        "removed_task_ids": [task.id for task in result.deleted_tasks],
+        "sync": result.as_dict(),
     }, 200
 
 
@@ -3737,6 +3866,8 @@ def move_task(task_id: int):
     task = Task.query.get(task_id)
     if not task:
         return {"error": "task not found"}, 404
+    if _task_is_canvas_managed(task):
+        return _canvas_managed_task_response()
 
     source_project_id = task.project_id
     source_group_id = task.group_id
@@ -3755,6 +3886,8 @@ def move_task(task_id: int):
         target_group = Group.query.filter_by(id=target_group_id, project_id=target_project.id).first()
         if not target_group:
             return {"error": "group not found"}, 404
+        if target_group.specialty_type == CANVAS_SPECIALTY_TYPE:
+            return {"error": "Canvas groups are managed by Canvas"}, 409
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
     if not _can_access_project(user, target_project.id):
@@ -3933,6 +4066,7 @@ def update_group(group_id: int):
         "description": group.description,
         "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
+        **canvas_group_metadata(group),
     }, 200
 
 
@@ -4358,6 +4492,8 @@ def delete_project(project_id: int):
     recipient_user_ids = sorted({user_id for user_id in recipient_user_ids if user_id})
     group_ids = [g.id for g in Group.query.filter_by(project_id=project.id).all()]
     task_ids = [t.id for t in Task.query.filter_by(project_id=project.id).all()]
+    if group_ids:
+        CanvasAssignmentLink.query.filter(CanvasAssignmentLink.group_id.in_(group_ids)).delete(synchronize_session=False)
     if task_ids:
         TaskPrerequisite.query.filter(
             or_(
@@ -4515,6 +4651,7 @@ def delete_group(group_id: int):
 
     project_id = group.project_id
     task_ids = [t.id for t in Task.query.filter_by(group_id=group.id).all()]
+    CanvasAssignmentLink.query.filter_by(group_id=group.id).delete(synchronize_session=False)
     if task_ids:
         TaskPrerequisite.query.filter(
             or_(
@@ -6489,6 +6626,8 @@ def upload_task_attachment(task_id: int):
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
     upload = request.files.get("file")
     if not upload or not upload.filename:
         return {"error": "file is required"}, 400
@@ -6509,6 +6648,8 @@ def delete_task_attachment(task_id: int, attachment_id: str):
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
     info = _info_payload_for(task)
     remaining = []
     deleted = None

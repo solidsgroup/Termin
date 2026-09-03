@@ -456,7 +456,7 @@
 {% endblock %}
 {% block content %}
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
-<div class="layout dashboard-layout{% if current_view in ['dashboard', 'inbox', 'problems'] %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
+<div class="layout dashboard-layout{% if current_view in ['dashboard', 'inbox', 'problems'] %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %}{% if canvas_auto_sync_needed %} data-canvas-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
   <aside class="sidebar todo-tree dashboard-sidebar" data-dashboard-sidebar data-todo-tree data-tree-sidebar>
     <div class="dashboard-sidebar-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-sidebar-pane="todo">
       <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
@@ -1150,7 +1150,7 @@
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
               {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name) }}
-	              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project %}
+	              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project and group.specialty_type != 'canvas' %}
 	                <tr class="new-row">
 	                    <td></td>
 	                    <td>
@@ -1423,6 +1423,28 @@
           <div class="discussion-settings-assignments" id="task-settings-prerequisites"></div>
         </div>
       </div>
+      <div class="canvas-group-settings" id="canvas-group-settings" data-canvas-group-settings hidden>
+        <div class="canvas-group-settings-header">
+          <span class="canvas-group-settings-mark" aria-hidden="true"><i class="fa-solid fa-graduation-cap"></i></span>
+          <div>
+            <div class="canvas-group-settings-title">Canvas sync</div>
+            <div class="footer-note">Published assignments refresh automatically every 24 hours.</div>
+          </div>
+        </div>
+        <div class="canvas-group-settings-row">
+          <span>Source</span>
+          <a id="canvas-group-settings-source" href="#" target="_blank" rel="noreferrer noopener">Open in Canvas</a>
+        </div>
+        <div class="canvas-group-settings-row">
+          <span>Last refreshed</span>
+          <strong id="canvas-group-settings-last-sync">Not yet refreshed</strong>
+        </div>
+        <div class="canvas-group-settings-error" id="canvas-group-settings-error" hidden></div>
+        <div class="canvas-group-settings-actions">
+          <span class="footer-note" id="canvas-group-settings-status" aria-live="polite"></span>
+          <button class="btn secondary" type="button" id="canvas-group-settings-refresh"><i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Refresh now</span></button>
+        </div>
+      </div>
       <div class="discussion-settings-meta" id="task-settings-meta"></div>
       <div class="discussion-settings-danger" data-task-only>
         <button class="btn danger" type="button" id="task-settings-delete">Delete Task</button>
@@ -1517,7 +1539,6 @@
 <div id="context-menu" class="context-menu">
   <button data-action="add-project">Add Project</button>
   <button data-action="add-group">Add Group</button>
-  <button data-action="add-group-template">Add Group Template</button>
   <button data-action="promote-project">Promote to Project</button>
   <button data-action="move-up">Move up</button>
   <button data-action="move-down">Move down</button>
@@ -1545,6 +1566,13 @@
   <button data-action="duplicate">Duplicate</button>
   <button data-action="copy-group">Copy to other projects</button>
   <button data-action="delete">Delete</button>
+</div>
+
+<div id="group-create-menu" class="context-menu group-create-menu" role="menu" aria-label="Add group">
+  <div class="group-create-menu-title">Add group</div>
+  <button type="button" data-group-create-kind="blank"><i class="fa-regular fa-square" aria-hidden="true"></i><span>Blank</span></button>
+  <button type="button" data-group-create-kind="template"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>From Template</span></button>
+  <button type="button" data-group-create-kind="canvas"><i class="fa-solid fa-graduation-cap" aria-hidden="true"></i><span>Canvas</span></button>
 </div>
 
 <div id="status-menu" class="context-menu status-menu">
@@ -1677,6 +1705,27 @@
     <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
       <button class="btn secondary" type="button" id="group-template-cancel">Cancel</button>
     </div>
+  </div>
+</div>
+
+<div id="canvas-group-modal" class="modal">
+  <div class="panel canvas-group-modal-panel">
+    <div class="canvas-group-modal-heading">
+      <span class="canvas-group-modal-icon" aria-hidden="true"><i class="fa-solid fa-graduation-cap"></i></span>
+      <div>
+        <h3>Create Canvas Group</h3>
+        <div class="footer-note">Import the published assignments from a public Canvas course.</div>
+      </div>
+    </div>
+    <form id="canvas-group-form">
+      <label for="canvas-group-url">Public assignments page</label>
+      <input id="canvas-group-url" type="url" required placeholder="https://canvas.example.edu/courses/123/assignments" autocomplete="off" spellcheck="false" />
+      <div id="canvas-group-status" class="footer-note canvas-group-status" aria-live="polite"></div>
+      <div class="canvas-group-modal-actions">
+        <button class="btn secondary" type="button" id="canvas-group-cancel">Cancel</button>
+        <button class="btn" type="submit" id="canvas-group-submit">Import assignments</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -3632,7 +3681,7 @@
                     ? window.__renderTasksTableHeadHtml()
                     : '<thead><tr><th></th><th><span class="tree-sort-header-label">Task</span><button class="tree-sort-button" type="button" data-task-sort-trigger="task" aria-label="Sort by Task" title="Sort by Task"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="1"></span></th><th><span class="tree-sort-header-label">Due</span><button class="tree-sort-button" type="button" data-task-sort-trigger="due" aria-label="Sort by Due" title="Sort by Due"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="2"></span></th><th><span class="tree-sort-header-label">Status</span><button class="tree-sort-button" type="button" data-task-sort-trigger="status" aria-label="Sort by Status" title="Sort by Status"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="3"></span></th><th><span class="tree-sort-header-label">Assign</span><button class="tree-sort-button" type="button" data-task-sort-trigger="assign" aria-label="Sort by Assign" title="Sort by Assign"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="4"></span></th></tr></thead>')) +
               '<tbody data-task-dropzone="1">' +
-                (canManage
+                (canManage && String(group.specialty_type || "") !== "canvas"
                   ? '<tr class="new-row">' +
                       '<td></td>' +
                       '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
@@ -6520,7 +6569,7 @@
                 ? type === "group"
               : action === "promote-project"
                 ? type === "group"
-              : action === "add-group" || action === "add-group-template"
+              : action === "add-group"
                 ? type === "project"
                 : action === "add-project"
                   ? false
@@ -6820,12 +6869,9 @@
             window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
           }
         } else if (action === "add-group") {
-          if (typeof window.__submitTreeQuickCreate === "function") {
-            window.__submitTreeQuickCreate("group", id);
-          }
-        } else if (action === "add-group-template") {
-          if (typeof window.__openGroupTemplateModal === "function") {
-            window.__openGroupTemplateModal(id);
+          if (typeof window.__openGroupCreateMenu === "function") {
+            event.__terminGroupCreateOpened = true;
+            window.__openGroupCreateMenu(id, event.target);
           }
         } else if (action === "copy-group") {
           if (typeof window.__openCopyGroupModal === "function") {
@@ -7574,11 +7620,13 @@
       if (groupInsert) {
         if (groupInsert.closest(".sidebar-plus-btn")) return;
         event.preventDefault();
+        event.stopPropagation();
         var wrapper = groupInsert.closest(".group-insert");
         var projectId = wrapper ? wrapper.getAttribute("data-project-id") : "";
         if (!projectId) return;
-        if (typeof window.__openNameModal === "function") {
-          window.__openNameModal({ mode: "create", type: "group", targetId: projectId });
+        if (typeof window.__openGroupCreateMenu === "function") {
+          event.__terminGroupCreateOpened = true;
+          window.__openGroupCreateMenu(projectId, groupInsert);
         }
       }
     }, true);
@@ -7587,7 +7635,11 @@
 
 <script>
   (function () {
-    function submitTreeQuickCreate(kind, targetId) {
+    function submitTreeQuickCreate(kind, targetId, anchor) {
+      if (kind === "group" && typeof window.__openGroupCreateMenu === "function") {
+        window.__openGroupCreateMenu(targetId || "", anchor || null);
+        return;
+      }
       if (typeof window.__openNameModal === "function") {
         window.__openNameModal({ mode: "create", type: kind, targetId: targetId || "" });
       }
@@ -7608,7 +7660,7 @@
         return;
       }
       if (kind === "group") {
-        submitTreeQuickCreate("group", quickAdd.getAttribute("data-tree-project-id") || "");
+        submitTreeQuickCreate("group", quickAdd.getAttribute("data-tree-project-id") || "", quickAdd);
       }
     }, true);
     window.__submitTreeQuickCreate = submitTreeQuickCreate;
@@ -8672,7 +8724,7 @@
           </colgroup>
           {{ render_tasks_table_head() }}
           <tbody data-task-dropzone="1">
-            ${canManageGroup ? `
+            ${canManageGroup && String(groupData.specialty_type || "") !== "canvas" ? `
 	              <tr class="new-row">
 	                <td></td>
 	                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
@@ -9791,11 +9843,14 @@
 
       const groupInsert = event.target.closest(".group-insert-btn");
       if (groupInsert) {
+        event.preventDefault();
+        event.stopPropagation();
         const wrapper = groupInsert.closest(".group-insert");
         const projectId = wrapper ? wrapper.getAttribute("data-project-id") : "";
         if (!projectId) return;
-        if (typeof window.__openNameModal === "function") {
-          window.__openNameModal({ mode: "create", type: "group", targetId: projectId });
+        if (typeof window.__openGroupCreateMenu === "function") {
+          event.__terminGroupCreateOpened = true;
+          window.__openGroupCreateMenu(projectId, groupInsert);
         }
         return;
       }
@@ -10019,6 +10074,13 @@
     const groupTemplateStatus = document.getElementById("group-template-status");
     const groupTemplateList = document.getElementById("group-template-list");
     const groupTemplateCancel = document.getElementById("group-template-cancel");
+    const groupCreateMenu = document.getElementById("group-create-menu");
+    const canvasGroupModal = document.getElementById("canvas-group-modal");
+    const canvasGroupForm = document.getElementById("canvas-group-form");
+    const canvasGroupUrl = document.getElementById("canvas-group-url");
+    const canvasGroupStatus = document.getElementById("canvas-group-status");
+    const canvasGroupCancel = document.getElementById("canvas-group-cancel");
+    const canvasGroupSubmit = document.getElementById("canvas-group-submit");
     const infoModal = document.getElementById("info-modal");
     const infoEditor = document.getElementById("info-editor");
     const infoSave = document.getElementById("info-save");
@@ -10034,6 +10096,8 @@
     let directProjectResults = [];
     let directProjectActiveIndex = -1;
     let groupTemplateProjectId = "";
+    let groupCreateProjectId = "";
+    let canvasGroupProjectId = "";
     let quickTaskSelection = { projectId: "", groupId: "" };
     let quickTaskAssigneeCache = {};
     let quickTaskDueModeValue = "asap";
@@ -10127,7 +10191,7 @@
               ? type === "group"
             : action === "promote-project"
               ? type === "group"
-            : action === "add-group" || action === "add-group-template"
+            : action === "add-group"
               ? type === "project"
               : action === "add-project"
                 ? false
@@ -10389,6 +10453,86 @@
       groupTemplateProjectId = "";
       if (groupTemplateStatus) groupTemplateStatus.textContent = "";
       if (groupTemplateList) groupTemplateList.innerHTML = "";
+    };
+
+    const closeGroupCreateMenu = () => {
+      if (!groupCreateMenu) return;
+      groupCreateMenu.style.display = "none";
+      groupCreateMenu.removeAttribute("data-project-id");
+      groupCreateProjectId = "";
+    };
+
+    const openGroupCreateMenu = (projectId, anchor) => {
+      if (!groupCreateMenu || !projectId) return;
+      groupCreateProjectId = String(projectId);
+      groupCreateMenu.setAttribute("data-project-id", groupCreateProjectId);
+      groupCreateMenu.style.display = "block";
+      const rect = anchor && typeof anchor.getBoundingClientRect === "function"
+        ? anchor.getBoundingClientRect()
+        : { left: Math.max(16, window.innerWidth / 2 - 90), bottom: Math.max(16, window.innerHeight / 2 - 40) };
+      const menuWidth = groupCreateMenu.offsetWidth || 190;
+      const menuHeight = groupCreateMenu.offsetHeight || 150;
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
+      let top = rect.bottom + 6;
+      if (top + menuHeight > window.innerHeight - 8) {
+        top = Math.max(8, (rect.top || rect.bottom) - menuHeight - 6);
+      }
+      groupCreateMenu.style.left = `${left}px`;
+      groupCreateMenu.style.top = `${top}px`;
+    };
+    window.__openGroupCreateMenu = openGroupCreateMenu;
+
+    const closeCanvasGroupModal = () => {
+      if (!canvasGroupModal) return;
+      canvasGroupModal.style.display = "none";
+      canvasGroupProjectId = "";
+      if (canvasGroupUrl) canvasGroupUrl.value = "";
+      if (canvasGroupStatus) canvasGroupStatus.textContent = "";
+      if (canvasGroupSubmit) {
+        canvasGroupSubmit.disabled = false;
+        canvasGroupSubmit.textContent = "Import assignments";
+      }
+    };
+
+    const openCanvasGroupModal = (projectId) => {
+      if (!canvasGroupModal || !projectId) return;
+      canvasGroupProjectId = String(projectId);
+      canvasGroupModal.style.display = "flex";
+      if (canvasGroupStatus) canvasGroupStatus.textContent = "";
+      if (canvasGroupUrl) {
+        canvasGroupUrl.value = "";
+        canvasGroupUrl.focus();
+      }
+    };
+
+    const submitCanvasGroup = (event) => {
+      if (event) event.preventDefault();
+      if (!canvasGroupProjectId || !canvasGroupUrl || !canvasGroupSubmit) return;
+      const sourceUrl = canvasGroupUrl.value.trim();
+      if (!sourceUrl) return;
+      const projectId = canvasGroupProjectId;
+      canvasGroupSubmit.disabled = true;
+      canvasGroupSubmit.textContent = "Importing…";
+      if (canvasGroupStatus) canvasGroupStatus.textContent = "Connecting anonymously and loading published assignments…";
+      fetch(`/api/projects/${projectId}/canvas-groups`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ url: sourceUrl }),
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          if (!result.ok) throw new Error((result.data && result.data.error) || "Could not import Canvas assignments");
+          closeCanvasGroupModal();
+          if (typeof window.__ensureTreeProjectBoard === "function") {
+            window.__ensureTreeProjectBoard(String(projectId), { refresh: true });
+          }
+        })
+        .catch((error) => {
+          canvasGroupSubmit.disabled = false;
+          canvasGroupSubmit.textContent = "Import assignments";
+          if (canvasGroupStatus) canvasGroupStatus.textContent = error && error.message ? error.message : "Could not import Canvas assignments.";
+        });
     };
 
     const renderGroupTemplateChoices = (templates) => {
@@ -11565,11 +11709,9 @@
         if (action === "add-project" && typeof window.__submitTreeQuickCreate === "function") {
           window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
         }
-        if (action === "add-group" && typeof window.__submitTreeQuickCreate === "function") {
-          window.__submitTreeQuickCreate("group", id);
-        }
-        if (action === "add-group-template" && typeof window.__openGroupTemplateModal === "function") {
-          window.__openGroupTemplateModal(id);
+        if (action === "add-group" && typeof window.__openGroupCreateMenu === "function") {
+          event.__terminGroupCreateOpened = true;
+          window.__openGroupCreateMenu(id, event.target);
         }
         if (action === "copy-group" && typeof window.__openCopyGroupModal === "function") {
           openCopyGroupModal(id);
@@ -12131,6 +12273,39 @@
 
     if (groupTemplateCancel) {
       groupTemplateCancel.addEventListener("click", closeGroupTemplateModal);
+    }
+
+    if (groupCreateMenu) {
+      groupCreateMenu.addEventListener("click", (event) => {
+        const choice = event.target.closest("[data-group-create-kind]");
+        if (!choice || !groupCreateProjectId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const projectId = groupCreateProjectId;
+        const kind = choice.getAttribute("data-group-create-kind");
+        closeGroupCreateMenu();
+        if (kind === "blank" && typeof window.__openNameModal === "function") {
+          window.__openNameModal({ mode: "create", type: "group", targetId: projectId });
+        } else if (kind === "template") {
+          openGroupTemplateModal(projectId);
+        } else if (kind === "canvas") {
+          openCanvasGroupModal(projectId);
+        }
+      });
+    }
+
+    document.addEventListener("click", (event) => {
+      if (!groupCreateMenu || groupCreateMenu.style.display !== "block") return;
+      if (event.__terminGroupCreateOpened) return;
+      if (!groupCreateMenu.contains(event.target)) closeGroupCreateMenu();
+    });
+
+    if (canvasGroupForm) canvasGroupForm.addEventListener("submit", submitCanvasGroup);
+    if (canvasGroupCancel) canvasGroupCancel.addEventListener("click", closeCanvasGroupModal);
+    if (canvasGroupModal) {
+      canvasGroupModal.addEventListener("click", (event) => {
+        if (event.target === canvasGroupModal) closeCanvasGroupModal();
+      });
     }
 
     if (groupTemplateModal) {
@@ -13607,10 +13782,26 @@
       }, 50);
     }
 
+    function initCanvasBackgroundSync() {
+      var layout = document.querySelector("[data-canvas-auto-sync='1']");
+      if (!layout || window.__canvasBackgroundSyncStarted) return;
+      window.__canvasBackgroundSyncStarted = true;
+      window.setTimeout(function () {
+        fetch("/api/canvas/sync", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+          keepalive: true,
+        }).catch(function () {});
+      }, 100);
+    }
+
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", initGithubBackgroundSync);
+      document.addEventListener("DOMContentLoaded", initCanvasBackgroundSync);
     } else {
       initGithubBackgroundSync();
+      initCanvasBackgroundSync();
     }
   })();
 </script>
@@ -13677,6 +13868,12 @@
     var taskSettingsDescriptionFormatEl = document.getElementById("task-settings-description-format");
     var taskSettingsTitleFieldEl = drawer.querySelector("[data-settings-title-field]");
     var taskSettingsMetaEl = document.getElementById("task-settings-meta");
+    var canvasGroupSettingsEl = document.getElementById("canvas-group-settings");
+    var canvasGroupSettingsSourceEl = document.getElementById("canvas-group-settings-source");
+    var canvasGroupSettingsLastSyncEl = document.getElementById("canvas-group-settings-last-sync");
+    var canvasGroupSettingsErrorEl = document.getElementById("canvas-group-settings-error");
+    var canvasGroupSettingsStatusEl = document.getElementById("canvas-group-settings-status");
+    var canvasGroupSettingsRefreshEl = document.getElementById("canvas-group-settings-refresh");
     var pollResponseDialogEl = document.getElementById("poll-response-dialog");
     var pollResponseQuestionEl = document.getElementById("poll-response-question");
     var pollResponseMetaEl = document.getElementById("poll-response-meta");
@@ -14270,6 +14467,12 @@
       return !!(task && task.locked);
     }
 
+    function taskIsCanvasManaged(task) {
+      var info = task && task.info && typeof task.info === "object" ? task.info : {};
+      var meta = info.meta && typeof info.meta === "object" ? info.meta : {};
+      return !!(meta.canvas && typeof meta.canvas === "object");
+    }
+
     window.__taskIdIsLocked = function taskIdIsLocked(taskId) {
       var normalizedTaskId = String(taskId || "").trim();
       if (!normalizedTaskId) return false;
@@ -14420,6 +14623,7 @@
 
     function showDescriptionEditor() {
       if (!descriptionWrapperEl) return;
+      if (currentEntityType === "task" && taskIsLocked(currentTaskData)) return;
       if (descriptionEditing) return;
       descriptionWrapperEl.classList.add("is-editing");
       descriptionEditing = true;
@@ -18216,6 +18420,7 @@
       }
       var task = currentTaskData || {};
       var locked = taskIsLocked(task);
+      var canvasManaged = taskIsCanvasManaged(task);
       var meta = taskStatusMeta(task);
       var effectiveStatus = taskMyStatus(task);
       var creator = task.creator || null;
@@ -18400,9 +18605,19 @@
       renderTaskPollSettings();
       if (taskSettingsDescriptionEl) {
         taskSettingsDescriptionEl.value = task.description || "";
+        taskSettingsDescriptionEl.disabled = locked;
       }
       if (taskSettingsDescriptionFormatEl) {
         taskSettingsDescriptionFormatEl.value = task.description_format || DEFAULT_TASK_DESCRIPTION_FORMAT;
+        taskSettingsDescriptionFormatEl.disabled = locked;
+      }
+      if (descriptionWrapperEl) {
+        descriptionWrapperEl.classList.toggle("is-readonly", locked);
+      }
+      if (descriptionDisplayEl) {
+        descriptionDisplayEl.setAttribute("tabindex", locked ? "-1" : "0");
+        descriptionDisplayEl.setAttribute("role", locked ? "group" : "button");
+        descriptionDisplayEl.setAttribute("aria-label", locked ? "Description" : "Edit description");
       }
       var bits = [];
       if (currentProjectName) bits.push(currentProjectName);
@@ -18416,7 +18631,7 @@
         button.disabled = locked;
       });
       if (discussionLockToggleEl) {
-        discussionLockToggleEl.hidden = false;
+        discussionLockToggleEl.hidden = canvasManaged;
         discussionLockToggleEl.classList.toggle("is-locked", locked);
         discussionLockToggleEl.setAttribute("aria-label", locked ? "Unlock task" : "Lock task");
         discussionLockToggleEl.setAttribute("title", locked ? "Unlock task" : "Lock task");
@@ -18427,7 +18642,32 @@
       applyTaskLockState(task.id, locked);
     }
 
+    function renderCanvasGroupSettings(entity) {
+      if (!canvasGroupSettingsEl) return;
+      var isCanvas = currentEntityType === "group" && String((entity && entity.specialty_type) || "") === "canvas";
+      canvasGroupSettingsEl.hidden = !isCanvas;
+      if (!isCanvas) return;
+      var canvas = entity && entity.canvas && typeof entity.canvas === "object" ? entity.canvas : {};
+      var sourceUrl = String(canvas.source_url || "").trim();
+      if (canvasGroupSettingsSourceEl) {
+        canvasGroupSettingsSourceEl.href = sourceUrl || "#";
+        canvasGroupSettingsSourceEl.textContent = sourceUrl ? "Open assignments page" : "Source unavailable";
+      }
+      if (canvasGroupSettingsLastSyncEl) {
+        var syncedAt = canvas.last_synced_at ? new Date(canvas.last_synced_at) : null;
+        canvasGroupSettingsLastSyncEl.textContent = syncedAt && !Number.isNaN(syncedAt.getTime())
+          ? syncedAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+          : "Not yet refreshed";
+      }
+      var syncError = String(canvas.sync_error || "").trim();
+      if (canvasGroupSettingsErrorEl) {
+        canvasGroupSettingsErrorEl.hidden = !syncError;
+        canvasGroupSettingsErrorEl.textContent = syncError;
+      }
+    }
+
     function renderEntitySettings() {
+      renderCanvasGroupSettings(currentEntityData || {});
       if (currentEntityType === "task") {
         renderTaskSettings();
         return;
@@ -18571,9 +18811,19 @@
       var entityDescriptionFallback = descriptionFormatFallbackForEntity(currentEntityType);
       if (taskSettingsDescriptionEl) {
         taskSettingsDescriptionEl.value = entity.description || "";
+        taskSettingsDescriptionEl.disabled = false;
       }
       if (taskSettingsDescriptionFormatEl) {
         taskSettingsDescriptionFormatEl.value = entity.description_format || entityDescriptionFallback;
+        taskSettingsDescriptionFormatEl.disabled = false;
+      }
+      if (descriptionWrapperEl) {
+        descriptionWrapperEl.classList.remove("is-readonly");
+      }
+      if (descriptionDisplayEl) {
+        descriptionDisplayEl.setAttribute("tabindex", "0");
+        descriptionDisplayEl.setAttribute("role", "button");
+        descriptionDisplayEl.setAttribute("aria-label", "Edit description");
       }
       if (taskSettingsDeleteEl) {
         taskSettingsDeleteEl.disabled = false;
@@ -18601,6 +18851,50 @@
       return currentTaskData;
     };
     window.__renderTaskSettings = renderTaskSettings;
+
+    if (canvasGroupSettingsRefreshEl) {
+      canvasGroupSettingsRefreshEl.addEventListener("click", function () {
+        if (currentEntityType !== "group" || !currentEntityId || canvasGroupSettingsRefreshEl.disabled) return;
+        var refreshGroupId = String(currentEntityId);
+        canvasGroupSettingsRefreshEl.disabled = true;
+        if (canvasGroupSettingsStatusEl) canvasGroupSettingsStatusEl.textContent = "Refreshing…";
+        fetch("/api/groups/" + encodeURIComponent(refreshGroupId) + "/canvas/refresh", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" },
+        })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (data) {
+              return { ok: res.ok, data: data };
+            });
+          })
+          .then(function (result) {
+            if (String(currentEntityId || "") !== refreshGroupId || currentEntityType !== "group") return;
+            if (result.data && result.data.group) {
+              currentEntityData = Object.assign({}, currentEntityData || {}, result.data.group);
+              renderEntitySettings();
+            }
+            if (!result.ok) throw new Error((result.data && result.data.error) || "Canvas refresh failed");
+            var sync = result.data && result.data.sync ? result.data.sync : {};
+            if (canvasGroupSettingsStatusEl) {
+              canvasGroupSettingsStatusEl.textContent = "Updated " + Number(sync.total || 0) + " assignments.";
+            }
+            var projectId = String((currentEntityData && currentEntityData.project_id) || "");
+            if (projectId && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+              window.__refreshTreeProjectSnapshotLocal(projectId);
+            }
+          })
+          .catch(function (error) {
+            if (String(currentEntityId || "") !== refreshGroupId || currentEntityType !== "group") return;
+            if (canvasGroupSettingsStatusEl) {
+              canvasGroupSettingsStatusEl.textContent = error && error.message ? error.message : "Canvas refresh failed.";
+            }
+          })
+          .finally(function () {
+            canvasGroupSettingsRefreshEl.disabled = false;
+          });
+      });
+    }
 
     var drawerLoadingTokens = { meta: 0, comments: 0 };
     var drawerLoadingState = { meta: 0, comments: 0 };
@@ -19923,6 +20217,7 @@
       currentTaskData = null;
       currentEntityData = null;
       currentEntityLinks = [];
+      if (canvasGroupSettingsStatusEl) canvasGroupSettingsStatusEl.textContent = "";
       setDrawerEntityType(entityType);
       currentEntityId = entityId;
       currentTaskId = entityType === "task" ? entityId : null;
@@ -22617,6 +22912,7 @@
     function problemTaskFlags(task) {
       if (!task || String(task.creator_user_id || "") !== String(currentUserId || "")) return null;
       if (task.github_meta) return null;
+      if (taskIsCanvasManaged(task)) return null;
       if (String(taskAggregateStatusState(task) || "open") === "complete") return null;
       var assignments = Array.isArray(task.assignments) ? task.assignments : [];
       var missingAssignee = assignments.length === 0 && String(task.assignee_mode || "default") !== "none";
@@ -25634,6 +25930,7 @@
     if (discussionLockToggleEl) {
       discussionLockToggleEl.addEventListener("click", function () {
         if (!currentTaskId || currentEntityType !== "task") return;
+        if (taskIsCanvasManaged(currentTaskData)) return;
         var nextLocked = !window.__taskIdIsLocked(currentTaskId);
         fetch("/api/tasks/" + currentTaskId, {
           method: "PATCH",

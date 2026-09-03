@@ -177,6 +177,11 @@ class Group(db.Model):
     link = db.Column(db.String(1024))
     description = db.Column(db.Text)
     description_format = db.Column(db.String(32), default="markdown")
+    specialty_type = db.Column(db.String(32))
+    specialty_source_url = db.Column(db.String(2048))
+    specialty_last_synced_at = db.Column(db.DateTime)
+    specialty_last_sync_attempt_at = db.Column(db.DateTime)
+    specialty_sync_error = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -473,6 +478,20 @@ class GitHubIssueLink(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "github_issue_id", name="uq_github_issue_links_user_issue"),
+    )
+
+
+class CanvasAssignmentLink(db.Model):
+    __tablename__ = "canvas_assignment_links"
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, unique=True)
+    canvas_assignment_id = db.Column(db.String(255), nullable=False)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("group_id", "canvas_assignment_id", name="uq_canvas_assignment_links_group_assignment"),
     )
 
 

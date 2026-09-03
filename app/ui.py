@@ -19,6 +19,7 @@ from app.extensions import db
 from app.discussion_activity import build_discussion_activity_items, task_discussion_user_ids, upsert_discussion_activity
 from app.discussion_history import log_group_history, log_project_history, log_task_history
 from app.github_sync import GitHubSyncError, github_identity_for_user, github_sync_state_for_user, should_sync_github_issues, sync_github_issues_for_user
+from app.canvas_sync import should_sync_canvas_groups_for_user
 from app.group_templates import (
     normalize_group_template_task_entries,
     normalize_group_template_task_titles,
@@ -1621,6 +1622,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     show_completed = current_view in {"tree", "inbox"}
     owned_projects = Project.query.filter_by(owner_id=user.id).all()
     accessible_project_ids = sorted(accessible_project_ids_for_user(user.id))
+    canvas_auto_sync_needed = should_sync_canvas_groups_for_user(user.id, project_ids=accessible_project_ids)
     member_project_ids = sorted(set(accessible_project_ids).difference({p.id for p in owned_projects if p.id}))
     projects = (
         Project.query.filter(Project.id.in_(accessible_project_ids)).all()
@@ -2308,6 +2310,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         github_task_meta=github_task_meta,
         github_project_id=github_project_id,
         github_auto_sync_needed=github_auto_sync_needed,
+        canvas_auto_sync_needed=canvas_auto_sync_needed,
         comment_counts=comment_counts,
         unread_task_ids=unread_task_ids,
         task_status_payloads=task_status_payloads,

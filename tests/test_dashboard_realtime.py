@@ -1,4 +1,5 @@
 import gzip
+import json
 import os
 import re
 import shutil
@@ -35,9 +36,10 @@ if "pywebpush" not in sys.modules:
 
 from app import create_app
 from app import favicon_cache
+from app.canvas_sync import CanvasAssignment, CanvasCourse, CanvasSyncError, fetch_canvas_course
 from app.extensions import db, socketio
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import Assignment, DevMailboxMessage, ExternalIdentity, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskPrerequisite, TaskUserStatus, TeamInvite, User
+from app.models import Assignment, CanvasAssignmentLink, DevMailboxMessage, ExternalIdentity, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskComment, TaskFollower, TaskPrerequisite, TaskUserStatus, TeamInvite, User
 from app.realtime import emit_task_updated
 from app.task_status import task_status_meta
 
@@ -480,6 +482,203 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(response.get_json(), {"ok": True, "scheduled": True})
         self.assertLess(elapsed, 0.1)
         schedule_sync.assert_called_once()
+
+    def test_canvas_group_import_and_refresh_reconcile_assignments(self):
+        source_url = "https://canvas.example.edu/courses/129714/assignments"
+        with self.app.app_context():
+            owner = self.create_user("canvas-owner@example.com", "Canvas Owner")
+            owner_id = sqlalchemy_inspect(owner).identity[0]
+            project = self.create_project(owner, "Coursework")
+            project_id = project.id
+
+        initial_course = CanvasCourse(
+            source_url=source_url,
+            name="Advanced Flight Structures (Fall 2026)",
+            course_id="129714",
+            assignments=(
+                CanvasAssignment(
+                    assignment_id="2850948",
+                    title="Problem Set 1",
+                    description='<p>Read the <a href="https://example.edu/brief.pdf">brief</a>.</p>',
+                    due_at=datetime(2026, 9, 2, 16, 0),
+                    html_url="https://canvas.example.edu/courses/129714/assignments/2850948",
+                    links=(
+                        "https://canvas.example.edu/courses/129714/assignments/2850948",
+                        "https://example.edu/brief.pdf",
+                    ),
+                    position=1,
+                    assignment_group_id="622939",
+                    assignment_group_name="Problem Sets",
+                    points_possible=100.0,
+                    submission_types=("on_paper",),
+                ),
+            ),
+        )
+        self.login(self.client, owner_id)
+        with patch("app.routes.fetch_canvas_course", return_value=initial_course):
+            response = self.client.post(
+                f"/api/projects/{project_id}/canvas-groups",
+                json={"url": source_url},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(payload["group"]["specialty_type"], "canvas")
+        self.assertEqual(payload["group"]["canvas"]["source_url"], source_url)
+        self.assertEqual(payload["sync"], {"created": 1, "updated": 0, "removed": 0, "total": 1})
+        created_task = payload["tasks"][0]
+        self.assertTrue(created_task["locked"])
+        self.assertEqual(created_task["assignee_mode"], "none")
+        self.assertEqual(created_task["due_mode"], "date")
+        self.assertEqual(created_task["due_at"], "2026-09-02T16:00:00")
+        self.assertEqual(created_task["description_format"], "html")
+        self.assertEqual(
+            created_task["info"]["links"],
+            [
+                "https://canvas.example.edu/courses/129714/assignments/2850948",
+                "https://example.edu/brief.pdf",
+            ],
+        )
+
+        group_id = payload["group"]["id"]
+        original_task_id = created_task["id"]
+        manual_task_response = self.client.post(
+            "/api/tasks",
+            json={"project_id": project_id, "group_id": group_id, "title": "Manual task"},
+        )
+        self.assertEqual(manual_task_response.status_code, 409)
+        for task_update in (
+            {"locked": False},
+            {"description": "Locally edited description"},
+            {"links": ["https://example.edu/replacement"]},
+        ):
+            update_response = self.client.patch(f"/api/tasks/{original_task_id}", json=task_update)
+            self.assertEqual(update_response.status_code, 423)
+            self.assertEqual(update_response.get_json()["error"], "Canvas tasks are managed by Canvas")
+        with self.app.app_context():
+            db.session.add(TaskFollower(task_id=original_task_id, user_id=owner_id))
+            db.session.add(TaskComment(task_id=original_task_id, user_id=owner_id, body="Remember this assignment"))
+            db.session.commit()
+        refreshed_course = CanvasCourse(
+            source_url=source_url,
+            name=initial_course.name,
+            course_id="129714",
+            assignments=(
+                CanvasAssignment(
+                    assignment_id="2850950",
+                    title="Problem Set 2",
+                    description="<p>Second assignment.</p>",
+                    due_at=None,
+                    html_url="https://canvas.example.edu/courses/129714/assignments/2850950",
+                    links=("https://canvas.example.edu/courses/129714/assignments/2850950",),
+                    position=1,
+                ),
+            ),
+        )
+        with patch("app.canvas_sync.fetch_canvas_course", return_value=refreshed_course):
+            refresh_response = self.client.post(f"/api/groups/{group_id}/canvas/refresh")
+
+        self.assertEqual(refresh_response.status_code, 200)
+        refresh_payload = refresh_response.get_json()
+        self.assertEqual(refresh_payload["sync"], {"created": 1, "updated": 0, "removed": 1, "total": 1})
+        self.assertEqual(refresh_payload["removed_task_ids"], [original_task_id])
+        with self.app.app_context():
+            tasks = Task.query.filter_by(group_id=group_id).all()
+            self.assertEqual([(task.title, task.locked) for task in tasks], [("Problem Set 2", True)])
+            self.assertEqual(CanvasAssignmentLink.query.filter_by(group_id=group_id).count(), 1)
+            self.assertEqual(Assignment.query.filter_by(task_id=tasks[0].id).count(), 0)
+            self.assertEqual(TaskFollower.query.filter_by(task_id=original_task_id).count(), 0)
+            self.assertEqual(TaskComment.query.filter_by(task_id=original_task_id).count(), 0)
+            self.assertEqual(load_info_payload(tasks[0].info, tasks[0].link)["meta"]["assignee_mode"], "none")
+
+    def test_canvas_fetch_establishes_anonymous_session_before_assignment_groups_api(self):
+        source_url = "https://canvas.example.edu/courses/129714/assignments"
+
+        class FakeResponse:
+            def __init__(self, body, *, headers=None):
+                self.status_code = 200
+                self.headers = headers or {}
+                self._body = body
+
+            def iter_content(self, chunk_size):
+                del chunk_size
+                yield self._body
+
+            def close(self):
+                return None
+
+        class FakeSession:
+            def __init__(self):
+                self.headers = {}
+                self.calls = []
+                self.responses = [
+                    FakeResponse(b'<title>Assignments: Test Course</title><script>ENV={"TIMEZONE":"America/Chicago"}</script>'),
+                    FakeResponse(json.dumps([{
+                        "id": 2,
+                        "name": "Homework",
+                        "position": 1,
+                        "assignments": [{
+                            "id": 7,
+                            "name": "Homework 1",
+                            "description": '<a href="/files/3">Brief</a>',
+                            "due_at": "2026-09-03T04:59:00Z",
+                            "html_url": "/courses/129714/assignments/7",
+                            "position": 1,
+                        }],
+                    }]).encode("utf-8")),
+                ]
+
+            def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return self.responses.pop(0)
+
+        session = FakeSession()
+        with patch("app.canvas_sync.requests.Session", return_value=session), patch("app.canvas_sync._assert_public_host"):
+            course = fetch_canvas_course(source_url)
+
+        self.assertEqual(session.calls[0][0], source_url)
+        self.assertIn("/api/v1/courses/129714/assignment_groups?", session.calls[1][0])
+        self.assertIn("include%5B%5D=assignments", session.calls[1][0])
+        self.assertNotIn("/api/v1/courses/129714/assignments", session.calls[1][0])
+        self.assertEqual(course.name, "Test Course")
+        self.assertEqual([(item.assignment_id, item.title) for item in course.assignments], [("7", "Homework 1")])
+        self.assertEqual(course.assignments[0].due_at, datetime(2026, 9, 2, 23, 59))
+        self.assertEqual(
+            course.assignments[0].links,
+            (
+                "https://canvas.example.edu/courses/129714/assignments/7",
+                "https://canvas.example.edu/files/3",
+            ),
+        )
+
+    def test_canvas_refresh_failure_is_visible_and_throttled(self):
+        source_url = "https://canvas.example.edu/courses/12/assignments"
+        with self.app.app_context():
+            owner = self.create_user("canvas-failure@example.com", "Canvas Failure")
+            owner_id = owner.id
+            project = self.create_project(owner, "Canvas Failure")
+            group = Group(
+                project_id=project.id,
+                name="Canvas Course",
+                specialty_type="canvas",
+                specialty_source_url=source_url,
+                specialty_last_synced_at=datetime.utcnow() - timedelta(days=2),
+            )
+            db.session.add(group)
+            db.session.commit()
+            group_id = group.id
+
+        self.login(self.client, owner_id)
+        with patch("app.canvas_sync.fetch_canvas_course", side_effect=CanvasSyncError("Canvas is unavailable")):
+            response = self.client.post(f"/api/groups/{group_id}/canvas/refresh")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()["group"]["canvas"]["sync_error"], "Canvas is unavailable")
+        with patch("app.routes.schedule_canvas_sync_for_user", return_value=True) as schedule_sync:
+            automatic_response = self.client.post("/api/canvas/sync")
+        self.assertEqual(automatic_response.status_code, 200)
+        self.assertEqual(automatic_response.get_json(), {"ok": True, "skipped": True})
+        schedule_sync.assert_not_called()
 
     def test_same_bucket_task_move_returns_affected_positions(self):
         with self.app.app_context():

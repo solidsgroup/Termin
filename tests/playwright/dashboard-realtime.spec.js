@@ -695,6 +695,11 @@ test.describe('dashboard and realtime flows', () => {
       group_id: state.group.id,
       title: 'GitHub problem exclusion regression task',
     });
+    const canvasTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Canvas problem exclusion regression task',
+    });
 
     await page.goto('/dashboard');
     const alerts = page.locator('[data-alerts-menu]');
@@ -723,12 +728,18 @@ test.describe('dashboard and realtime flows', () => {
     await alerts.locator('[data-notifications-trigger]').click();
     await alerts.locator('[data-alert-view="problems"]').click();
     await page.waitForURL('**/problems');
-    await page.evaluate((taskId) => {
-      const task = window.__dashboardTaskEntity(taskId);
-      task.github_meta = { issue_url: 'https://github.com/example/repo/issues/1', item_type: 'issue' };
+    await page.evaluate(({ githubTaskId, canvasTaskId }) => {
+      const githubTask = window.__dashboardTaskEntity(githubTaskId);
+      githubTask.github_meta = { issue_url: 'https://github.com/example/repo/issues/1', item_type: 'issue' };
+      const canvasTask = window.__dashboardTaskEntity(canvasTaskId);
+      canvasTask.info = Object.assign({}, canvasTask.info || {}, {
+        meta: Object.assign({}, (canvasTask.info && canvasTask.info.meta) || {}, {
+          canvas: { assignment_id: 'canvas-regression' },
+        }),
+      });
       window.__renderProblemTasksFromStore();
       window.__refreshDashboardAlerts();
-    }, githubTask.id);
+    }, { githubTaskId: githubTask.id, canvasTaskId: canvasTask.id });
     const missingDateRow = page.locator(`[data-problem-task-id="${missingDateTask.id}"]`);
     const missingAssigneeRow = page.locator(`[data-problem-task-id="${missingAssigneeTask.id}"]`);
     const assignableRow = page.locator(`[data-problem-task-id="${assignableTask.id}"]`);
@@ -743,6 +754,7 @@ test.describe('dashboard and realtime flows', () => {
     await expect(dualGapNoAssigneeRow).toBeVisible();
     await expect(page.locator(`[data-problem-task-id="${intentionalTask.id}"]`)).toHaveCount(0);
     await expect(page.locator(`[data-problem-task-id="${githubTask.id}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-problem-task-id="${canvasTask.id}"]`)).toHaveCount(0);
     await expect(page.locator('[data-dashboard-view-target="problems"]')).toHaveCount(0);
     await expect(missingDateRow.locator('.problem-task-title-line .task-link-badge')).toHaveCount(1);
     await expect(missingDateRow.locator('.problem-avatar')).toHaveCount(1);
@@ -2386,8 +2398,10 @@ test.describe('dashboard and realtime flows', () => {
     await waitForTreeProjectReady(page, state.project.id, state.task.id);
     const projectRow = page.locator(`[data-tree-project-row="${state.project.id}"]`).first();
     await projectRow.click({ button: 'right' });
-    await expect(page.locator('#context-menu [data-action="add-group-template"]')).toBeVisible();
-    await page.locator('#context-menu [data-action="add-group-template"]').click();
+    await expect(page.locator('#context-menu [data-action="add-group"]')).toBeVisible();
+    await page.locator('#context-menu [data-action="add-group"]').click();
+    await expect(page.locator('#group-create-menu')).toBeVisible();
+    await page.locator('#group-create-menu [data-group-create-kind="template"]').click();
     await expect(page.locator('#group-template-modal')).toBeVisible();
     const applyResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/projects/${state.project.id}/group-templates/`) && response.request().method() === 'POST');
     await page.locator('#group-template-list [data-apply-group-template]').filter({ hasText: 'Semester Template' }).click();
@@ -2406,6 +2420,114 @@ test.describe('dashboard and realtime flows', () => {
       ])
     );
     await steps.step('Open the project context menu in Tree, apply the template, and verify the new group and its tasks render immediately.', page);
+  });
+
+  test('group add menu opens the Canvas URL importer', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['canvas', 'groups', 'tree']);
+    const state = await fetchSeedState(request);
+    const canvasUrl = 'https://canvas.example.edu/courses/129714/assignments';
+    let submittedPayload = null;
+
+    await page.route(`**/api/projects/${state.project.id}/canvas-groups`, async (route) => {
+      submittedPayload = route.request().postDataJSON();
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          group: {
+            id: 99001,
+            project_id: state.project.id,
+            name: 'Canvas Course',
+            position: 99,
+            specialty_type: 'canvas',
+            canvas: { source_url: canvasUrl },
+          },
+          tasks: [],
+          sync: { created: 0, updated: 0, removed: 0, total: 0 },
+        }),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const addGroupButton = page.locator('.group-insert-wrap:not(.disabled) .group-insert-btn').last();
+    await addGroupButton.click();
+    await expect(page.locator('#group-create-menu')).toBeVisible();
+    await expect(page.locator('#group-create-menu [data-group-create-kind]')).toHaveCount(3);
+    await page.locator('#group-create-menu [data-group-create-kind="canvas"]').click();
+    await expect(page.locator('#canvas-group-modal')).toBeVisible();
+    await page.locator('#canvas-group-url').fill(canvasUrl);
+    await page.locator('#canvas-group-submit').click();
+    await expect.poll(() => submittedPayload).toEqual({ url: canvasUrl });
+    await expect(page.locator('#canvas-group-modal')).toBeHidden();
+    await steps.step('Choose Canvas from an inline Add group menu and submit the public assignments URL.', page);
+  });
+
+  test('Canvas group settings expose source and refresh now', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['canvas', 'groups', 'settings']);
+    const state = await fetchSeedState(request);
+    const canvasUrl = 'https://canvas.example.edu/courses/129714/assignments';
+    let refreshRequested = false;
+
+    await page.route(`**/api/groups/${state.group.id}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: state.group.id,
+          project_id: state.project.id,
+          name: state.group.name,
+          description: '',
+          description_format: 'markdown',
+          rendered_description: '',
+          links: [canvasUrl],
+          specialty_type: 'canvas',
+          canvas: {
+            source_url: canvasUrl,
+            last_synced_at: '2026-09-02T16:00:00',
+            sync_error: null,
+            refresh_interval_hours: 24,
+          },
+        }),
+      });
+    });
+    await page.route(`**/api/groups/${state.group.id}/canvas/refresh`, async (route) => {
+      refreshRequested = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          group: {
+            id: state.group.id,
+            project_id: state.project.id,
+            name: state.group.name,
+            specialty_type: 'canvas',
+            canvas: {
+              source_url: canvasUrl,
+              last_synced_at: '2026-09-02T17:00:00',
+              sync_error: null,
+            },
+          },
+          tasks: [],
+          removed_task_ids: [],
+          sync: { created: 0, updated: 1, removed: 0, total: 1 },
+        }),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await page.locator(`.group-block[data-group-id="${state.group.id}"] [data-open-entity="settings"]`).click();
+    await expect(page.locator('#canvas-group-settings')).toBeVisible();
+    await expect(page.locator('#canvas-group-settings-source')).toHaveAttribute('href', canvasUrl);
+    await page.locator('#canvas-group-settings-refresh').click();
+    await expect.poll(() => refreshRequested).toBe(true);
+    await expect(page.locator('#canvas-group-settings-status')).toContainText('Updated 1 assignments.');
+    await steps.step('Open Canvas group settings and refresh its published assignments on demand.', page);
   });
 
   test('email collaborator invite accepts from the magic link page', async ({ page, request }) => {
