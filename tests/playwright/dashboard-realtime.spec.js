@@ -1763,6 +1763,66 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Hover the blocked Todo status badge and verify the same prereq hover card appears there as well.', page);
   });
 
+  test('dependency badge shows dependent tasks in tree todo and gantt', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dependency', 'prereq', 'hover', 'tree', 'todo', 'gantt']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.evaluate(async (projectId) => {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_date: '2026-01-01', end_date: '2026-12-31' }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+    }, state.project.id);
+    const sourceTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Dependency Badge Source',
+      assignee_email: state.owner.email,
+      due_at: '2026-04-01T12:00:00',
+    });
+    const dependentTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Dependency Badge Dependent',
+      assignee_email: state.owner.email,
+      due_at: '2026-04-05T12:00:00',
+    });
+    await createTaskPrerequisite(page, dependentTask.id, sourceTask.id);
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, sourceTask.id);
+    const treeBadge = page.locator(`[data-task-row-id="${sourceTask.id}"] [data-task-dependency-badge="${sourceTask.id}"]`);
+    await expect(treeBadge).toBeVisible();
+    await expect(treeBadge).toContainText('1');
+    await treeBadge.hover();
+    await expect(page.locator('#prereq-hover-card')).toBeVisible();
+    await expect(page.locator('#prereq-hover-card')).toContainText('Dependent Tasks');
+    await expect(page.locator('#prereq-hover-card')).toContainText('Dependency Badge Dependent');
+    await steps.step('Tree rows show a dependency badge with the dependent task in the hover card.', page);
+
+    await page.goto('/todo');
+    const todoBadge = page.locator(`.todo-item[data-task-id="${sourceTask.id}"] [data-task-dependency-badge="${sourceTask.id}"]`);
+    await expect(todoBadge).toBeVisible();
+    await expect(todoBadge).toContainText('1');
+    await todoBadge.hover();
+    await expect(page.locator('#prereq-hover-card')).toContainText('Dependency Badge Dependent');
+    await steps.step('Todo rows show the same dependency badge.', page);
+
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, sourceTask.id);
+    await page.locator('[data-project-mode-button="gantt"]').first().click();
+    const ganttBadge = page.locator(`.project-gantt-task-title-row [data-task-dependency-badge="${sourceTask.id}"]`);
+    await expect(ganttBadge).toBeVisible();
+    await expect(ganttBadge).toContainText('1');
+    await ganttBadge.hover();
+    await expect(page.locator('#prereq-hover-card')).toContainText('Dependency Badge Dependent');
+    await steps.step('Gantt rows show the same dependency badge.', page);
+  });
+
   test('adding and removing a prerequisite updates the dependent live in tree', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['prereq', 'socket', 'tree', 'add-remove']);

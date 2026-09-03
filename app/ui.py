@@ -54,7 +54,7 @@ from app.notification_emailer import (
     normalize_notification_email_frequency,
     send_notification_digest_email,
 )
-from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, DiscussionEvent, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, GroupTemplate, GroupTemplateTask, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, UserDiscussionActivity
+from app.models import CalendarFeed, CollaboratorProfile, CollaboratorTaskRead, DevMailboxMessage, DiscussionEvent, Division, EmailVerification, ExternalIdentity, GitHubIssueLink, GitHubSyncState, GroupTemplate, GroupTemplateTask, Project, ProjectSidebarPreference, Task, Invite, Assignment, User, UserEmail, Group, ProjectMember, GroupMember, TaskComment, TaskNotification, TaskPrerequisite, UserDiscussionActivity
 from app.models import TeamInvite, ProjectTeamShare
 from app.models import UserNotificationPreference
 from app.team_shares import accessible_project_ids_for_user, project_has_team_access
@@ -1678,6 +1678,40 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
     for task in all_project_tasks:
         tasks_by_project.setdefault(task.project_id, []).append(task)
     all_project_status_map = task_status_meta_map(all_project_tasks, viewer_user_id=user.id)
+    all_project_task_ids = [task.id for task in all_project_tasks]
+    all_project_tasks_by_id = {task.id: task for task in all_project_tasks}
+    all_dependents_by_task = {task_id: [] for task_id in all_project_task_ids}
+    if all_project_task_ids:
+        all_dependency_rows = (
+            TaskPrerequisite.query.filter(TaskPrerequisite.prerequisite_task_id.in_(all_project_task_ids))
+            .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
+            .all()
+        )
+        missing_dependent_ids = sorted({row.task_id for row in all_dependency_rows if row.task_id and row.task_id not in all_project_tasks_by_id})
+        if missing_dependent_ids:
+            all_project_tasks_by_id.update({
+                task.id: task
+                for task in Task.query.filter(Task.id.in_(missing_dependent_ids)).all()
+            })
+        for row in all_dependency_rows:
+            dependent_task = all_project_tasks_by_id.get(row.task_id)
+            if not dependent_task:
+                continue
+            status_meta = all_project_status_map.get(dependent_task.id) or {}
+            all_dependents_by_task.setdefault(row.prerequisite_task_id, []).append({
+                "id": row.id,
+                "task_id": row.task_id,
+                "prerequisite_task_id": row.prerequisite_task_id,
+                "dependent_task_id": row.task_id,
+                "title": dependent_task.title,
+                "project_id": dependent_task.project_id,
+                "group_id": dependent_task.group_id,
+                "status": dependent_task.status,
+                "status_mode": status_meta.get("mode") or dependent_task.status_mode or "single",
+                "status_percentage": int(status_meta.get("percentage_complete") or 0),
+                "due_at": dependent_task.due_at.isoformat() if dependent_task.due_at else None,
+                "locked": bool(dependent_task.locked),
+            })
 
     unassigned_projects = [
         project
@@ -1822,6 +1856,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
                     "status_mode": (project_status_map.get(task.id) or {}).get("mode") or "single",
                     "status_percentage": (project_status_map.get(task.id) or {}).get("percentage_complete") or 0,
                     "status_meta": project_status_map.get(task.id) or {},
+                    "dependents": all_dependents_by_task.get(task.id, []),
                     "group_id": group.id,
                     "group_name": group.name,
                 }
@@ -1839,6 +1874,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
                     "status_mode": (project_status_map.get(task.id) or {}).get("mode") or "single",
                     "status_percentage": (project_status_map.get(task.id) or {}).get("percentage_complete") or 0,
                     "status_meta": project_status_map.get(task.id) or {},
+                    "dependents": all_dependents_by_task.get(task.id, []),
                     "group_id": None,
                     "group_name": "",
                 }
@@ -2083,6 +2119,10 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         user_map,
     )
     visible_dashboard_task_ids = {task.id for task in visible_tasks}
+    dependents_by_task = {
+        task_id: all_dependents_by_task.get(task_id, [])
+        for task_id in visible_dashboard_task_ids
+    }
     comment_counts = {}
     if visible_dashboard_task_ids:
         comment_counts = {
@@ -2314,6 +2354,7 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
         comment_counts=comment_counts,
         unread_task_ids=unread_task_ids,
         task_status_payloads=task_status_payloads,
+        dependents_by_task=dependents_by_task,
         task_notifications=task_notifications,
         message_notifications=message_notifications,
         inbox_items=inbox_items,

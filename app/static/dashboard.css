@@ -3601,3 +3601,65 @@ body[data-theme="light"] .quick-task-due-mode-button.is-active {
   gap: 7px;
   align-items: center;
 }
+
+.task-dependency-badge {
+  appearance: none;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.task-dependency-badge i {
+  font-size: 0.68rem;
+}
+
+.task-dependency-badge:hover,
+.task-dependency-badge:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  color: var(--text);
+  outline: none;
+}
+
+.todo-active-task-title-wrap {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.todo-item-title-row .task-dependency-badge,
+.project-gantt-task-title-row .task-dependency-badge {
+  margin-left: 0;
+}
+
+.prereq-hover-card [data-dependent-task-id] {
+  cursor: pointer;
+}
+
+.dashboard-action-title-line,
+.problem-task-title-line {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-action-title-line .dashboard-action-title,
+.problem-task-title-line .problem-task-title {
+  min-width: 0;
+}

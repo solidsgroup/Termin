@@ -262,7 +262,10 @@
           <a href="{{ url_for('ui.tree_group_dashboard', project_id=item.project.id, group_id=item.group.id) }}" class="dashboard-action-group">{{ item.group.name }}</a>
         {% endif %}
       </div>
-      <a href="{{ url_for('ui.todo_dashboard') }}#task-{{ task.id }}" class="dashboard-action-title">{{ task.title }}</a>
+      <span class="dashboard-action-title-line">
+        <a href="{{ url_for('ui.todo_dashboard') }}#task-{{ task.id }}" class="dashboard-action-title">{{ task.title }}</a>
+        {{ render_dependency_badge(task.id, dependents_by_task.get(task.id, [])) }}
+      </span>
       <div class="dashboard-action-due">{{ render_due_summary(task, now_utc) }}</div>
     </div>
     <div class="dashboard-action-status">
@@ -347,7 +350,16 @@
     </tr>
   </thead>
 {% endmacro %}
-{% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, project_name) %}
+{% macro render_dependency_badge(task_id, dependents) %}
+  {% set count = dependents|length if dependents else 0 %}
+  {% if count %}
+    <button class="task-dependency-badge" type="button" data-task-dependency-badge="{{ task_id }}" aria-label="{{ count }} dependent task{% if count != 1 %}s{% endif %}" title="{{ count }} dependent task{% if count != 1 %}s{% endif %}">
+      <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
+      <span>{{ count }}</span>
+    </button>
+  {% endif %}
+{% endmacro %}
+{% macro render_tasks(task_list, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, project_name, dependents_by_task) %}
   {% if task_list %}
     {% for task in task_list %}
       {% set task_info = info_by_task.get(task.id, {"html": "", "attachments": []}) %}
@@ -377,6 +389,7 @@
             {% else %}
               <div class="editable" contenteditable="{{ 'false' if task.locked else 'true' }}" data-task-id="{{ task.id }}" data-field="title" data-col="1">{{ task.title }}</div>
             {% endif %}
+            {{ render_dependency_badge(task.id, dependents_by_task.get(task.id, [])) }}
             <span class="task-link-badges" data-task-link-badges="{{ task.id }}">
               {% for link in task_info.links or [] %}
                 {% set host = link.replace('https://', '').replace('http://', '').split('/')[0] %}
@@ -1149,7 +1162,7 @@
             {{ render_tasks_table_head() }}
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
-              {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name) }}
+              {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name, dependents_by_task) }}
 	              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project and group.specialty_type != 'canvas' %}
 	                <tr class="new-row">
 	                    <td></td>
@@ -1202,7 +1215,7 @@
             </colgroup>
             {{ render_tasks_table_head() }}
             <tbody data-task-dropzone="1">
-              {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name) }}
+              {{ render_tasks(ungrouped_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name, dependents_by_task) }}
 	              {% if can_manage_project and not is_github_project %}
 	                <tr class="new-row">
 	                    <td></td>
@@ -2389,6 +2402,7 @@
         '<td>' +
           '<div class="task-cell' + (hasInfo ? " has-info" : "") + '">' +
             '<div class="editable" contenteditable="true" data-task-id="' + taskId + '" data-field="title" data-col="1">' + escapeHtml(title) + '</div>' +
+            '<span data-task-dependency-badge-host="' + taskId + '"></span>' +
             '<span class="task-link-badges" data-task-link-badges="' + taskId + '">' + renderTaskLinkBadges(info.links || []) + '</span>' +
             "<span class=\"task-pill\">" +
               "<button class=\"task-pill-segment\" type=\"button\" data-open-settings=\"" + taskId + "\" data-task-title=\"" + escapeHtml(title) + "\" data-project-name=\"\" onclick='return window.__openSettings(" + JSON.stringify(String(taskId)) + ", " + JSON.stringify(title) + ", \"\");'><i class=\"fa-solid fa-sliders\" aria-hidden=\"true\"></i></button>" +
@@ -3805,6 +3819,7 @@
 	              status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
 	              status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
 	              status_meta: task.status_meta || {},
+                  dependents: Array.isArray(task.dependents) ? task.dependents : [],
 	              group_id: group.id,
 	              group_name: group.name || "Group",
 	            });
@@ -5122,6 +5137,7 @@
 		              '<div class="project-gantt-task">' +
 		                '<div class="project-gantt-task-title-row">' +
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
+                          (typeof window.__renderDependencyBadgeHtml === "function" ? window.__renderDependencyBadgeHtml(item, { host: false }) : "") +
 		                '</div>' +
 		              '</div>' +
 		              '<div class="project-gantt-track' + (ganttRelativeReferenceIds[String(item.id)] ? ' is-gantt-relative-reference' : '') + '" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-task-locked="' + (item.locked ? '1' : '0') + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
@@ -8063,6 +8079,7 @@
     const tasksTables = Array.from(document.querySelectorAll(".tasks-table"));
     const infoByTask = {};
     window.__infoByTask = infoByTask;
+    window.__dependentsByTask = {{ (dependents_by_task if dependents_by_task is defined else {})|tojson }};
     const escapeHtml = (value) =>
       String(value == null ? "" : value)
         .replace(/&/g, "&amp;")
@@ -8518,6 +8535,7 @@
         <td>
           <div class="task-cell${info && (info.html || (info.attachments || []).length) ? " has-info" : ""}">
             <div class="editable" contenteditable="true" data-task-id="${id}" data-field="title" data-col="1">${safeTitle}</div>
+            <span data-task-dependency-badge-host="${id}"></span>
             <span class="task-link-badges" data-task-link-badges="${id}">${renderInlineTaskLinkBadges((info && info.links) || [])}</span>
             <span class="task-pill">
               <button class="task-pill-segment" type="button" data-open-settings="${id}" data-task-title="${safeTitle}" data-project-name=""><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
@@ -13920,7 +13938,7 @@
     var dashboardBootstrapStore = null;
     var dashboardStorePersistTimer = null;
     var dashboardBootstrapCacheDisabled = false;
-    var dashboardBootstrapCacheSchemaVersion = 5;
+    var dashboardBootstrapCacheSchemaVersion = 6;
     var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v5.user." + String(currentUserId);
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
     var terminClientPerfEvents = [];
@@ -13981,6 +13999,44 @@
       }
       return normalized;
     }
+
+    function taskDependents(task) {
+      if (!task || task.id == null) return [];
+      if (Array.isArray(task.dependents)) return task.dependents;
+      var store = window.__dependentsByTask || {};
+      var stored = store[String(task.id)];
+      return Array.isArray(stored) ? stored : [];
+    }
+
+    function renderDependencyBadgeHtml(task, options) {
+      var dependents = taskDependents(task);
+      var count = dependents.length;
+      if (!count || !task || task.id == null) return options && options.host ? '<span data-task-dependency-badge-host="' + escapeHtml(task && task.id != null ? task.id : "") + '"></span>' : "";
+      var label = count + " dependent task" + (count === 1 ? "" : "s");
+      return '<button class="task-dependency-badge" type="button" data-task-dependency-badge="' + escapeHtml(task.id) + '" aria-label="' + escapeHtml(label) + '" title="' + escapeHtml(label) + '">' +
+        '<i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>' + escapeHtml(count) + '</span>' +
+      '</button>';
+    }
+    window.__renderDependencyBadgeHtml = renderDependencyBadgeHtml;
+
+    function refreshDependencyBadgeForTask(task) {
+      if (!task || task.id == null) return;
+      var html = renderDependencyBadgeHtml(task, { host: false });
+      document.querySelectorAll('[data-task-dependency-badge="' + String(task.id) + '"]').forEach(function (node) {
+        node.outerHTML = html || '<span data-task-dependency-badge-host="' + escapeHtml(task.id) + '"></span>';
+      });
+      document.querySelectorAll('[data-task-dependency-badge-host="' + String(task.id) + '"]').forEach(function (host) {
+        host.innerHTML = html;
+      });
+    }
+
+    function refreshAllDependencyBadges() {
+      var taskMap = dashboardEntityMap("tasks") || {};
+      Object.keys(taskMap).forEach(function (taskId) {
+        refreshDependencyBadgeForTask(taskMap[taskId]);
+      });
+    }
+    window.__refreshAllDependencyBadges = refreshAllDependencyBadges;
 
     function normalizeTaskType(value) {
       var normalized = String(value || "standard").trim().toLowerCase();
@@ -14181,6 +14237,7 @@
       if (typeof syncAllTreeProjectCompletionIcons === "function") {
         syncAllTreeProjectCompletionIcons();
       }
+      refreshAllDependencyBadges();
       return dashboardBootstrapStore;
     }
 
@@ -14199,6 +14256,11 @@
         nextPayload
       );
       if (entityType === "tasks") {
+        if (Array.isArray(nextPayload.dependents)) {
+          var dependentsStore = window.__dependentsByTask || {};
+          dependentsStore[key] = nextPayload.dependents.slice();
+          window.__dependentsByTask = dependentsStore;
+        }
         var sharedInfoByTask = window.__infoByTask || {};
         sharedInfoByTask[key] = nextPayload.info || sharedInfoByTask[key] || {
           html: "",
@@ -14214,6 +14276,9 @@
       }
       if (entityType === "tasks" && typeof window.__refreshDueDisplays === "function") {
         window.__refreshDueDisplays();
+      }
+      if (entityType === "tasks") {
+        refreshDependencyBadgeForTask(nextPayload);
       }
       if (entityType === "tasks") {
         if (typeof window.__renderProblemTasksFromStore === "function") window.__renderProblemTasksFromStore();
@@ -19826,6 +19891,103 @@
       hidePrereqHoverCard();
     }
 
+    function dependencyBadgeTargetForNode(node) {
+      if (!node || !node.closest) return null;
+      return node.closest("[data-task-dependency-badge]");
+    }
+
+    function taskForDependencyBadge(target) {
+      if (!target) return null;
+      var taskId = String(target.getAttribute("data-task-dependency-badge") || "").trim();
+      if (!taskId) return null;
+      var localTask = (typeof dashboardTaskEntity === "function" ? dashboardTaskEntity(taskId) : null)
+        || (typeof taskById === "function" ? taskById(taskId) : null)
+        || null;
+      if (localTask) return localTask;
+      return { id: taskId, dependents: (window.__dependentsByTask || {})[taskId] || [] };
+    }
+
+    function renderDependencyHoverRows(dependents) {
+      var rows = Array.isArray(dependents) ? dependents : [];
+      if (!rows.length) {
+        return '<div class="footer-note">No dependent tasks.</div>';
+      }
+      return rows.map(function (dependent) {
+        var taskId = dependent.dependent_task_id || dependent.task_id || dependent.id || "";
+        var label = dependent.title || "Task";
+        var secondary = prerequisiteMetaLabel(dependent);
+        return (
+          '<div class="discussion-assignment-row discussion-prerequisite-row is-readonly" data-dependent-task-id="' + escapeHtml(taskId) + '">' +
+            '<div class="discussion-assignment-user discussion-prerequisite-user">' +
+              '<div class="discussion-prerequisite-pill-slot">' + renderReadonlyTaskStatusIconHtml(dependent) + '</div>' +
+              '<div class="discussion-assignment-meta">' +
+                '<div class="discussion-assignment-name">' + escapeHtml(label) + '</div>' +
+                (secondary ? '<div class="discussion-assignment-email">' + escapeHtml(secondary) + '</div>' : '') +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    function renderDependencyHoverCard(task) {
+      if (!prereqHoverCardEl || !task) return;
+      var dependents = taskDependents(task);
+      if (!dependents.length) {
+        hidePrereqHoverCard();
+        return;
+      }
+      prereqHoverCardEl.innerHTML =
+        '<div class="prereq-hover-card-title">Dependent Tasks</div>' +
+        '<div class="prereq-hover-card-body">' + renderDependencyHoverRows(dependents) + '</div>';
+      prereqHoverCardEl.hidden = false;
+      prereqHoverCardEl.setAttribute("aria-hidden", "false");
+    }
+
+    function renderDependencyHoverCardLoading() {
+      if (!prereqHoverCardEl) return;
+      prereqHoverCardEl.innerHTML =
+        '<div class="prereq-hover-card-title">Dependent Tasks</div>' +
+        '<div class="prereq-hover-card-body"><div class="footer-note">Loading dependent tasks…</div></div>';
+      prereqHoverCardEl.hidden = false;
+      prereqHoverCardEl.setAttribute("aria-hidden", "false");
+    }
+
+    function showDependencyHoverCard(target) {
+      if (!prereqHoverCardEl || !target) return;
+      var task = taskForDependencyBadge(target);
+      if (!task || !task.id) {
+        hidePrereqHoverCard();
+        return;
+      }
+      cancelHidePrereqHoverCard();
+      prereqHoverState.activeTarget = target;
+      var dependents = taskDependents(task);
+      if (dependents.length) {
+        renderDependencyHoverCard(task);
+        positionPrereqHoverCard(target);
+        return;
+      }
+      var requestId = ++prereqHoverState.requestId;
+      renderDependencyHoverCardLoading();
+      positionPrereqHoverCard(target);
+      fetchTaskSnapshot(task.id, { preferCache: false })
+        .then(function (freshTask) {
+          if (!freshTask || prereqHoverState.requestId !== requestId) return;
+          if (prereqHoverState.activeTarget !== target) return;
+          if (!Array.isArray(freshTask.dependents) || !freshTask.dependents.length) {
+            hidePrereqHoverCard();
+            return;
+          }
+          renderDependencyHoverCard(freshTask);
+          positionPrereqHoverCard(target);
+        })
+        .catch(function () {
+          if (prereqHoverState.requestId !== requestId) return;
+          hidePrereqHoverCard();
+        });
+    }
+
     function renderPrereqHoverCardLoading() {
       if (!prereqHoverCardEl) return;
       prereqHoverCardEl.innerHTML =
@@ -19888,15 +20050,20 @@
     }
 
     document.addEventListener("mouseover", function (event) {
+      var dependencyTarget = dependencyBadgeTargetForNode(event.target);
+      if (dependencyTarget) {
+        showDependencyHoverCard(dependencyTarget);
+        return;
+      }
       var target = prereqHoverTargetForNode(event.target);
       if (!target) return;
       showPrereqHoverCard(target);
     });
 
     document.addEventListener("mouseout", function (event) {
-      var from = prereqHoverTargetForNode(event.target);
+      var from = dependencyBadgeTargetForNode(event.target) || prereqHoverTargetForNode(event.target);
       if (!from || from !== prereqHoverState.activeTarget) return;
-      var to = prereqHoverTargetForNode(event.relatedTarget);
+      var to = dependencyBadgeTargetForNode(event.relatedTarget) || prereqHoverTargetForNode(event.relatedTarget);
       if (to === from) return;
       if (nodeWithinPrereqHoverCard(event.relatedTarget)) return;
       scheduleHidePrereqHoverCard();
@@ -19907,11 +20074,18 @@
         cancelHidePrereqHoverCard();
       });
       prereqHoverCardEl.addEventListener("mouseleave", function (event) {
-        var to = prereqHoverTargetForNode(event.relatedTarget);
+        var to = dependencyBadgeTargetForNode(event.relatedTarget) || prereqHoverTargetForNode(event.relatedTarget);
         if (to && to === prereqHoverState.activeTarget) return;
         scheduleHidePrereqHoverCard();
       });
       prereqHoverCardEl.addEventListener("click", function (event) {
+        var dependentRow = event.target.closest ? event.target.closest("[data-dependent-task-id]") : null;
+        if (dependentRow && prereqHoverCardEl.contains(dependentRow)) {
+          event.preventDefault();
+          event.stopPropagation();
+          openPrereqTaskFromHover(dependentRow.getAttribute("data-dependent-task-id"), null);
+          return;
+        }
         var row = event.target.closest ? event.target.closest("[data-prerequisite-id]") : null;
         if (!row || !prereqHoverCardEl.contains(row)) return;
         event.preventDefault();
@@ -19931,16 +20105,22 @@
     }
 
     document.addEventListener("focusin", function (event) {
+      var dependencyTarget = dependencyBadgeTargetForNode(event.target);
+      if (dependencyTarget) {
+        showDependencyHoverCard(dependencyTarget);
+        return;
+      }
       var target = prereqHoverTargetForNode(event.target);
       if (!target) return;
       showPrereqHoverCard(target);
     });
 
     document.addEventListener("focusout", function (event) {
-      var from = prereqHoverTargetForNode(event.target);
+      var from = dependencyBadgeTargetForNode(event.target) || prereqHoverTargetForNode(event.target);
       if (!from || from !== prereqHoverState.activeTarget) return;
-      var to = prereqHoverTargetForNode(event.relatedTarget);
+      var to = dependencyBadgeTargetForNode(event.relatedTarget) || prereqHoverTargetForNode(event.relatedTarget);
       if (to === from) return;
+      if (nodeWithinPrereqHoverCard(event.relatedTarget)) return;
       scheduleHidePrereqHoverCard();
     });
 
@@ -20734,6 +20914,7 @@
         cell.textContent = normalizedTitle;
         cell.dataset.originalValue = normalizedTitle;
       });
+      refreshDependencyBadgeForTask(effectiveTask);
       document.querySelectorAll('.todo-item-title[data-task-id="' + task.id + '"]').forEach(function (cell) {
         matched = true;
         if (cell.matches(".editable")) {
@@ -22570,6 +22751,7 @@
           dueMode: dueMode,
           dueLabel: todoActiveTaskDueLabel(dueDate, dueMode),
           startDate: startDate,
+          dependents: taskDependents(task),
           assigneeKeys: taskAssigneeKeys(task),
           statusState: String(taskMyStatusState(task) || "").trim().toLowerCase(),
           completedWindow: todoCompletedWindowFor(dueDate, String(task.due_mode || (dueDate ? "date" : "none"))),
@@ -22622,7 +22804,7 @@
         row.innerHTML = '' +
           '<span class="todo-active-task-accent" aria-hidden="true"></span>' +
           '<span class="todo-active-task-copy">' +
-            '<button class="todo-active-task-title" type="button" data-active-task-open="' + escapeHtml(entry.id || "") + '" data-task-title="' + escapeHtml(entry.title || "Task") + '" data-project-name="' + escapeHtml(entry.projectName || "Project") + '">' + escapeHtml(entry.title || "Task") + '</button>' +
+            '<span class="todo-active-task-title-wrap"><button class="todo-active-task-title" type="button" data-active-task-open="' + escapeHtml(entry.id || "") + '" data-task-title="' + escapeHtml(entry.title || "Task") + '" data-project-name="' + escapeHtml(entry.projectName || "Project") + '">' + escapeHtml(entry.title || "Task") + '</button>' + renderDependencyBadgeHtml(entry, { host: false }) + '</span>' +
             '<span class="todo-active-task-meta">' +
               (projectHref ? '<a class="todo-active-task-scope" data-active-project-link href="' + escapeHtml(projectHref) + '">' + escapeHtml(entry.projectName || "Project") + '</a>' : escapeHtml(entry.projectName || "Project")) +
               (entry.groupName ? ' · ' + (groupHref ? '<a class="todo-active-task-scope" data-active-group-link href="' + escapeHtml(groupHref) + '">' + escapeHtml(entry.groupName) + '</a>' : escapeHtml(entry.groupName)) : '') +
@@ -22706,6 +22888,7 @@
           </div>
           <div class="todo-item-title-row">
             ${titleHtml}
+            ${renderDependencyBadgeHtml(task, { host: false })}
             <span class="task-link-badges" data-task-link-badges="${task.id}">${linksHtml}</span>
             <span class="todo-main-spacer" aria-hidden="true"></span>
           </div>
@@ -22996,6 +23179,7 @@
         item.innerHTML =
           '<div class="problem-task-title-line">' +
             '<button class="problem-task-title" type="button" data-open-settings="' + escapeHtml(task.id) + '" data-task-title="' + escapeHtml(task.title || "Task") + '" data-project-name="' + escapeHtml(meta.projectName || "Project") + '">' + escapeHtml(task.title || "Task") + '</button>' +
+            renderDependencyBadgeHtml(task, { host: false }) +
             '<span class="problem-task-links task-link-badges" data-task-link-badges="' + escapeHtml(task.id) + '">' + linksHtml + '</span>' +
           '</div>' +
           '<div class="problem-task-context"><a href="' + escapeHtml(projectUrl) + '">' + escapeHtml(meta.projectName || "Project") + '</a>' +

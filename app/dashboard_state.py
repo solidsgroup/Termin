@@ -234,6 +234,7 @@ def _serialize_task(
     status_meta: dict,
     assignments: list[dict],
     prerequisites: list[dict],
+    dependents: list[dict],
     comment_count: int,
     has_unread_comments: bool,
     github_meta: dict | None,
@@ -324,6 +325,7 @@ def _serialize_task(
         "status_meta": status_meta,
         "assignments": assignments,
         "prerequisites": prerequisites,
+        "dependents": dependents,
         "comment_count": int(comment_count or 0),
         "has_unread_comments": bool(has_unread_comments),
         "github_meta": github_meta or None,
@@ -405,44 +407,69 @@ def build_dashboard_bootstrap(user) -> dict:
     for row in assignment_rows:
         assignments_by_task.setdefault(row.task_id, []).append(_serialize_assignment(row, assignment_users))
     prerequisite_rows = (
-        TaskPrerequisite.query.filter(TaskPrerequisite.task_id.in_(task_ids))
+        TaskPrerequisite.query.filter(
+            (TaskPrerequisite.task_id.in_(task_ids))
+            | (TaskPrerequisite.prerequisite_task_id.in_(task_ids))
+        )
         .order_by(TaskPrerequisite.created_at.asc(), TaskPrerequisite.id.asc())
         .all()
         if task_ids
         else []
     )
-    prerequisite_task_ids = sorted({row.prerequisite_task_id for row in prerequisite_rows if row.prerequisite_task_id})
-    prerequisite_tasks = {
-        task.id: task
-        for task in Task.query.filter(Task.id.in_(prerequisite_task_ids)).all()
-    } if prerequisite_task_ids else {}
+    related_task_ids = sorted({
+        related_id
+        for row in prerequisite_rows
+        for related_id in (row.task_id, row.prerequisite_task_id)
+        if related_id
+    })
+    related_tasks = {task.id: task for task in tasks}
+    missing_related_ids = [task_id for task_id in related_task_ids if task_id not in related_tasks]
+    if missing_related_ids:
+        related_tasks.update({
+            task.id: task
+            for task in Task.query.filter(Task.id.in_(missing_related_ids)).all()
+        })
     prerequisites_by_task: dict[int, list[dict]] = {}
+    dependents_by_task: dict[int, list[dict]] = {}
+
+    def serialize_dependency(row: TaskPrerequisite, task: Task | None, *, dependent: bool) -> dict | None:
+        if not task:
+            return None
+        task_info = load_info_payload(task.info, task.link)
+        task_meta = task_info.get("meta") or {}
+        payload = {
+            "id": row.id,
+            "task_id": row.task_id,
+            "prerequisite_task_id": row.prerequisite_task_id,
+            "title": task.title,
+            "project_id": task.project_id,
+            "group_id": task.group_id,
+            "status": task.status,
+            "status_mode": (status_map.get(task.id) or {}).get("mode") or task.status_mode or "single",
+            "status_percentage": int((status_map.get(task.id) or {}).get("percentage_complete") or 0),
+            "due_at": task.due_at.isoformat() if task.due_at else None,
+            "due_mode": str(task_meta.get("due_mode") or "").strip().lower() or ("date" if task.due_at else "none"),
+            "due_relative": {
+                "task_id": task_meta.get("due_relative_task_id"),
+                "task_title": "",
+                "days": task_meta.get("due_relative_days") or 0,
+            },
+            "start_date": str(task_meta.get("start_date") or "").strip() or None,
+            "locked": bool(task.locked),
+        }
+        if dependent:
+            payload["dependent_task_id"] = row.task_id
+        return payload
+
     for row in prerequisite_rows:
-        prerequisite_task = prerequisite_tasks.get(row.prerequisite_task_id)
-        if not prerequisite_task:
-            continue
-        prerequisites_by_task.setdefault(row.task_id, []).append(
-            {
-                "id": row.id,
-                "task_id": row.task_id,
-                "prerequisite_task_id": row.prerequisite_task_id,
-                "title": prerequisite_task.title,
-                "project_id": prerequisite_task.project_id,
-                "group_id": prerequisite_task.group_id,
-                "status": prerequisite_task.status,
-                "status_mode": (status_map.get(prerequisite_task.id) or {}).get("mode") or prerequisite_task.status_mode or "single",
-                "status_percentage": int((status_map.get(prerequisite_task.id) or {}).get("percentage_complete") or 0),
-                "due_at": prerequisite_task.due_at.isoformat() if prerequisite_task.due_at else None,
-                "due_mode": str((load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("due_mode") or "").strip().lower() or ("date" if prerequisite_task.due_at else "none"),
-                "due_relative": {
-                    "task_id": (load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("due_relative_task_id"),
-                    "task_title": "",
-                    "days": (load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("due_relative_days") or 0,
-                },
-                "start_date": str((load_info_payload(prerequisite_task.info, prerequisite_task.link).get("meta") or {}).get("start_date") or "").strip() or None,
-                "locked": bool(prerequisite_task.locked),
-            }
-        )
+        if row.task_id in task_ids:
+            payload = serialize_dependency(row, related_tasks.get(row.prerequisite_task_id), dependent=False)
+            if payload:
+                prerequisites_by_task.setdefault(row.task_id, []).append(payload)
+        if row.prerequisite_task_id in task_ids:
+            payload = serialize_dependency(row, related_tasks.get(row.task_id), dependent=True)
+            if payload:
+                dependents_by_task.setdefault(row.prerequisite_task_id, []).append(payload)
     github_task_meta, _github_project_id = _build_github_task_meta(user.id, task_ids, github_user_map)
 
     comment_counts = {}
@@ -514,7 +541,7 @@ def build_dashboard_bootstrap(user) -> dict:
             "user_id": user.id,
             "generated_at": now_utc.isoformat(),
             "cursor": now_utc.isoformat(),
-            "schema_version": 5,
+            "schema_version": 6,
         },
         "entities": {
             "divisions": {
@@ -540,6 +567,7 @@ def build_dashboard_bootstrap(user) -> dict:
                     status_meta=status_map.get(task.id) or {},
                     assignments=assignments_by_task.get(task.id, []),
                     prerequisites=prerequisites_by_task.get(task.id, []),
+                    dependents=dependents_by_task.get(task.id, []),
                     comment_count=comment_counts.get(task.id, 0),
                     has_unread_comments=task.id in unread_task_ids,
                     github_meta=github_task_meta.get(task.id),
