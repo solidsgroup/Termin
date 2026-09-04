@@ -1700,15 +1700,21 @@
     <div class="quick-task-field">
       <div class="quick-task-section-title">Project</div>
       <div class="quick-task-field-body">
-        <button class="quick-task-project-trigger" type="button" id="quick-task-project-trigger" aria-expanded="false">
-          <span class="quick-task-project-trigger-copy">
-            <span class="quick-task-project-trigger-title" id="quick-task-project-title">Choose project</span>
-            <span class="quick-task-project-trigger-meta" id="quick-task-project-meta">Select project or group</span>
-          </span>
-          <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
-        </button>
-        <div class="quick-task-project-picker" id="quick-task-project-picker">
-          <div id="quick-task-project-list"></div>
+        <div class="quick-task-picker-control quick-task-project-control">
+          <button class="quick-task-project-trigger" type="button" id="quick-task-project-trigger" aria-expanded="false">
+            <span class="quick-task-project-trigger-selection">
+              <span class="quick-task-project-trigger-dot" id="quick-task-project-trigger-dot" aria-hidden="true"></span>
+              <span class="quick-task-project-trigger-title" id="quick-task-project-title">Choose project</span>
+            </span>
+            <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <label class="quick-task-picker-search hidden" id="quick-task-project-search-wrap">
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <input id="quick-task-project-search" type="search" placeholder="Search projects" autocomplete="off" aria-label="Search projects" />
+          </label>
+          <div class="quick-task-project-picker" id="quick-task-project-picker">
+            <div id="quick-task-project-list"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1720,22 +1726,45 @@
         </div>
       </div>
       <div class="quick-task-field">
-        <label for="quick-task-assignee">Assignee</label>
+        <label id="quick-task-assignee-field-label">Assignee</label>
         <div class="quick-task-field-body">
-          <select id="quick-task-assignee"></select>
+          <div class="quick-task-assignee-control">
+            <button class="quick-task-assignee-trigger" type="button" id="quick-task-assignee-trigger" aria-expanded="false" aria-labelledby="quick-task-assignee-field-label quick-task-assignee-label">
+              <span class="quick-task-assignee-selection">
+                <span class="quick-task-assignee-avatar" id="quick-task-assignee-avatar" aria-hidden="true">?</span>
+                <span class="quick-task-assignee-label" id="quick-task-assignee-label">Choose assignee</span>
+              </span>
+              <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+            </button>
+            <label class="quick-task-picker-search hidden" id="quick-task-assignee-search-wrap">
+              <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              <input id="quick-task-assignee-search" type="search" placeholder="Search assignees" autocomplete="off" aria-label="Search assignees" />
+            </label>
+            <div class="quick-task-assignee-picker hidden" id="quick-task-assignee-picker">
+              <div class="quick-task-assignee-list" id="quick-task-assignee-list"></div>
+            </div>
+            <select class="hidden" id="quick-task-assignee" tabindex="-1" aria-hidden="true"></select>
+          </div>
         </div>
       </div>
       <div class="quick-task-field">
         <label for="quick-task-date">Due</label>
         <div class="quick-task-field-body">
-          <div class="quick-task-due-row">
-            <div class="quick-task-due-mode" id="quick-task-due-mode">
-              <button class="quick-task-due-mode-button is-active" type="button" data-quick-task-due-mode="asap">ASAP</button>
-              <button class="quick-task-due-mode-button" type="button" data-quick-task-due-mode="urgent">Urgent</button>
-              <button class="quick-task-due-mode-button" type="button" data-quick-task-due-mode="date">Date</button>
-              <button class="quick-task-due-mode-button" type="button" data-quick-task-due-mode="low_priority">Low priority</button>
+          <div class="quick-task-due-control" id="quick-task-due-mode" data-due-mode="asap">
+            <div class="quick-task-due-options" role="group" aria-label="Due date mode">
+              <button class="btn secondary quick-task-due-mode-button" type="button" data-quick-task-due-mode="none" title="No date" aria-label="No date" aria-pressed="false"><i class="fa-solid fa-calendar-xmark" aria-hidden="true"></i></button>
+              <button class="btn secondary quick-task-due-mode-button" type="button" data-quick-task-due-mode="urgent" title="Urgent" aria-label="Urgent" aria-pressed="false"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></button>
+              <button class="btn secondary quick-task-due-mode-button is-active" type="button" data-quick-task-due-mode="asap" title="ASAP" aria-label="ASAP" aria-pressed="true"><i class="fa-solid fa-forward-fast" aria-hidden="true"></i></button>
+              <button class="btn secondary quick-task-due-mode-button" type="button" data-quick-task-due-mode="date" title="Date" aria-label="Date" aria-pressed="false"><i class="fa-regular fa-calendar" aria-hidden="true"></i></button>
+              <button class="btn secondary quick-task-due-mode-button" type="button" data-quick-task-due-mode="relative" title="Relative date" aria-label="Relative date" aria-pressed="false"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
+              <button class="btn secondary quick-task-due-mode-button" type="button" data-quick-task-due-mode="low_priority" title="Low priority" aria-label="Low priority" aria-pressed="false"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>
             </div>
-            <input id="quick-task-date" class="quick-task-date-input" type="date" hidden disabled />
+            <input id="quick-task-date" class="quick-task-date-input hidden" type="date" data-due-mode="asap" data-due-relative-task-id="" data-due-relative-task-title="" data-due-relative-days="0" value="" />
+            <div class="quick-task-relative-fields hidden" id="quick-task-relative-fields">
+              <input id="quick-task-relative-task" type="text" placeholder="Reference task" autocomplete="termin-nope-relative-quick-task" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <div class="quick-task-relative-results" id="quick-task-relative-results"></div>
+              <label class="quick-task-relative-days">Days <input id="quick-task-relative-days" type="number" step="1" value="0" /></label>
+            </div>
           </div>
         </div>
       </div>
@@ -9208,7 +9237,6 @@
       if (summary) summary.classList.add("is-active");
       const currentMode = String(input.getAttribute("data-due-mode") || (input.value ? "date" : "none")).toLowerCase();
       const menu = document.createElement("div");
-      const dueRect = dueCell.getBoundingClientRect();
       const dueModeOptions = [
         { mode: "none", label: "No date", icon: "fa-solid fa-calendar-xmark" },
         { mode: "urgent", label: "Urgent", icon: "fa-solid fa-triangle-exclamation" },
@@ -9225,8 +9253,11 @@
       menu.style.position = "fixed";
       menu.style.width = "min(280px, calc(100vw - 24px))";
       menu.style.maxWidth = "calc(100vw - 24px)";
-      menu.style.top = Math.round(dueCell.getBoundingClientRect().bottom + 6) + "px";
-      menu.style.zIndex = "600";
+      menu.style.maxHeight = "calc(100vh - 24px)";
+      menu.style.overflowY = "auto";
+      menu.style.top = "12px";
+      menu.style.left = "12px";
+      menu.style.zIndex = dueCell.closest(".modal") ? "2700" : "600";
       menu.innerHTML =
         '<div class="todo-assignee-actions due-mode-actions" style="margin:0;">' +
           dueModeActionsHtml +
@@ -9243,10 +9274,23 @@
           '</div>' +
         '</div>';
       document.body.appendChild(menu);
-      var menuWidth = Math.min(280, Math.max(220, menu.offsetWidth || 280));
-      var left = Math.round(dueRect.right - menuWidth);
-      left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
-      menu.style.left = left + "px";
+      var positionDueModeMenu = function () {
+        if (!menu.isConnected) return;
+        var anchorRect = dueCell.getBoundingClientRect();
+        var menuWidth = Math.min(280, Math.max(220, menu.offsetWidth || 280));
+        var menuHeight = Math.min(menu.offsetHeight || 0, Math.max(0, window.innerHeight - 24));
+        var left = Math.round(anchorRect.right - menuWidth);
+        left = Math.max(12, Math.min(left, window.innerWidth - menuWidth - 12));
+        var belowTop = Math.round(anchorRect.bottom + 6);
+        var aboveTop = Math.round(anchorRect.top - menuHeight - 6);
+        var top = belowTop;
+        if (belowTop + menuHeight > window.innerHeight - 12 && aboveTop >= 12) {
+          top = aboveTop;
+        }
+        top = Math.max(12, Math.min(top, window.innerHeight - menuHeight - 12));
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      };
       var embeddedDateInput = menu.querySelector("[data-due-mode-date-input]");
       var dateWrap = menu.querySelector("[data-due-mode-date-wrap]");
       var relativeWrap = menu.querySelector("[data-due-mode-relative-wrap]");
@@ -9258,14 +9302,17 @@
         if (!dateWrap) return;
         dateWrap.style.display = visible ? "block" : "none";
         dateWrap.hidden = !visible;
+        window.requestAnimationFrame(positionDueModeMenu);
       };
       var setRelativeWrapVisible = function (visible) {
         if (!relativeWrap) return;
         relativeWrap.style.display = visible ? "grid" : "none";
         relativeWrap.hidden = !visible;
+        window.requestAnimationFrame(positionDueModeMenu);
       };
       setDateWrapVisible(currentMode === "date");
       setRelativeWrapVisible(currentMode === "relative");
+      positionDueModeMenu();
       if (embeddedDateInput) {
         embeddedDateInput.addEventListener("change", function () {
           input.setAttribute("data-due-mode", "date");
@@ -10156,14 +10203,28 @@
     const quickTaskModal = document.getElementById("quick-task-modal");
     const quickTaskForm = document.getElementById("quick-task-form");
     const quickTaskProjectTrigger = document.getElementById("quick-task-project-trigger");
+    const quickTaskProjectTriggerDot = document.getElementById("quick-task-project-trigger-dot");
     const quickTaskProjectTitle = document.getElementById("quick-task-project-title");
     const quickTaskProjectMeta = document.getElementById("quick-task-project-meta");
     const quickTaskProjectPicker = document.getElementById("quick-task-project-picker");
+    const quickTaskProjectSearchWrap = document.getElementById("quick-task-project-search-wrap");
+    const quickTaskProjectSearch = document.getElementById("quick-task-project-search");
     const quickTaskProjectList = document.getElementById("quick-task-project-list");
     const quickTaskTitleInput = document.getElementById("quick-task-title");
     const quickTaskAssigneeSelect = document.getElementById("quick-task-assignee");
+    const quickTaskAssigneeTrigger = document.getElementById("quick-task-assignee-trigger");
+    const quickTaskAssigneeAvatar = document.getElementById("quick-task-assignee-avatar");
+    const quickTaskAssigneeLabel = document.getElementById("quick-task-assignee-label");
+    const quickTaskAssigneeSearchWrap = document.getElementById("quick-task-assignee-search-wrap");
+    const quickTaskAssigneeSearch = document.getElementById("quick-task-assignee-search");
+    const quickTaskAssigneePicker = document.getElementById("quick-task-assignee-picker");
+    const quickTaskAssigneeList = document.getElementById("quick-task-assignee-list");
     const quickTaskDueMode = document.getElementById("quick-task-due-mode");
     const quickTaskDateInput = document.getElementById("quick-task-date");
+    const quickTaskRelativeFields = document.getElementById("quick-task-relative-fields");
+    const quickTaskRelativeTaskInput = document.getElementById("quick-task-relative-task");
+    const quickTaskRelativeResults = document.getElementById("quick-task-relative-results");
+    const quickTaskRelativeDaysInput = document.getElementById("quick-task-relative-days");
     const quickTaskStatus = document.getElementById("quick-task-status");
     const quickTaskCancel = document.getElementById("quick-task-cancel");
     const quickTaskSubmit = document.getElementById("quick-task-submit");
@@ -10197,6 +10258,7 @@
     let canvasGroupProjectId = "";
     let quickTaskSelection = { projectId: "", groupId: "" };
     let quickTaskAssigneeCache = {};
+    let quickTaskAssigneeOptions = [];
     let quickTaskDueModeValue = "asap";
     const copyGroupProjectFallback = [
       {% for context in tree_project_contexts %}
@@ -10953,11 +11015,30 @@
       var divisions = quickTaskEntityMap("divisions");
       var manageableIds = quickTaskManageableProjectIds();
       var manageableSet = new Set(manageableIds);
+      var searchValue = quickTaskProjectSearch ? String(quickTaskProjectSearch.value || "").trim().toLowerCase() : "";
+      var groupNamesByProject = {};
+      Object.values(quickTaskEntityMap("groups")).forEach(function (group) {
+        if (!group || group.project_id == null) return;
+        var projectId = String(group.project_id);
+        if (!groupNamesByProject[projectId]) groupNamesByProject[projectId] = [];
+        groupNamesByProject[projectId].push(group.name || "");
+      });
+      var projectMatchesSearch = function (project) {
+        if (!searchValue) return true;
+        var division = project && project.division_id != null ? divisions[String(project.division_id)] : null;
+        return [
+          project && project.display_name,
+          project && project.name,
+          division && division.name,
+          project && project.is_direct ? "direct" : "",
+          project && project.is_team ? "team" : "",
+        ].concat(project ? (groupNamesByProject[String(project.id)] || []) : []).join(" ").toLowerCase().indexOf(searchValue) >= 0;
+      };
       var html = [];
 
       var directProjects = Object.keys(projects)
         .map(function (key) { return projects[key]; })
-        .filter(function (project) { return project && project.is_direct && manageableSet.has(String(project.id)); })
+        .filter(function (project) { return project && project.is_direct && manageableSet.has(String(project.id)) && projectMatchesSearch(project); })
         .sort(function (a, b) {
           return String(a.display_name || a.name || "").localeCompare(String(b.display_name || b.name || "")) || Number(a.id || 0) - Number(b.id || 0);
         });
@@ -10980,7 +11061,7 @@
 
       var teamProjects = Object.keys(projects)
         .map(function (key) { return projects[key]; })
-        .filter(function (project) { return project && project.is_team && manageableSet.has(String(project.id)); })
+        .filter(function (project) { return project && project.is_team && manageableSet.has(String(project.id)) && projectMatchesSearch(project); })
         .sort(function (a, b) {
           return String(a.display_name || a.name || "").localeCompare(String(b.display_name || b.name || "")) || Number(a.id || 0) - Number(b.id || 0);
         });
@@ -11003,7 +11084,7 @@
 
       var standardProjects = Object.keys(projects)
         .map(function (key) { return projects[key]; })
-        .filter(function (project) { return project && !project.is_direct && !project.is_team && manageableSet.has(String(project.id)); });
+        .filter(function (project) { return project && !project.is_direct && !project.is_team && manageableSet.has(String(project.id)) && projectMatchesSearch(project); });
       var topLevelProjects = standardProjects
         .filter(function (project) { return project.division_id == null; })
         .sort(function (a, b) {
@@ -11060,30 +11141,152 @@
         html.push('</div>');
       });
 
-      quickTaskProjectList.innerHTML = html.join("") || '<div class="footer-note" style="padding: 8px 10px;">No available projects.</div>';
+      quickTaskProjectList.innerHTML = html.join("") || '<div class="footer-note quick-task-project-empty">' + (searchValue ? 'No matching projects.' : 'No available projects.') + '</div>';
+      if (quickTaskProjectPicker && quickTaskProjectPicker.classList.contains("is-open")) {
+        window.requestAnimationFrame(function () {
+          quickTaskPositionPicker(quickTaskProjectPicker, quickTaskProjectSearchWrap, 320);
+        });
+      }
+    }
+
+    function quickTaskPositionPicker(picker, anchor, preferredHeight) {
+      if (!picker || !anchor || picker.classList.contains("hidden")) return;
+      var rect = anchor.getBoundingClientRect();
+      var viewportPadding = 12;
+      var gap = 6;
+      var belowSpace = Math.max(0, window.innerHeight - rect.bottom - gap - viewportPadding);
+      var aboveSpace = Math.max(0, rect.top - gap - viewportPadding);
+      var placeAbove = belowSpace < 180 && aboveSpace > belowSpace;
+      var availableHeight = placeAbove ? aboveSpace : belowSpace;
+      var maxHeight = Math.max(72, Math.min(Number(preferredHeight || 300), availableHeight));
+      var width = Math.min(rect.width, window.innerWidth - (viewportPadding * 2));
+      var left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
+      picker.style.position = "fixed";
+      picker.style.width = Math.round(width) + "px";
+      picker.style.maxHeight = Math.round(maxHeight) + "px";
+      picker.style.left = Math.round(left) + "px";
+      if (placeAbove) {
+        var renderedHeight = Math.min(picker.scrollHeight, maxHeight);
+        picker.style.top = Math.round(Math.max(viewportPadding, rect.top - gap - renderedHeight)) + "px";
+      } else {
+        picker.style.top = Math.round(rect.bottom + gap) + "px";
+      }
     }
 
     function quickTaskSetProjectPickerOpen(nextOpen) {
       if (!quickTaskProjectPicker || !quickTaskProjectTrigger) return;
-      quickTaskProjectPicker.classList.toggle("is-open", !!nextOpen);
-      quickTaskProjectTrigger.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+      if (nextOpen) quickTaskSetAssigneePickerOpen(false);
+      var isOpen = !!nextOpen;
+      quickTaskProjectPicker.classList.toggle("is-open", isOpen);
+      quickTaskProjectTrigger.classList.toggle("hidden", isOpen);
+      if (quickTaskProjectSearchWrap) quickTaskProjectSearchWrap.classList.toggle("hidden", !isOpen);
+      quickTaskProjectTrigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      if (isOpen && quickTaskProjectSearch) {
+        quickTaskProjectSearch.value = "";
+        quickTaskRenderProjectPicker();
+        document.body.appendChild(quickTaskProjectPicker);
+        window.requestAnimationFrame(function () {
+          quickTaskProjectSearch.focus();
+          quickTaskPositionPicker(quickTaskProjectPicker, quickTaskProjectSearchWrap, 320);
+        });
+      }
     }
 
     function quickTaskSetDueMode(mode) {
-      quickTaskDueModeValue = ["asap", "urgent", "date", "low_priority"].indexOf(mode) >= 0 ? mode : "asap";
-      if (quickTaskDueMode) {
-        quickTaskDueMode.querySelectorAll("[data-quick-task-due-mode]").forEach(function (button) {
-          button.classList.toggle("is-active", button.getAttribute("data-quick-task-due-mode") === quickTaskDueModeValue);
-        });
-      }
+      quickTaskDueModeValue = ["none", "urgent", "asap", "date", "relative", "low_priority"].indexOf(mode) >= 0 ? mode : "asap";
       if (quickTaskDateInput) {
-        var showDate = quickTaskDueModeValue === "date";
-        quickTaskDateInput.hidden = !showDate;
-        quickTaskDateInput.disabled = !showDate;
-        if (!showDate) {
+        quickTaskDateInput.setAttribute("data-due-mode", quickTaskDueModeValue);
+        if (quickTaskDueModeValue !== "date") {
           quickTaskDateInput.value = "";
         }
+        if (quickTaskDueModeValue !== "relative") {
+          quickTaskDateInput.setAttribute("data-due-relative-task-id", "");
+          quickTaskDateInput.setAttribute("data-due-relative-task-title", "");
+          quickTaskDateInput.setAttribute("data-due-relative-days", "0");
+          if (quickTaskRelativeTaskInput) {
+            quickTaskRelativeTaskInput.value = "";
+            quickTaskRelativeTaskInput.dataset.selectedTaskId = "";
+          }
+          if (quickTaskRelativeDaysInput) quickTaskRelativeDaysInput.value = "0";
+          if (quickTaskRelativeResults) quickTaskRelativeResults.innerHTML = "";
+        }
+        quickTaskSyncDueInput();
       }
+    }
+
+    function quickTaskSyncDueInput() {
+      if (!quickTaskDateInput) return;
+      var mode = String(quickTaskDateInput.getAttribute("data-due-mode") || "asap").toLowerCase();
+      quickTaskDueModeValue = ["none", "urgent", "asap", "date", "relative", "low_priority"].indexOf(mode) >= 0 ? mode : "asap";
+      if (quickTaskDueMode) {
+        quickTaskDueMode.setAttribute("data-due-mode", quickTaskDueModeValue);
+        quickTaskDueMode.querySelectorAll("[data-quick-task-due-mode]").forEach(function (button) {
+          var isActive = button.getAttribute("data-quick-task-due-mode") === quickTaskDueModeValue;
+          button.classList.toggle("is-active", isActive);
+          button.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+      }
+      quickTaskDateInput.classList.toggle("hidden", quickTaskDueModeValue !== "date");
+      if (quickTaskRelativeFields) quickTaskRelativeFields.classList.toggle("hidden", quickTaskDueModeValue !== "relative");
+    }
+
+    function quickTaskRenderRelativeResults(items, message) {
+      if (!quickTaskRelativeResults) return;
+      var rows = Array.isArray(items) ? items.slice(0, 8) : [];
+      if (!rows.length) {
+        quickTaskRelativeResults.innerHTML = message
+          ? '<div class="due-relative-result-note">' + quickTaskEscape(message) + '</div>'
+          : "";
+        return;
+      }
+      quickTaskRelativeResults.innerHTML = rows.map(function (item) {
+        var meta = item.meta_label ? '<span class="due-relative-result-meta">' + quickTaskEscape(item.meta_label) + '</span>' : "";
+        return '<button class="due-relative-result" type="button" data-quick-task-relative-id="' + quickTaskEscape(item.id || "") + '">' +
+          '<span class="due-relative-result-title">' + quickTaskEscape(item.title || item.label || "Task") + '</span>' + meta + '</button>';
+      }).join("");
+      quickTaskRelativeResults.querySelectorAll("[data-quick-task-relative-id]").forEach(function (button, index) {
+        button.addEventListener("click", function (event) {
+          event.preventDefault();
+          var item = rows[index];
+          if (!item || !item.id || !quickTaskDateInput || !quickTaskRelativeTaskInput) return;
+          quickTaskRelativeTaskInput.value = item.title || item.label || "";
+          quickTaskRelativeTaskInput.dataset.selectedTaskId = String(item.id);
+          quickTaskDateInput.setAttribute("data-due-relative-task-id", String(item.id));
+          quickTaskDateInput.setAttribute("data-due-relative-task-title", quickTaskRelativeTaskInput.value);
+          quickTaskRenderRelativeResults([], "");
+        });
+      });
+    }
+
+    function quickTaskLoadRelativeSuggestions() {
+      if (!quickTaskRelativeTaskInput) return;
+      var value = String(quickTaskRelativeTaskInput.value || "").trim();
+      var requestToken = Number(quickTaskRelativeTaskInput._suggestRequestToken || 0) + 1;
+      quickTaskRelativeTaskInput._suggestRequestToken = requestToken;
+      quickTaskRenderRelativeResults([], "Loading tasks...");
+      fetch("/api/tasks/search?q=" + encodeURIComponent(value) + "&entity_type=task", { credentials: "same-origin" })
+        .then(function (res) { return res.json().catch(function () { return { results: [] }; }); })
+        .then(function (data) {
+          if (Number(quickTaskRelativeTaskInput._suggestRequestToken || 0) !== requestToken) return;
+          var results = Array.isArray(data.results) ? data.results : [];
+          results = results.filter(function (item) { return item && item.entity_type === "task"; }).map(function (item) {
+            var metaBits = [];
+            if (item.project_name) metaBits.push(item.project_name);
+            if (item.group_name) metaBits.push(item.group_name);
+            if (item.due_at) metaBits.push("Due " + String(item.due_at).slice(0, 10));
+            return Object.assign({}, item, { label: item.title || "Task", meta_label: metaBits.join(" · ") });
+          });
+          if (!results.length && typeof window.__localTaskSearchResults === "function") {
+            results = window.__localTaskSearchResults(value);
+          }
+          quickTaskRenderRelativeResults(results, value ? "No matching tasks" : "Type to search tasks");
+        })
+        .catch(function (error) {
+          if (Number(quickTaskRelativeTaskInput._suggestRequestToken || 0) !== requestToken) return;
+          console.error("quick task relative due search failed", error);
+          var localResults = typeof window.__localTaskSearchResults === "function" ? window.__localTaskSearchResults(value) : [];
+          quickTaskRenderRelativeResults(localResults, localResults.length ? "" : "Could not load tasks");
+        });
     }
 
     function quickTaskSetStatus(message, isError) {
@@ -11103,10 +11306,84 @@
       };
       if (quickTaskProjectTitle) quickTaskProjectTitle.textContent = quickTaskProjectLabel(project, group);
       if (quickTaskProjectMeta) quickTaskProjectMeta.textContent = quickTaskProjectMetaLabel(project, group);
+      if (quickTaskProjectTriggerDot) {
+        quickTaskProjectTriggerDot.style.setProperty("--quick-task-option-color", quickTaskProjectColor(project));
+      }
       if (!opts.keepPickerOpen) quickTaskSetProjectPickerOpen(false);
       quickTaskRenderProjectPicker();
       if (opts.loadAssignees) {
         quickTaskLoadAssignees(project.id);
+      }
+    }
+
+    function quickTaskAssigneeAvatarHtml(member, className) {
+      var label = String((member && (member.display_name || member.email)) || "?").trim() || "?";
+      var initial = label.charAt(0).toUpperCase();
+      var avatarUrl = String((member && member.avatar_url) || "").trim();
+      return '<span class="' + (className || "quick-task-assignee-avatar") + (avatarUrl ? ' has-photo' : '') + '">' +
+        '<span aria-hidden="true">' + quickTaskEscape(initial) + '</span>' +
+        (avatarUrl ? '<img src="' + quickTaskEscape(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />' : '') +
+      '</span>';
+    }
+
+    function quickTaskSetAssigneePickerOpen(nextOpen) {
+      if (!quickTaskAssigneePicker || !quickTaskAssigneeTrigger) return;
+      var isOpen = !!nextOpen && !quickTaskAssigneeTrigger.disabled;
+      if (isOpen) quickTaskSetProjectPickerOpen(false);
+      quickTaskAssigneePicker.classList.toggle("hidden", !isOpen);
+      quickTaskAssigneeTrigger.classList.toggle("hidden", isOpen);
+      if (quickTaskAssigneeSearchWrap) quickTaskAssigneeSearchWrap.classList.toggle("hidden", !isOpen);
+      quickTaskAssigneeTrigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      if (isOpen && quickTaskAssigneeList && quickTaskAssigneeSearch) {
+        quickTaskAssigneeSearch.value = "";
+        quickTaskRenderAssigneePicker();
+        document.body.appendChild(quickTaskAssigneePicker);
+        window.requestAnimationFrame(function () {
+          quickTaskAssigneeSearch.focus();
+          quickTaskPositionPicker(quickTaskAssigneePicker, quickTaskAssigneeSearchWrap, 280);
+        });
+      }
+    }
+
+    function quickTaskRenderAssigneePicker() {
+      if (!quickTaskAssigneeSelect) return;
+      var selectedEmail = String(quickTaskAssigneeSelect.value || "").trim();
+      var selectedMember = quickTaskAssigneeOptions.find(function (member) {
+        return String((member && member.email) || "").trim() === selectedEmail;
+      }) || quickTaskAssigneeOptions[0] || null;
+      if (quickTaskAssigneeTrigger) quickTaskAssigneeTrigger.disabled = !selectedMember;
+      if (quickTaskAssigneeLabel) {
+        quickTaskAssigneeLabel.textContent = selectedMember
+          ? String(selectedMember.display_name || selectedMember.email || "Assignee")
+          : "No assignees available";
+      }
+      if (quickTaskAssigneeAvatar) {
+        var avatarLabel = String((selectedMember && (selectedMember.display_name || selectedMember.email)) || "?").trim() || "?";
+        var avatarUrl = String((selectedMember && selectedMember.avatar_url) || "").trim();
+        quickTaskAssigneeAvatar.classList.toggle("has-photo", !!avatarUrl);
+        quickTaskAssigneeAvatar.innerHTML = '<span aria-hidden="true">' + quickTaskEscape(avatarLabel.charAt(0).toUpperCase()) + '</span>' +
+          (avatarUrl ? '<img src="' + quickTaskEscape(avatarUrl) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();" />' : '');
+      }
+      if (!quickTaskAssigneeList) return;
+      var searchValue = quickTaskAssigneeSearch ? String(quickTaskAssigneeSearch.value || "").trim().toLowerCase() : "";
+      var visibleOptions = quickTaskAssigneeOptions.filter(function (member) {
+        if (!searchValue) return true;
+        return [member && member.display_name, member && member.email].join(" ").toLowerCase().indexOf(searchValue) >= 0;
+      });
+      quickTaskAssigneeList.innerHTML = visibleOptions.map(function (member) {
+        var email = String((member && member.email) || "").trim();
+        var label = String((member && (member.display_name || member.email)) || email || "User").trim();
+        var isSelected = email === selectedEmail;
+        return '<button class="quick-task-assignee-option' + (isSelected ? ' is-selected' : '') + '" type="button" data-quick-task-assignee-option="' + quickTaskEscape(email) + '" aria-selected="' + (isSelected ? 'true' : 'false') + '">' +
+          quickTaskAssigneeAvatarHtml(member) +
+          '<span class="quick-task-assignee-option-copy"><span class="quick-task-assignee-option-title">' + quickTaskEscape(label) + '</span>' +
+          (email && email !== label ? '<span class="quick-task-assignee-option-meta">' + quickTaskEscape(email) + '</span>' : '') + '</span>' +
+        '</button>';
+      }).join("") || '<div class="footer-note quick-task-project-empty">' + (searchValue ? 'No matching assignees.' : 'No assignees available.') + '</div>';
+      if (quickTaskAssigneePicker && !quickTaskAssigneePicker.classList.contains("hidden")) {
+        window.requestAnimationFrame(function () {
+          quickTaskPositionPicker(quickTaskAssigneePicker, quickTaskAssigneeSearchWrap, 280);
+        });
       }
     }
 
@@ -11121,6 +11398,9 @@
       }
       quickTaskAssigneeSelect.disabled = true;
       quickTaskAssigneeSelect.innerHTML = '<option>Loading…</option>';
+      if (quickTaskAssigneeTrigger) quickTaskAssigneeTrigger.disabled = true;
+      if (quickTaskAssigneeLabel) quickTaskAssigneeLabel.textContent = "Loading...";
+      quickTaskSetAssigneePickerOpen(false);
       return fetch("/api/projects/" + encodeURIComponent(projectId) + "/members", {
         credentials: "same-origin",
         headers: { "Accept": "application/json" },
@@ -11138,6 +11418,7 @@
           var fallback = [{
             email: dashboardUserEmail,
             display_name: dashboardUserDisplayName || dashboardUserEmail,
+            avatar_url: dashboardUserAvatar,
           }];
           quickTaskPopulateAssigneeOptions(fallback);
           return fallback;
@@ -11160,19 +11441,27 @@
       if (!defaultValue && options.length) {
         defaultValue = String((options[0] && options[0].email) || "").trim();
       }
-      if (!quickTaskAssigneeSelect.innerHTML) {
+      if (!options.length) {
+        options = [{
+          email: dashboardUserEmail || "",
+          display_name: dashboardUserDisplayName || dashboardUserEmail || "Me",
+          avatar_url: dashboardUserAvatar,
+        }];
         quickTaskAssigneeSelect.innerHTML = '<option value="' + quickTaskEscape(dashboardUserEmail || "") + '">' + quickTaskEscape(dashboardUserDisplayName || dashboardUserEmail || "Me") + '</option>';
         defaultValue = dashboardUserEmail || "";
       }
+      quickTaskAssigneeOptions = options;
       quickTaskAssigneeSelect.disabled = false;
       quickTaskAssigneeSelect.value = defaultValue;
+      quickTaskRenderAssigneePicker();
     }
 
     function quickTaskPopulateMeAssignee() {
-      if (!quickTaskAssigneeSelect) return;
-      quickTaskAssigneeSelect.innerHTML = '<option value="' + quickTaskEscape(dashboardUserEmail || "") + '">' + quickTaskEscape(dashboardUserDisplayName || dashboardUserEmail || "Me") + '</option>';
-      quickTaskAssigneeSelect.disabled = false;
-      quickTaskAssigneeSelect.value = dashboardUserEmail || "";
+      quickTaskPopulateAssigneeOptions([{
+        email: dashboardUserEmail || "",
+        display_name: dashboardUserDisplayName || dashboardUserEmail || "Me",
+        avatar_url: dashboardUserAvatar,
+      }]);
     }
 
     function quickTaskEnsureBootstrapReady() {
@@ -11215,6 +11504,8 @@
       if (!quickTaskModal) return;
       quickTaskModal.style.display = "flex";
       if (quickTaskTitleInput) quickTaskTitleInput.value = "";
+      if (quickTaskProjectSearch) quickTaskProjectSearch.value = "";
+      if (quickTaskAssigneeSearch) quickTaskAssigneeSearch.value = "";
       quickTaskSetStatus("");
       quickTaskSetDueMode("asap");
       if (quickTaskSubmit) quickTaskSubmit.disabled = false;
@@ -11248,8 +11539,12 @@
 
     function closeQuickTaskModal() {
       if (!quickTaskModal) return;
+      if (typeof window.__closeDueModeMenu === "function") {
+        window.__closeDueModeMenu();
+      }
       quickTaskModal.style.display = "none";
       quickTaskSetProjectPickerOpen(false);
+      quickTaskSetAssigneePickerOpen(false);
       quickTaskSetStatus("");
     }
 
@@ -11270,6 +11565,11 @@
         quickTaskDateInput.focus();
         return;
       }
+      if (quickTaskDueModeValue === "relative" && quickTaskDateInput && !quickTaskDateInput.getAttribute("data-due-relative-task-id")) {
+        quickTaskSetStatus("Choose a reference task for the relative date.", true);
+        if (quickTaskRelativeTaskInput) quickTaskRelativeTaskInput.focus();
+        return;
+      }
       var payload = {
         project_id: Number(quickTaskSelection.projectId),
         group_id: quickTaskSelection.groupId ? Number(quickTaskSelection.groupId) : null,
@@ -11278,6 +11578,10 @@
         due_mode: quickTaskDueModeValue,
         due_at: quickTaskDueModeValue === "date" && quickTaskDateInput ? quickTaskDateInput.value : null,
       };
+      if (quickTaskDueModeValue === "relative" && quickTaskDateInput) {
+        payload.due_relative_task_id = quickTaskDateInput.getAttribute("data-due-relative-task-id") || "";
+        payload.due_relative_days = quickTaskDateInput.getAttribute("data-due-relative-days") || "0";
+      }
       if (quickTaskSubmit) quickTaskSubmit.disabled = true;
       quickTaskSetStatus("Creating…");
       fetch("/api/tasks", {
@@ -11301,6 +11605,9 @@
             if (!Array.isArray(store.views.todo.task_ids)) store.views.todo.task_ids = [];
             if (store.views.todo.task_ids.map(function (value) { return String(value); }).indexOf(String(task.id)) === -1) {
               store.views.todo.task_ids.push(task.id);
+            }
+            if (typeof window.__sortDashboardTodoTaskIds === "function") {
+              window.__sortDashboardTodoTaskIds();
             }
           }
           if (typeof window.__upsertTodoItemFromSnapshot === "function") {
@@ -12316,12 +12623,85 @@
       });
     }
 
+    if (quickTaskProjectSearch) {
+      quickTaskProjectSearch.addEventListener("input", quickTaskRenderProjectPicker);
+      quickTaskProjectSearch.addEventListener("keydown", function (event) {
+        if (event.key !== "ArrowDown" || !quickTaskProjectList) return;
+        var firstOption = quickTaskProjectList.querySelector("[data-quick-task-select-project]");
+        if (!firstOption) return;
+        event.preventDefault();
+        firstOption.focus();
+      });
+    }
+
+    if (quickTaskAssigneeTrigger) {
+      quickTaskAssigneeTrigger.addEventListener("click", function (event) {
+        event.preventDefault();
+        quickTaskSetAssigneePickerOpen(quickTaskAssigneePicker && quickTaskAssigneePicker.classList.contains("hidden"));
+      });
+    }
+
+    if (quickTaskAssigneeSearch) {
+      quickTaskAssigneeSearch.addEventListener("input", quickTaskRenderAssigneePicker);
+      quickTaskAssigneeSearch.addEventListener("keydown", function (event) {
+        if (event.key !== "ArrowDown" || !quickTaskAssigneeList) return;
+        var firstOption = quickTaskAssigneeList.querySelector("[data-quick-task-assignee-option]");
+        if (!firstOption) return;
+        event.preventDefault();
+        firstOption.focus();
+      });
+    }
+
+    if (quickTaskAssigneeList) {
+      quickTaskAssigneeList.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-quick-task-assignee-option]");
+        if (!button || !quickTaskAssigneeSelect) return;
+        event.preventDefault();
+        quickTaskAssigneeSelect.value = button.getAttribute("data-quick-task-assignee-option") || "";
+        quickTaskRenderAssigneePicker();
+        quickTaskSetAssigneePickerOpen(false);
+      });
+    }
+
     if (quickTaskDueMode) {
       quickTaskDueMode.addEventListener("click", function (event) {
         var button = event.target.closest("[data-quick-task-due-mode]");
         if (!button) return;
         event.preventDefault();
-        quickTaskSetDueMode(button.getAttribute("data-quick-task-due-mode"));
+        var mode = button.getAttribute("data-quick-task-due-mode");
+        quickTaskSetDueMode(mode);
+        if (mode === "date" && quickTaskDateInput) {
+          window.requestAnimationFrame(function () {
+            quickTaskDateInput.focus();
+            if (typeof quickTaskDateInput.showPicker === "function") {
+              try {
+                quickTaskDateInput.showPicker();
+              } catch (error) {}
+            }
+          });
+        } else if (mode === "relative" && quickTaskRelativeTaskInput) {
+          window.requestAnimationFrame(function () { quickTaskRelativeTaskInput.focus(); });
+        }
+      });
+    }
+
+    if (quickTaskRelativeTaskInput) {
+      quickTaskRelativeTaskInput.addEventListener("input", function () {
+        quickTaskRelativeTaskInput.dataset.selectedTaskId = "";
+        if (quickTaskDateInput) {
+          quickTaskDateInput.setAttribute("data-due-relative-task-id", "");
+          quickTaskDateInput.setAttribute("data-due-relative-task-title", "");
+        }
+        quickTaskLoadRelativeSuggestions();
+      });
+      quickTaskRelativeTaskInput.addEventListener("focus", quickTaskLoadRelativeSuggestions);
+    }
+
+    if (quickTaskRelativeDaysInput) {
+      quickTaskRelativeDaysInput.addEventListener("input", function () {
+        if (quickTaskDateInput) {
+          quickTaskDateInput.setAttribute("data-due-relative-days", quickTaskRelativeDaysInput.value || "0");
+        }
       });
     }
 
@@ -12346,14 +12726,37 @@
     document.addEventListener("click", function (event) {
       if (!quickTaskProjectPicker || !quickTaskProjectTrigger) return;
       if (!quickTaskProjectPicker.classList.contains("is-open")) return;
-      if (quickTaskProjectPicker.contains(event.target) || quickTaskProjectTrigger.contains(event.target)) return;
+      if (quickTaskProjectPicker.contains(event.target) || quickTaskProjectTrigger.contains(event.target) || (quickTaskProjectSearchWrap && quickTaskProjectSearchWrap.contains(event.target))) return;
       quickTaskSetProjectPickerOpen(false);
     });
+
+    document.addEventListener("click", function (event) {
+      if (!quickTaskAssigneePicker || !quickTaskAssigneeTrigger) return;
+      if (quickTaskAssigneePicker.classList.contains("hidden")) return;
+      if (quickTaskAssigneePicker.contains(event.target) || quickTaskAssigneeTrigger.contains(event.target) || (quickTaskAssigneeSearchWrap && quickTaskAssigneeSearchWrap.contains(event.target))) return;
+      quickTaskSetAssigneePickerOpen(false);
+    });
+
+    function quickTaskPositionOpenPickers() {
+      if (quickTaskProjectPicker && quickTaskProjectPicker.classList.contains("is-open")) {
+        quickTaskPositionPicker(quickTaskProjectPicker, quickTaskProjectSearchWrap, 320);
+      }
+      if (quickTaskAssigneePicker && !quickTaskAssigneePicker.classList.contains("hidden")) {
+        quickTaskPositionPicker(quickTaskAssigneePicker, quickTaskAssigneeSearchWrap, 280);
+      }
+    }
+
+    window.addEventListener("resize", quickTaskPositionOpenPickers);
+    if (quickTaskModal) quickTaskModal.addEventListener("scroll", quickTaskPositionOpenPickers, true);
 
     document.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
       if (quickTaskProjectPicker && quickTaskProjectPicker.classList.contains("is-open")) {
         quickTaskSetProjectPickerOpen(false);
+        return;
+      }
+      if (quickTaskAssigneePicker && !quickTaskAssigneePicker.classList.contains("hidden")) {
+        quickTaskSetAssigneePickerOpen(false);
         return;
       }
       if (quickTaskModal && quickTaskModal.style.display === "flex") {
@@ -14381,6 +14784,47 @@
       }
     }
 
+    function compareDashboardTodoTasks(leftTask, rightTask) {
+      var left = leftTask || {};
+      var right = rightTask || {};
+      var leftDue = left.due_at ? String(left.due_at).slice(0, 10) : "";
+      var rightDue = right.due_at ? String(right.due_at).slice(0, 10) : "";
+      var leftMode = left.due_mode || (leftDue ? "date" : "none");
+      var rightMode = right.due_mode || (rightDue ? "date" : "none");
+      var leftBucket = todoBucketFor(leftDue, left.created_at ? String(left.created_at).slice(0, 10) : "", leftMode);
+      var rightBucket = todoBucketFor(rightDue, right.created_at ? String(right.created_at).slice(0, 10) : "", rightMode);
+      var rankDiff = todoBucketRank(leftBucket && leftBucket.key ? leftBucket.key : "")
+        - todoBucketRank(rightBucket && rightBucket.key ? rightBucket.key : "");
+      if (rankDiff) return rankDiff;
+      var dueCompare = (leftDue || "9999-12-31").localeCompare(rightDue || "9999-12-31");
+      if (dueCompare) return dueCompare;
+      var leftProject = dashboardProjectEntity(left.project_id) || {};
+      var rightProject = dashboardProjectEntity(right.project_id) || {};
+      var projectCompare = String(leftProject.display_name || leftProject.name || "").toLowerCase()
+        .localeCompare(String(rightProject.display_name || rightProject.name || "").toLowerCase());
+      if (projectCompare) return projectCompare;
+      var positionDiff = Number(left.position || 0) - Number(right.position || 0);
+      if (positionDiff) return positionDiff;
+      return String(left.id || "").localeCompare(String(right.id || ""), undefined, { numeric: true, sensitivity: "base" });
+    }
+
+    function sortDashboardTodoTaskIds() {
+      if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return [];
+      var taskMap = dashboardEntityMap("tasks");
+      var taskIds = Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+        ? dashboardBootstrapStore.views.todo.task_ids.slice()
+        : [];
+      taskIds.sort(function (leftId, rightId) {
+        var leftTask = taskMap[String(leftId)];
+        var rightTask = taskMap[String(rightId)];
+        if (!leftTask || !rightTask) return leftTask ? -1 : (rightTask ? 1 : 0);
+        return compareDashboardTodoTasks(leftTask, rightTask);
+      });
+      dashboardBootstrapStore.views.todo.task_ids = taskIds;
+      return taskIds;
+    }
+    window.__sortDashboardTodoTaskIds = sortDashboardTodoTaskIds;
+
     function mergeDashboardTask(task) {
       task = resolveFreshestTaskPayload(task);
       if (!task || task.id == null) return;
@@ -14400,6 +14844,7 @@
         taskIds.push(taskId);
         dashboardBootstrapStore.views.todo.task_ids = taskIds;
       }
+      sortDashboardTodoTaskIds();
       scheduleDashboardBootstrapStorePersist();
       refreshDashboardHomeFromTodo();
     }
@@ -16577,11 +17022,15 @@
       if (createdValue) item.setAttribute("data-created-at", createdValue);
       var bucket = todoBucketFor(dueValue, createdValue || item.getAttribute("data-created-at") || "", dueMode || item.getAttribute("data-due-mode") || "");
       var currentGroup = item.closest(".todo-date-group");
-      if (currentGroup && currentGroup.getAttribute("data-todo-date-key") === bucket.key) return;
-      var targetGroup = ensureTodoGroup(bucket);
+      var sameBucket = !!(currentGroup && currentGroup.getAttribute("data-todo-date-key") === bucket.key);
+      var targetGroup = sameBucket ? currentGroup : ensureTodoGroup(bucket);
       var list = targetGroup ? targetGroup.querySelector(".todo-list") : null;
-      if (list) list.appendChild(item);
-      if (currentGroup) {
+      if (list && typeof insertTodoItemInCanonicalOrder === "function") {
+        insertTodoItemInCanonicalOrder(list, item);
+      } else if (list) {
+        list.appendChild(item);
+      }
+      if (currentGroup && !sameBucket) {
         var hasItems = currentGroup.querySelector(".todo-item");
         if (!hasItems) currentGroup.remove();
       }
@@ -22998,6 +23447,7 @@
       item.setAttribute("data-group-id", task.group_id ? String(task.group_id) : "");
       item.setAttribute("data-division-id", meta.divisionId);
       item.setAttribute("data-task-locked", task.locked ? "1" : "0");
+      item.setAttribute("data-task-position", String(task.position || 0));
       item.setAttribute("data-due-at", dueValue);
       item.setAttribute("data-due-mode", dueMode);
       item.setAttribute("data-created-at", createdValue);
@@ -23552,20 +24002,28 @@
       }
     }
 
-    function insertTodoItemInStoreOrder(list, item, taskId) {
+    function todoTaskPayloadForItem(item) {
+      if (!item) return null;
+      var taskId = String(item.getAttribute("data-task-id") || "");
+      var task = Object.assign({}, dashboardTaskEntity(taskId) || {}, item._taskPayload || {});
+      task.id = task.id || taskId;
+      task.project_id = item.getAttribute("data-project-id") || task.project_id;
+      task.group_id = item.getAttribute("data-group-id") || task.group_id || null;
+      task.position = Number(item.getAttribute("data-task-position") || task.position || 0);
+      task.due_at = item.getAttribute("data-due-at") || null;
+      task.due_mode = item.getAttribute("data-due-mode") || (task.due_at ? "date" : "none");
+      task.created_at = item.getAttribute("data-created-at") || task.created_at || "";
+      return task;
+    }
+
+    function insertTodoItemInCanonicalOrder(list, item) {
       if (!list || !item) return;
-      var taskIds = dashboardBootstrapStore && dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo
-        && Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
-        ? dashboardBootstrapStore.views.todo.task_ids.map(function (value) { return String(value); })
-        : [];
-      var targetIndex = taskIds.indexOf(String(taskId || ""));
-      var beforeItem = null;
-      if (targetIndex >= 0) {
-        beforeItem = Array.prototype.find.call(list.querySelectorAll(".todo-item[data-task-id]"), function (candidate) {
-          var candidateIndex = taskIds.indexOf(String(candidate.getAttribute("data-task-id") || ""));
-          return candidateIndex >= 0 && candidateIndex > targetIndex;
-        }) || null;
-      }
+      var itemTask = todoTaskPayloadForItem(item);
+      var beforeItem = Array.prototype.find.call(list.querySelectorAll(".todo-item[data-task-id]"), function (candidate) {
+        if (candidate === item) return false;
+        var candidateTask = todoTaskPayloadForItem(candidate);
+        return itemTask && candidateTask && compareDashboardTodoTasks(itemTask, candidateTask) < 0;
+      }) || null;
       list.insertBefore(item, beforeItem);
     }
 
@@ -23579,19 +24037,13 @@
       var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
       var dueMode = task.due_mode || (dueValue ? "date" : "none");
       var bucket = todoBucketFor(dueValue, createdValue, dueMode);
-      var existingGroup = existing ? existing.closest(".todo-date-group") : null;
-      var sameBucket = !!(existingGroup && existingGroup.getAttribute("data-todo-date-key") === bucket.key);
       var group = ensureTodoGroup(bucket);
       var list = group ? group.querySelector(".todo-list") : null;
       if (!list) return false;
       var item = buildTodoItem(task);
       if (!item) return false;
-      if (existing && sameBucket) {
-        existing.replaceWith(item);
-      } else {
-        if (existing) existing.remove();
-        insertTodoItemInStoreOrder(list, item, task.id);
-      }
+      if (existing) existing.remove();
+      insertTodoItemInCanonicalOrder(list, item);
       var dueInput = item.querySelector('.due-input[data-task-id="' + task.id + '"]');
       if (dueInput && typeof window.__updateDueDisplay === "function") {
         window.__updateDueDisplay(dueInput);

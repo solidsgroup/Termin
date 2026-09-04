@@ -1182,6 +1182,9 @@ test.describe('dashboard and realtime flows', () => {
     await expect(page.locator('#quick-task-modal')).toBeVisible();
     await expect(page.locator('#quick-task-project-title')).toHaveText('Owner');
     await expect(page.locator('#quick-task-assignee')).toHaveValue(state.owner.email);
+    await expect(page.locator('#quick-task-date')).toHaveAttribute('data-due-mode', 'asap');
+    await expect(page.locator('[data-quick-task-due-mode="asap"]')).toHaveClass(/is-active/);
+    await expect(page.locator('[data-quick-task-due-mode="asap"]')).toHaveAttribute('aria-pressed', 'true');
     await steps.step('Open quick task add and confirm it selects the self direct project with the owner as default assignee.', page);
 
     const after = await fetchDirectProjects(page);
@@ -1189,6 +1192,14 @@ test.describe('dashboard and realtime flows', () => {
     expect(afterResults.some((project) => (project.display_name || project.name) === 'Owner')).toBeTruthy();
     expect(afterResults).toHaveLength(beforeResults.length + 1);
     await steps.step('Verify opening quick task add created the self direct project for the owner.', page);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.locator('#quick-task-modal .quick-task-modal-panel').evaluate((panel) => {
+      const rect = panel.getBoundingClientRect();
+      return rect.left >= 9 && rect.top >= 9 && rect.right <= window.innerWidth - 9
+        && rect.bottom <= window.innerHeight - 9 && rect.height >= window.innerHeight - 22;
+    })).toBe(true);
+    await steps.step('Verify Quick Task Add becomes a padded full-screen panel on mobile.', page);
 
     await page.locator('#quick-task-title').fill('Quick add toast target');
     await page.locator('#quick-task-submit').click();
@@ -4144,6 +4155,129 @@ test.describe('dashboard and realtime flows', () => {
     await expect(ganttView).toBeVisible();
     await expect(page.locator('[data-todo-mode-option="compact"]')).toBeEnabled();
     await expect(page.locator('[data-todo-mode-option="gantt"]')).toBeEnabled();
+  });
+
+  test('todo gantt quick add inserts tasks by due date within the section', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    const earlierDue = isoDateWithOffset(180);
+    const laterDue = isoDateWithOffset(181);
+    await login(page, state.owner.email, state.owner.password);
+    const laterTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Later Gantt Quick Add Peer',
+      assignee_email: state.owner.email,
+      due_at: laterDue,
+      due_mode: 'date',
+    });
+    await page.goto('/todo');
+
+    await expect(page.locator('.todo-board')).toHaveAttribute('data-todo-board-ready', '1');
+    await page.locator('[data-todo-mode-trigger]').click();
+    await page.locator('[data-todo-mode-option="gantt"]').click();
+    const panel = page.locator('[data-todo-gantt]');
+    await expect(panel).toHaveAttribute('data-todo-gantt-ready', '1');
+    await expect(panel.locator(`[data-todo-gantt-task="${laterTask.id}"]`)).toBeVisible();
+
+    await page.locator('#dashboard-quick-task-fab').click();
+    await expect(page.locator('#quick-task-modal')).toBeVisible();
+    await expect(page.locator('#quick-task-project-title')).toHaveText('Owner');
+    const quickTaskModalPanel = page.locator('#quick-task-modal .quick-task-modal-panel');
+    const closedModalHeight = await quickTaskModalPanel.evaluate((modal) => modal.getBoundingClientRect().height);
+    await page.locator('#quick-task-project-trigger').click();
+    const projectSearch = page.locator('#quick-task-project-search');
+    await expect(page.locator('#quick-task-project-trigger')).toBeHidden();
+    await expect(projectSearch).toBeVisible();
+    const targetProjectOption = page.locator(`[data-quick-task-select-project="${state.project.id}"]`);
+    await expect(projectSearch).toBeFocused();
+    await expect(page.locator('#quick-task-project-picker')).toHaveCSS('position', 'fixed');
+    await expect.poll(() => page.locator('#quick-task-project-picker').evaluate((picker) => {
+      const rect = picker.getBoundingClientRect();
+      return rect.left >= 11 && rect.top >= 11 && rect.right <= window.innerWidth - 11 && rect.bottom <= window.innerHeight - 11;
+    })).toBe(true);
+    await expect.poll(() => quickTaskModalPanel.evaluate((modal) => modal.getBoundingClientRect().height)).toBe(closedModalHeight);
+    const targetProjectName = (await targetProjectOption.locator('.quick-task-option-title').textContent()).trim();
+    await projectSearch.fill(targetProjectName);
+    await expect(targetProjectOption).toBeVisible();
+    const targetProjectColor = await targetProjectOption.locator('.quick-task-project-option-dot').evaluate((dot) => getComputedStyle(dot).backgroundColor);
+    await targetProjectOption.click();
+    await expect(page.locator('#quick-task-project-trigger')).toBeVisible();
+    await expect(projectSearch).toBeHidden();
+    await expect.poll(() => page.locator('#quick-task-project-trigger-dot').evaluate((dot) => getComputedStyle(dot).backgroundColor)).toBe(targetProjectColor);
+    const projectTrigger = page.locator('#quick-task-project-trigger');
+    const assigneeTrigger = page.locator('#quick-task-assignee-trigger');
+    await expect(assigneeTrigger).toBeEnabled();
+    await expect(assigneeTrigger).toContainText('Owner');
+    await expect.poll(async () => {
+      const projectStyle = await projectTrigger.evaluate((button) => {
+        const style = getComputedStyle(button);
+        return [button.getBoundingClientRect().height, style.borderRadius, style.backgroundColor];
+      });
+      const assigneeStyle = await assigneeTrigger.evaluate((button) => {
+        const style = getComputedStyle(button);
+        return [button.getBoundingClientRect().height, style.borderRadius, style.backgroundColor];
+      });
+      return { projectStyle, assigneeStyle };
+    }).toEqual({
+      projectStyle: [46, '6px', 'rgb(15, 20, 28)'],
+      assigneeStyle: [46, '6px', 'rgb(15, 20, 28)'],
+    });
+    const selectedProjectModalHeight = await quickTaskModalPanel.evaluate((modal) => modal.getBoundingClientRect().height);
+    await assigneeTrigger.click();
+    const assigneeSearch = page.locator('#quick-task-assignee-search');
+    await expect(assigneeTrigger).toBeHidden();
+    await expect(assigneeSearch).toBeFocused();
+    await expect(page.locator('#quick-task-assignee-picker')).toHaveCSS('position', 'fixed');
+    await expect.poll(() => page.locator('#quick-task-assignee-picker').evaluate((picker) => {
+      const rect = picker.getBoundingClientRect();
+      return rect.left >= 11 && rect.top >= 11 && rect.right <= window.innerWidth - 11 && rect.bottom <= window.innerHeight - 11;
+    })).toBe(true);
+    await assigneeSearch.fill('Own');
+    await expect.poll(() => quickTaskModalPanel.evaluate((modal) => modal.getBoundingClientRect().height)).toBe(selectedProjectModalHeight);
+    const ownerAssigneeOption = page.locator(`[data-quick-task-assignee-option="${state.owner.email}"]`);
+    await expect(ownerAssigneeOption).toBeVisible();
+    await expect(ownerAssigneeOption.locator('.quick-task-assignee-avatar')).toContainText('O');
+    await ownerAssigneeOption.click();
+    await expect(page.locator('#quick-task-assignee')).toHaveValue(state.owner.email);
+    await page.locator('#quick-task-title').fill('Earlier Gantt Quick Add Task');
+    const quickDueModes = page.locator('#quick-task-due-mode [data-quick-task-due-mode]');
+    await expect(quickDueModes).toHaveCount(6);
+    await expect(page.locator('[data-quick-task-due-mode="asap"]')).toHaveAttribute('aria-pressed', 'true');
+    const dueModeColors = await quickDueModes.evaluateAll((buttons) => buttons.map((button) => getComputedStyle(button).color));
+    expect(new Set(dueModeColors).size).toBe(6);
+    const dueModeBackgrounds = await quickDueModes.evaluateAll((buttons) => buttons.map((button) => getComputedStyle(button).backgroundColor));
+    expect(dueModeBackgrounds[2]).not.toBe(dueModeBackgrounds[0]);
+    expect(dueModeBackgrounds[2]).toBe('rgb(245, 158, 11)');
+    await page.locator('[data-quick-task-due-mode="date"]').click();
+    const quickDatePicker = page.locator('#quick-task-date');
+    await expect(quickDatePicker).toBeVisible();
+    await expect.poll(() => quickDatePicker.evaluate((input) => {
+      const rect = input.getBoundingClientRect();
+      return rect.top >= 11 && rect.left >= 11 && rect.right <= window.innerWidth - 11 && rect.bottom <= window.innerHeight - 11;
+    })).toBe(true);
+    await quickDatePicker.fill(earlierDue);
+    await expect(page.locator('#quick-task-date')).toHaveAttribute('data-due-mode', 'date');
+    await expect(page.locator('#quick-task-date')).toHaveValue(earlierDue);
+    const createResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/tasks'
+    ));
+    await page.locator('#quick-task-submit').click();
+    const createResponse = await createResponsePromise;
+    expect(createResponse.ok()).toBeTruthy();
+    const createdPayload = await createResponse.json();
+    const createdTaskId = String(createdPayload.id);
+    await expect(page.locator('#quick-task-modal')).toBeHidden();
+
+    const laterSection = panel.locator('[data-todo-gantt-bucket="later"]');
+    await expect(laterSection.locator(`[data-todo-gantt-task="${createdTaskId}"]`)).toBeVisible();
+    await expect.poll(() => laterSection.locator('[data-todo-gantt-task]').evaluateAll((rows, ids) => {
+      const taskIds = rows.map((row) => row.getAttribute('data-todo-gantt-task'));
+      return taskIds.indexOf(ids.createdId) < taskIds.indexOf(ids.laterId);
+    }, { createdId: createdTaskId, laterId: String(laterTask.id) })).toBe(true);
+    await expect.poll(() => page.evaluate(({ createdId, laterId }) => {
+      const ids = window.__dashboardBootstrapStore.views.todo.task_ids.map(String);
+      return ids.indexOf(createdId) < ids.indexOf(laterId);
+    }, { createdId: createdTaskId, laterId: String(laterTask.id) })).toBe(true);
   });
 
   test('tree navigation does not eagerly build the hidden todo board', async ({ page, request }) => {
