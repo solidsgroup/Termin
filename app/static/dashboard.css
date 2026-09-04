@@ -3700,6 +3700,70 @@ body[data-theme="light"] .quick-task-assignee-option.is-selected {
   padding: 6px;
 }
 
+#context-menu {
+  min-width: 142px;
+  padding-block: 4px;
+}
+
+#context-menu > button,
+#context-menu > .context-menu-submenu > button {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.context-menu-add-group-submenu:hover > .context-group-create-submenu,
+.context-menu-add-group-submenu:focus-within > .context-group-create-submenu,
+.context-menu-add-group-submenu.is-open > .context-group-create-submenu {
+  display: grid;
+}
+
+.context-group-create-submenu {
+  top: -4px;
+  left: calc(100% - 4px);
+  min-width: 174px;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+#context-menu.submenu-left .context-group-create-submenu {
+  right: calc(100% - 4px);
+  left: auto;
+}
+
+.context-group-create-submenu > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-group-create-submenu > button:hover,
+.context-group-create-submenu > button:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.context-group-create-submenu > button i {
+  width: 16px;
+  color: var(--accent);
+  text-align: center;
+}
+
+body[data-theme="light"] .context-group-create-submenu > button:hover,
+body[data-theme="light"] .context-group-create-submenu > button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, white 90%);
+}
+
 .group-create-menu-title {
   padding: 7px 10px 5px;
   color: var(--muted);

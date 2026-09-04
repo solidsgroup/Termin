@@ -2469,10 +2469,18 @@ test.describe('dashboard and realtime flows', () => {
     await waitForTreeProjectReady(page, state.project.id, state.task.id);
     const projectRow = page.locator(`[data-tree-project-row="${state.project.id}"]`).first();
     await projectRow.click({ button: 'right' });
-    await expect(page.locator('#context-menu [data-action="add-group"]')).toBeVisible();
-    await page.locator('#context-menu [data-action="add-group"]').click();
-    await expect(page.locator('#group-create-menu')).toBeVisible();
-    await page.locator('#group-create-menu [data-group-create-kind="template"]').click();
+    const contextMenu = page.locator('#context-menu');
+    const addGroup = contextMenu.locator('[data-action="add-group"]');
+    const addGroupSubmenu = page.locator('#context-group-create-submenu');
+    await expect(addGroup).toBeVisible();
+    await addGroup.hover();
+    await expect(addGroupSubmenu).toBeVisible();
+    await expect(addGroupSubmenu.locator('[data-context-group-create-kind]')).toHaveCount(3);
+    await expect.poll(async () => {
+      const [menuBox, submenuBox] = await Promise.all([contextMenu.boundingBox(), addGroupSubmenu.boundingBox()]);
+      return !!menuBox && !!submenuBox && submenuBox.x >= menuBox.x + menuBox.width - 5;
+    }).toBe(true);
+    await addGroupSubmenu.locator('[data-context-group-create-kind="template"]').click();
     await expect(page.locator('#group-template-modal')).toBeVisible();
     const applyResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/projects/${state.project.id}/group-templates/`) && response.request().method() === 'POST');
     await page.locator('#group-template-list [data-apply-group-template]').filter({ hasText: 'Semester Template' }).click();
@@ -3508,12 +3516,46 @@ test.describe('dashboard and realtime flows', () => {
     await expect(page.locator(`${directRowSelector} .shared-with-me-icon`)).toHaveCount(0);
     await expect(page.locator(`${directRowSelector} [data-tree-toggle-project="${state.direct_project.id}"]`)).toHaveCount(0);
     await expect(page.locator(`${directNodeSelector} .todo-tree-groups [data-tree-group-row]`)).toHaveCount(0);
+    const directBoard = page.locator(`[data-tree-project-board="${state.direct_project.id}"]`);
+    const directAddGroup = directBoard.locator(`[data-tree-group-insert-tail="${state.direct_project.id}"] .group-insert-btn`);
+    await expect(directAddGroup).toBeVisible();
+    await directAddGroup.click();
+    await expect(page.locator('#group-create-menu')).toBeVisible();
+    await expect(page.locator('#group-create-menu [data-group-create-kind]')).toHaveCount(3);
+    await expect(page.locator('#group-create-menu [data-group-create-kind="blank"]')).toContainText('Blank');
+    await expect(page.locator('#group-create-menu [data-group-create-kind="template"]')).toContainText('From Template');
+    await expect(page.locator('#group-create-menu [data-group-create-kind="canvas"]')).toContainText('Canvas');
+    await page.locator('#group-create-menu [data-group-create-kind="canvas"]').click();
+    await expect(page.locator('#canvas-group-modal')).toBeVisible();
+    await page.locator('#canvas-group-cancel').click();
+
+    await page.locator(directRowSelector).click({ button: 'right' });
+    const contextAddGroup = page.locator('#context-menu [data-action="add-group"]');
+    const contextGroupCreateSubmenu = page.locator('#context-group-create-submenu');
+    await expect(contextAddGroup).toBeVisible();
+    await contextAddGroup.hover();
+    await expect(contextGroupCreateSubmenu).toBeVisible();
+    await expect(contextGroupCreateSubmenu.locator('[data-context-group-create-kind]')).toHaveCount(3);
+    await directBoard.locator('.project-board-header').click();
     await focusTreeDirectProjectRow(page, state.direct_project.id, 'Direct project row after click', [
       'The avatar should still be present after selection.',
       'No shared/share-out icon should appear after click.',
       'The direct row should not grow project-group children.',
+      'Both inline and context-menu Add Group controls should expose Blank, From Template, and Canvas.',
     ]);
     await steps.step('Click the direct-project row and verify it stays avatar-based, with no share icon and no expandable group chrome injected.', page);
+
+    const regularProjectButton = page.locator(`[data-tree-select-type="project"][data-tree-select-id="${state.project.id}"]`).first();
+    await regularProjectButton.evaluate((button) => button.click());
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const regularBoard = page.locator(`[data-tree-project-board="${state.project.id}"]`);
+    const regularTail = regularBoard.locator(`[data-tree-group-insert-tail="${state.project.id}"]`);
+    await expect(regularTail.locator('.group-insert-btn')).toBeVisible();
+    await expect.poll(() => regularBoard.locator(`.group-block[data-group-id="${state.group.id}"]`).evaluate((groupBlock, tailSelector) => {
+      const tail = groupBlock.parentElement.querySelector(tailSelector);
+      return !!tail && !!(groupBlock.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }, `[data-tree-group-insert-tail="${state.project.id}"]`)).toBe(true);
+    await steps.step('Navigate back through the client-side builder and verify existing groups remain before the trailing Add Group control.', page);
   });
 
   test('tree team project opens after creation without client errors', async ({ page, request }) => {

@@ -1234,7 +1234,7 @@
         </div>
       {% endfor %}
 
-      <div class="group-insert-wrap{% if not can_manage_project or is_github_project %} disabled{% endif %}">
+      <div class="group-insert-wrap{% if not can_manage_project or is_github_project %} disabled{% endif %}" data-tree-group-insert-tail="{{ selected_project.id }}">
         <div class="group-insert" data-project-id="{{ selected_project.id }}">
           <div class="group-insert-line"></div>
           <button class="group-insert-btn" type="button" title="Add group">+</button>
@@ -1589,13 +1589,20 @@
 
 <div id="context-menu" class="context-menu">
   <button data-action="add-project">Add Project</button>
-  <button data-action="add-group">Add Group</button>
+  <div class="context-menu-submenu context-menu-add-group-submenu" data-group-create-context-submenu>
+    <button data-action="add-group" aria-haspopup="menu" aria-expanded="false">Add Group</button>
+    <div id="context-group-create-submenu" class="context-submenu-panel context-group-create-submenu" role="menu" aria-label="Add group">
+      <button type="button" data-context-group-create-kind="blank"><i class="fa-regular fa-square" aria-hidden="true"></i><span>Blank</span></button>
+      <button type="button" data-context-group-create-kind="template"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>From Template</span></button>
+      <button type="button" data-context-group-create-kind="canvas"><i class="fa-solid fa-graduation-cap" aria-hidden="true"></i><span>Canvas</span></button>
+    </div>
+  </div>
   <button data-action="promote-project">Promote to Project</button>
   <button data-action="move-up">Move up</button>
   <button data-action="move-down">Move down</button>
   <button data-action="rename">Rename</button>
   <button data-action="move">Move</button>
-  <div class="context-menu-submenu">
+  <div class="context-menu-submenu" data-division-color-context-submenu>
     <button data-action="color" data-submenu-toggle="division-color-submenu">Color</button>
     <div id="division-color-submenu" class="context-submenu-panel">
       <div class="color-menu-title">Division Color</div>
@@ -3047,7 +3054,8 @@
       var contextMenu = document.getElementById("context-menu");
       var canManageProject = {{ 'true' if can_manage_project else 'false' }};
       var currentContext = null;
-      var colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
+      var colorSubmenu = contextMenu ? contextMenu.querySelector("[data-division-color-context-submenu]") : null;
+      var groupCreateContextSubmenu = contextMenu ? contextMenu.querySelector("[data-group-create-context-submenu]") : null;
       var colorInput = document.getElementById("division-color-input");
       var clearButton = document.getElementById("division-color-clear");
 
@@ -3580,6 +3588,7 @@
             : null;
 	        var board = document.createElement("div");
 	        var projectColor = resolveProjectColor(project);
+          var canAddGroups = !!canManage && String(project.id) !== String({{ github_project_id|default(none)|tojson }} || "");
 	        board.className = "tree-project-board";
 	        board.setAttribute("data-tree-project-board", String(project.id));
           board.setAttribute("data-project-gantt-ranges", JSON.stringify(normalizeProjectGanttRanges(project.gantt_ranges || [])));
@@ -3615,6 +3624,12 @@
             '</div>' +
           '</div>' +
           '<div class="project-board-mode-panel is-active" data-project-mode-panel="tasks">' +
+	          '<div class="group-insert-wrap' + (canAddGroups ? '' : ' disabled') + '" data-tree-group-insert-tail="' + String(project.id) + '">' +
+              '<div class="group-insert" data-project-id="' + String(project.id) + '">' +
+                '<div class="group-insert-line"></div>' +
+                '<button class="group-insert-btn" type="button" title="Add group">+</button>' +
+              '</div>' +
+            '</div>' +
 	          '<div class="panel group ungrouped-table-shell" style="--group-color: ' + projectColor + ';" data-tree-ungrouped-board="' + String(project.id) + '">' +
             '<table class="table tasks-table" data-project-id="' + String(project.id) + '" data-group-id="">' +
               '<colgroup><col style="width: 3%;"><col style="width: 47%;"><col style="width: 16%;"><col style="width: 14%;"><col style="width: 20%;"></colgroup>' +
@@ -4027,7 +4042,8 @@
         var tasksPanel = board.querySelector('[data-project-mode-panel="tasks"]') || board;
         var ungroupedWrap = tasksPanel.querySelector('[data-tree-ungrouped-wrap="' + project.id + '"]');
         var ungroupedBoard = tasksPanel.querySelector('[data-tree-ungrouped-board="' + project.id + '"]');
-        var insertBeforeNode = ungroupedWrap || ungroupedBoard;
+        var groupInsertTail = tasksPanel.querySelector('[data-tree-group-insert-tail="' + project.id + '"]');
+        var insertBeforeNode = groupInsertTail || ungroupedWrap || ungroupedBoard;
         (snapshot.groups || []).forEach(function (group) {
           var groupBlock = buildTreeGroupBlock(project, group, canManage);
           if (!groupBlock) return;
@@ -6673,8 +6689,32 @@
       function hideContextMenu() {
         if (!contextMenu) return;
         contextMenu.style.display = "none";
+        contextMenu.classList.remove("submenu-left");
         hideDivisionColorSubmenu();
+        if (groupCreateContextSubmenu) {
+          groupCreateContextSubmenu.classList.remove("is-open");
+          var trigger = groupCreateContextSubmenu.querySelector('[data-action="add-group"]');
+          if (trigger) trigger.setAttribute("aria-expanded", "false");
+        }
         currentContext = null;
+      }
+
+      function positionContextMenu(event) {
+        if (!contextMenu) return;
+        var edge = 8;
+        var submenuWidth = 184;
+        var menuWidth = contextMenu.offsetWidth;
+        var menuHeight = contextMenu.offsetHeight;
+        var maxLeftWithSubmenu = window.innerWidth - menuWidth - submenuWidth - edge;
+        var left = Math.max(edge, Math.min(event.clientX, maxLeftWithSubmenu));
+        var opensLeft = window.innerWidth - left - menuWidth < submenuWidth;
+        if (opensLeft) {
+          left = Math.max(edge, Math.min(event.clientX, window.innerWidth - menuWidth - edge));
+        }
+        var top = Math.max(edge, Math.min(event.clientY, window.innerHeight - menuHeight - edge));
+        contextMenu.classList.toggle("submenu-left", opensLeft);
+        contextMenu.style.left = left + "px";
+        contextMenu.style.top = top + "px";
       }
 
       function setContextMenuActions(type) {
@@ -6931,8 +6971,7 @@
         hideDivisionColorSubmenu();
         setContextMenuActions(currentContext.type);
         contextMenu.style.display = "block";
-        contextMenu.style.left = event.clientX + "px";
-        contextMenu.style.top = event.clientY + "px";
+        positionContextMenu(event);
       }, true);
 
       document.addEventListener("click", function (event) {
@@ -6993,10 +7032,13 @@
             window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
           }
         } else if (action === "add-group") {
-          if (typeof window.__openGroupCreateMenu === "function") {
-            event.__terminGroupCreateOpened = true;
-            window.__openGroupCreateMenu(id, event.target);
+          if (groupCreateContextSubmenu) {
+            groupCreateContextSubmenu.classList.add("is-open");
+            event.target.setAttribute("aria-expanded", "true");
+            var firstGroupKind = groupCreateContextSubmenu.querySelector("[data-context-group-create-kind]");
+            if (firstGroupKind) firstGroupKind.focus();
           }
+          return;
         } else if (action === "copy-group") {
           if (typeof window.__openCopyGroupModal === "function") {
             window.__openCopyGroupModal(id);
@@ -10171,7 +10213,8 @@
     window.__ganttExportPalette = {{ division_palette|tojson }};
     const divisionOptions = {{ division_options|tojson }};
     const contextMenu = document.getElementById("context-menu");
-    const colorSubmenu = contextMenu ? contextMenu.querySelector(".context-menu-submenu") : null;
+    const colorSubmenu = contextMenu ? contextMenu.querySelector("[data-division-color-context-submenu]") : null;
+    const groupCreateContextSubmenu = contextMenu ? contextMenu.querySelector("[data-group-create-context-submenu]") : null;
     const colorInput = document.getElementById("division-color-input");
     const clearButton = document.getElementById("division-color-clear");
     const shareModal = document.getElementById("share-modal");
@@ -10273,12 +10316,38 @@
     ];
 
     const hideContextMenu = () => {
-      if (contextMenu) contextMenu.style.display = "none";
+      if (contextMenu) {
+        contextMenu.style.display = "none";
+        contextMenu.classList.remove("submenu-left");
+      }
       if (colorSubmenu) {
         colorSubmenu.classList.remove("is-open");
         colorSubmenu.removeAttribute("data-division-id");
       }
+      if (groupCreateContextSubmenu) {
+        groupCreateContextSubmenu.classList.remove("is-open");
+        const trigger = groupCreateContextSubmenu.querySelector('[data-action="add-group"]');
+        if (trigger) trigger.setAttribute("aria-expanded", "false");
+      }
       currentContext = null;
+    };
+
+    const positionContextMenu = (event) => {
+      if (!contextMenu) return;
+      const edge = 8;
+      const submenuWidth = 184;
+      const menuWidth = contextMenu.offsetWidth;
+      const menuHeight = contextMenu.offsetHeight;
+      const maxLeftWithSubmenu = window.innerWidth - menuWidth - submenuWidth - edge;
+      let left = Math.max(edge, Math.min(event.clientX, maxLeftWithSubmenu));
+      const opensLeft = window.innerWidth - left - menuWidth < submenuWidth;
+      if (opensLeft) {
+        left = Math.max(edge, Math.min(event.clientX, window.innerWidth - menuWidth - edge));
+      }
+      const top = Math.max(edge, Math.min(event.clientY, window.innerHeight - menuHeight - edge));
+      contextMenu.classList.toggle("submenu-left", opensLeft);
+      contextMenu.style.left = `${left}px`;
+      contextMenu.style.top = `${top}px`;
     };
 
     const setActiveDivisionColor = (color) => {
@@ -10345,7 +10414,7 @@
         const show = type === "division"
           ? action === "rename" || action === "delete" || action === "color" || action === "add-project" || action === "move-up" || action === "move-down"
           : type === "direct_project"
-            ? action === "delete"
+            ? action === "delete" || action === "add-group"
             : action === "copy-group"
               ? type === "group"
             : action === "promote-project"
@@ -12054,8 +12123,7 @@
       }
       setContextMenuActions(currentContext.type);
       contextMenu.style.display = "block";
-      contextMenu.style.left = `${event.clientX}px`;
-      contextMenu.style.top = `${event.clientY}px`;
+      positionContextMenu(event);
     });
 
     document.addEventListener("click", (event) => {
@@ -12066,6 +12134,22 @@
 
     if (contextMenu) {
       contextMenu.addEventListener("click", (event) => {
+        const groupChoice = event.target.closest("[data-context-group-create-kind]");
+        if (groupChoice && currentContext && (currentContext.type === "project" || currentContext.type === "direct_project")) {
+          event.preventDefault();
+          event.stopPropagation();
+          const projectId = currentContext.id;
+          const kind = groupChoice.getAttribute("data-context-group-create-kind");
+          hideContextMenu();
+          if (kind === "blank" && typeof window.__openNameModal === "function") {
+            window.__openNameModal({ mode: "create", type: "group", targetId: projectId });
+          } else if (kind === "template") {
+            openGroupTemplateModal(projectId);
+          } else if (kind === "canvas") {
+            openCanvasGroupModal(projectId);
+          }
+          return;
+        }
         const preset = event.target.closest(".color-preset");
         if (preset) {
           event.preventDefault();
@@ -12113,9 +12197,14 @@
         if (action === "add-project" && typeof window.__submitTreeQuickCreate === "function") {
           window.__submitTreeQuickCreate("project", contextType === "division" ? id : "");
         }
-        if (action === "add-group" && typeof window.__openGroupCreateMenu === "function") {
-          event.__terminGroupCreateOpened = true;
-          window.__openGroupCreateMenu(id, event.target);
+        if (action === "add-group") {
+          if (groupCreateContextSubmenu) {
+            groupCreateContextSubmenu.classList.add("is-open");
+            event.target.setAttribute("aria-expanded", "true");
+            const firstGroupKind = groupCreateContextSubmenu.querySelector("[data-context-group-create-kind]");
+            if (firstGroupKind) firstGroupKind.focus();
+          }
+          return;
         }
         if (action === "copy-group" && typeof window.__openCopyGroupModal === "function") {
           openCopyGroupModal(id);
