@@ -684,6 +684,37 @@
           </div>
         </div>
       </div>
+      <div class="todo-sidebar-section">
+        <div class="sidebar-heading-row todo-sidebar-subhead">
+          <h3 style="margin: 0;">Mode</h3>
+        </div>
+        <div class="todo-mode-dropdown" data-todo-mode-dropdown>
+          <button class="todo-mode-trigger" type="button" data-todo-mode-trigger aria-expanded="false" aria-haspopup="listbox">
+            <span class="todo-mode-trigger-label">
+              <i class="fa-solid fa-rectangle-list" data-todo-mode-summary-icon aria-hidden="true"></i>
+              <span data-todo-mode-summary>Default</span>
+            </span>
+            <span class="todo-assignee-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="todo-mode-menu" data-todo-mode-menu role="listbox" aria-label="Todo view mode" hidden>
+            <button class="todo-mode-option" type="button" data-todo-mode-option="default" role="option" aria-selected="true">
+              <i class="fa-solid fa-rectangle-list" aria-hidden="true"></i>
+              <span><strong>Default</strong><small>Comfortable task cards</small></span>
+              <i class="fa-solid fa-check todo-mode-option-check" aria-hidden="true"></i>
+            </button>
+            <button class="todo-mode-option" type="button" data-todo-mode-option="compact" role="option" aria-selected="false">
+              <i class="fa-solid fa-table-list" aria-hidden="true"></i>
+              <span><strong>Compact</strong><small>Dense single-row tasks</small></span>
+              <i class="fa-solid fa-check todo-mode-option-check" aria-hidden="true"></i>
+            </button>
+            <button class="todo-mode-option" type="button" data-todo-mode-option="gantt" role="option" aria-selected="false">
+              <i class="fa-solid fa-chart-gantt" aria-hidden="true"></i>
+              <span><strong>Gantt</strong><small>Tasks on a persistent timeline</small></span>
+              <i class="fa-solid fa-check todo-mode-option-check" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="dashboard-sidebar-pane{% if current_view == 'tree' %} is-active{% endif %}" data-dashboard-sidebar-pane="tree">
       <div class="sidebar-split-shell" data-sidebar-split-shell>
@@ -941,6 +972,13 @@
           <p class="footer-note">Preparing your Todo board.</p>
         </div>
       </div>
+      <section class="todo-gantt-view" data-todo-gantt-view hidden>
+        <div class="panel todo-gantt-board" data-project-gantt-board="todo-{{ user.id }}" data-project-gantt-ranges="[]">
+          <span data-selected-project-name hidden>Todo</span>
+          <div class="project-gantt-toolbar todo-gantt-toolbar" data-todo-gantt-toolbar></div>
+          <div class="project-gantt todo-gantt" data-project-gantt data-todo-gantt data-project-id="todo-{{ user.id }}" data-project-start-date="" data-project-end-date="" data-project-gantt-items="[]"></div>
+        </div>
+      </section>
     </div>
     <div class="dashboard-view-pane{% if current_view == 'problems' %} is-active{% endif %}" data-dashboard-view="problems">
       <div class="dashboard-pane-loading" data-dashboard-pane-loading="problems" aria-hidden="true">
@@ -4021,6 +4059,17 @@
 	      var projectBoardModeStorageKey = "termin:project-board-modes:v1";
 	      var projectGanttMarkStorageKey = "termin:project-gantt-marks:v1";
 
+        function closestProjectGanttBoard(node) {
+          return node && typeof node.closest === "function"
+            ? node.closest("[data-tree-project-board], [data-project-gantt-board]")
+            : null;
+        }
+
+        function projectGanttBoardId(board) {
+          if (!board) return "";
+          return String(board.getAttribute("data-tree-project-board") || board.getAttribute("data-project-gantt-board") || "");
+        }
+
 	      function projectBoardModeStorage() {
 	        try {
 	          if (window.sessionStorage) return window.sessionStorage;
@@ -4252,7 +4301,7 @@
 
         function currentProjectGanttSettingsForBoard(board) {
           if (!board) return null;
-          var projectId = String(board.getAttribute("data-tree-project-board") || "");
+          var projectId = projectGanttBoardId(board);
           if (!projectId) return null;
           var state = loadProjectGanttMarkSettings();
           var current = Object.assign({}, state[projectId] || {});
@@ -4592,7 +4641,7 @@
 
         function projectGanttExportMarkUnits(panel) {
           var projectId = String(panel.getAttribute("data-project-id") || "");
-          var board = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
+          var board = closestProjectGanttBoard(panel);
           var majorSelect = board && projectId ? board.querySelector('[data-project-gantt-major="' + projectId + '"]') : null;
           var minorSelect = board && projectId ? board.querySelector('[data-project-gantt-minor="' + projectId + '"]') : null;
           var startRaw = String(panel.getAttribute("data-project-start-date") || "").trim();
@@ -4675,7 +4724,7 @@
           var endDate = new Date(endRaw + "T00:00:00");
           if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) return "";
           var projectId = String(panel.getAttribute("data-project-id") || "");
-          var board = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
+          var board = closestProjectGanttBoard(panel);
           var projectNameNode = board ? board.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
           var projectName = projectNameNode ? String(projectNameNode.textContent || "").trim() : ("Project " + projectId);
           var items = parseProjectGanttItems(panel).filter(function (item) { return !!item; });
@@ -4738,7 +4787,7 @@
             var dueDate = null;
             if (item.due_at) {
               dueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
-            } else if (dueMode === "asap") {
+            } else if (dueMode === "asap" || dueMode === "urgent") {
               dueDate = new Date(startDate.getTime());
             } else {
               dueDate = new Date(endDate.getTime());
@@ -4809,7 +4858,7 @@
               var dueDate = null;
               if (item.due_at) {
                 dueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
-              } else if (dueMode === "asap") {
+              } else if (dueMode === "asap" || dueMode === "urgent") {
                 dueDate = new Date(startDate.getTime());
               } else {
                 dueDate = new Date(endDate.getTime());
@@ -4923,6 +4972,7 @@
 
 	      function renderProjectGantt(panel) {
 	        if (!panel) return;
+        var isTodoGantt = panel.hasAttribute("data-todo-gantt");
         function escapeProjectGanttText(value) {
           return String(value == null ? "" : value)
             .replace(/&/g, "&amp;")
@@ -4946,7 +4996,7 @@
 	        var items = parseProjectGanttItems(panel)
 	          .filter(function (item) { return !!item; });
           var projectId = String(panel.getAttribute("data-project-id") || "");
-        var ganttBoard = typeof panel.closest === "function" ? panel.closest("[data-tree-project-board]") : null;
+        var ganttBoard = closestProjectGanttBoard(panel);
           var markUnits = projectGanttMarkUnits(projectId, startDate, endDate, projectGanttRangesForBoard(ganttBoard));
 	        var intervals = buildProjectGanttIntervals(startDate, endDate, markUnits);
         var ganttProjectNameNode = ganttBoard ? ganttBoard.querySelector("[data-selected-project-name], [data-tree-project-title]") : null;
@@ -4982,7 +5032,9 @@
         }
         var collapsedSections = collapsedProjectGanttGroups(projectId);
 	        if (!items.length) {
-		          var emptyText = filterValue ? "No matching dated tasks." : "No dated tasks yet.";
+		          var emptyText = filterValue
+                ? (isTodoGantt ? "No matching tasks." : "No matching dated tasks.")
+                : (isTodoGantt ? "No visible tasks." : "No dated tasks yet.");
 		          panel.innerHTML =
 		            '<div class="project-gantt-shell">' +
 		              '<div class="project-gantt-overlay" aria-hidden="true"><div class="project-gantt-overlay-spacer"></div><div class="project-gantt-overlay-track">' + renderProjectGanttGrid(intervals, { labels: false, todayPercent: todayPercent }) + '</div></div>' +
@@ -5064,7 +5116,7 @@
           var effectiveDueDate = null;
           if (item.due_at) {
             effectiveDueDate = new Date(String(item.due_at).slice(0, 10) + "T00:00:00");
-          } else if (dueMode === "asap") {
+          } else if (dueMode === "asap" || dueMode === "urgent") {
             effectiveDueDate = new Date(Math.max(startDate.getTime(), todayDate.getTime()));
           } else {
             effectiveDueDate = new Date(Math.max(endDate.getTime(), todayDate.getTime()));
@@ -5091,6 +5143,12 @@
           var progressPercent = statusMeta.mode === "percent"
             ? Math.max(0, Math.min(100, Number(item.status_percentage != null ? item.status_percentage : 0)))
             : (statusState === "complete" ? 100 : 0);
+          var overdueDays = Math.round((todayDate.getTime() - dueDate.getTime()) / 86400000);
+          var overdueSpanHtml = "";
+          if (isTodoGantt && statusState !== "complete" && overdueDays > 0 && todayPercent != null) {
+            var overdueWidthPercent = Math.max(0, Number(todayPercent) - endPercent);
+            overdueSpanHtml = '<span class="todo-gantt-overdue-span" data-todo-gantt-overdue-span="' + escapeProjectGanttText(item.id) + '" data-overdue-days="' + String(overdueDays) + '" style="left:' + endPercent.toFixed(2) + '%; width:' + overdueWidthPercent.toFixed(2) + '%;" title="' + String(overdueDays) + ' day' + (overdueDays === 1 ? '' : 's') + ' overdue"></span>';
+          }
           var trackHtml = "";
           var relativeClass = isRelativeDue ? " is-relative-due" : "";
           var dueReadOnly = locked || (dueMode !== "date" && !(isRelativeDue && relativeAnchorIso));
@@ -5119,10 +5177,16 @@
             trackHtml += '<span class="project-gantt-relative-anchor' + (relativeReferenceInProject ? ' is-in-project' : '') + '" style="left:' + anchorPercent.toFixed(2) + '%;" title="' + escapeProjectGanttText("Reference due: " + relativeReferenceTitle + " (" + relativeAnchorIso + ")") + '"></span>';
           }
           trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="' + (isRelativeDue ? 'Relative due date is derived' : 'Adjust due date') + '" style="left:' + endPercent.toFixed(2) + '%;"' + (dueReadOnly ? ' disabled' : '') + (relativeTitle ? ' title="' + escapeProjectGanttText(relativeTitle) + '"' : '') + '></button>';
-          return trackHtml;
+          return overdueSpanHtml + trackHtml;
         }
 	        var rows = sections.map(function (section) {
             var isCollapsed = !!collapsedSections[section.key];
+	          var todoBucket = isTodoGantt && section.items.length
+              ? String(section.items[0].todo_bucket || "")
+              : "";
+	          var todoSectionAttrs = todoBucket
+              ? ' data-todo-gantt-bucket="' + escapeProjectGanttText(todoBucket) + '"'
+              : "";
 	          var sectionRows = isCollapsed
               ? (
                   '<div class="project-gantt-row is-collapsed-summary">' +
@@ -5132,23 +5196,38 @@
                 )
               : section.items.map(function (item) {
           var trackHtml = buildGanttTrackHtml(item);
+		        var itemProjectName = isTodoGantt ? String(item.project_name || ganttProjectName || "") : ganttProjectName;
+		        var itemProjectId = isTodoGantt ? String(item.project_id || "") : String(panel.getAttribute("data-project-id") || "");
+	          var todoColor = String(item.category_color || "").trim();
+	          if (!/^#[0-9a-f]{3,8}$/i.test(todoColor)) todoColor = "var(--accent)";
+	          var todoDueMode = String(item.due_mode || (item.due_at ? "date" : "none")).trim().toLowerCase();
+	          var todoStatusState = String(item.todo_status_state || ganttStatusMeta(item).state || "open").trim().toLowerCase();
+		        var todoRowClass = isTodoGantt ? " todo-gantt-row" : "";
+		        var todoRowAttrs = isTodoGantt
+	            ? ' data-todo-gantt-task="' + escapeProjectGanttText(item.id) + '" data-due-mode="' + escapeProjectGanttText(todoDueMode) + '" data-status-state="' + escapeProjectGanttText(todoStatusState) + '" style="--todo-gantt-color:' + escapeProjectGanttText(todoColor) + ';"'
+	            : "";
+	        var todoCheckHtml = isTodoGantt ? String(item.todo_check_html || "") : "";
 		          return (
-		            '<div class="project-gantt-row' + (ganttRelativeReferenceIds[String(item.id)] ? ' is-gantt-relative-reference' : '') + '">' +
+		            '<div class="project-gantt-row' + todoRowClass + (ganttRelativeReferenceIds[String(item.id)] ? ' is-gantt-relative-reference' : '') + '"' + todoRowAttrs + '>' +
 		              '<div class="project-gantt-task">' +
 		                '<div class="project-gantt-task-title-row">' +
-		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(ganttProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
+		                  todoCheckHtml +
+		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(itemProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
                           (typeof window.__renderDependencyBadgeHtml === "function" ? window.__renderDependencyBadgeHtml(item, { host: false }) : "") +
 		                '</div>' +
 		              '</div>' +
-		              '<div class="project-gantt-track' + (ganttRelativeReferenceIds[String(item.id)] ? ' is-gantt-relative-reference' : '') + '" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-task-locked="' + (item.locked ? '1' : '0') + '" data-project-id="' + escapeProjectGanttText(panel.getAttribute("data-project-id") || "") + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
+		              '<div class="project-gantt-track' + (ganttRelativeReferenceIds[String(item.id)] ? ' is-gantt-relative-reference' : '') + '" data-gantt-track data-task-id="' + escapeProjectGanttText(item.id) + '" data-task-locked="' + (item.locked ? '1' : '0') + '" data-project-id="' + escapeProjectGanttText(itemProjectId) + '" data-project-start-date="' + escapeProjectGanttText(startRaw) + '" data-project-end-date="' + escapeProjectGanttText(endRaw) + '" data-task-start-date="' + escapeProjectGanttText(item.start_date || "") + '" data-task-due-date="' + escapeProjectGanttText(item.due_at || "") + '" data-task-effective-due-date="' + escapeProjectGanttText((item.due_at ? String(item.due_at).slice(0, 10) : (function () { var mode = String(item.due_mode || "none").trim().toLowerCase(); if (mode === "asap" || mode === "urgent") { return formatProjectGanttIsoLocal(new Date(Math.max(startDate.getTime(), todayDate.getTime()))); } return formatProjectGanttIsoLocal(new Date(Math.max(endDate.getTime(), todayDate.getTime()))); })())) + '" data-task-due-mode="' + escapeProjectGanttText(item.due_mode || (item.due_at ? "date" : "none")) + '">' +
 		                trackHtml +
 		              '</div>' +
 		            '</div>'
 		          );
 	          }).join("");
-	          return (
-	            '<div class="project-gantt-section' + (isCollapsed ? ' is-collapsed' : '') + '" data-project-gantt-section="' + escapeProjectGanttText(section.key || "") + '">' +
-	              '<div class="project-gantt-section-title"><span class="project-gantt-section-title-text">' + escapeProjectGanttText(section.label || "Ungrouped") + '</span><button class="project-gantt-section-toggle" type="button" data-project-gantt-section-toggle="' + escapeProjectGanttText(section.key || "") + '" aria-label="' + (isCollapsed ? 'Expand' : 'Collapse') + ' group"><i class="fa-solid fa-caret-down" aria-hidden="true"></i></button></div>' +
+		          var sectionTitleHtml = isTodoGantt && todoBucket === "urgent"
+		            ? '<span class="todo-urgent-heading-title"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>' + escapeProjectGanttText(section.label || "Urgent") + '</span></span>'
+		            : escapeProjectGanttText(section.label || "Ungrouped");
+		          return (
+		            '<div class="project-gantt-section' + (isCollapsed ? ' is-collapsed' : '') + '" data-project-gantt-section="' + escapeProjectGanttText(section.key || "") + '"' + todoSectionAttrs + '>' +
+		              '<div class="project-gantt-section-title"><span class="project-gantt-section-title-text">' + sectionTitleHtml + '</span><button class="project-gantt-section-toggle" type="button" data-project-gantt-section-toggle="' + escapeProjectGanttText(section.key || "") + '" aria-label="' + (isCollapsed ? 'Expand' : 'Collapse') + ' group"><i class="fa-solid fa-caret-down" aria-hidden="true"></i></button></div>' +
 	              '<div class="project-gantt-section-list">' + sectionRows + '</div>' +
 	            '</div>'
 	          );
@@ -5233,7 +5312,7 @@
 
       function syncProjectGanttDayMaskVisibility(board) {
         if (!board) return;
-        var projectId = String(board.getAttribute("data-tree-project-board") || "");
+        var projectId = projectGanttBoardId(board);
         if (!projectId) return;
         var majorSelect = board.querySelector('[data-project-gantt-major="' + projectId + '"]');
         var minorSelect = board.querySelector('[data-project-gantt-minor="' + projectId + '"]');
@@ -5392,14 +5471,14 @@
       document.addEventListener("change", function (event) {
         var control = event.target.closest("[data-project-gantt-major], [data-project-gantt-minor], [data-project-gantt-day-mask]");
         if (!control) return;
-        var board = control.closest("[data-tree-project-board]");
+        var board = closestProjectGanttBoard(control);
         saveProjectGanttSettingsForBoard(board);
       });
 
       document.addEventListener("input", function (event) {
         var filterInput = event.target.closest("[data-project-gantt-filter]");
         if (!filterInput) return;
-        var board = filterInput.closest("[data-tree-project-board]");
+        var board = closestProjectGanttBoard(filterInput);
         var gantt = board ? board.querySelector("[data-project-gantt]") : null;
         if (gantt) renderProjectGantt(gantt);
       });
@@ -5435,23 +5514,23 @@
         }
         var addRangeButton = event.target.closest("[data-project-gantt-range-add]");
         if (addRangeButton) {
-          var addBoard = addRangeButton.closest("[data-tree-project-board]");
+          var addBoard = closestProjectGanttBoard(addRangeButton);
           var addProjectId = String(addRangeButton.getAttribute("data-project-gantt-range-add") || "");
           openProjectGanttRangeDialog(addBoard, addProjectId, "");
           return;
         }
         var editRangeButton = event.target.closest("[data-project-gantt-range-edit]");
         if (editRangeButton) {
-          var editBoard = editRangeButton.closest("[data-tree-project-board]");
+          var editBoard = closestProjectGanttBoard(editRangeButton);
           var editProjectId = String(editRangeButton.getAttribute("data-project-id") || (editBoard && editBoard.getAttribute("data-tree-project-board")) || "");
           openProjectGanttRangeDialog(editBoard, editProjectId, editRangeButton.getAttribute("data-project-gantt-range-edit"));
           return;
         }
         var sectionToggle = event.target.closest("[data-project-gantt-section-toggle]");
         if (sectionToggle) {
-          var board = sectionToggle.closest("[data-tree-project-board]");
+          var board = closestProjectGanttBoard(sectionToggle);
           var sectionKey = String(sectionToggle.getAttribute("data-project-gantt-section-toggle") || "");
-          var projectId = board ? String(board.getAttribute("data-tree-project-board") || "") : "";
+          var projectId = projectGanttBoardId(board);
           if (board && projectId && sectionKey) {
             var nextCollapsed = !collapsedProjectGanttGroups(projectId)[sectionKey];
             setProjectGanttGroupCollapsed(projectId, sectionKey, nextCollapsed);
@@ -5470,7 +5549,7 @@
         if (!exportButton) return;
         var projectId = String(exportButton.getAttribute("data-project-gantt-export") || "");
         if (!projectId) return;
-        var board = exportButton.closest("[data-tree-project-board]") || document.querySelector('[data-tree-project-board="' + projectId + '"]');
+        var board = closestProjectGanttBoard(exportButton) || document.querySelector('[data-tree-project-board="' + projectId + '"], [data-project-gantt-board="' + projectId + '"]');
         if (!board) return;
         var gantt = board.querySelector("[data-project-gantt]");
         if (!gantt) return;
@@ -16457,6 +16536,13 @@
       return escapeHtml(bucket && bucket.label ? bucket.label : "Tasks");
     }
 
+    function todoCompactColumnResizersHtml() {
+      return '<span class="todo-compact-column-resizers">' +
+        '<button class="todo-compact-column-resizer is-context" type="button" role="separator" aria-orientation="vertical" aria-label="Resize project and group column" data-todo-compact-resize="context"></button>' +
+        '<button class="todo-compact-column-resizer is-due" type="button" role="separator" aria-orientation="vertical" aria-label="Resize date column" data-todo-compact-resize="due"></button>' +
+      '</span>';
+    }
+
     function ensureTodoGroup(bucket) {
       var board = document.querySelector(".todo-board");
       if (!board || !bucket) return null;
@@ -16465,7 +16551,7 @@
       var panel = document.createElement("div");
       panel.className = "panel todo-date-group";
       panel.setAttribute("data-todo-date-key", bucket.key);
-      panel.innerHTML = '<div class="todo-date-heading">' + todoBucketHeadingHtml(bucket) + '</div><div class="todo-list"></div>';
+      panel.innerHTML = '<div class="todo-date-heading">' + todoBucketHeadingHtml(bucket) + todoCompactColumnResizersHtml() + '</div><div class="todo-list"></div>';
       var nextGroup = Array.prototype.find.call(board.querySelectorAll(".todo-date-group"), function (group) {
         return todoBucketRank(group.getAttribute("data-todo-date-key") || "") > bucket.rank;
       });
@@ -16479,7 +16565,7 @@
       var panel = document.createElement("div");
       panel.className = "panel todo-date-group";
       panel.setAttribute("data-todo-date-key", bucket.key);
-      panel.innerHTML = '<div class="todo-date-heading">' + todoBucketHeadingHtml(bucket) + '</div><div class="todo-list"></div>';
+      panel.innerHTML = '<div class="todo-date-heading">' + todoBucketHeadingHtml(bucket) + todoCompactColumnResizersHtml() + '</div><div class="todo-list"></div>';
       return panel;
     }
 
@@ -18127,6 +18213,27 @@
     var pendingTodoCompletionHides = Object.create(null);
     var pendingTodoCompletionHideTimers = Object.create(null);
 
+    function cancelPendingTodoCompletionHide(taskId) {
+      var normalizedTaskId = String(taskId || "");
+      if (!normalizedTaskId) return;
+      delete pendingTodoCompletionHides[normalizedTaskId];
+      if (pendingTodoCompletionHideTimers[normalizedTaskId]) {
+        window.clearTimeout(pendingTodoCompletionHideTimers[normalizedTaskId]);
+        delete pendingTodoCompletionHideTimers[normalizedTaskId];
+      }
+      document.querySelectorAll(
+        '.todo-item[data-task-id="' + normalizedTaskId + '"], .todo-gantt-row[data-todo-gantt-task="' + normalizedTaskId + '"]'
+      ).forEach(function (row) {
+        row.classList.remove("is-completion-preview", "is-completing", "is-collapsing");
+        row.style.height = "";
+        var checkbox = row.querySelector("[data-todo-check-toggle]");
+        if (checkbox) {
+          setTodoChecklistButtonCompleteState(checkbox, false);
+          checkbox.classList.remove("is-animating");
+        }
+      });
+    }
+
     function todoTaskWouldRemainVisibleWhenComplete(task) {
       var showCompletedToggle = document.querySelector("[data-todo-show-completed-master]");
       var showCompleted = showCompletedToggle ? !!showCompletedToggle.checked : true;
@@ -18209,6 +18316,9 @@
       }
       if (taskMyStatusState(task) === "complete" && !todoTaskWouldRemainVisibleWhenComplete(task)) {
         removeTodoItemOnly(task.id);
+        if (typeof window.__scheduleTodoGanttRender === "function") {
+          window.__scheduleTodoGanttRender();
+        }
         if (typeof window.__refreshDashboardHomeFromTodo === "function") {
           window.__refreshDashboardHomeFromTodo();
         }
@@ -19836,7 +19946,9 @@
         ? String(statusHost.getAttribute("data-task-status-host") || "").trim()
         : "";
       if (!taskId) return null;
-      return taskById(taskId) || null;
+      return (typeof dashboardTaskEntity === "function" ? dashboardTaskEntity(taskId) : null)
+        || (typeof taskById === "function" ? taskById(taskId) : null)
+        || null;
     }
 
     function renderPrereqHoverCard(task) {
@@ -20996,6 +21108,16 @@
 	      }
 	    }
 
+      function projectGanttPanelShouldRender(panel) {
+        if (!panel) return false;
+        if (panel.hasAttribute("data-todo-gantt")) {
+          var todoView = panel.closest("[data-todo-gantt-view]");
+          return !!todoView && !todoView.hidden;
+        }
+        var modePanel = panel.closest('[data-project-mode-panel="gantt"]');
+        return !modePanel || !modePanel.hidden;
+      }
+
 	    var pendingProjectGanttRefreshTimers = {};
       var pendingTreeSnapshotRefreshTimers = {};
 
@@ -21040,7 +21162,8 @@
 
 	    function updateProjectGanttItemLocal(task) {
 	      if (!task || !task.id || !task.project_id) return;
-	      document.querySelectorAll('[data-project-gantt][data-project-id="' + String(task.project_id) + '"]').forEach(function (panel) {
+	      document.querySelectorAll('[data-project-gantt][data-project-id="' + String(task.project_id) + '"], [data-project-gantt][data-todo-gantt]').forEach(function (panel) {
+        var isTodoPanel = panel.hasAttribute("data-todo-gantt");
         var items = parseProjectGanttItemsLocal(panel);
         var taskId = String(task.id);
         var replacement = {
@@ -21063,7 +21186,12 @@
         items = items.reduce(function (nextItems, item) {
           if (String(item && item.id || "") === taskId) {
             if (replacement) {
-              nextItems.push(replacement);
+              nextItems.push(isTodoPanel ? Object.assign({}, item, replacement, {
+                project_name: item.project_name || "",
+                group_id: item.group_id || "",
+                group_name: item.group_name || "",
+                category_color: item.category_color || "#4cc9f0",
+              }) : replacement);
               replaced = true;
             }
             return nextItems;
@@ -21071,17 +21199,12 @@
           nextItems.push(item);
           return nextItems;
         }, []);
-        if (replacement && !replaced) {
+        if (replacement && !replaced && !isTodoPanel) {
           items.push(replacement);
         }
 	        panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
-	        if (typeof panel.closest === "function") {
-	          var modePanel = panel.closest('[data-project-mode-panel="gantt"]');
-	          if (!modePanel || !modePanel.hidden) {
-	            if (typeof window.__renderProjectGantt === "function") {
-	              window.__renderProjectGantt(panel);
-	            }
-	          }
+	        if (projectGanttPanelShouldRender(panel) && typeof window.__renderProjectGantt === "function") {
+	          window.__renderProjectGantt(panel);
 	        }
 	      });
 	    }
@@ -21189,7 +21312,7 @@
 
       function propagateProjectGanttRelativeDependentsLocal(referenceTask) {
         if (!referenceTask || !referenceTask.id || !referenceTask.project_id || !referenceTask.due_at) return;
-        document.querySelectorAll('[data-project-gantt][data-project-id="' + String(referenceTask.project_id) + '"]').forEach(function (panel) {
+        document.querySelectorAll('[data-project-gantt][data-project-id="' + String(referenceTask.project_id) + '"], [data-project-gantt][data-todo-gantt]').forEach(function (panel) {
           var items = parseProjectGanttItemsLocal(panel);
           if (!items.length) return;
           var byId = {};
@@ -21233,11 +21356,8 @@
           }
           if (!changedAny) return;
           panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
-          var modePanel = typeof panel.closest === "function" ? panel.closest('[data-project-mode-panel="gantt"]') : null;
-          if (!modePanel || !modePanel.hidden) {
-            if (typeof window.__renderProjectGantt === "function") {
-              window.__renderProjectGantt(panel);
-            }
+          if (projectGanttPanelShouldRender(panel) && typeof window.__renderProjectGantt === "function") {
+            window.__renderProjectGantt(panel);
           }
         });
       }
@@ -21716,13 +21836,8 @@
 	          return String(item && item.id || "") !== String(taskId);
 	        });
 	        panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
-	        if (typeof panel.closest === "function") {
-	          var modePanel = panel.closest('[data-project-mode-panel="gantt"]');
-	          if (!modePanel || !modePanel.hidden) {
-	            if (typeof window.__renderProjectGantt === "function") {
-	              window.__renderProjectGantt(panel);
-	            }
-	          }
+	        if (projectGanttPanelShouldRender(panel) && typeof window.__renderProjectGantt === "function") {
+	          window.__renderProjectGantt(panel);
 	        }
 	      });
 	    }
@@ -22122,6 +22237,7 @@
         body: nextTask.title || "Task",
         undoLabel: "Undo",
         onUndo: function () {
+          cancelPendingTodoCompletionHide(nextTask.id);
           fetch("/api/tasks/" + nextTask.id, {
             method: "PATCH",
             credentials: "same-origin",
@@ -22137,10 +22253,20 @@
               if (!result.ok || !result.data || !result.data.id) {
                 throw new Error((result.data && result.data.error) || "Could not undo task completion");
               }
-              rememberRecentTaskSnapshot(result.data);
-              applyTaskRowUpdate(result.data);
-              if (String(currentTaskId || "") === String(result.data.id)) {
-                currentTaskData = Object.assign({}, currentTaskData || {}, result.data);
+              var restoredTask = mergeTaskStatusPayload(previousTask, nextTask, result.data);
+              rememberRecentTaskSnapshot(restoredTask);
+              applyTaskRowUpdate(restoredTask);
+              if (
+                typeof window.__getDashboardCurrentView === "function"
+                && window.__getDashboardCurrentView() === "todo"
+              ) {
+                applyTodoChecklistTaskUpdate(restoredTask);
+                if (typeof window.__scheduleTodoGanttRender === "function") {
+                  window.__scheduleTodoGanttRender();
+                }
+              }
+              if (String(currentTaskId || "") === String(restoredTask.id)) {
+                currentTaskData = Object.assign({}, currentTaskData || {}, restoredTask);
                 renderTaskSettings();
               }
             })
@@ -22578,7 +22704,8 @@
     function todoProjectNodeFor(projectId) {
       var key = String(projectId || "");
       if (!key) return null;
-      if (!Object.prototype.hasOwnProperty.call(todoProjectNodeCache, key)) {
+      var cached = todoProjectNodeCache[key];
+      if (!cached || !cached.isConnected) {
         todoProjectNodeCache[key] = document.querySelector('.todo-tree-node.is-project[data-project-id="' + key + '"]') || null;
       }
       return todoProjectNodeCache[key];
@@ -22587,7 +22714,8 @@
     function todoGroupInputFor(groupId) {
       var key = String(groupId || "");
       if (!key) return null;
-      if (!Object.prototype.hasOwnProperty.call(todoGroupInputCache, key)) {
+      var cached = todoGroupInputCache[key];
+      if (!cached || !cached.isConnected) {
         todoGroupInputCache[key] = document.querySelector('[data-todo-group="' + key + '"]') || null;
       }
       return todoGroupInputCache[key];
@@ -22596,7 +22724,8 @@
     function todoDivisionNodeFor(divisionId) {
       var key = String(divisionId || "");
       if (!key) return null;
-      if (!Object.prototype.hasOwnProperty.call(todoDivisionNodeCache, key)) {
+      var cached = todoDivisionNodeCache[key];
+      if (!cached || !cached.isConnected) {
         todoDivisionNodeCache[key] = document.querySelector('.todo-tree-node[data-division-id="' + key + '"]') || null;
       }
       return todoDivisionNodeCache[key];
@@ -23423,6 +23552,23 @@
       }
     }
 
+    function insertTodoItemInStoreOrder(list, item, taskId) {
+      if (!list || !item) return;
+      var taskIds = dashboardBootstrapStore && dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo
+        && Array.isArray(dashboardBootstrapStore.views.todo.task_ids)
+        ? dashboardBootstrapStore.views.todo.task_ids.map(function (value) { return String(value); })
+        : [];
+      var targetIndex = taskIds.indexOf(String(taskId || ""));
+      var beforeItem = null;
+      if (targetIndex >= 0) {
+        beforeItem = Array.prototype.find.call(list.querySelectorAll(".todo-item[data-task-id]"), function (candidate) {
+          var candidateIndex = taskIds.indexOf(String(candidate.getAttribute("data-task-id") || ""));
+          return candidateIndex >= 0 && candidateIndex > targetIndex;
+        }) || null;
+      }
+      list.insertBefore(item, beforeItem);
+    }
+
     function upsertTodoItemFromSnapshot(task, options) {
       if (!task || !task.id) return false;
       var opts = options || {};
@@ -23444,7 +23590,7 @@
         existing.replaceWith(item);
       } else {
         if (existing) existing.remove();
-        list.appendChild(item);
+        insertTodoItemInStoreOrder(list, item, task.id);
       }
       var dueInput = item.querySelector('.due-input[data-task-id="' + task.id + '"]');
       if (dueInput && typeof window.__updateDueDisplay === "function") {
@@ -28687,6 +28833,9 @@
           activeTasksSection.hidden = !hasVisibleActiveTasks;
         }
         updateAssigneeSummary();
+        if (typeof window.__scheduleTodoGanttRender === "function") {
+          window.__scheduleTodoGanttRender();
+        }
       }
       window.__applyTodoFilters = applyFilters;
 
@@ -29043,8 +29192,524 @@
     })();
 
     (function () {
+      var pane = document.querySelector('[data-dashboard-view="todo"]');
+      var board = pane ? pane.querySelector(".todo-board") : null;
+      var ganttView = pane ? pane.querySelector("[data-todo-gantt-view]") : null;
+      var dropdown = document.querySelector("[data-todo-mode-dropdown]");
+      var trigger = document.querySelector("[data-todo-mode-trigger]");
+      var menu = document.querySelector("[data-todo-mode-menu]");
+      var summary = document.querySelector("[data-todo-mode-summary]");
+      var summaryIcon = document.querySelector("[data-todo-mode-summary-icon]");
+      var options = Array.from(document.querySelectorAll("[data-todo-mode-option]"));
+      var storageKey = "termin:todo-view-mode:v1:user:{{ user.id }}";
+      var modes = {
+        default: { label: "Default", icon: "fa-rectangle-list" },
+        compact: { label: "Compact", icon: "fa-table-list" },
+        gantt: { label: "Gantt", icon: "fa-chart-gantt" },
+      };
+      var mobileModeMql = window.matchMedia ? window.matchMedia("(max-width: 900px)") : null;
+      var preferredMode = "default";
+      if (!pane || !board || !dropdown || !trigger || !menu || !summary) return;
+
+      function normalizeMode(value) {
+        return Object.prototype.hasOwnProperty.call(modes, value) ? value : "default";
+      }
+
+      function loadMode() {
+        try {
+          return normalizeMode(localStorage.getItem(storageKey));
+        } catch (err) {
+          return "default";
+        }
+      }
+
+      function setMenuOpen(open) {
+        var nextOpen = !!open;
+        menu.hidden = !nextOpen;
+        trigger.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+        dropdown.classList.toggle("is-open", nextOpen);
+      }
+
+      function mobileModeActive() {
+        return !!(mobileModeMql && mobileModeMql.matches);
+      }
+
+      function syncModeAvailability() {
+        var mobile = mobileModeActive();
+        options.forEach(function (option) {
+          var unavailable = mobile && option.getAttribute("data-todo-mode-option") !== "default";
+          option.disabled = unavailable;
+          option.setAttribute("aria-disabled", unavailable ? "true" : "false");
+        });
+      }
+
+      function applyMode(value, persist) {
+        var requestedMode = normalizeMode(value);
+        if (persist !== false && mobileModeActive() && requestedMode !== "default") {
+          requestedMode = "default";
+        }
+        preferredMode = requestedMode;
+        var mode = mobileModeActive() ? "default" : preferredMode;
+        var modeMeta = modes[mode];
+        syncModeAvailability();
+        pane.setAttribute("data-todo-view-mode", mode);
+        board.setAttribute("data-todo-view-mode", mode);
+        if (ganttView) ganttView.hidden = mode !== "gantt";
+        summary.textContent = modeMeta.label;
+        if (summaryIcon) {
+          summaryIcon.classList.remove("fa-rectangle-list", "fa-table-list", "fa-chart-gantt");
+          summaryIcon.classList.add(modeMeta.icon);
+        }
+        options.forEach(function (option) {
+          var selected = option.getAttribute("data-todo-mode-option") === mode;
+          option.classList.toggle("is-selected", selected);
+          option.setAttribute("aria-selected", selected ? "true" : "false");
+        });
+        if (persist !== false) {
+          try {
+            localStorage.setItem(storageKey, preferredMode);
+          } catch (err) {}
+        }
+        document.dispatchEvent(new CustomEvent("termin:todo-view-mode-change", {
+          detail: { mode: mode },
+        }));
+        if (mode === "gantt" && typeof window.__scheduleTodoGanttRender === "function") {
+          window.__scheduleTodoGanttRender();
+        }
+        return mode;
+      }
+
+      trigger.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuOpen(menu.hidden);
+      });
+
+      menu.addEventListener("click", function (event) {
+        var option = event.target.closest("[data-todo-mode-option]");
+        if (!option || option.disabled) return;
+        event.preventDefault();
+        applyMode(option.getAttribute("data-todo-mode-option"));
+        setMenuOpen(false);
+        trigger.focus();
+      });
+
+      document.addEventListener("click", function (event) {
+        if (!dropdown.contains(event.target)) setMenuOpen(false);
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape" || menu.hidden) return;
+        setMenuOpen(false);
+        trigger.focus();
+      });
+      window.addEventListener("storage", function (event) {
+        if (event.key === storageKey) applyMode(event.newValue, false);
+      });
+      if (mobileModeMql) {
+        var syncTodoModeForViewport = function () {
+          applyMode(preferredMode, false);
+          if (mobileModeActive()) setMenuOpen(false);
+        };
+        if (mobileModeMql.addEventListener) {
+          mobileModeMql.addEventListener("change", syncTodoModeForViewport);
+        } else if (mobileModeMql.addListener) {
+          mobileModeMql.addListener(syncTodoModeForViewport);
+        }
+      }
+
+      window.__setTodoViewMode = function (mode) {
+        return applyMode(mode);
+      };
+      window.__getTodoViewMode = function () {
+        return normalizeMode(pane.getAttribute("data-todo-view-mode"));
+      };
+      preferredMode = loadMode();
+      applyMode(preferredMode, false);
+      setMenuOpen(false);
+    })();
+
+    (function () {
+      var pane = document.querySelector('[data-dashboard-view="todo"]');
+      var todoBoard = pane ? pane.querySelector('.todo-board[data-todo-client-board="1"]') : null;
+      var ganttView = pane ? pane.querySelector("[data-todo-gantt-view]") : null;
+      var ganttBoard = ganttView ? ganttView.querySelector("[data-project-gantt-board]") : null;
+      var toolbar = ganttView ? ganttView.querySelector("[data-todo-gantt-toolbar]") : null;
+      var panel = ganttView ? ganttView.querySelector("[data-todo-gantt]") : null;
+      if (!pane || !todoBoard || !ganttView || !ganttBoard || !toolbar || !panel) return;
+
+      var ganttId = String(panel.getAttribute("data-project-id") || "todo-{{ user.id }}");
+      var storageKey = "termin:todo-gantt-settings:v1:user:{{ user.id }}";
+      var markStorageKey = "termin:project-gantt-marks:v1";
+      var validUnits = ["none", "day", "week", "month", "quarter", "semester", "year", "project_month", "project_quarter", "project_year"];
+      var renderFrame = 0;
+      var renderRetryTimer = 0;
+
+      function isoLocal(dateValue) {
+        return [
+          dateValue.getFullYear(),
+          String(dateValue.getMonth() + 1).padStart(2, "0"),
+          String(dateValue.getDate()).padStart(2, "0"),
+        ].join("-");
+      }
+
+      function todayIso() {
+        return isoLocal(new Date());
+      }
+
+      function addCalendarMonthsIso(monthCount) {
+        var today = new Date();
+        var targetMonth = new Date(today.getFullYear(), today.getMonth() + Number(monthCount || 0), 1);
+        var lastDay = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+        targetMonth.setDate(Math.min(today.getDate(), lastDay));
+        return isoLocal(targetMonth);
+      }
+
+      function normalizeHorizon(value) {
+        var allowed = ["1w", "2w", "1m", "2m", "3m", "6m", "1y"];
+        var normalized = String(value || "");
+        return allowed.indexOf(normalized) !== -1 ? normalized : "1m";
+      }
+
+      function horizonEndDate(horizon) {
+        var normalized = normalizeHorizon(horizon);
+        if (normalized === "1w" || normalized === "2w") {
+          var end = new Date();
+          end.setHours(0, 0, 0, 0);
+          end.setDate(end.getDate() + (normalized === "1w" ? 7 : 14));
+          return isoLocal(end);
+        }
+        if (normalized === "1y") return addCalendarMonthsIso(12);
+        return addCalendarMonthsIso(Number(normalized.replace("m", "")) || 1);
+      }
+
+      function normalizeDays(value) {
+        var source = Array.isArray(value) ? value : [0, 1, 2, 3, 4, 5, 6];
+        var seen = Object.create(null);
+        return source.map(function (day) { return Number(day); }).filter(function (day) {
+          if (!Number.isInteger(day) || day < 0 || day > 6 || seen[day]) return false;
+          seen[day] = true;
+          return true;
+        }).sort(function (a, b) { return a - b; });
+      }
+
+      function validUnit(value, fallback, allowNone) {
+        var unit = String(value || "");
+        if (validUnits.indexOf(unit) === -1 || (!allowNone && unit === "none")) return fallback;
+        return unit;
+      }
+
+      function loadSettings() {
+        var stored = {};
+        try {
+          stored = JSON.parse(localStorage.getItem(storageKey) || "{}") || {};
+        } catch (err) {}
+        return {
+          major: validUnit(stored.major, "week", false),
+          minor: validUnit(stored.minor, "day", true),
+          majorDays: normalizeDays(stored.majorDays),
+          minorDays: normalizeDays(stored.minorDays),
+          horizon: normalizeHorizon(stored.horizon),
+          filter: String(stored.filter || ""),
+        };
+      }
+
+      var settings = loadSettings();
+
+      function saveSettings() {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(settings));
+        } catch (err) {}
+      }
+
+      function syncSharedMarkSettings() {
+        try {
+          var state = JSON.parse(sessionStorage.getItem(markStorageKey) || "{}") || {};
+          state[ganttId] = {
+            major: settings.major,
+            minor: settings.minor,
+            majorDays: settings.majorDays.slice(),
+            minorDays: settings.minorDays.slice(),
+          };
+          sessionStorage.setItem(markStorageKey, JSON.stringify(state));
+        } catch (err) {}
+      }
+
+      function markOptions(selected, includeNone) {
+        var options = includeNone ? [{ value: "none", label: "None" }] : [];
+        options = options.concat([
+          { value: "day", label: "Day" },
+          { value: "week", label: "Week" },
+          { value: "month", label: "Month" },
+          { value: "quarter", label: "Quarter" },
+          { value: "semester", label: "Semester" },
+          { value: "year", label: "Year" },
+          { value: "project_month", label: "Timeline Month" },
+          { value: "project_quarter", label: "Timeline Quarter" },
+          { value: "project_year", label: "Timeline Year" },
+        ]);
+        return options.map(function (option) {
+          return '<option value="' + option.value + '"' + (option.value === selected ? " selected" : "") + '>' + option.label + '</option>';
+        }).join("");
+      }
+
+      function dayMask(kind, selectedDays, visible) {
+        var labels = ["S", "M", "T", "W", "R", "F", "S"];
+        return '<span class="project-gantt-day-mask" data-project-gantt-day-mask-panel="' + kind + '" aria-label="' + kind + ' day line filter"' + (visible ? "" : " hidden") + '>' +
+          labels.map(function (label, day) {
+            return '<label class="project-gantt-day-chip" title="' + label + '">' +
+              '<input type="checkbox" data-project-gantt-day-mask="' + kind + '" data-project-id="' + ganttId + '" value="' + day + '"' + (selectedDays.indexOf(day) !== -1 ? " checked" : "") + ' />' +
+              '<span>' + label + '</span>' +
+            '</label>';
+          }).join("") +
+        '</span>';
+      }
+
+      function buildToolbar() {
+        toolbar.innerHTML =
+          '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Range</span><select data-todo-gantt-horizon>' +
+            '<option value="1w">One week</option><option value="2w">Two weeks</option><option value="1m">One month</option><option value="2m">Two months</option><option value="3m">Three months</option><option value="6m">Six months</option><option value="1y">One year</option>' +
+          '</select></label>' +
+          '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Major</span><select data-project-gantt-major="' + ganttId + '">' + markOptions(settings.major, false) + '</select></label>' +
+          dayMask("major", settings.majorDays, settings.major === "day") +
+          '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + ganttId + '">' + markOptions(settings.minor, true) + '</select></label>' +
+          dayMask("minor", settings.minorDays, settings.minor === "day") +
+          '<label class="project-gantt-filter-control" aria-label="Filter Todo Gantt tasks"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" data-project-gantt-filter="' + ganttId + '" placeholder="Filter tasks" autocomplete="off" /></label>' +
+          '<button class="project-gantt-export-btn" type="button" data-project-gantt-export="' + ganttId + '">Copy Latex</button>';
+        var horizon = toolbar.querySelector("[data-todo-gantt-horizon]");
+        var filter = toolbar.querySelector("[data-project-gantt-filter]");
+        if (horizon) horizon.value = settings.horizon;
+        if (filter) filter.value = settings.filter;
+      }
+
+      function checkedDays(kind) {
+        return Array.from(toolbar.querySelectorAll('[data-project-gantt-day-mask="' + kind + '"]:checked')).map(function (input) {
+          return Number(input.value);
+        });
+      }
+
+      function syncSettingsFromToolbar() {
+        var major = toolbar.querySelector('[data-project-gantt-major="' + ganttId + '"]');
+        var minor = toolbar.querySelector('[data-project-gantt-minor="' + ganttId + '"]');
+        var horizon = toolbar.querySelector("[data-todo-gantt-horizon]");
+        var filter = toolbar.querySelector("[data-project-gantt-filter]");
+        settings.major = validUnit(major && major.value, "week", false);
+        settings.minor = validUnit(minor && minor.value, "day", true);
+        settings.majorDays = checkedDays("major");
+        settings.minorDays = checkedDays("minor");
+        settings.horizon = normalizeHorizon(horizon && horizon.value);
+        settings.filter = String(filter && filter.value || "");
+        syncSharedMarkSettings();
+        saveSettings();
+      }
+
+      function visibleTodoTasks() {
+        if (!dashboardBootstrapStore || !dashboardBootstrapStore.views || !dashboardBootstrapStore.views.todo) return null;
+        if (todoBoard.getAttribute("data-todo-board-ready") !== "1") return null;
+        var activeTaskOrder = Object.create(null);
+        Array.from(document.querySelectorAll("[data-todo-active-tasks-list] .todo-active-task-row:not(.is-filtered)")).forEach(function (row, index) {
+          var taskId = String(row.getAttribute("data-task-id") || "");
+          if (taskId) activeTaskOrder[taskId] = index;
+        });
+        var visibleRows = Array.from(todoBoard.querySelectorAll(".todo-date-group .todo-item:not(.is-filtered)"));
+        var records = visibleRows.map(function (row, sourceIndex) {
+          var taskId = String(row.getAttribute("data-task-id") || "");
+          var task = dashboardTaskEntity(taskId);
+          if (!task) return null;
+          var meta = todoMetaFor(task.project_id, task.group_id);
+          var projectName = String(meta.projectName || "Project");
+          var bucketGroup = row.closest(".todo-date-group");
+          var bucketKey = String(bucketGroup && bucketGroup.getAttribute("data-todo-date-key") || "none");
+          var bucketHeading = bucketGroup ? bucketGroup.querySelector(".todo-date-heading") : null;
+          var bucketLabel = String(bucketHeading && bucketHeading.textContent || "Tasks").trim();
+          var isActive = bucketKey !== "urgent" && Object.prototype.hasOwnProperty.call(activeTaskOrder, taskId);
+          if (isActive) {
+            bucketKey = "active";
+            bucketLabel = "Active Tasks";
+          }
+          return {
+            sourceIndex: sourceIndex,
+            activeIndex: isActive ? activeTaskOrder[taskId] : -1,
+            item: {
+              id: task.id,
+              project_id: task.project_id,
+              project_name: projectName,
+              title: task.title || "Task",
+              start_date: task.start_date || "",
+              due_at: task.due_at || "",
+              due_mode: task.due_mode || (task.due_at ? "date" : "none"),
+              due_relative: task.due_relative || null,
+              due_relative_start_days: task.due_relative_start_days != null ? task.due_relative_start_days : null,
+              status: task.status || "open",
+              status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
+              status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
+              status_meta: task.status_meta || {},
+              todo_status_state: String(taskMyStatusState(task) || "open").toLowerCase(),
+              locked: !!task.locked,
+              dependents: Array.isArray(task.dependents) ? task.dependents : [],
+              github_meta: task.github_meta || null,
+              todo_check_html: task.github_meta ? "" : renderTodoChecklistControl(task),
+              group_id: "todo-bucket:" + bucketKey,
+              group_name: bucketLabel,
+              todo_bucket: bucketKey,
+              category_color: meta.divisionColor || "#4cc9f0",
+            },
+          };
+        }).filter(Boolean);
+        records.sort(function (a, b) {
+          function priority(record) {
+            if (record.item.todo_bucket === "urgent") return 0;
+            if (record.item.todo_bucket === "active") return 1;
+            return 2;
+          }
+          var priorityDiff = priority(a) - priority(b);
+          if (priorityDiff) return priorityDiff;
+          if (a.item.todo_bucket === "active" && b.item.todo_bucket === "active" && a.activeIndex !== b.activeIndex) {
+            return a.activeIndex - b.activeIndex;
+          }
+          return a.sourceIndex - b.sourceIndex;
+        });
+        return records.map(function (record) { return record.item; });
+      }
+
+      function ganttStartDate(items) {
+        var today = todayIso();
+        return items.reduce(function (earliest, item) {
+          var due = String(item.due_at || "").slice(0, 10);
+          if (!due || due >= today || item.todo_status_state === "complete") return earliest;
+          return due < earliest ? due : earliest;
+        }, today);
+      }
+
+      function renderNow() {
+        renderFrame = 0;
+        if (pane.getAttribute("data-todo-view-mode") !== "gantt") return;
+        var items = visibleTodoTasks();
+        if (items === null) {
+          panel.removeAttribute("data-todo-gantt-ready");
+          panel.innerHTML = '<div class="project-gantt-shell"><div class="project-gantt-empty">Preparing Todo timeline...</div></div>';
+          window.clearTimeout(renderRetryTimer);
+          renderRetryTimer = window.setTimeout(scheduleRender, 80);
+          return;
+        }
+        window.clearTimeout(renderRetryTimer);
+        var startDate = ganttStartDate(items);
+        var endDate = horizonEndDate(settings.horizon);
+        syncSharedMarkSettings();
+        panel.setAttribute("data-project-start-date", startDate);
+        panel.setAttribute("data-project-end-date", endDate);
+        panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
+        panel.setAttribute("data-todo-gantt-ready", "1");
+        if (typeof window.__renderProjectGantt === "function") {
+          window.__renderProjectGantt(panel);
+        }
+        panel.querySelectorAll("[data-todo-gantt-task]").forEach(function (row) {
+          row._taskPayload = dashboardTaskEntity(row.getAttribute("data-todo-gantt-task"));
+        });
+      }
+
+      function scheduleRender() {
+        if (pane.getAttribute("data-todo-view-mode") !== "gantt" || renderFrame) return;
+        renderFrame = window.requestAnimationFrame(renderNow);
+      }
+      window.__scheduleTodoGanttRender = scheduleRender;
+      window.__renderTodoGantt = renderNow;
+      window.__getTodoGanttSettings = function () {
+        return JSON.parse(JSON.stringify(settings));
+      };
+
+      toolbar.addEventListener("change", function () {
+        syncSettingsFromToolbar();
+        scheduleRender();
+      });
+      toolbar.addEventListener("input", function (event) {
+        if (!event.target.matches("[data-project-gantt-filter]")) return;
+        settings.filter = String(event.target.value || "");
+        saveSettings();
+      });
+      document.addEventListener("termin:todo-view-mode-change", function (event) {
+        if (event.detail && event.detail.mode === "gantt") scheduleRender();
+      });
+      document.addEventListener("termin:dashboard-view-change", function (event) {
+        if (event.detail && event.detail.currentView === "todo") scheduleRender();
+      });
+      window.addEventListener("storage", function (event) {
+        if (event.key !== storageKey) return;
+        settings = loadSettings();
+        buildToolbar();
+        syncSharedMarkSettings();
+        scheduleRender();
+      });
+
+      buildToolbar();
+      syncSharedMarkSettings();
+      saveSettings();
+      scheduleRender();
+    })();
+
+    (function () {
       var board = document.querySelector(".todo-board");
       if (!board) return;
+      var compactColumnStorageKey = "termin:todo-compact-columns:v2:user:{{ user.id }}";
+      var legacyCompactColumnStorageKey = "termin:todo-compact-columns:v1:user:{{ user.id }}";
+      var compactColumnBounds = {
+        context: { min: 80, max: 360, fallback: 190 },
+        due: { min: 44, max: 220, fallback: 64 },
+      };
+      var compactColumns = loadCompactColumns();
+      var compactResizeState = null;
+
+      function clampCompactColumn(kind, value) {
+        var bounds = compactColumnBounds[kind];
+        var number = Number(value);
+        if (!bounds || !Number.isFinite(number)) return bounds ? bounds.fallback : 0;
+        return Math.round(Math.max(bounds.min, Math.min(bounds.max, number)));
+      }
+
+      function loadCompactColumns() {
+        try {
+          var stored = JSON.parse(localStorage.getItem(compactColumnStorageKey) || "null");
+          if (!stored) stored = JSON.parse(localStorage.getItem(legacyCompactColumnStorageKey) || "null");
+          stored = stored || {};
+          return {
+            context: clampCompactColumn("context", stored.context),
+            due: clampCompactColumn("due", stored.due),
+          };
+        } catch (err) {
+          return {
+            context: compactColumnBounds.context.fallback,
+            due: compactColumnBounds.due.fallback,
+          };
+        }
+      }
+
+      function saveCompactColumns() {
+        try {
+          localStorage.setItem(compactColumnStorageKey, JSON.stringify(compactColumns));
+        } catch (err) {}
+      }
+
+      function applyCompactColumns() {
+        board.style.setProperty("--todo-compact-context-width", compactColumns.context + "px");
+        board.style.setProperty("--todo-compact-due-width", compactColumns.due + "px");
+        board.querySelectorAll('[data-todo-compact-resize="context"]').forEach(function (handle) {
+          handle.setAttribute("aria-valuemin", String(compactColumnBounds.context.min));
+          handle.setAttribute("aria-valuemax", String(compactColumnBounds.context.max));
+          handle.setAttribute("aria-valuenow", String(compactColumns.context));
+        });
+        board.querySelectorAll('[data-todo-compact-resize="due"]').forEach(function (handle) {
+          handle.setAttribute("aria-valuemin", String(compactColumnBounds.due.min));
+          handle.setAttribute("aria-valuemax", String(compactColumnBounds.due.max));
+          handle.setAttribute("aria-valuenow", String(compactColumns.due));
+        });
+      }
+
+      function setCompactColumn(kind, value, persist) {
+        if (!compactColumnBounds[kind]) return;
+        compactColumns[kind] = clampCompactColumn(kind, value);
+        applyCompactColumns();
+        if (persist !== false) saveCompactColumns();
+      }
+
       function applyFixedTodoLayout() {
         board.style.setProperty("--todo-col-meta", "38px");
         board.style.setProperty("--todo-col-main", "minmax(0, 1fr)");
@@ -29053,12 +29718,87 @@
         board.style.setProperty("--todo-control-status", "76px");
         board.style.setProperty("--todo-control-assignees", "76px");
         board.style.setProperty("--todo-control-offset", "0px");
+        applyCompactColumns();
       }
 
       function refreshTodoBoardLayout() {
         window.requestAnimationFrame(applyFixedTodoLayout);
       }
       window.__refreshTodoBoardLayout = refreshTodoBoardLayout;
+
+      board.addEventListener("pointerdown", function (event) {
+        var handle = event.target.closest("[data-todo-compact-resize]");
+        if (!handle || board.getAttribute("data-todo-view-mode") !== "compact") return;
+        if (typeof event.button === "number" && event.button !== 0) return;
+        var kind = handle.getAttribute("data-todo-compact-resize");
+        if (!compactColumnBounds[kind]) return;
+        event.preventDefault();
+        compactResizeState = {
+          kind: kind,
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startValue: compactColumns[kind],
+        };
+        document.body.classList.add("is-resizing");
+        handle.classList.add("is-dragging");
+        if (handle.setPointerCapture) handle.setPointerCapture(event.pointerId);
+      });
+
+      board.addEventListener("pointermove", function (event) {
+        if (!compactResizeState || event.pointerId !== compactResizeState.pointerId) return;
+        var delta = event.clientX - compactResizeState.startX;
+        var nextValue = compactResizeState.kind === "due"
+          ? compactResizeState.startValue - delta
+          : compactResizeState.startValue + delta;
+        setCompactColumn(compactResizeState.kind, nextValue, false);
+      });
+
+      function finishCompactResize(event) {
+        if (!compactResizeState || (event && event.pointerId !== compactResizeState.pointerId)) return;
+        compactResizeState = null;
+        document.body.classList.remove("is-resizing");
+        board.querySelectorAll(".todo-compact-column-resizer.is-dragging").forEach(function (handle) {
+          handle.classList.remove("is-dragging");
+        });
+        saveCompactColumns();
+      }
+      board.addEventListener("pointerup", finishCompactResize);
+      board.addEventListener("pointercancel", finishCompactResize);
+
+      board.addEventListener("keydown", function (event) {
+        var handle = event.target.closest("[data-todo-compact-resize]");
+        if (!handle || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+        var kind = handle.getAttribute("data-todo-compact-resize");
+        var direction = event.key === "ArrowRight" ? 1 : -1;
+        var delta = direction * (event.shiftKey ? 24 : 8);
+        if (kind === "due") delta *= -1;
+        event.preventDefault();
+        setCompactColumn(kind, compactColumns[kind] + delta);
+      });
+
+      window.__setTodoCompactColumnWidth = function (kind, value) {
+        setCompactColumn(kind, value);
+        return compactColumns[kind];
+      };
+
+      if (typeof MutationObserver === "function") {
+        var compactHandleSyncScheduled = false;
+        var compactHandleObserver = new MutationObserver(function (records) {
+          var addedHandle = records.some(function (record) {
+            return Array.from(record.addedNodes || []).some(function (node) {
+              if (!node || node.nodeType !== 1) return false;
+              return node.matches("[data-todo-compact-resize]") || !!node.querySelector("[data-todo-compact-resize]");
+            });
+          });
+          if (!addedHandle || compactHandleSyncScheduled) return;
+          compactHandleSyncScheduled = true;
+          window.requestAnimationFrame(function () {
+            compactHandleSyncScheduled = false;
+            applyCompactColumns();
+          });
+        });
+        compactHandleObserver.observe(board, { childList: true, subtree: true });
+      }
 
       applyFixedTodoLayout();
       document.addEventListener("termin:dashboard-view-change", function (event) {
@@ -29138,7 +29878,10 @@
           }
           var mobileTaskId = Number(mobileTodoItem.getAttribute("data-task-id") || 0);
           if (mobileTaskId && typeof window.__openSettings === "function") {
-            var mobileTask = mobileTodoItem._taskPayload || taskById(mobileTaskId) || null;
+            var mobileTask = mobileTodoItem._taskPayload
+              || dashboardTaskEntity(mobileTaskId)
+              || (typeof taskById === "function" ? taskById(mobileTaskId) : null)
+              || null;
             var mobileMeta = todoMetaFor(
               mobileTodoItem.getAttribute("data-project-id") || "",
               mobileTodoItem.getAttribute("data-group-id") || ""
@@ -29159,15 +29902,19 @@
         if (todoCheckButton.disabled || todoCheckButton.dataset.pending === "1") return;
         var taskId = String(todoCheckButton.getAttribute("data-task-id") || "").trim();
         if (!taskId) return;
-        var todoRow = todoCheckButton.closest(".todo-item");
+        var todoRow = todoCheckButton.closest(".todo-item, .todo-gantt-row");
         var statusHost = todoRow ? todoRow.querySelector('[data-task-status-host="' + taskId + '"]') : null;
-        var task = (todoRow && todoRow._taskPayload) || (statusHost && statusHost._taskPayload) || null;
+        var task = (todoRow && todoRow._taskPayload)
+          || (statusHost && statusHost._taskPayload)
+          || dashboardTaskEntity(taskId)
+          || (typeof taskById === "function" ? taskById(taskId) : null)
+          || null;
         if (!task) return;
         var meta = taskStatusMeta(task);
         if (meta.mode === "poll") {
           var pollTrigger = todoRow ? todoRow.querySelector('[data-task-poll-trigger="' + taskId + '"]') : null;
-          if (pollTrigger && typeof window.__openTaskPollDialog === "function") {
-            window.__openTaskPollDialog(task, { anchor: pollTrigger, source: "todo" });
+          if (typeof window.__openTaskPollDialog === "function") {
+            window.__openTaskPollDialog(task, { anchor: pollTrigger || todoCheckButton, source: "todo" });
           }
           return;
         }
@@ -29176,6 +29923,8 @@
           var trigger = todoRow ? todoRow.querySelector('[data-task-multi-status-trigger="' + taskId + '"]') : null;
           if (trigger) {
             trigger.click();
+          } else if (typeof window.__openPercentageStatusMenu === "function") {
+            window.__openPercentageStatusMenu(task, todoCheckButton, "row");
           }
           return;
         }
@@ -29192,7 +29941,7 @@
           if (animateTodoRowHide) {
             pendingTodoCompletionHides[taskId] = true;
             window.setTimeout(function () {
-              if (todoRow && todoRow.isConnected) {
+              if (pendingTodoCompletionHides[taskId] && todoRow && todoRow.isConnected) {
                 startTodoCompletionAnimation(todoRow);
               }
             }, 900);
@@ -29222,6 +29971,9 @@
           .then(function () {
             return fetchTaskSnapshot(taskId, { preferCache: false }).then(function (freshTask) {
               if (freshTask) {
+                if (completing) {
+                  maybeShowTaskCompletionToast(task, freshTask);
+                }
                 if (animateTodoRowHide) {
                   queuePendingTodoCompletionHide(freshTask, 1200);
                   return freshTask;

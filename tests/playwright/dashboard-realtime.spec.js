@@ -3713,6 +3713,439 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Verify the sidebar trigger becomes visible and opens the mobile sidebar drawer.', page);
   });
 
+  test('todo compact mode uses dense rows and persists after refresh', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, {
+      due_mode: 'relative',
+      due_relative_task_id: state.collaborator_dated_task.id,
+      due_relative_days: 123,
+    });
+    await page.goto('/todo');
+
+    const board = page.locator('.todo-board[data-todo-client-board="1"]');
+    const pane = page.locator('[data-dashboard-view="todo"]');
+    const task = board.locator(`.todo-item[data-task-id="${state.task.id}"]`);
+    const modeTrigger = page.locator('[data-todo-mode-trigger]');
+    await expect(board).toHaveAttribute('data-todo-board-ready', '1');
+    await expect(task).toBeVisible();
+    await expect(modeTrigger).toContainText('Default');
+
+    const defaultHeight = (await task.boundingBox()).height;
+    await modeTrigger.click();
+    await page.locator('[data-todo-mode-option="compact"]').click();
+
+    await expect(board).toHaveAttribute('data-todo-view-mode', 'compact');
+    await expect(pane).toHaveAttribute('data-todo-view-mode', 'compact');
+    await expect(modeTrigger).toContainText('Compact');
+    await expect(page.locator('[data-todo-mode-option="compact"]')).toHaveAttribute('aria-selected', 'true');
+    await expect(task.locator('[data-todo-check-toggle]')).toBeVisible();
+    await expect(task.locator('.todo-mobile-due-text')).toBeVisible();
+
+    const compactMetrics = await task.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const row = element.getBoundingClientRect();
+      const project = element.querySelector('.todo-project-meta').getBoundingClientRect();
+      const title = element.querySelector('.todo-item-title-row').getBoundingClientRect();
+      const date = element.querySelector('.todo-control-due').getBoundingClientRect();
+      return {
+        display: style.display,
+        borderRadius: style.borderRadius,
+        height: row.height,
+        rowCenter: row.top + (row.height / 2),
+        projectCenter: project.top + (project.height / 2),
+        titleCenter: title.top + (title.height / 2),
+        dateCenter: date.top + (date.height / 2),
+      };
+    });
+    expect(compactMetrics.display).toBe('grid');
+    expect(compactMetrics.borderRadius).toBe('0px');
+    expect(compactMetrics.height).toBeLessThan(defaultHeight);
+    expect(Math.abs(compactMetrics.projectCenter - compactMetrics.titleCenter)).toBeLessThan(4);
+    expect(Math.abs(compactMetrics.rowCenter - compactMetrics.dateCenter)).toBeLessThan(4);
+    const compactTitleStarts = await board.locator('.todo-item .todo-item-title-row').evaluateAll((titles) => (
+      titles
+        .filter((title) => title.getBoundingClientRect().height > 0)
+        .map((title) => Math.round(title.getBoundingClientRect().left * 10) / 10)
+    ));
+    expect(compactTitleStarts.length).toBeGreaterThan(1);
+    expect(Math.max(...compactTitleStarts) - Math.min(...compactTitleStarts)).toBeLessThan(1);
+    const compactDateMetrics = await board.locator('.todo-item .todo-control-due').evaluateAll((dates) => (
+      dates
+        .filter((date) => date.getBoundingClientRect().height > 0)
+        .map((date) => ({
+          left: Math.round(date.getBoundingClientRect().left * 10) / 10,
+          width: Math.round(date.getBoundingClientRect().width),
+        }))
+    ));
+    expect([...new Set(compactDateMetrics.map((date) => date.width))]).toEqual([64]);
+    expect(Math.max(...compactDateMetrics.map((date) => date.left)) - Math.min(...compactDateMetrics.map((date) => date.left))).toBeLessThan(1);
+    const relativeDateLabel = task.locator('.todo-mobile-due-text');
+    await expect(relativeDateLabel).toContainText('after Email Collaborator Due Soon');
+    await expect(task.locator('.due-summary')).toHaveAttribute('title', /after Email Collaborator Due Soon/);
+    const relativeDateOverflow = await relativeDateLabel.evaluate((label) => ({
+      clientWidth: label.clientWidth,
+      scrollWidth: label.scrollWidth,
+      textOverflow: getComputedStyle(label).textOverflow,
+    }));
+    expect(relativeDateOverflow.scrollWidth).toBeGreaterThan(relativeDateOverflow.clientWidth);
+    expect(relativeDateOverflow.textOverflow).toBe('ellipsis');
+
+    const contextHandles = board.locator('[data-todo-compact-resize="context"]');
+    const dueHandles = board.locator('[data-todo-compact-resize="due"]');
+    await expect(contextHandles.first()).toBeVisible();
+    await expect(dueHandles.first()).toBeVisible();
+    expect(await contextHandles.count()).toBeGreaterThan(1);
+    expect(await dueHandles.count()).toBe(await contextHandles.count());
+
+    const titleLeftBeforeResize = await task.locator('.todo-item-title-row').evaluate((title) => title.getBoundingClientRect().left);
+    const contextHandleBox = await contextHandles.first().boundingBox();
+    await page.mouse.move(contextHandleBox.x + (contextHandleBox.width / 2), contextHandleBox.y + (contextHandleBox.height / 2));
+    await page.mouse.down();
+    await page.mouse.move(contextHandleBox.x + (contextHandleBox.width / 2) + 48, contextHandleBox.y + (contextHandleBox.height / 2));
+    await page.mouse.up();
+    await expect(contextHandles.first()).toHaveAttribute('aria-valuenow', '238');
+    await expect(contextHandles.last()).toHaveAttribute('aria-valuenow', '238');
+    const titleLeftAfterResize = await task.locator('.todo-item-title-row').evaluate((title) => title.getBoundingClientRect().left);
+    expect(titleLeftAfterResize - titleLeftBeforeResize).toBeGreaterThan(47);
+    expect(titleLeftAfterResize - titleLeftBeforeResize).toBeLessThan(49);
+
+    const actionPill = task.locator('.todo-control-cluster > .task-pill');
+    const dateCell = task.locator('.todo-control-due');
+    const rightHandleCenter = await dueHandles.first().evaluate((handle) => {
+      const rect = handle.getBoundingClientRect();
+      return rect.left + (rect.width / 2);
+    });
+    const actionAndDateBoundary = await task.evaluate((element) => {
+      const action = element.querySelector('.todo-control-cluster > .task-pill').getBoundingClientRect();
+      const date = element.querySelector('.todo-control-due').getBoundingClientRect();
+      return { actionRight: action.right, dateLeft: date.left };
+    });
+    expect(rightHandleCenter).toBeGreaterThan(actionAndDateBoundary.actionRight);
+    expect(rightHandleCenter).toBeLessThan(actionAndDateBoundary.dateLeft);
+    await expect(actionPill).toBeVisible();
+    await expect(dateCell).toBeVisible();
+
+    await dueHandles.first().focus();
+    await dueHandles.first().press('ArrowLeft');
+    await expect(dueHandles.first()).toHaveAttribute('aria-valuenow', '72');
+    await expect(dueHandles.last()).toHaveAttribute('aria-valuenow', '72');
+    await expect(dateCell).toHaveCSS('width', '72px');
+    await expect.poll(() => page.evaluate((userId) => {
+      const value = localStorage.getItem(`termin:todo-compact-columns:v2:user:${userId}`);
+      return value ? JSON.parse(value) : null;
+    }, state.owner.id)).toEqual({ context: 238, due: 72 });
+    await expect.poll(() => page.evaluate((userId) => (
+      localStorage.getItem(`termin:todo-view-mode:v1:user:${userId}`)
+    ), state.owner.id)).toBe('compact');
+
+    await page.reload();
+    await expect(board).toHaveAttribute('data-todo-board-ready', '1');
+    await expect(board).toHaveAttribute('data-todo-view-mode', 'compact');
+    await expect(modeTrigger).toContainText('Compact');
+    await expect(board.locator('[data-todo-compact-resize="context"]').first()).toHaveAttribute('aria-valuenow', '238');
+    await expect(board.locator('[data-todo-compact-resize="due"]').first()).toHaveAttribute('aria-valuenow', '72');
+    await expect(task.locator('.todo-control-due')).toHaveCSS('width', '72px');
+  });
+
+  test('todo gantt mode preserves todo ordering and persists timeline controls', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    const overdueDate = isoDateWithOffset(-12);
+    await login(page, state.owner.email, state.owner.password);
+    await patchTask(page, state.task.id, {
+      due_at: overdueDate,
+      due_mode: 'date',
+      start_date: isoDateWithOffset(-16),
+      status: 'open',
+      status_mode: 'single',
+    });
+    await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Undo Overdue Peer',
+      assignee_email: state.owner.email,
+      due_at: overdueDate,
+      due_mode: 'date',
+    });
+    const urgentTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Gantt Urgent Task',
+      assignee_email: state.owner.email,
+      due_mode: 'urgent',
+    });
+    const activeTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Todo Gantt Active Task',
+      assignee_email: state.owner.email,
+      start_date: isoDateWithOffset(0),
+      due_at: isoDateWithOffset(14),
+      due_mode: 'date',
+    });
+    await page.goto('/todo');
+
+    const board = page.locator('.todo-board[data-todo-client-board="1"]');
+    const pane = page.locator('[data-dashboard-view="todo"]');
+    const ganttView = page.locator('[data-todo-gantt-view]');
+    const panel = page.locator('[data-todo-gantt]');
+    const modeTrigger = page.locator('[data-todo-mode-trigger]');
+    await expect(board).toHaveAttribute('data-todo-board-ready', '1');
+
+    const todoLayout = await page.evaluate(() => {
+      const now = new Date();
+      const today = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+      ].join('-');
+      const rows = Array.from(document.querySelectorAll('.todo-date-group .todo-item:not(.is-filtered)'));
+      const activeOrder = new Map(Array.from(document.querySelectorAll('[data-todo-active-tasks-list] .todo-active-task-row:not(.is-filtered)')).map((row, index) => (
+        [row.getAttribute('data-task-id'), index]
+      )));
+      const startDate = rows.reduce((earliest, row) => {
+        if (String(row.getAttribute('data-status-state') || '').toLowerCase() === 'complete') return earliest;
+        const task = window.__dashboardTaskEntity(row.getAttribute('data-task-id'));
+        const due = String(task && task.due_at || '').slice(0, 10);
+        return due && due < earliest ? due : earliest;
+      }, today);
+      const ganttRows = rows.map((row, sourceIndex) => {
+        const taskId = row.getAttribute('data-task-id');
+        const originalBucket = row.closest('.todo-date-group').getAttribute('data-todo-date-key');
+        const bucket = originalBucket !== 'urgent' && activeOrder.has(taskId) ? 'active' : originalBucket;
+        return { taskId, bucket, sourceIndex, activeIndex: activeOrder.get(taskId) ?? -1 };
+      }).sort((a, b) => {
+        const priority = (entry) => (entry.bucket === 'urgent' ? 0 : (entry.bucket === 'active' ? 1 : 2));
+        const priorityDiff = priority(a) - priority(b);
+        if (priorityDiff) return priorityDiff;
+        if (a.bucket === 'active' && b.bucket === 'active' && a.activeIndex !== b.activeIndex) {
+          return a.activeIndex - b.activeIndex;
+        }
+        return a.sourceIndex - b.sourceIndex;
+      });
+      const buckets = [];
+      ganttRows.forEach((row) => {
+        if (buckets[buckets.length - 1] !== row.bucket) buckets.push(row.bucket);
+      });
+      return {
+        startDate,
+        taskIds: ganttRows.map((row) => row.taskId),
+        buckets,
+      };
+    });
+    const defaultEndDate = await page.evaluate(() => {
+      const now = new Date();
+      const target = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+      target.setDate(Math.min(now.getDate(), lastDay));
+      return [
+        target.getFullYear(),
+        String(target.getMonth() + 1).padStart(2, '0'),
+        String(target.getDate()).padStart(2, '0'),
+      ].join('-');
+    });
+    const twoMonthEndDate = await page.evaluate(() => {
+      const now = new Date();
+      const target = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+      const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+      target.setDate(Math.min(now.getDate(), lastDay));
+      return [
+        target.getFullYear(),
+        String(target.getMonth() + 1).padStart(2, '0'),
+        String(target.getDate()).padStart(2, '0'),
+      ].join('-');
+    });
+
+    await modeTrigger.click();
+    await page.locator('[data-todo-mode-option="gantt"]').click();
+    await expect(pane).toHaveAttribute('data-todo-view-mode', 'gantt');
+    await expect(board).toBeHidden();
+    await expect(ganttView).toBeVisible();
+    await expect(panel).toHaveAttribute('data-todo-gantt-ready', '1');
+    await expect(panel).toHaveAttribute('data-project-start-date', todoLayout.startDate);
+    await expect(panel).toHaveAttribute('data-project-end-date', defaultEndDate);
+    await expect(page.locator('[data-todo-gantt-start]')).toHaveCount(0);
+    await expect(page.locator('[data-todo-gantt-end]')).toHaveCount(0);
+    await expect(page.locator('[data-todo-gantt-horizon]')).toHaveValue('1m');
+    await expect.poll(() => panel.locator('[data-todo-gantt-task]').evaluateAll((rows) => (
+      rows.map((row) => row.getAttribute('data-todo-gantt-task'))
+    ))).toEqual(todoLayout.taskIds);
+    await expect.poll(() => panel.locator('[data-todo-gantt-bucket]').evaluateAll((sections) => (
+      sections.map((section) => section.getAttribute('data-todo-gantt-bucket'))
+    ))).toEqual(todoLayout.buckets);
+    await expect(panel.locator('[data-todo-gantt-bucket]').nth(0)).toHaveAttribute('data-todo-gantt-bucket', 'urgent');
+    await expect(panel.locator('[data-todo-gantt-bucket]').nth(1)).toHaveAttribute('data-todo-gantt-bucket', 'active');
+    await expect(panel.locator('[data-todo-gantt-bucket="active"] .project-gantt-section-title-text')).toHaveText('Active Tasks');
+    await expect(panel.locator(`[data-todo-gantt-bucket="active"] [data-todo-gantt-task="${activeTask.id}"]`)).toHaveCount(1);
+    await expect(panel.locator(`[data-todo-gantt-task="${activeTask.id}"]`)).toHaveCount(1);
+
+    const urgentRow = panel.locator(`[data-todo-gantt-task="${urgentTask.id}"]`);
+    await expect(urgentRow).toHaveAttribute('data-due-mode', 'urgent');
+    await expect(urgentRow).toHaveAttribute('data-status-state', 'open');
+    await expect(panel.locator('[data-todo-gantt-bucket="urgent"] .todo-urgent-heading-title > i')).toHaveClass(/fa-triangle-exclamation/);
+    const urgentVisuals = await urgentRow.evaluate((row) => {
+      const rowStyle = getComputedStyle(row);
+      const titleStyle = getComputedStyle(row.querySelector('.project-gantt-task-title'));
+      return {
+        background: rowStyle.backgroundImage,
+        shadow: rowStyle.boxShadow,
+        titleWeight: Number(titleStyle.fontWeight),
+      };
+    });
+    expect(urgentVisuals.background).not.toBe('none');
+    expect(urgentVisuals.shadow).not.toBe('none');
+    expect(urgentVisuals.titleWeight).toBeGreaterThanOrEqual(800);
+    const completedUrgentVisuals = await urgentRow.evaluate((row) => {
+      row.setAttribute('data-status-state', 'complete');
+      const rowStyle = getComputedStyle(row);
+      const titleStyle = getComputedStyle(row.querySelector('.project-gantt-task-title'));
+      const visuals = {
+        background: rowStyle.backgroundImage,
+        shadow: rowStyle.boxShadow,
+        titleWeight: Number(titleStyle.fontWeight),
+      };
+      row.setAttribute('data-status-state', 'open');
+      return visuals;
+    });
+    expect(completedUrgentVisuals.background).toBe('none');
+    expect(completedUrgentVisuals.shadow).toBe('none');
+    expect(completedUrgentVisuals.titleWeight).toBeLessThan(800);
+
+    const taskRow = panel.locator(`[data-todo-gantt-task="${state.task.id}"]`);
+    await expect(taskRow).toBeVisible();
+    await expect(taskRow.locator('[data-todo-check-toggle]')).toBeVisible();
+    await expect(taskRow.locator('[data-open-gantt-task]')).toContainText('Realtime Task');
+    await expect(taskRow.locator('[data-gantt-track]')).toHaveAttribute('data-project-id', String(state.project.id));
+    const categoryColor = await taskRow.evaluate((row) => getComputedStyle(row).getPropertyValue('--todo-gantt-color').trim());
+    expect(categoryColor).toMatch(/^#[0-9a-f]{3,8}$/i);
+    const ganttCategoryMetrics = await taskRow.evaluate((row) => {
+      const marker = row.querySelector('.project-gantt-marker:not(.status-complete)');
+      const colorProbe = document.createElement('span');
+      colorProbe.style.color = getComputedStyle(row).getPropertyValue('--todo-gantt-color');
+      document.body.appendChild(colorProbe);
+      const expectedMarkerColor = getComputedStyle(colorProbe).color;
+      colorProbe.remove();
+      const stripe = getComputedStyle(row, '::before');
+      return {
+        markerColor: getComputedStyle(marker).backgroundColor,
+        expectedMarkerColor,
+        stripeTop: stripe.top,
+        stripeBottom: stripe.bottom,
+        stripeRadius: stripe.borderRadius,
+      };
+    });
+    expect(ganttCategoryMetrics.markerColor).toBe(ganttCategoryMetrics.expectedMarkerColor);
+    expect(ganttCategoryMetrics.stripeTop).toBe('-1px');
+    expect(ganttCategoryMetrics.stripeBottom).toBe('-1px');
+    expect(ganttCategoryMetrics.stripeRadius).toBe('0px');
+    const overdueSpan = taskRow.locator(`[data-todo-gantt-overdue-span="${state.task.id}"]`);
+    await expect(overdueSpan).toBeVisible();
+    await expect(overdueSpan).toHaveAttribute('data-overdue-days', '12');
+    const overdueSpanMetrics = await taskRow.evaluate((row) => {
+      const marker = row.querySelector('.project-gantt-marker');
+      const span = row.querySelector('[data-todo-gantt-overdue-span]');
+      const todayGuide = document.querySelector('.todo-gantt .project-gantt-axis .project-gantt-guide.is-today');
+      return {
+        markerLeft: Number.parseFloat(marker.style.left),
+        spanLeft: Number.parseFloat(span.style.left),
+        spanWidth: Number.parseFloat(span.style.width),
+        todayLeft: Number.parseFloat(todayGuide.style.left),
+        backgroundImage: getComputedStyle(span).backgroundImage,
+      };
+    });
+    expect(overdueSpanMetrics.spanLeft).toBeCloseTo(overdueSpanMetrics.markerLeft, 2);
+    expect(overdueSpanMetrics.spanLeft + overdueSpanMetrics.spanWidth).toBeCloseTo(overdueSpanMetrics.todayLeft, 2);
+    expect(overdueSpanMetrics.backgroundImage).toContain('repeating-linear-gradient');
+    const ganttRowGaps = await panel.locator('[data-todo-gantt-bucket]').evaluateAll((sections) => sections.flatMap((section) => {
+      const rows = Array.from(section.querySelectorAll('[data-todo-gantt-task]'));
+      return rows.slice(1).map((row, index) => {
+        const previous = rows[index].getBoundingClientRect();
+        return row.getBoundingClientRect().top - previous.bottom;
+      });
+    }));
+    expect(Math.max(0, ...ganttRowGaps)).toBeLessThan(0.5);
+
+    const major = page.locator(`[data-project-gantt-major="todo-${state.owner.id}"]`);
+    const minor = page.locator(`[data-project-gantt-minor="todo-${state.owner.id}"]`);
+    await major.selectOption('month');
+    await minor.selectOption('day');
+    await page.locator('[data-project-gantt-day-mask="minor"][value="0"]').locator('..').click();
+    await page.locator('[data-todo-gantt-horizon]').selectOption('2m');
+    const ganttFilter = page.locator(`[data-project-gantt-filter="todo-${state.owner.id}"]`);
+    await ganttFilter.click();
+    await ganttFilter.fill('Realtime');
+    await expect(panel).toHaveAttribute('data-project-end-date', twoMonthEndDate);
+    await expect(taskRow).toBeVisible();
+    await expect.poll(() => page.evaluate((userId) => {
+      const raw = localStorage.getItem(`termin:todo-gantt-settings:v1:user:${userId}`);
+      return raw ? JSON.parse(raw) : null;
+    }, state.owner.id)).toEqual({
+      major: 'month',
+      minor: 'day',
+      majorDays: [0, 1, 2, 3, 4, 5, 6],
+      minorDays: [1, 2, 3, 4, 5, 6],
+      horizon: '2m',
+      filter: 'Realtime',
+    });
+
+    await page.reload();
+    await expect(pane).toHaveAttribute('data-todo-view-mode', 'gantt');
+    await expect(modeTrigger).toContainText('Gantt');
+    await expect(ganttView).toBeVisible();
+    await expect(panel).toHaveAttribute('data-todo-gantt-ready', '1');
+    await expect(panel).toHaveAttribute('data-project-start-date', todoLayout.startDate);
+    await expect(panel).toHaveAttribute('data-project-end-date', twoMonthEndDate);
+    await expect(page.locator('[data-todo-gantt-horizon]')).toHaveValue('2m');
+    await expect(major).toHaveValue('month');
+    await expect(minor).toHaveValue('day');
+    await expect(page.locator('[data-project-gantt-day-mask="minor"][value="0"]')).not.toBeChecked();
+    await expect(ganttFilter).toHaveValue('Realtime');
+    await expect(taskRow).toBeVisible();
+    await ganttFilter.click();
+    await ganttFilter.fill('');
+    await expect.poll(() => panel.locator('[data-todo-gantt-task]').evaluateAll((rows) => (
+      rows.map((row) => row.getAttribute('data-todo-gantt-task'))
+    ))).toEqual(todoLayout.taskIds);
+    const ganttOrderBeforeCompletion = await panel.locator('[data-todo-gantt-task]').evaluateAll((rows) => (
+      rows.map((row) => row.getAttribute('data-todo-gantt-task'))
+    ));
+    await taskRow.locator('[data-todo-check-toggle]').click();
+    await expect(taskRow).toHaveCount(0, { timeout: 5000 });
+    const ganttUndoToast = page.locator('.action-toast').filter({ hasText: 'Realtime Task' }).first();
+    await expect(ganttUndoToast).toBeVisible();
+    await ganttUndoToast.locator('button', { hasText: 'Undo' }).click();
+    await expect(taskRow).toBeVisible();
+    await expect(taskRow.locator('[data-todo-check-toggle]')).toBeVisible();
+    await expect.poll(async () => {
+      const freshTask = await fetchTaskViaApi(page, state.task.id);
+      return String(freshTask.status || '').toLowerCase();
+    }).toBe('open');
+    await page.waitForTimeout(1500);
+    await expect(taskRow).toBeVisible();
+    await expect(taskRow.locator('.project-gantt-marker:not(.status-complete)')).toBeVisible();
+    await expect.poll(() => taskRow.evaluate((row) => getComputedStyle(row).getPropertyValue('--todo-gantt-color').trim())).toBe(categoryColor);
+    await expect.poll(() => panel.locator('[data-todo-gantt-task]').evaluateAll((rows) => (
+      rows.map((row) => row.getAttribute('data-todo-gantt-task'))
+    ))).toEqual(ganttOrderBeforeCompletion);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(pane).toHaveAttribute('data-todo-view-mode', 'default');
+    await expect(board).toHaveAttribute('data-todo-view-mode', 'default');
+    await expect(ganttView).toBeHidden();
+    await expect(modeTrigger).toContainText('Default');
+    await expect(page.locator('[data-todo-mode-option="compact"]')).toBeDisabled();
+    await expect(page.locator('[data-todo-mode-option="gantt"]')).toBeDisabled();
+    await expect.poll(() => page.evaluate((userId) => (
+      localStorage.getItem(`termin:todo-view-mode:v1:user:${userId}`)
+    ), state.owner.id)).toBe('gantt');
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(pane).toHaveAttribute('data-todo-view-mode', 'gantt');
+    await expect(ganttView).toBeVisible();
+    await expect(page.locator('[data-todo-mode-option="compact"]')).toBeEnabled();
+    await expect(page.locator('[data-todo-mode-option="gantt"]')).toBeEnabled();
+  });
+
   test('tree navigation does not eagerly build the hidden todo board', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['performance', 'navigation', 'todo', 'tree']);
@@ -3795,7 +4228,7 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Refresh /todo and verify Linked Todo Task still shows the same link favicon badge immediately after reload.', page);
   });
 
-  test('todo checkbox persists single-status completion to the server', async ({ page, request }) => {
+  test('todo checkbox persists single-status completion and supports toast undo', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['todo', 'status', 'persistence', 'single']);
     const state = await fetchSeedState(request);
@@ -3812,18 +4245,35 @@ test.describe('dashboard and realtime flows', () => {
     await patchTask(page, task.id, { status: 'open', status_mode: 'single' });
 
     await page.goto('/todo');
+    const taskRow = page.locator(`.todo-item[data-task-id="${task.id}"]`);
     const checkButton = page.locator(`.todo-item[data-task-id="${task.id}"] [data-todo-check-toggle="${task.id}"]`).first();
     await expect(checkButton).toHaveCount(1);
+    const originalTodoColor = await taskRow.evaluate((row) => getComputedStyle(row).getPropertyValue('--todo-color').trim());
     await checkButton.click();
+
+    const toast = page.locator('.action-toast').filter({ hasText: 'Todo Single Persist Task' }).first();
+    await expect(toast).toBeVisible();
+    await expect(toast.locator('.action-toast-title')).toHaveText('Task completed');
 
     await expect.poll(async () => {
       const freshTask = await fetchTaskViaApi(page, task.id);
       return String(freshTask.status || '').toLowerCase();
     }).toBe('complete');
-    await steps.step('Click the Todo checkbox for a single-status task and verify /api/tasks returns status=complete from the server.', page);
+    await expect(taskRow).toHaveCount(0, { timeout: 5000 });
+    await steps.step('Click the Todo checkbox and verify the completion toast appears while the task is removed.', page);
+
+    await toast.locator('button', { hasText: 'Undo' }).click();
+    await expect(taskRow).toBeVisible();
+    await expect.poll(() => taskRow.evaluate((row) => getComputedStyle(row).getPropertyValue('--todo-color').trim())).toBe(originalTodoColor);
+    await expect(taskRow).not.toHaveClass(/is-completion-preview|is-completing|is-collapsing/);
+    await expect.poll(async () => {
+      const freshTask = await fetchTaskViaApi(page, task.id);
+      return String(freshTask.status || '').toLowerCase();
+    }).toBe('open');
+    await steps.step('Click Undo after the Todo row has disappeared and verify the task is restored on the server and in the view.', page);
   });
 
-  test('todo checkbox persists multi-status completion to the server', async ({ page, request }) => {
+  test('todo checkbox completion toast undoes the viewer multi-status', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['todo', 'status', 'persistence', 'multi']);
     const state = await fetchSeedState(request);
@@ -3840,15 +4290,32 @@ test.describe('dashboard and realtime flows', () => {
     await patchTask(page, task.id, { status_mode: 'multi' });
 
     await page.goto('/todo');
+    await page.locator('[data-todo-mode-trigger]').click();
+    await page.locator('[data-todo-mode-option="compact"]').click();
+    const taskRow = page.locator(`.todo-item[data-task-id="${task.id}"]`);
     const checkButton = page.locator(`.todo-item[data-task-id="${task.id}"] [data-todo-check-toggle="${task.id}"]`).first();
     await expect(checkButton).toHaveCount(1);
+    const originalTodoColor = await taskRow.evaluate((row) => getComputedStyle(row).getPropertyValue('--todo-color').trim());
     await checkButton.click();
+
+    const toast = page.locator('.action-toast').filter({ hasText: 'Todo Multi Persist Task' }).first();
+    await expect(toast).toBeVisible();
 
     await expect.poll(async () => {
       const freshTask = await fetchTaskViaApi(page, task.id);
       return String((freshTask.status_meta && freshTask.status_meta.my_status) || '').toLowerCase();
     }).toBe('complete');
-    await steps.step('Click the Todo checkbox for a multi-status task and verify /api/tasks returns the viewer-specific status as complete from the server.', page);
+    await expect(taskRow).toHaveCount(0, { timeout: 5000 });
+
+    await toast.locator('button', { hasText: 'Undo' }).click();
+    await expect(taskRow).toBeVisible();
+    await expect.poll(() => taskRow.evaluate((row) => getComputedStyle(row).getPropertyValue('--todo-color').trim())).toBe(originalTodoColor);
+    await expect(taskRow).not.toHaveClass(/is-completion-preview|is-completing|is-collapsing/);
+    await expect.poll(async () => {
+      const freshTask = await fetchTaskViaApi(page, task.id);
+      return String((freshTask.status_meta && freshTask.status_meta.my_status) || '').toLowerCase();
+    }).toBe('open');
+    await steps.step('Complete a multi-status Todo task and verify Undo restores the viewer-specific status.', page);
   });
 
   test('todo shows a compact active tasks section for started future work', async ({ page, request }) => {
