@@ -44,6 +44,7 @@ from app.team_shares import project_access_user_ids, project_has_team_access, pr
 from app.utils import current_user, display_name_for_user
 from app.web_push import send_web_push_notification
 from app.canvas_sync import canvas_group_metadata
+from app.google_drive_sync import google_drive_group_metadata
 
 _handlers_registered = False
 _sid_user = {}
@@ -686,6 +687,7 @@ def _serialize_group_payload(group: Group) -> dict:
         "description_format": group.description_format or "markdown",
         "rendered_description": _render_description(group.description, group.description_format, "markdown"),
         **canvas_group_metadata(group),
+        **google_drive_group_metadata(group),
     }
 
 

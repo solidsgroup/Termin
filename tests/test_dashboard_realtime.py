@@ -37,9 +37,10 @@ if "pywebpush" not in sys.modules:
 from app import create_app
 from app import favicon_cache
 from app.canvas_sync import CanvasAssignment, CanvasCourse, CanvasSyncError, apply_canvas_course, fetch_canvas_course
+from app.google_drive_sync import GoogleDriveComment, GoogleDriveFile, apply_google_drive_file, fetch_google_drive_file
 from app.extensions import db, socketio
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import Assignment, CanvasAssignmentLink, DevMailboxMessage, ExternalIdentity, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskComment, TaskFollower, TaskPrerequisite, TaskUserStatus, TeamInvite, User
+from app.models import Assignment, CalendarAccount, CanvasAssignmentLink, DevMailboxMessage, ExternalIdentity, GoogleDriveCommentLink, GoogleDriveIntegration, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskComment, TaskFollower, TaskPrerequisite, TaskUserStatus, TeamInvite, User
 from app.realtime import emit_task_updated
 from app.task_status import task_status_meta
 
@@ -595,6 +596,267 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             self.assertEqual(TaskFollower.query.filter_by(task_id=original_task_id).count(), 0)
             self.assertEqual(TaskComment.query.filter_by(task_id=original_task_id).count(), 0)
             self.assertEqual(load_info_payload(tasks[0].info, tasks[0].link)["meta"]["assignee_mode"], "none")
+
+    def test_google_drive_comments_sync_assignments_resolution_and_deletion(self):
+        with self.app.app_context():
+            owner = self.create_user("drive-owner@example.com", "Drive Owner")
+            assignee = self.create_user("drive-assignee@example.com", "Drive Assignee")
+            project = self.create_project(owner, "Drive Project")
+            group = Group(project_id=project.id, name="Draft", specialty_type="google_drive")
+            db.session.add(group)
+            db.session.flush()
+            integration = GoogleDriveIntegration(
+                group_id=group.id,
+                authorized_user_id=owner.id,
+                file_id="drive-file-12345",
+                file_name="Draft",
+            )
+            db.session.add(integration)
+            db.session.flush()
+            initial_file = GoogleDriveFile(
+                file_id="drive-file-12345",
+                name="Proposal Draft",
+                mime_type="application/vnd.google-apps.document",
+                web_view_link="https://docs.google.com/document/d/drive-file-12345/edit",
+                comments=(
+                    GoogleDriveComment(
+                        comment_id="comment-1",
+                        content="Revise the abstract\nwith the new result.",
+                        created_at=datetime(2026, 9, 1, 12, 0),
+                        modified_at=datetime(2026, 9, 1, 12, 30),
+                        resolved=False,
+                        deleted=False,
+                        assignee_email=assignee.email,
+                        author_name="Reviewer",
+                        author_avatar_url="https://example.com/reviewer.png",
+                        quoted_content="Old abstract",
+                        replies=(),
+                    ),
+                    GoogleDriveComment(
+                        comment_id="comment-2",
+                        content="Check the figure caption",
+                        created_at=datetime(2026, 9, 1, 13, 0),
+                        modified_at=datetime(2026, 9, 1, 13, 0),
+                        resolved=True,
+                        deleted=False,
+                        assignee_email="",
+                        author_name="Editor",
+                        author_avatar_url="",
+                        quoted_content="Figure 2",
+                        replies=(),
+                    ),
+                ),
+            )
+
+            result = apply_google_drive_file(
+                group,
+                integration,
+                initial_file,
+                actor_user_id=owner.id,
+                full_sync=True,
+            )
+            db.session.commit()
+
+            self.assertEqual(result.as_dict(), {
+                "created": 2,
+                "updated": 0,
+                "removed": 0,
+                "total": 2,
+                "scanned": 2,
+                "full_sync": True,
+            })
+            tasks = Task.query.filter_by(group_id=group.id).order_by(Task.position.asc()).all()
+            first_task_id, second_task_id = tasks[0].id, tasks[1].id
+            self.assertEqual([task.title for task in tasks], ["Revise the abstract", "Check the figure caption"])
+            self.assertEqual([task.status for task in tasks], ["open", "complete"])
+            self.assertTrue(all(task.locked for task in tasks))
+            first_assignment = Assignment.query.filter_by(task_id=first_task_id).one()
+            self.assertEqual(first_assignment.user_id, assignee.id)
+            self.assertIsNone(first_assignment.email)
+            self.assertEqual(Assignment.query.filter_by(task_id=second_task_id).count(), 0)
+            self.assertEqual(load_info_payload(tasks[1].info)["meta"]["assignee_mode"], "none")
+
+            resolved_comment = GoogleDriveComment(
+                **{**initial_file.comments[0].__dict__, "resolved": True, "modified_at": datetime(2026, 9, 2, 9, 0)}
+            )
+            incremental_file = GoogleDriveFile(
+                file_id=initial_file.file_id,
+                name=initial_file.name,
+                mime_type=initial_file.mime_type,
+                web_view_link=initial_file.web_view_link,
+                comments=(resolved_comment,),
+            )
+            incremental_result = apply_google_drive_file(
+                group,
+                integration,
+                incremental_file,
+                actor_user_id=owner.id,
+                full_sync=False,
+            )
+            db.session.commit()
+            self.assertEqual([task.id for task in incremental_result.updated_tasks], [first_task_id])
+            self.assertEqual(Task.query.get(first_task_id).status, "complete")
+            self.assertIsNotNone(Task.query.get(second_task_id))
+            group_version_after_change = Group.query.get(group.id).updated_at
+
+            unchanged_result = apply_google_drive_file(
+                group,
+                integration,
+                incremental_file,
+                actor_user_id=owner.id,
+                full_sync=False,
+            )
+            db.session.commit()
+            self.assertEqual(unchanged_result.updated_tasks, [])
+            self.assertEqual(Group.query.get(group.id).updated_at, group_version_after_change)
+
+            empty_full_file = GoogleDriveFile(
+                file_id=initial_file.file_id,
+                name=initial_file.name,
+                mime_type=initial_file.mime_type,
+                web_view_link=initial_file.web_view_link,
+                comments=(),
+            )
+            removed_result = apply_google_drive_file(
+                group,
+                integration,
+                empty_full_file,
+                actor_user_id=owner.id,
+                full_sync=True,
+            )
+            db.session.commit()
+            self.assertEqual({task.id for task in removed_result.deleted_tasks}, {first_task_id, second_task_id})
+            self.assertEqual(Task.query.filter_by(group_id=group.id).count(), 0)
+            self.assertEqual(GoogleDriveCommentLink.query.filter_by(group_id=group.id).count(), 0)
+
+    def test_google_drive_group_route_requires_scope_and_creates_locked_tasks(self):
+        file_url = "https://docs.google.com/document/d/drive-file-98765/edit"
+        with self.app.app_context():
+            owner = self.create_user("drive-route@example.com", "Drive Route")
+            owner_id = owner.id
+            project = self.create_project(owner, "Drive Route Project")
+            project_id = project.id
+            db.session.add(CalendarAccount(
+                user_id=owner.id,
+                provider="google",
+                provider_user_id="google-drive-route",
+                access_token="picker-token",
+                refresh_token="refresh-token",
+                token_expires_at=datetime.utcnow() + timedelta(hours=1),
+                scopes="openid email https://www.googleapis.com/auth/drive.file",
+            ))
+            db.session.commit()
+
+        drive_file = GoogleDriveFile(
+            file_id="drive-file-98765",
+            name="Review Document",
+            mime_type="application/vnd.google-apps.document",
+            web_view_link=file_url,
+            comments=(
+                GoogleDriveComment(
+                    comment_id="route-comment-1",
+                    content="Resolve this question",
+                    created_at=datetime(2026, 9, 3, 10, 0),
+                    modified_at=datetime(2026, 9, 3, 10, 0),
+                    resolved=False,
+                    deleted=False,
+                    assignee_email="",
+                    author_name="Reviewer",
+                    author_avatar_url="",
+                    quoted_content="",
+                    replies=(),
+                ),
+            ),
+        )
+        self.login(self.client, owner_id)
+        with patch("app.routes.fetch_google_drive_file", return_value=drive_file):
+            response = self.client.post(
+                f"/api/projects/{project_id}/google-drive-groups",
+                json={"url": file_url},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(payload["group"]["specialty_type"], "google_drive")
+        self.assertEqual(payload["group"]["google_drive"]["file_id"], "drive-file-98765")
+        self.assertTrue(payload["tasks"][0]["locked"])
+        self.assertEqual(payload["tasks"][0]["assignee_mode"], "none")
+        task_id = payload["tasks"][0]["id"]
+        update_response = self.client.patch(f"/api/tasks/{task_id}", json={"status": "complete"})
+        self.assertEqual(update_response.status_code, 423)
+        self.assertEqual(update_response.get_json()["error"], "Google Drive tasks are managed by Google Drive")
+
+        with patch.dict(self.app.config, {
+            "GOOGLE_PICKER_API_KEY": "test-picker-key",
+            "GOOGLE_CLOUD_PROJECT_NUMBER": "123456789",
+        }):
+            picker_response = self.client.get("/api/google/drive/picker-token")
+        self.assertEqual(picker_response.status_code, 200)
+        self.assertEqual(picker_response.get_json(), {
+            "oauth_token": "picker-token",
+            "developer_key": "test-picker-key",
+            "app_id": "123456789",
+        })
+
+    def test_google_drive_fetch_uses_incremental_comment_fields(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.status_code = 200
+                self._payload = payload
+
+            def json(self):
+                return self._payload
+
+        with self.app.app_context():
+            owner = self.create_user("drive-fetch@example.com", "Drive Fetch")
+            account = CalendarAccount(
+                user_id=owner.id,
+                provider="google",
+                access_token="drive-access-token",
+                refresh_token="drive-refresh-token",
+                token_expires_at=datetime.utcnow() + timedelta(hours=1),
+                scopes="https://www.googleapis.com/auth/drive.file",
+            )
+            db.session.add(account)
+            db.session.commit()
+            responses = [
+                FakeResponse({
+                    "id": "drive-file-24680",
+                    "name": "Design Notes",
+                    "mimeType": "application/vnd.google-apps.document",
+                    "webViewLink": "https://docs.google.com/document/d/drive-file-24680/edit",
+                }),
+                FakeResponse({
+                    "comments": [{
+                        "id": "comment-24680",
+                        "content": "Update this section",
+                        "createdTime": "2026-09-05T15:00:00Z",
+                        "modifiedTime": "2026-09-05T15:05:00Z",
+                        "resolved": False,
+                        "deleted": False,
+                        "assigneeEmailAddress": "ASSIGNEE@example.com",
+                        "author": {"displayName": "Reviewer", "photoLink": "https://example.com/avatar.png"},
+                        "quotedFileContent": {"value": "Original section"},
+                        "replies": [{"content": "I will revise it", "author": {"displayName": "Author"}}],
+                    }],
+                }),
+            ]
+            with patch("app.google_drive_sync.requests.get", side_effect=responses) as drive_get:
+                drive_file = fetch_google_drive_file(
+                    account,
+                    "drive-file-24680",
+                    modified_since=datetime(2026, 9, 5, 14, 58),
+                )
+
+        self.assertEqual(drive_file.name, "Design Notes")
+        self.assertEqual(drive_file.comments[0].assignee_email, "assignee@example.com")
+        self.assertEqual(drive_file.comments[0].modified_at, datetime(2026, 9, 5, 15, 5))
+        comment_params = drive_get.call_args_list[1].kwargs["params"]
+        self.assertEqual(comment_params["includeDeleted"], "true")
+        self.assertEqual(comment_params["startModifiedTime"], "2026-09-05T14:58:00Z")
+        self.assertIn("assigneeEmailAddress", comment_params["fields"])
+        self.assertIn("resolved", comment_params["fields"])
+        self.assertIn("replies", comment_params["fields"])
 
     def test_canvas_fetch_establishes_anonymous_session_before_assignment_groups_api(self):
         source_url = "https://canvas.example.edu/courses/129714/assignments"

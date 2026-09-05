@@ -2475,7 +2475,7 @@ test.describe('dashboard and realtime flows', () => {
     await expect(addGroup).toBeVisible();
     await addGroup.hover();
     await expect(addGroupSubmenu).toBeVisible();
-    await expect(addGroupSubmenu.locator('[data-context-group-create-kind]')).toHaveCount(3);
+    await expect(addGroupSubmenu.locator('[data-context-group-create-kind]')).toHaveCount(4);
     await expect.poll(async () => {
       const [menuBox, submenuBox] = await Promise.all([contextMenu.boundingBox(), addGroupSubmenu.boundingBox()]);
       return !!menuBox && !!submenuBox && submenuBox.x >= menuBox.x + menuBox.width - 5;
@@ -2534,7 +2534,7 @@ test.describe('dashboard and realtime flows', () => {
     const addGroupButton = page.locator('.group-insert-wrap:not(.disabled) .group-insert-btn').last();
     await addGroupButton.click();
     await expect(page.locator('#group-create-menu')).toBeVisible();
-    await expect(page.locator('#group-create-menu [data-group-create-kind]')).toHaveCount(3);
+    await expect(page.locator('#group-create-menu [data-group-create-kind]')).toHaveCount(4);
     await page.locator('#group-create-menu [data-group-create-kind="canvas"]').click();
     await expect(page.locator('#canvas-group-modal')).toBeVisible();
     await page.locator('#canvas-group-url').fill(canvasUrl);
@@ -2607,6 +2607,121 @@ test.describe('dashboard and realtime flows', () => {
     await expect.poll(() => refreshRequested).toBe(true);
     await expect(page.locator('#canvas-group-settings-status')).toContainText('Updated 1 assignments.');
     await steps.step('Open Canvas group settings and refresh its published assignments on demand.', page);
+  });
+
+  test('group add menu opens the Google Drive comment importer', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['google-drive', 'groups', 'tree']);
+    const state = await fetchSeedState(request);
+    const driveUrl = 'https://docs.google.com/document/d/drive-file-12345/edit';
+    let submittedPayload = null;
+
+    await page.route('**/api/google/drive/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ connected: true, picker_configured: true }),
+      });
+    });
+    await page.route(`**/api/projects/${state.project.id}/google-drive-groups`, async (route) => {
+      submittedPayload = route.request().postDataJSON();
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          group: {
+            id: 99002,
+            project_id: state.project.id,
+            name: 'Review Document',
+            position: 100,
+            specialty_type: 'google_drive',
+            google_drive: { file_id: 'drive-file-12345', source_url: driveUrl },
+          },
+          tasks: [],
+          sync: { created: 0, updated: 0, removed: 0, total: 0, scanned: 0, full_sync: true },
+        }),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await page.locator('.group-insert-wrap:not(.disabled) .group-insert-btn').last().click();
+    await page.locator('#group-create-menu [data-group-create-kind="google-drive"]').click();
+    await expect(page.locator('#google-drive-group-modal')).toBeVisible();
+    await expect(page.locator('#google-drive-group-status')).toContainText('Paste a Drive URL');
+    await page.locator('#google-drive-group-url').fill(driveUrl);
+    await page.locator('#google-drive-group-submit').click();
+    await expect.poll(() => submittedPayload).toEqual({ url: driveUrl });
+    await expect(page.locator('#google-drive-group-modal')).toBeHidden();
+    await steps.step('Choose Google Drive from Add group and submit an authorized Drive file URL.', page);
+  });
+
+  test('Google Drive group settings expose source and refresh now', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['google-drive', 'groups', 'settings']);
+    const state = await fetchSeedState(request);
+    const driveUrl = 'https://docs.google.com/document/d/drive-file-12345/edit';
+    let refreshRequested = false;
+
+    await page.route(`**/api/groups/${state.group.id}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: state.group.id,
+          project_id: state.project.id,
+          name: 'Review Document',
+          description: '',
+          description_format: 'markdown',
+          rendered_description: '',
+          links: [driveUrl],
+          specialty_type: 'google_drive',
+          google_drive: {
+            file_id: 'drive-file-12345',
+            source_url: driveUrl,
+            last_synced_at: '2026-09-05T16:00:00',
+            sync_error: null,
+            refresh_interval_seconds: 30,
+          },
+        }),
+      });
+    });
+    await page.route(`**/api/groups/${state.group.id}/google-drive/refresh`, async (route) => {
+      refreshRequested = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          group: {
+            id: state.group.id,
+            project_id: state.project.id,
+            name: 'Review Document',
+            specialty_type: 'google_drive',
+            google_drive: {
+              file_id: 'drive-file-12345',
+              source_url: driveUrl,
+              last_synced_at: '2026-09-05T17:00:00',
+              sync_error: null,
+            },
+          },
+          tasks: [],
+          removed_task_ids: [],
+          sync: { created: 0, updated: 1, removed: 0, total: 1, scanned: 1, full_sync: true },
+        }),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await page.locator(`.group-block[data-group-id="${state.group.id}"] [data-open-entity="settings"]`).click();
+    await expect(page.locator('#google-drive-group-settings')).toBeVisible();
+    await expect(page.locator('#google-drive-group-settings-source')).toHaveAttribute('href', driveUrl);
+    await page.locator('#google-drive-group-settings-refresh').click();
+    await expect.poll(() => refreshRequested).toBe(true);
+    await expect(page.locator('#google-drive-group-settings-status')).toContainText('Updated 1 comments.');
+    await steps.step('Open Google Drive group settings and refresh comments on demand.', page);
   });
 
   test('email collaborator invite accepts from the magic link page', async ({ page, request }) => {
@@ -3521,10 +3636,11 @@ test.describe('dashboard and realtime flows', () => {
     await expect(directAddGroup).toBeVisible();
     await directAddGroup.click();
     await expect(page.locator('#group-create-menu')).toBeVisible();
-    await expect(page.locator('#group-create-menu [data-group-create-kind]')).toHaveCount(3);
+    await expect(page.locator('#group-create-menu [data-group-create-kind]')).toHaveCount(4);
     await expect(page.locator('#group-create-menu [data-group-create-kind="blank"]')).toContainText('Blank');
     await expect(page.locator('#group-create-menu [data-group-create-kind="template"]')).toContainText('From Template');
     await expect(page.locator('#group-create-menu [data-group-create-kind="canvas"]')).toContainText('Canvas');
+    await expect(page.locator('#group-create-menu [data-group-create-kind="google-drive"]')).toContainText('Google Drive');
     await page.locator('#group-create-menu [data-group-create-kind="canvas"]').click();
     await expect(page.locator('#canvas-group-modal')).toBeVisible();
     await page.locator('#canvas-group-cancel').click();
@@ -3535,13 +3651,13 @@ test.describe('dashboard and realtime flows', () => {
     await expect(contextAddGroup).toBeVisible();
     await contextAddGroup.hover();
     await expect(contextGroupCreateSubmenu).toBeVisible();
-    await expect(contextGroupCreateSubmenu.locator('[data-context-group-create-kind]')).toHaveCount(3);
+    await expect(contextGroupCreateSubmenu.locator('[data-context-group-create-kind]')).toHaveCount(4);
     await directBoard.locator('.project-board-header').click();
     await focusTreeDirectProjectRow(page, state.direct_project.id, 'Direct project row after click', [
       'The avatar should still be present after selection.',
       'No shared/share-out icon should appear after click.',
       'The direct row should not grow project-group children.',
-      'Both inline and context-menu Add Group controls should expose Blank, From Template, and Canvas.',
+      'Both inline and context-menu Add Group controls should expose Blank, From Template, Canvas, and Google Drive.',
     ]);
     await steps.step('Click the direct-project row and verify it stays avatar-based, with no share icon and no expandable group chrome injected.', page);
 

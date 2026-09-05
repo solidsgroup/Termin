@@ -495,6 +495,35 @@ class CanvasAssignmentLink(db.Model):
     )
 
 
+class GoogleDriveIntegration(db.Model):
+    __tablename__ = "google_drive_integrations"
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, unique=True)
+    authorized_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    file_id = db.Column(db.String(255), nullable=False)
+    file_name = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(255))
+    web_view_link = db.Column(db.String(2048))
+    last_full_synced_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class GoogleDriveCommentLink(db.Model):
+    __tablename__ = "google_drive_comment_links"
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, unique=True)
+    comment_id = db.Column(db.String(255), nullable=False)
+    comment_modified_at = db.Column(db.DateTime)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("group_id", "comment_id", name="uq_google_drive_comment_links_group_comment"),
+    )
+
+
 class CalendarAccount(db.Model):
     __tablename__ = "calendar_accounts"
     id = db.Column(db.Integer, primary_key=True)
@@ -504,6 +533,7 @@ class CalendarAccount(db.Model):
     access_token = db.Column(db.Text)
     refresh_token = db.Column(db.Text)
     token_expires_at = db.Column(db.DateTime)
+    scopes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 

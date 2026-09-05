@@ -14,6 +14,7 @@ from sqlalchemy import inspect, text
 from app import create_app
 from app.extensions import socketio
 from app.notification_emailer import start_notification_email_worker
+from app.google_drive_sync import start_google_drive_poll_worker
 
 
 load_dotenv()
@@ -348,6 +349,7 @@ def prepare_runtime(interactive: bool | None = None) -> None:
     ensure_database(interactive=interactive)
     ensure_mail(interactive=interactive)
     start_notification_email_worker(app, socketio)
+    start_google_drive_poll_worker(app, socketio)
 
 
 if __name__ == "__main__":

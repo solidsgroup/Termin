@@ -3814,15 +3814,47 @@ body[data-theme="light"] .context-group-create-submenu > button:focus-visible {
   color: var(--accent);
 }
 
-#canvas-group-form label {
+#canvas-group-form label,
+#google-drive-group-form label {
   display: block;
   margin-bottom: 7px;
   font-size: 0.78rem;
   font-weight: 750;
 }
 
-#canvas-group-url {
+#canvas-group-url,
+#google-drive-group-url {
   width: 100%;
+}
+
+.google-drive-group-mark {
+  border-color: color-mix(in srgb, #0f9d58 52%, var(--border));
+  background: linear-gradient(145deg, color-mix(in srgb, #4285f4 18%, var(--panel-alt)), color-mix(in srgb, #fbbc04 14%, var(--panel-alt)));
+  color: #0f9d58;
+}
+
+.google-drive-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.google-drive-source-row .btn {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.google-drive-selected-file {
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-left: 3px solid #0f9d58;
+  background: color-mix(in srgb, #0f9d58 9%, transparent);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 750;
 }
 
 .canvas-group-status {
@@ -3899,10 +3931,22 @@ body[data-theme="light"] .context-group-create-submenu > button:focus-visible {
   justify-content: space-between;
 }
 
-#canvas-group-settings-refresh {
+#canvas-group-settings-refresh,
+#google-drive-group-settings-refresh,
+#google-drive-group-settings-reconnect {
   display: inline-flex;
   gap: 7px;
   align-items: center;
+}
+
+@media (max-width: 620px) {
+  .google-drive-source-row {
+    grid-template-columns: 1fr;
+  }
+
+  .google-drive-source-row .btn {
+    justify-content: center;
+  }
 }
 
 .task-dependency-badge {

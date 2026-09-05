@@ -17,6 +17,7 @@ from app.identity import (
     upsert_external_identity,
 )
 from app.models import CollaboratorProfile, User, UserEmail
+from app.google_oauth import GOOGLE_CALENDAR_SCOPE, GOOGLE_DRIVE_SCOPE, google_account_has_scope, normalize_google_scopes
 from app.oauth import oauth
 from app.team_invites import accept_team_invite, pending_team_invite_for_email
 
@@ -385,16 +386,44 @@ def logout():
 
 @auth_bp.get("/login/google")
 def login_google():
+    session.pop("google_drive_connect_user_id", None)
+    session.pop("google_drive_connect_popup", None)
     redirect_uri = _public_url("auth.google_callback")
-    return oauth.google.authorize_redirect(redirect_uri)
+    return oauth.google.authorize_redirect(
+        redirect_uri,
+        access_type="offline",
+        include_granted_scopes="true",
+    )
 
 
 @auth_bp.get("/connect/google")
 @login_required
 def connect_google():
+    session.pop("google_drive_connect_user_id", None)
+    session.pop("google_drive_connect_popup", None)
     session["oauth_link_user_id"] = session.get("user_id")
     redirect_uri = _public_url("auth.google_callback")
-    return oauth.google.authorize_redirect(redirect_uri)
+    return oauth.google.authorize_redirect(
+        redirect_uri,
+        access_type="offline",
+        include_granted_scopes="true",
+    )
+
+
+@auth_bp.get("/connect/google/drive")
+@login_required
+def connect_google_drive():
+    session.pop("oauth_link_user_id", None)
+    session["google_drive_connect_user_id"] = int(session.get("user_id"))
+    session["google_drive_connect_popup"] = request.args.get("popup") == "1"
+    redirect_uri = _public_url("auth.google_callback")
+    return oauth.google.authorize_redirect(
+        redirect_uri,
+        scope=" ".join(("openid", "email", "profile", GOOGLE_CALENDAR_SCOPE, GOOGLE_DRIVE_SCOPE)),
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
 
 
 @auth_bp.get("/auth/google/callback")
@@ -407,6 +436,31 @@ def google_callback():
         return "Email not available from Google", 400
 
     try:
+        drive_connect_user_id = session.pop("google_drive_connect_user_id", None)
+        drive_connect_popup = bool(session.pop("google_drive_connect_popup", False))
+        if drive_connect_user_id is not None:
+            if int(session.get("user_id") or 0) != int(drive_connect_user_id):
+                return "Google Drive connection session expired", 403
+            user = User.query.get(int(drive_connect_user_id))
+            if not user:
+                return "Termin account not found", 404
+            account = _upsert_calendar_account(
+                user_id=user.id,
+                provider="google",
+                provider_user_id=userinfo.get("sub"),
+                access_token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                expires_in=token.get("expires_in"),
+                scopes=token.get("scope"),
+            )
+            if drive_connect_popup:
+                return render_template(
+                    "google_drive_oauth_complete.html",
+                    connected=google_account_has_scope(account, GOOGLE_DRIVE_SCOPE),
+                )
+            if not google_account_has_scope(account, GOOGLE_DRIVE_SCOPE):
+                return "Google Drive permission was not granted", 400
+            return redirect(url_for("ui.dashboard"))
         if session.get("collaborator_claim_token"):
             user = _claim_collaborator_with_provider(
                 provider="google",
@@ -422,6 +476,7 @@ def google_callback():
                 access_token=token.get("access_token"),
                 refresh_token=token.get("refresh_token"),
                 expires_in=token.get("expires_in"),
+                scopes=token.get("scope"),
             )
             return redirect(url_for("ui.dashboard"))
         if session.get("oauth_link_user_id"):
@@ -439,6 +494,7 @@ def google_callback():
                 access_token=token.get("access_token"),
                 refresh_token=token.get("refresh_token"),
                 expires_in=token.get("expires_in"),
+                scopes=token.get("scope"),
             )
             return redirect(url_for("ui.account"))
 
@@ -459,6 +515,7 @@ def google_callback():
         access_token=token.get("access_token"),
         refresh_token=token.get("refresh_token"),
         expires_in=token.get("expires_in"),
+        scopes=token.get("scope"),
     )
 
     return redirect(url_for("ui.dashboard"))
@@ -616,6 +673,7 @@ def _upsert_calendar_account(
     access_token: str | None,
     refresh_token: str | None,
     expires_in: int | None,
+    scopes=None,
 ):
     from app.models import CalendarAccount
 
@@ -632,4 +690,8 @@ def _upsert_calendar_account(
     account.access_token = access_token
     account.refresh_token = refresh_token or account.refresh_token
     account.token_expires_at = expires_at
+    granted_scopes = normalize_google_scopes(scopes)
+    if granted_scopes:
+        account.scopes = " ".join(sorted(normalize_google_scopes(account.scopes) | granted_scopes))
     db.session.commit()
+    return account

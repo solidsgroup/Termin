@@ -10,6 +10,7 @@ from app.discussion_activity import build_discussion_activity_items
 from app.extensions import db
 from app.group_assignments import serialize_group_assignment_members
 from app.canvas_sync import canvas_group_metadata
+from app.google_drive_sync import google_drive_group_metadata
 from app.info_utils import load_info_payload
 from app.models import (
     Assignment,
@@ -210,6 +211,7 @@ def _serialize_group(group: Group) -> dict:
         "created_at": group.created_at.isoformat() if group.created_at else None,
         "updated_at": updated_at.isoformat() if updated_at else None,
         **canvas_group_metadata(group),
+        **google_drive_group_metadata(group),
     }
 
 

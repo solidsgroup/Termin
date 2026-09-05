@@ -1496,6 +1496,29 @@
           <button class="btn secondary" type="button" id="canvas-group-settings-refresh"><i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Refresh now</span></button>
         </div>
       </div>
+      <div class="canvas-group-settings google-drive-group-settings" id="google-drive-group-settings" hidden>
+        <div class="canvas-group-settings-header">
+          <span class="canvas-group-settings-mark google-drive-group-mark" aria-hidden="true"><i class="fa-brands fa-google-drive"></i></span>
+          <div>
+            <div class="canvas-group-settings-title">Google Drive sync</div>
+            <div class="footer-note">Comments refresh automatically about every 30 seconds.</div>
+          </div>
+        </div>
+        <div class="canvas-group-settings-row">
+          <span>Source</span>
+          <a id="google-drive-group-settings-source" href="#" target="_blank" rel="noreferrer noopener">Open in Google Drive</a>
+        </div>
+        <div class="canvas-group-settings-row">
+          <span>Last refreshed</span>
+          <strong id="google-drive-group-settings-last-sync">Not yet refreshed</strong>
+        </div>
+        <div class="canvas-group-settings-error" id="google-drive-group-settings-error" hidden></div>
+        <div class="canvas-group-settings-actions">
+          <span class="footer-note" id="google-drive-group-settings-status" aria-live="polite"></span>
+          <button class="btn secondary" type="button" id="google-drive-group-settings-reconnect" hidden><i class="fa-brands fa-google" aria-hidden="true"></i><span>Reconnect</span></button>
+          <button class="btn secondary" type="button" id="google-drive-group-settings-refresh"><i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Refresh now</span></button>
+        </div>
+      </div>
       <div class="discussion-settings-meta" id="task-settings-meta"></div>
       <div class="discussion-settings-danger" data-task-only>
         <button class="btn danger" type="button" id="task-settings-delete">Delete Task</button>
@@ -1595,6 +1618,7 @@
       <button type="button" data-context-group-create-kind="blank"><i class="fa-regular fa-square" aria-hidden="true"></i><span>Blank</span></button>
       <button type="button" data-context-group-create-kind="template"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>From Template</span></button>
       <button type="button" data-context-group-create-kind="canvas"><i class="fa-solid fa-graduation-cap" aria-hidden="true"></i><span>Canvas</span></button>
+      <button type="button" data-context-group-create-kind="google-drive"><i class="fa-brands fa-google-drive" aria-hidden="true"></i><span>Google Drive</span></button>
     </div>
   </div>
   <button data-action="promote-project">Promote to Project</button>
@@ -1631,6 +1655,7 @@
   <button type="button" data-group-create-kind="blank"><i class="fa-regular fa-square" aria-hidden="true"></i><span>Blank</span></button>
   <button type="button" data-group-create-kind="template"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>From Template</span></button>
   <button type="button" data-group-create-kind="canvas"><i class="fa-solid fa-graduation-cap" aria-hidden="true"></i><span>Canvas</span></button>
+  <button type="button" data-group-create-kind="google-drive"><i class="fa-brands fa-google-drive" aria-hidden="true"></i><span>Google Drive</span></button>
 </div>
 
 <div id="status-menu" class="context-menu status-menu">
@@ -1811,6 +1836,32 @@
       <div class="canvas-group-modal-actions">
         <button class="btn secondary" type="button" id="canvas-group-cancel">Cancel</button>
         <button class="btn" type="submit" id="canvas-group-submit">Import assignments</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="google-drive-group-modal" class="modal">
+  <div class="panel canvas-group-modal-panel google-drive-group-modal-panel">
+    <div class="canvas-group-modal-heading">
+      <span class="canvas-group-modal-icon google-drive-group-mark" aria-hidden="true"><i class="fa-brands fa-google-drive"></i></span>
+      <div>
+        <h3>Create Google Drive Group</h3>
+        <div class="footer-note">Turn unresolved comments on one Drive file into Termin tasks.</div>
+      </div>
+    </div>
+    <form id="google-drive-group-form">
+      <label for="google-drive-group-url">Drive file</label>
+      <div class="google-drive-source-row">
+        <input id="google-drive-group-url" type="url" placeholder="Paste a Google Docs, Sheets, Slides, or Drive URL" autocomplete="off" spellcheck="false" />
+        <button class="btn secondary" type="button" id="google-drive-group-picker"><i class="fa-brands fa-google-drive" aria-hidden="true"></i><span>Choose file</span></button>
+      </div>
+      <div class="google-drive-selected-file" id="google-drive-selected-file" hidden></div>
+      <div id="google-drive-group-status" class="footer-note canvas-group-status" aria-live="polite"></div>
+      <div class="canvas-group-modal-actions">
+        <button class="btn secondary" type="button" id="google-drive-group-cancel">Cancel</button>
+        <button class="btn secondary" type="button" id="google-drive-group-connect" hidden><i class="fa-brands fa-google" aria-hidden="true"></i><span>Connect Google Drive</span></button>
+        <button class="btn" type="submit" id="google-drive-group-submit">Import comments</button>
       </div>
     </form>
   </div>
@@ -10282,6 +10333,15 @@
     const canvasGroupStatus = document.getElementById("canvas-group-status");
     const canvasGroupCancel = document.getElementById("canvas-group-cancel");
     const canvasGroupSubmit = document.getElementById("canvas-group-submit");
+    const googleDriveGroupModal = document.getElementById("google-drive-group-modal");
+    const googleDriveGroupForm = document.getElementById("google-drive-group-form");
+    const googleDriveGroupUrl = document.getElementById("google-drive-group-url");
+    const googleDriveGroupPicker = document.getElementById("google-drive-group-picker");
+    const googleDriveGroupSelectedFile = document.getElementById("google-drive-selected-file");
+    const googleDriveGroupStatus = document.getElementById("google-drive-group-status");
+    const googleDriveGroupConnect = document.getElementById("google-drive-group-connect");
+    const googleDriveGroupCancel = document.getElementById("google-drive-group-cancel");
+    const googleDriveGroupSubmit = document.getElementById("google-drive-group-submit");
     const infoModal = document.getElementById("info-modal");
     const infoEditor = document.getElementById("info-editor");
     const infoSave = document.getElementById("info-save");
@@ -10299,6 +10359,9 @@
     let groupTemplateProjectId = "";
     let groupCreateProjectId = "";
     let canvasGroupProjectId = "";
+    let googleDriveGroupProjectId = "";
+    let googleDriveSelectedFile = null;
+    let googlePickerLoadPromise = null;
     let quickTaskSelection = { projectId: "", groupId: "" };
     let quickTaskAssigneeCache = {};
     let quickTaskAssigneeOptions = [];
@@ -10760,6 +10823,195 @@
           canvasGroupSubmit.disabled = false;
           canvasGroupSubmit.textContent = "Import assignments";
           if (canvasGroupStatus) canvasGroupStatus.textContent = error && error.message ? error.message : "Could not import Canvas assignments.";
+        });
+    };
+
+    const setGoogleDriveConnectionState = (connected, message) => {
+      if (googleDriveGroupConnect) googleDriveGroupConnect.hidden = !!connected;
+      if (googleDriveGroupPicker) googleDriveGroupPicker.disabled = !connected;
+      if (googleDriveGroupSubmit) googleDriveGroupSubmit.disabled = !connected;
+      if (googleDriveGroupStatus && message !== undefined) googleDriveGroupStatus.textContent = message || "";
+    };
+
+    const refreshGoogleDriveConnectionState = () => {
+      return fetch("/api/google/drive/status", { credentials: "same-origin", headers: { "Accept": "application/json" } })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          const connected = !!(result.ok && result.data && result.data.connected);
+          setGoogleDriveConnectionState(
+            connected,
+            connected ? "Paste a Drive URL or choose a recently used file." : "Connect Google Drive to choose and import a file."
+          );
+          if (googleDriveGroupPicker && connected && result.data && !result.data.picker_configured) {
+            googleDriveGroupPicker.disabled = true;
+            if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Google Picker is not configured on this server. You can still paste an authorized file URL.";
+          }
+          return connected;
+        })
+        .catch(() => {
+          setGoogleDriveConnectionState(false, "Could not check the Google Drive connection.");
+          return false;
+        });
+    };
+
+    const openGoogleDriveConnection = (url) => {
+      const connectUrl = url || "/connect/google/drive?popup=1";
+      const popup = window.open(connectUrl, "termin-google-drive-connect", "popup=yes,width=620,height=760");
+      if (!popup) window.location.href = connectUrl.replace(/[?&]popup=1(?:&|$)/, "");
+    };
+    window.__openGoogleDriveConnection = openGoogleDriveConnection;
+    window.__refreshGoogleDriveConnectionState = refreshGoogleDriveConnectionState;
+
+    const closeGoogleDriveGroupModal = () => {
+      if (!googleDriveGroupModal) return;
+      googleDriveGroupModal.style.display = "none";
+      googleDriveGroupProjectId = "";
+      googleDriveSelectedFile = null;
+      if (googleDriveGroupUrl) googleDriveGroupUrl.value = "";
+      if (googleDriveGroupSelectedFile) {
+        googleDriveGroupSelectedFile.hidden = true;
+        googleDriveGroupSelectedFile.textContent = "";
+      }
+      if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "";
+      if (googleDriveGroupSubmit) {
+        googleDriveGroupSubmit.disabled = false;
+        googleDriveGroupSubmit.textContent = "Import comments";
+      }
+    };
+
+    const openGoogleDriveGroupModal = (projectId) => {
+      if (!googleDriveGroupModal || !projectId) return;
+      googleDriveGroupProjectId = String(projectId);
+      googleDriveSelectedFile = null;
+      googleDriveGroupModal.style.display = "flex";
+      if (googleDriveGroupUrl) googleDriveGroupUrl.value = "";
+      if (googleDriveGroupSelectedFile) googleDriveGroupSelectedFile.hidden = true;
+      setGoogleDriveConnectionState(false, "Checking Google Drive connection…");
+      refreshGoogleDriveConnectionState().then((connected) => {
+        if (connected && googleDriveGroupUrl) googleDriveGroupUrl.focus();
+      });
+    };
+
+    const loadGooglePicker = () => {
+      if (window.google && window.google.picker) return Promise.resolve();
+      if (googlePickerLoadPromise) return googlePickerLoadPromise;
+      googlePickerLoadPromise = new Promise((resolve, reject) => {
+        const finish = () => {
+          if (!window.gapi) {
+            reject(new Error("Google Picker could not be loaded."));
+            return;
+          }
+          window.gapi.load("picker", {
+            callback: resolve,
+            onerror: () => reject(new Error("Google Picker could not be loaded.")),
+            timeout: 10000,
+            ontimeout: () => reject(new Error("Google Picker timed out.")),
+          });
+        };
+        const existing = document.querySelector('script[src="https://apis.google.com/js/api.js"]');
+        if (existing) {
+          if (window.gapi) finish();
+          else existing.addEventListener("load", finish, { once: true });
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = "https://apis.google.com/js/api.js";
+        script.async = true;
+        script.addEventListener("load", finish, { once: true });
+        script.addEventListener("error", () => reject(new Error("Google Picker could not be loaded.")), { once: true });
+        document.head.appendChild(script);
+      }).catch((error) => {
+        googlePickerLoadPromise = null;
+        throw error;
+      });
+      return googlePickerLoadPromise;
+    };
+
+    const chooseGoogleDriveFile = () => {
+      if (!googleDriveGroupPicker || googleDriveGroupPicker.disabled) return;
+      googleDriveGroupPicker.disabled = true;
+      if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Opening Google Drive…";
+      Promise.all([
+        fetch("/api/google/drive/picker-token", { credentials: "same-origin", headers: { "Accept": "application/json" } })
+          .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data }))),
+        loadGooglePicker(),
+      ])
+        .then(([tokenResult]) => {
+          if (!tokenResult.ok) {
+            const error = new Error((tokenResult.data && tokenResult.data.error) || "Google Drive is not connected.");
+            error.connectUrl = tokenResult.data && tokenResult.data.connect_url;
+            throw error;
+          }
+          const pickerApi = window.google.picker;
+          const view = new pickerApi.DocsView(pickerApi.ViewId.DOCS)
+            .setIncludeFolders(false)
+            .setSelectFolderEnabled(false);
+          const picker = new pickerApi.PickerBuilder()
+            .addView(view)
+            .setOAuthToken(tokenResult.data.oauth_token)
+            .setDeveloperKey(tokenResult.data.developer_key)
+            .setAppId(tokenResult.data.app_id)
+            .setOrigin(window.location.protocol + "//" + window.location.host)
+            .setCallback((data) => {
+              if (data.action !== pickerApi.Action.PICKED) return;
+              const doc = data.docs && data.docs[0];
+              if (!doc || !doc.id) return;
+              googleDriveSelectedFile = { id: doc.id, name: doc.name || "Google Drive file", url: doc.url || "" };
+              if (googleDriveGroupUrl) googleDriveGroupUrl.value = doc.url || ("https://drive.google.com/open?id=" + encodeURIComponent(doc.id));
+              if (googleDriveGroupSelectedFile) {
+                googleDriveGroupSelectedFile.hidden = false;
+                googleDriveGroupSelectedFile.textContent = googleDriveSelectedFile.name;
+              }
+              if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Selected from Google Drive.";
+            })
+            .build();
+          picker.setVisible(true);
+        })
+        .catch((error) => {
+          if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = error && error.message ? error.message : "Could not open Google Drive.";
+          if (error && error.connectUrl) openGoogleDriveConnection(error.connectUrl);
+        })
+        .finally(() => {
+          googleDriveGroupPicker.disabled = false;
+        });
+    };
+
+    const submitGoogleDriveGroup = (event) => {
+      if (event) event.preventDefault();
+      if (!googleDriveGroupProjectId || !googleDriveGroupSubmit) return;
+      const sourceUrl = googleDriveGroupUrl ? googleDriveGroupUrl.value.trim() : "";
+      const fileId = googleDriveSelectedFile && googleDriveSelectedFile.id ? googleDriveSelectedFile.id : "";
+      if (!sourceUrl && !fileId) {
+        if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Paste a Drive URL or choose a file.";
+        return;
+      }
+      const projectId = googleDriveGroupProjectId;
+      googleDriveGroupSubmit.disabled = true;
+      googleDriveGroupSubmit.textContent = "Importing…";
+      if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Loading comments from Google Drive…";
+      fetch(`/api/projects/${projectId}/google-drive-groups`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(fileId ? { file_id: fileId } : { url: sourceUrl }),
+      })
+        .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
+        .then((result) => {
+          if (!result.ok) {
+            const error = new Error((result.data && result.data.error) || "Could not import Google Drive comments");
+            error.connectUrl = result.data && result.data.connect_url;
+            throw error;
+          }
+          closeGoogleDriveGroupModal();
+          if (typeof window.__ensureTreeProjectBoard === "function") {
+            window.__ensureTreeProjectBoard(String(projectId), { refresh: true });
+          }
+        })
+        .catch((error) => {
+          googleDriveGroupSubmit.disabled = false;
+          googleDriveGroupSubmit.textContent = "Import comments";
+          if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = error && error.message ? error.message : "Could not import Google Drive comments.";
+          if (error && error.connectUrl && googleDriveGroupConnect) googleDriveGroupConnect.hidden = false;
         });
     };
 
@@ -12147,6 +12399,8 @@
             openGroupTemplateModal(projectId);
           } else if (kind === "canvas") {
             openCanvasGroupModal(projectId);
+          } else if (kind === "google-drive") {
+            openGoogleDriveGroupModal(projectId);
           }
           return;
         }
@@ -12879,6 +13133,8 @@
           openGroupTemplateModal(projectId);
         } else if (kind === "canvas") {
           openCanvasGroupModal(projectId);
+        } else if (kind === "google-drive") {
+          openGoogleDriveGroupModal(projectId);
         }
       });
     }
@@ -12896,6 +13152,25 @@
         if (event.target === canvasGroupModal) closeCanvasGroupModal();
       });
     }
+    if (googleDriveGroupForm) googleDriveGroupForm.addEventListener("submit", submitGoogleDriveGroup);
+    if (googleDriveGroupCancel) googleDriveGroupCancel.addEventListener("click", closeGoogleDriveGroupModal);
+    if (googleDriveGroupPicker) googleDriveGroupPicker.addEventListener("click", chooseGoogleDriveFile);
+    if (googleDriveGroupConnect) googleDriveGroupConnect.addEventListener("click", () => openGoogleDriveConnection());
+    if (googleDriveGroupUrl) {
+      googleDriveGroupUrl.addEventListener("input", () => {
+        googleDriveSelectedFile = null;
+        if (googleDriveGroupSelectedFile) googleDriveGroupSelectedFile.hidden = true;
+      });
+    }
+    if (googleDriveGroupModal) {
+      googleDriveGroupModal.addEventListener("click", (event) => {
+        if (event.target === googleDriveGroupModal) closeGoogleDriveGroupModal();
+      });
+    }
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin || !event.data || event.data.type !== "termin:google-drive-connected") return;
+      refreshGoogleDriveConnectionState();
+    });
 
     if (groupTemplateModal) {
       groupTemplateModal.addEventListener("click", (event) => {
@@ -14463,6 +14738,13 @@
     var canvasGroupSettingsErrorEl = document.getElementById("canvas-group-settings-error");
     var canvasGroupSettingsStatusEl = document.getElementById("canvas-group-settings-status");
     var canvasGroupSettingsRefreshEl = document.getElementById("canvas-group-settings-refresh");
+    var googleDriveGroupSettingsEl = document.getElementById("google-drive-group-settings");
+    var googleDriveGroupSettingsSourceEl = document.getElementById("google-drive-group-settings-source");
+    var googleDriveGroupSettingsLastSyncEl = document.getElementById("google-drive-group-settings-last-sync");
+    var googleDriveGroupSettingsErrorEl = document.getElementById("google-drive-group-settings-error");
+    var googleDriveGroupSettingsStatusEl = document.getElementById("google-drive-group-settings-status");
+    var googleDriveGroupSettingsReconnectEl = document.getElementById("google-drive-group-settings-reconnect");
+    var googleDriveGroupSettingsRefreshEl = document.getElementById("google-drive-group-settings-refresh");
     var pollResponseDialogEl = document.getElementById("poll-response-dialog");
     var pollResponseQuestionEl = document.getElementById("poll-response-question");
     var pollResponseMetaEl = document.getElementById("poll-response-meta");
@@ -15149,6 +15431,16 @@
       var info = task && task.info && typeof task.info === "object" ? task.info : {};
       var meta = info.meta && typeof info.meta === "object" ? info.meta : {};
       return !!(meta.canvas && typeof meta.canvas === "object");
+    }
+
+    function taskIsGoogleDriveManaged(task) {
+      var info = task && task.info && typeof task.info === "object" ? task.info : {};
+      var meta = info.meta && typeof info.meta === "object" ? info.meta : {};
+      return !!(meta.google_drive && typeof meta.google_drive === "object");
+    }
+
+    function taskIsExternallyManaged(task) {
+      return taskIsCanvasManaged(task) || taskIsGoogleDriveManaged(task);
     }
 
     window.__taskIdIsLocked = function taskIdIsLocked(taskId) {
@@ -19133,8 +19425,9 @@
       }
       var task = currentTaskData || {};
       var locked = taskIsLocked(task);
-      var canvasManaged = taskIsCanvasManaged(task);
+      var externallyManaged = taskIsExternallyManaged(task);
       renderCanvasGroupSettings(task);
+      renderGoogleDriveGroupSettings(task);
       var meta = taskStatusMeta(task);
       var effectiveStatus = taskMyStatus(task);
       var creator = task.creator || null;
@@ -19345,7 +19638,7 @@
         button.disabled = locked;
       });
       if (discussionLockToggleEl) {
-        discussionLockToggleEl.hidden = canvasManaged;
+        discussionLockToggleEl.hidden = externallyManaged;
         discussionLockToggleEl.classList.toggle("is-locked", locked);
         discussionLockToggleEl.setAttribute("aria-label", locked ? "Unlock task" : "Lock task");
         discussionLockToggleEl.setAttribute("title", locked ? "Unlock task" : "Lock task");
@@ -19390,8 +19683,49 @@
       }
     }
 
+    function renderGoogleDriveGroupSettings(entity) {
+      if (!googleDriveGroupSettingsEl) return;
+      var isDriveGroup = currentEntityType === "group" && String((entity && entity.specialty_type) || "") === "google_drive";
+      var isDriveTask = currentEntityType === "task" && taskIsGoogleDriveManaged(entity || {});
+      var isDrive = isDriveGroup || isDriveTask;
+      googleDriveGroupSettingsEl.hidden = !isDrive;
+      googleDriveGroupSettingsEl.style.display = isDrive ? "" : "none";
+      if (!isDrive) return;
+      var info = entity && entity.info && typeof entity.info === "object" ? entity.info : {};
+      var meta = info.meta && typeof info.meta === "object" ? info.meta : {};
+      var drive = isDriveGroup
+        ? (entity && entity.google_drive && typeof entity.google_drive === "object" ? entity.google_drive : {})
+        : (meta.google_drive && typeof meta.google_drive === "object" ? meta.google_drive : {});
+      var links = Array.isArray(info.links) ? info.links : [];
+      var sourceUrl = String(drive.source_url || entity.link || links[0] || "").trim();
+      if (googleDriveGroupSettingsSourceEl) {
+        googleDriveGroupSettingsSourceEl.href = sourceUrl || "#";
+        googleDriveGroupSettingsSourceEl.textContent = sourceUrl ? "Open in Google Drive" : "Source unavailable";
+      }
+      if (googleDriveGroupSettingsLastSyncEl) {
+        var syncedAt = drive.last_synced_at ? new Date(drive.last_synced_at) : null;
+        googleDriveGroupSettingsLastSyncEl.textContent = isDriveTask
+          ? "Managed by Google Drive"
+          : (syncedAt && !Number.isNaN(syncedAt.getTime())
+            ? syncedAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+            : "Not yet refreshed");
+      }
+      var syncError = String(drive.sync_error || "").trim();
+      if (googleDriveGroupSettingsErrorEl) {
+        googleDriveGroupSettingsErrorEl.hidden = !syncError;
+        googleDriveGroupSettingsErrorEl.textContent = syncError;
+      }
+      if (googleDriveGroupSettingsReconnectEl) {
+        googleDriveGroupSettingsReconnectEl.hidden = !syncError || !/(reconnect|authorization|access)/i.test(syncError);
+      }
+      if (googleDriveGroupSettingsRefreshEl) {
+        googleDriveGroupSettingsRefreshEl.hidden = !isDriveGroup && !((entity || {}).group_id);
+      }
+    }
+
     function renderEntitySettings() {
       renderCanvasGroupSettings(currentEntityData || {});
+      renderGoogleDriveGroupSettings(currentEntityData || {});
       if (currentEntityType === "task") {
         renderTaskSettings();
         return;
@@ -19621,6 +19955,68 @@
           })
           .finally(function () {
             canvasGroupSettingsRefreshEl.disabled = false;
+          });
+      });
+    }
+
+    if (googleDriveGroupSettingsReconnectEl) {
+      googleDriveGroupSettingsReconnectEl.addEventListener("click", function () {
+        if (typeof window.__openGoogleDriveConnection === "function") {
+          window.__openGoogleDriveConnection("/connect/google/drive?popup=1");
+        }
+      });
+    }
+
+    if (googleDriveGroupSettingsRefreshEl) {
+      googleDriveGroupSettingsRefreshEl.addEventListener("click", function () {
+        var targetGroupId = currentEntityType === "group"
+          ? currentEntityId
+          : (currentEntityType === "task" && currentTaskData ? currentTaskData.group_id : "");
+        if (!targetGroupId || googleDriveGroupSettingsRefreshEl.disabled) return;
+        var refreshGroupId = String(targetGroupId);
+        googleDriveGroupSettingsRefreshEl.disabled = true;
+        if (googleDriveGroupSettingsStatusEl) googleDriveGroupSettingsStatusEl.textContent = "Refreshing…";
+        fetch("/api/groups/" + encodeURIComponent(refreshGroupId) + "/google-drive/refresh", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" },
+        })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (data) {
+              return { ok: res.ok, data: data };
+            });
+          })
+          .then(function (result) {
+            if (currentEntityType === "group" && String(currentEntityId || "") !== refreshGroupId) return;
+            if (currentEntityType === "task" && String((currentTaskData && currentTaskData.group_id) || "") !== refreshGroupId) return;
+            if (result.data && result.data.group && currentEntityType === "group") {
+              currentEntityData = Object.assign({}, currentEntityData || {}, result.data.group);
+              renderEntitySettings();
+            }
+            if (!result.ok) {
+              var refreshError = new Error((result.data && result.data.error) || "Google Drive refresh failed");
+              refreshError.connectUrl = result.data && result.data.connect_url;
+              throw refreshError;
+            }
+            var sync = result.data && result.data.sync ? result.data.sync : {};
+            if (googleDriveGroupSettingsStatusEl) {
+              googleDriveGroupSettingsStatusEl.textContent = "Updated " + Number(sync.total || 0) + " comments.";
+            }
+            var projectId = String((currentEntityData && currentEntityData.project_id) || (currentTaskData && currentTaskData.project_id) || "");
+            if (projectId && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+              window.__refreshTreeProjectSnapshotLocal(projectId);
+            }
+          })
+          .catch(function (error) {
+            if (googleDriveGroupSettingsStatusEl) {
+              googleDriveGroupSettingsStatusEl.textContent = error && error.message ? error.message : "Google Drive refresh failed.";
+            }
+            if (error && error.connectUrl && googleDriveGroupSettingsReconnectEl) {
+              googleDriveGroupSettingsReconnectEl.hidden = false;
+            }
+          })
+          .finally(function () {
+            googleDriveGroupSettingsRefreshEl.disabled = false;
           });
       });
     }
@@ -23779,7 +24175,7 @@
     function problemTaskFlags(task) {
       if (!task || String(task.creator_user_id || "") !== String(currentUserId || "")) return null;
       if (task.github_meta) return null;
-      if (taskIsCanvasManaged(task)) return null;
+      if (taskIsExternallyManaged(task)) return null;
       if (String(taskAggregateStatusState(task) || "open") === "complete") return null;
       var assignments = Array.isArray(task.assignments) ? task.assignments : [];
       var missingAssignee = assignments.length === 0 && String(task.assignee_mode || "default") !== "none";
@@ -26817,7 +27213,7 @@
     if (discussionLockToggleEl) {
       discussionLockToggleEl.addEventListener("click", function () {
         if (!currentTaskId || currentEntityType !== "task") return;
-        if (taskIsCanvasManaged(currentTaskData)) return;
+        if (taskIsExternallyManaged(currentTaskData)) return;
         var nextLocked = !window.__taskIdIsLocked(currentTaskId);
         fetch("/api/tasks/" + currentTaskId, {
           method: "PATCH",

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% if connected %}Google Drive connected{% else %}Google Drive permission required{% endif %}</title>
+  </head>
+  <body>
+    <p>{% if connected %}Google Drive is connected. This window can be closed.{% else %}Google Drive permission was not granted. Close this window and try again.{% endif %}</p>
+    <script>
+      if (window.opener) {
+        window.opener.postMessage({ type: "termin:google-drive-connected" }, window.location.origin);
+        window.close();
+      }
+    </script>
+  </body>
+</html>

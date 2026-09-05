@@ -22,6 +22,25 @@ from app.canvas_sync import (
     schedule_canvas_sync_for_user,
     should_sync_canvas_groups_for_user,
 )
+from app.google_drive_sync import (
+    GOOGLE_DRIVE_SPECIALTY_TYPE,
+    GoogleDriveAuthorizationRequired,
+    GoogleDriveSyncBusy,
+    GoogleDriveSyncError,
+    apply_google_drive_file,
+    emit_google_drive_sync_result,
+    extract_google_drive_file_id,
+    fetch_google_drive_file,
+    google_drive_group_metadata,
+    refresh_google_drive_group,
+)
+from app.google_oauth import (
+    GOOGLE_DRIVE_SCOPE,
+    GoogleOAuthError,
+    ensure_google_access_token,
+    google_account_for_user,
+    google_account_has_scope,
+)
 from app.collaborators import get_or_create_collaborator_profile
 from app.dashboard_state import build_dashboard_bootstrap, build_dashboard_changes
 from app.emailer import MailDeliveryError, send_email, send_magic_link_digest_email, send_magic_link_email
@@ -130,6 +149,8 @@ from app.models import (
     GroupTemplate,
     GroupTemplateTask,
     CanvasAssignmentLink,
+    GoogleDriveCommentLink,
+    GoogleDriveIntegration,
     ProjectComment,
     GroupComment,
     ProjectTeamShare,
@@ -223,6 +244,18 @@ def _task_is_canvas_managed(task: Task | None) -> bool:
     return bool(group and group.specialty_type == CANVAS_SPECIALTY_TYPE)
 
 
+def _task_managed_specialty_type(task: Task | None) -> str:
+    if not task or not task.group_id:
+        return ""
+    group = db.session.get(Group, task.group_id)
+    specialty_type = str(getattr(group, "specialty_type", None) or "").strip().lower()
+    return specialty_type if specialty_type in {CANVAS_SPECIALTY_TYPE, GOOGLE_DRIVE_SPECIALTY_TYPE} else ""
+
+
+def _task_is_externally_managed(task: Task | None) -> bool:
+    return bool(_task_managed_specialty_type(task))
+
+
 def _task_payload_touches_locked_fields(payload: dict | None) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -235,6 +268,16 @@ def _locked_task_response():
 
 def _canvas_managed_task_response():
     return {"error": "Canvas tasks are managed by Canvas"}, 423
+
+
+def _externally_managed_task_response(task: Task | None):
+    if _task_managed_specialty_type(task) == GOOGLE_DRIVE_SPECIALTY_TYPE:
+        return {"error": "Google Drive tasks are managed by Google Drive"}, 423
+    return _canvas_managed_task_response()
+
+
+def _specialty_group_metadata(group: Group) -> dict:
+    return {**canvas_group_metadata(group), **google_drive_group_metadata(group)}
 
 
 def _is_complete_status_value(status: str | None) -> bool:
@@ -1663,6 +1706,130 @@ def create_canvas_group(project_id: int):
     }, 201
 
 
+@api_bp.get("/google/drive/status")
+@login_required
+def google_drive_status():
+    user = current_user()
+    account = google_account_for_user(user.id)
+    connected = bool(
+        account
+        and google_account_has_scope(account, GOOGLE_DRIVE_SCOPE)
+        and (account.refresh_token or account.access_token)
+    )
+    return {
+        "connected": connected,
+        "picker_configured": bool(current_app.config.get("GOOGLE_PICKER_API_KEY")),
+        "connect_url": url_for("auth.connect_google_drive", popup=1),
+    }, 200
+
+
+@api_bp.get("/google/drive/picker-token")
+@login_required
+def google_drive_picker_token():
+    user = current_user()
+    account = google_account_for_user(user.id)
+    if not account or not google_account_has_scope(account, GOOGLE_DRIVE_SCOPE):
+        return {
+            "error": "Connect Google Drive before choosing a file.",
+            "connect_url": url_for("auth.connect_google_drive", popup=1),
+        }, 409
+    developer_key = str(current_app.config.get("GOOGLE_PICKER_API_KEY") or "").strip()
+    app_id = str(current_app.config.get("GOOGLE_CLOUD_PROJECT_NUMBER") or "").strip()
+    if not developer_key or not app_id:
+        return {"error": "Google Picker is not configured on this server."}, 503
+    try:
+        access_token = ensure_google_access_token(account, required_scope=GOOGLE_DRIVE_SCOPE)
+    except GoogleOAuthError as exc:
+        return {
+            "error": str(exc),
+            "connect_url": url_for("auth.connect_google_drive", popup=1),
+        }, 401
+    return {
+        "oauth_token": access_token,
+        "developer_key": developer_key,
+        "app_id": app_id,
+    }, 200
+
+
+@api_bp.post("/projects/<int:project_id>/google-drive-groups")
+@login_required
+def create_google_drive_group(project_id: int):
+    user = current_user()
+    project = Project.query.get(project_id)
+    if not project:
+        return {"error": "project not found"}, 404
+    if not _can_manage_project(user, project.id):
+        return {"error": "unauthorized"}, 403
+    account = google_account_for_user(user.id)
+    if not account or not google_account_has_scope(account, GOOGLE_DRIVE_SCOPE):
+        return {
+            "error": "Connect Google Drive before importing comments.",
+            "connect_url": url_for("auth.connect_google_drive", popup=1),
+        }, 409
+    payload = request.get_json(silent=True) or {}
+    raw_source = str(payload.get("file_id") or payload.get("url") or "").strip()
+    try:
+        file_id = extract_google_drive_file_id(raw_source)
+        drive_file = fetch_google_drive_file(account, file_id)
+    except GoogleDriveAuthorizationRequired as exc:
+        return {
+            "error": str(exc),
+            "connect_url": url_for("auth.connect_google_drive", popup=1),
+        }, 403
+    except GoogleDriveSyncError as exc:
+        return {"error": str(exc)}, 400
+
+    max_pos = db.session.query(db.func.max(Group.position)).filter_by(project_id=project.id).scalar() or 0
+    palette = list(theme_palette(getattr(user, "theme_name", None)))
+    source_url = drive_file.web_view_link or (raw_source if raw_source.startswith("https://") else "")
+    group = Group(
+        project_id=project.id,
+        name=drive_file.name,
+        position=max_pos + 1,
+        color=palette[max_pos % len(palette)] if palette else None,
+        link=source_url or None,
+        info=normalize_info_payload({"links": [source_url] if source_url else []}, source_url or None),
+        specialty_type=GOOGLE_DRIVE_SPECIALTY_TYPE,
+        specialty_source_url=source_url or None,
+    )
+    db.session.add(group)
+    try:
+        db.session.flush()
+        integration = GoogleDriveIntegration(
+            group_id=group.id,
+            authorized_user_id=user.id,
+            file_id=drive_file.file_id,
+            file_name=drive_file.name,
+            mime_type=drive_file.mime_type,
+            web_view_link=source_url or None,
+        )
+        db.session.add(integration)
+        db.session.flush()
+        result = apply_google_drive_file(
+            group,
+            integration,
+            drive_file,
+            actor_user_id=user.id,
+            full_sync=True,
+        )
+        log_group_history(group, actor=user, action="created")
+        for task in result.created_tasks:
+            log_task_history(task, actor=user, action="created")
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    emit_group_created(group, actor_user_id=user.id)
+    if result.created_tasks:
+        emit_tasks_updated(result.created_tasks, action="created", actor_user_id=user.id)
+    return {
+        "group": _serialize_group_payload(group),
+        "tasks": [_serialize_task_row(task, viewer_user_id=user.id) for task in result.created_tasks],
+        "sync": result.as_dict(),
+    }, 201
+
+
 @api_bp.get("/web-push")
 @login_required
 def web_push_status():
@@ -2583,8 +2750,8 @@ def create_task():
         group = Group.query.filter_by(id=target_group_id, project_id=project.id).first()
         if not group:
             return {"error": "group not found"}, 404
-        if group.specialty_type == CANVAS_SPECIALTY_TYPE:
-            return {"error": "Canvas groups are managed by Canvas"}, 409
+        if group.specialty_type in {CANVAS_SPECIALTY_TYPE, GOOGLE_DRIVE_SPECIALTY_TYPE}:
+            return {"error": "Specialty groups are managed by their source"}, 409
 
     if not _can_manage_task_bucket(user, project.id, group.id if group else None):
         return {"error": "unauthorized"}, 403
@@ -2761,8 +2928,8 @@ def update_task(task_id: int):
     description_format = payload.get("description_format")
     locked = payload.get("locked")
 
-    if _task_is_canvas_managed(task) and payload:
-        return _canvas_managed_task_response()
+    if _task_is_externally_managed(task) and payload:
+        return _externally_managed_task_response(task)
     if _task_is_locked(task) and _task_payload_touches_locked_fields(payload):
         return _locked_task_response()
 
@@ -3244,7 +3411,7 @@ def get_project_tree_snapshot(project_id: int):
                 "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
                 "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
                 "tasks": tasks_by_group.get(group.id, []),
-                **canvas_group_metadata(group),
+                **_specialty_group_metadata(group),
             }
             for group in groups
         ],
@@ -3270,7 +3437,7 @@ def get_group(group_id: int):
         "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
         "created_at": group.created_at.isoformat() if group.created_at else None,
-        **canvas_group_metadata(group),
+        **_specialty_group_metadata(group),
     }, 200
 
 
@@ -3306,6 +3473,43 @@ def refresh_canvas_group_now(group_id: int):
             old_group_id=task.group_id,
             actor_user_id=user.id,
         )
+    return {
+        "group": _serialize_group_payload(group),
+        "tasks": [_serialize_task_row(task, viewer_user_id=user.id) for task in changed_tasks],
+        "removed_task_ids": [task.id for task in result.deleted_tasks],
+        "sync": result.as_dict(),
+    }, 200
+
+
+@api_bp.post("/groups/<int:group_id>/google-drive/refresh")
+@login_required
+def refresh_google_drive_group_now(group_id: int):
+    user = current_user()
+    group = Group.query.get(group_id)
+    if not group:
+        return {"error": "group not found"}, 404
+    if not _can_manage_project(user, group.project_id):
+        return {"error": "unauthorized"}, 403
+    if group.specialty_type != GOOGLE_DRIVE_SPECIALTY_TYPE:
+        return {"error": "this is not a Google Drive group"}, 400
+
+    try:
+        result = refresh_google_drive_group(group, full_sync=True)
+    except GoogleDriveSyncBusy as exc:
+        return {"error": str(exc)}, 409
+    except GoogleDriveAuthorizationRequired as exc:
+        emit_group_updated(group, actor_user_id=user.id)
+        return {
+            "error": str(exc),
+            "group": _serialize_group_payload(group),
+            "connect_url": url_for("auth.connect_google_drive", popup=1),
+        }, 401
+    except GoogleDriveSyncError as exc:
+        emit_group_updated(group, actor_user_id=user.id)
+        return {"error": str(exc), "group": _serialize_group_payload(group)}, 502
+
+    emit_google_drive_sync_result(group, result)
+    changed_tasks = result.created_tasks + result.updated_tasks
     return {
         "group": _serialize_group_payload(group),
         "tasks": [_serialize_task_row(task, viewer_user_id=user.id) for task in changed_tasks],
@@ -3866,8 +4070,8 @@ def move_task(task_id: int):
     task = Task.query.get(task_id)
     if not task:
         return {"error": "task not found"}, 404
-    if _task_is_canvas_managed(task):
-        return _canvas_managed_task_response()
+    if _task_is_externally_managed(task):
+        return _externally_managed_task_response(task)
 
     source_project_id = task.project_id
     source_group_id = task.group_id
@@ -3886,8 +4090,8 @@ def move_task(task_id: int):
         target_group = Group.query.filter_by(id=target_group_id, project_id=target_project.id).first()
         if not target_group:
             return {"error": "group not found"}, 404
-        if target_group.specialty_type == CANVAS_SPECIALTY_TYPE:
-            return {"error": "Canvas groups are managed by Canvas"}, 409
+        if target_group.specialty_type in {CANVAS_SPECIALTY_TYPE, GOOGLE_DRIVE_SPECIALTY_TYPE}:
+            return {"error": "Specialty groups are managed by their source"}, 409
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
     if not _can_access_project(user, target_project.id):
@@ -4066,7 +4270,7 @@ def update_group(group_id: int):
         "description": group.description,
         "description_format": group.description_format or DEFAULT_GROUP_DESCRIPTION_FORMAT,
         "rendered_description": _render_description(group.description, group.description_format, DEFAULT_GROUP_DESCRIPTION_FORMAT),
-        **canvas_group_metadata(group),
+        **_specialty_group_metadata(group),
     }, 200
 
 
@@ -4494,6 +4698,8 @@ def delete_project(project_id: int):
     task_ids = [t.id for t in Task.query.filter_by(project_id=project.id).all()]
     if group_ids:
         CanvasAssignmentLink.query.filter(CanvasAssignmentLink.group_id.in_(group_ids)).delete(synchronize_session=False)
+        GoogleDriveCommentLink.query.filter(GoogleDriveCommentLink.group_id.in_(group_ids)).delete(synchronize_session=False)
+        GoogleDriveIntegration.query.filter(GoogleDriveIntegration.group_id.in_(group_ids)).delete(synchronize_session=False)
     if task_ids:
         TaskPrerequisite.query.filter(
             or_(
@@ -4652,6 +4858,8 @@ def delete_group(group_id: int):
     project_id = group.project_id
     task_ids = [t.id for t in Task.query.filter_by(group_id=group.id).all()]
     CanvasAssignmentLink.query.filter_by(group_id=group.id).delete(synchronize_session=False)
+    GoogleDriveCommentLink.query.filter_by(group_id=group.id).delete(synchronize_session=False)
+    GoogleDriveIntegration.query.filter_by(group_id=group.id).delete(synchronize_session=False)
     if task_ids:
         TaskPrerequisite.query.filter(
             or_(

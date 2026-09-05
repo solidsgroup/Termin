@@ -30,6 +30,12 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      - key: GOOGLE_PICKER_API_KEY
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT_NUMBER
+        value: "818451146944"
+      - key: GOOGLE_DRIVE_POLL_INTERVAL_SECONDS
+        value: "30"
       - key: GITHUB_CLIENT_ID
         sync: false
       - key: GITHUB_CLIENT_SECRET
