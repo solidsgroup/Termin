@@ -2657,6 +2657,97 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Choose Google Drive from Add group and submit an authorized Drive file URL.', page);
   });
 
+  test('Google Picker selection immediately creates the Drive group', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['google-drive', 'groups', 'picker']);
+    const state = await fetchSeedState(request);
+    const driveFile = {
+      id: 'drive-picker-file-12345',
+      name: 'Picker Review Document',
+      url: 'https://docs.google.com/document/d/drive-picker-file-12345/edit',
+    };
+    let submittedPayload = null;
+
+    await page.addInitScript((selectedFile) => {
+      class DocsView {
+        setIncludeFolders() { return this; }
+        setSelectFolderEnabled() { return this; }
+      }
+      class PickerBuilder {
+        addView() { return this; }
+        setOAuthToken() { return this; }
+        setDeveloperKey() { return this; }
+        setAppId() { return this; }
+        setOrigin() { return this; }
+        setCallback(callback) {
+          this.callback = callback;
+          return this;
+        }
+        build() {
+          const callback = this.callback;
+          return {
+            setVisible(visible) {
+              if (!visible) return;
+              setTimeout(() => callback({ action: 'picked', docs: [selectedFile] }), 0);
+            },
+          };
+        }
+      }
+      window.google = {
+        picker: {
+          Action: { PICKED: 'picked' },
+          ViewId: { DOCS: 'docs' },
+          DocsView,
+          PickerBuilder,
+        },
+      };
+    }, driveFile);
+    await page.route('**/api/google/drive/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ connected: true, picker_configured: true }),
+      });
+    });
+    await page.route('**/api/google/drive/picker-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ oauth_token: 'picker-token', developer_key: 'picker-key', app_id: '123456789' }),
+      });
+    });
+    await page.route(`**/api/projects/${state.project.id}/google-drive-groups`, async (route) => {
+      submittedPayload = route.request().postDataJSON();
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          group: {
+            id: 99003,
+            project_id: state.project.id,
+            name: driveFile.name,
+            position: 101,
+            specialty_type: 'google_drive',
+            google_drive: { file_id: driveFile.id, source_url: driveFile.url },
+          },
+          tasks: [],
+          sync: { created: 0, updated: 0, removed: 0, total: 0, scanned: 0, full_sync: true },
+        }),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await page.locator('.group-insert-wrap:not(.disabled) .group-insert-btn').last().click();
+    await page.locator('#group-create-menu [data-group-create-kind="google-drive"]').click();
+    await expect(page.locator('#google-drive-group-modal')).toBeVisible();
+    await page.locator('#google-drive-group-picker').click();
+    await expect.poll(() => submittedPayload).toEqual({ file_id: driveFile.id });
+    await expect(page.locator('#google-drive-group-modal')).toBeHidden();
+    await steps.step('Select a file in Google Picker and verify that selection creates the Drive group.', page);
+  });
+
   test('Google Drive group settings expose source and refresh now', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['google-drive', 'groups', 'settings']);
