@@ -51,6 +51,45 @@ async function login(page, email, password) {
   await page.locator('.auth-submit').click();
 }
 
+async function installFakeGooglePicker(page, selectedFile, action = 'picked') {
+  await page.addInitScript(({ file, pickerAction }) => {
+    class DocsView {
+      setIncludeFolders() { return this; }
+      setSelectFolderEnabled() { return this; }
+    }
+    class PickerBuilder {
+      addView() { return this; }
+      setOAuthToken() { return this; }
+      setDeveloperKey() { return this; }
+      setAppId() { return this; }
+      setOrigin() { return this; }
+      setCallback(callback) {
+        this.callback = callback;
+        return this;
+      }
+      build() {
+        const callback = this.callback;
+        return {
+          setVisible(visible) {
+            if (!visible) return;
+            const modal = document.getElementById('google-drive-group-modal');
+            window.__drivePickerOpenedWithTerminModalHidden = !!modal && modal.style.display === 'none';
+            setTimeout(() => callback({ action: pickerAction, docs: pickerAction === 'picked' ? [file] : [] }), 0);
+          },
+        };
+      }
+    }
+    window.google = {
+      picker: {
+        Action: { PICKED: 'picked', CANCEL: 'cancel' },
+        ViewId: { DOCS: 'docs' },
+        DocsView,
+        PickerBuilder,
+      },
+    };
+  }, { file: selectedFile, pickerAction: action });
+}
+
 async function waitForRealtimeSocketIfPresent(page) {
   try {
     await page.waitForFunction(() => {
@@ -2649,7 +2688,8 @@ test.describe('dashboard and realtime flows', () => {
     await page.locator('.group-insert-wrap:not(.disabled) .group-insert-btn').last().click();
     await page.locator('#group-create-menu [data-group-create-kind="google-drive"]').click();
     await expect(page.locator('#google-drive-group-modal')).toBeVisible();
-    await expect(page.locator('#google-drive-group-status')).toContainText('Paste a Drive URL');
+    await expect(page.locator('#google-drive-group-picker')).toContainText('Choose from Google Drive');
+    await expect(page.locator('#google-drive-group-submit')).toContainText('Use link');
     await page.locator('#google-drive-group-url').fill(driveUrl);
     await page.locator('#google-drive-group-submit').click();
     await expect.poll(() => submittedPayload).toEqual({ url: driveUrl });
@@ -2668,40 +2708,7 @@ test.describe('dashboard and realtime flows', () => {
     };
     let submittedPayload = null;
 
-    await page.addInitScript((selectedFile) => {
-      class DocsView {
-        setIncludeFolders() { return this; }
-        setSelectFolderEnabled() { return this; }
-      }
-      class PickerBuilder {
-        addView() { return this; }
-        setOAuthToken() { return this; }
-        setDeveloperKey() { return this; }
-        setAppId() { return this; }
-        setOrigin() { return this; }
-        setCallback(callback) {
-          this.callback = callback;
-          return this;
-        }
-        build() {
-          const callback = this.callback;
-          return {
-            setVisible(visible) {
-              if (!visible) return;
-              setTimeout(() => callback({ action: 'picked', docs: [selectedFile] }), 0);
-            },
-          };
-        }
-      }
-      window.google = {
-        picker: {
-          Action: { PICKED: 'picked' },
-          ViewId: { DOCS: 'docs' },
-          DocsView,
-          PickerBuilder,
-        },
-      };
-    }, driveFile);
+    await installFakeGooglePicker(page, driveFile);
     await page.route('**/api/google/drive/status', async (route) => {
       await route.fulfill({
         status: 200,
@@ -2743,9 +2750,93 @@ test.describe('dashboard and realtime flows', () => {
     await page.locator('#group-create-menu [data-group-create-kind="google-drive"]').click();
     await expect(page.locator('#google-drive-group-modal')).toBeVisible();
     await page.locator('#google-drive-group-picker').click();
+    await expect.poll(() => page.evaluate(() => window.__drivePickerOpenedWithTerminModalHidden)).toBe(true);
     await expect.poll(() => submittedPayload).toEqual({ file_id: driveFile.id });
     await expect(page.locator('#google-drive-group-modal')).toBeHidden();
     await steps.step('Select a file in Google Picker and verify that selection creates the Drive group.', page);
+  });
+
+  test('disconnected Drive group flow opens OAuth and resumes in Picker', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['google-drive', 'groups', 'oauth', 'picker']);
+    const state = await fetchSeedState(request);
+    const driveFile = {
+      id: 'drive-after-oauth-12345',
+      name: 'Connected Review Document',
+      url: 'https://docs.google.com/document/d/drive-after-oauth-12345/edit',
+    };
+    let connected = false;
+    let submittedPayload = null;
+
+    await installFakeGooglePicker(page, driveFile);
+    await page.addInitScript(() => {
+      const popup = {
+        closed: false,
+        location: { href: '' },
+        close() { this.closed = true; },
+      };
+      window.open = (url) => {
+        window.__driveConnectPopupUrl = url;
+        popup.location.href = url;
+        popup.closed = false;
+        return popup;
+      };
+    });
+    await page.route('**/api/google/drive/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          connected,
+          picker_configured: true,
+          connect_url: '/connect/google/drive?popup=1',
+        }),
+      });
+    });
+    await page.route('**/api/google/drive/picker-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ oauth_token: 'picker-token', developer_key: 'picker-key', app_id: '123456789' }),
+      });
+    });
+    await page.route(`**/api/projects/${state.project.id}/google-drive-groups`, async (route) => {
+      submittedPayload = route.request().postDataJSON();
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          group: {
+            id: 99004,
+            project_id: state.project.id,
+            name: driveFile.name,
+            position: 102,
+            specialty_type: 'google_drive',
+            google_drive: { file_id: driveFile.id, source_url: driveFile.url },
+          },
+          tasks: [],
+          sync: { created: 0, updated: 0, removed: 0, total: 0, scanned: 0, full_sync: true },
+        }),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await page.evaluate(() => window.__refreshGoogleDriveConnectionState());
+    await page.locator('.group-insert-wrap:not(.disabled) .group-insert-btn').last().click();
+    await page.locator('#group-create-menu [data-group-create-kind="google-drive"]').click();
+    await expect(page.locator('#google-drive-group-modal')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => window.__driveConnectPopupUrl)).toContain('/connect/google/drive?popup=1');
+
+    connected = true;
+    await page.evaluate(() => {
+      window.postMessage({ type: 'termin:google-drive-connected', connected: true }, window.location.origin);
+    });
+    await expect.poll(() => page.evaluate(() => window.__drivePickerOpenedWithTerminModalHidden)).toBe(true);
+    await expect.poll(() => submittedPayload).toEqual({ file_id: driveFile.id });
+    await expect(page.locator('#google-drive-group-modal')).toBeHidden();
+    await steps.step('Start a Drive group while disconnected, complete OAuth, and continue directly through Picker.', page);
   });
 
   test('Google Drive group settings expose source and refresh now', async ({ page, request }) => {

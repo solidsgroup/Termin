@@ -3847,14 +3847,41 @@ body[data-theme="light"] .context-group-create-submenu > button:focus-visible {
   white-space: nowrap;
 }
 
-.google-drive-selected-file {
-  margin-top: 9px;
-  padding: 8px 10px;
-  border-left: 3px solid #0f9d58;
-  background: color-mix(in srgb, #0f9d58 9%, transparent);
-  color: var(--ink);
-  font-size: 0.8rem;
+.google-drive-picker-primary {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  gap: 9px;
+  align-items: center;
+  justify-content: center;
+  border-color: color-mix(in srgb, #0f9d58 64%, var(--border));
+  background: #0f9d58;
+  color: #fff;
+}
+
+.google-drive-picker-primary:hover,
+.google-drive-picker-primary:focus-visible {
+  background: color-mix(in srgb, #0f9d58 86%, #000 14%);
+}
+
+.google-drive-source-divider {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 16px 0 10px;
+  color: var(--muted);
+  font-size: 0.7rem;
   font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.google-drive-source-divider::before,
+.google-drive-source-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 .canvas-group-status {

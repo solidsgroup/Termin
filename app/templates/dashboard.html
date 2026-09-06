@@ -1847,21 +1847,19 @@
       <span class="canvas-group-modal-icon google-drive-group-mark" aria-hidden="true"><i class="fa-brands fa-google-drive"></i></span>
       <div>
         <h3>Create Google Drive Group</h3>
-        <div class="footer-note">Turn unresolved comments on one Drive file into Termin tasks.</div>
+        <div class="footer-note">Choose a Drive file and its unresolved comments become Termin tasks.</div>
       </div>
     </div>
     <form id="google-drive-group-form">
-      <label for="google-drive-group-url">Drive file</label>
+      <button class="btn google-drive-picker-primary" type="button" id="google-drive-group-picker"><i class="fa-brands fa-google-drive" aria-hidden="true"></i><span>Choose from Google Drive</span></button>
+      <div class="google-drive-source-divider"><span>or use a link</span></div>
       <div class="google-drive-source-row">
         <input id="google-drive-group-url" type="url" placeholder="Paste a Google Docs, Sheets, Slides, or Drive URL" autocomplete="off" spellcheck="false" />
-        <button class="btn secondary" type="button" id="google-drive-group-picker"><i class="fa-brands fa-google-drive" aria-hidden="true"></i><span>Choose file</span></button>
+        <button class="btn secondary" type="submit" id="google-drive-group-submit">Use link</button>
       </div>
-      <div class="google-drive-selected-file" id="google-drive-selected-file" hidden></div>
       <div id="google-drive-group-status" class="footer-note canvas-group-status" aria-live="polite"></div>
       <div class="canvas-group-modal-actions">
         <button class="btn secondary" type="button" id="google-drive-group-cancel">Cancel</button>
-        <button class="btn secondary" type="button" id="google-drive-group-connect" hidden><i class="fa-brands fa-google" aria-hidden="true"></i><span>Connect Google Drive</span></button>
-        <button class="btn" type="submit" id="google-drive-group-submit">Import comments</button>
       </div>
     </form>
   </div>
@@ -10337,9 +10335,7 @@
     const googleDriveGroupForm = document.getElementById("google-drive-group-form");
     const googleDriveGroupUrl = document.getElementById("google-drive-group-url");
     const googleDriveGroupPicker = document.getElementById("google-drive-group-picker");
-    const googleDriveGroupSelectedFile = document.getElementById("google-drive-selected-file");
     const googleDriveGroupStatus = document.getElementById("google-drive-group-status");
-    const googleDriveGroupConnect = document.getElementById("google-drive-group-connect");
     const googleDriveGroupCancel = document.getElementById("google-drive-group-cancel");
     const googleDriveGroupSubmit = document.getElementById("google-drive-group-submit");
     const infoModal = document.getElementById("info-modal");
@@ -10362,6 +10358,9 @@
     let googleDriveGroupProjectId = "";
     let googleDriveSelectedFile = null;
     let googlePickerLoadPromise = null;
+    let googleDriveConnectionState = null;
+    let googleDriveConnectUrl = "/connect/google/drive?popup=1";
+    let googleDriveResumePickerAfterConnect = false;
     let quickTaskSelection = { projectId: "", groupId: "" };
     let quickTaskAssigneeCache = {};
     let quickTaskAssigneeOptions = [];
@@ -10827,7 +10826,7 @@
     };
 
     const setGoogleDriveConnectionState = (connected, message) => {
-      if (googleDriveGroupConnect) googleDriveGroupConnect.hidden = !!connected;
+      googleDriveConnectionState = !!connected;
       if (googleDriveGroupPicker) googleDriveGroupPicker.disabled = !connected;
       if (googleDriveGroupSubmit) googleDriveGroupSubmit.disabled = !connected;
       if (googleDriveGroupStatus && message !== undefined) googleDriveGroupStatus.textContent = message || "";
@@ -10838,10 +10837,8 @@
         .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data })))
         .then((result) => {
           const connected = !!(result.ok && result.data && result.data.connected);
-          setGoogleDriveConnectionState(
-            connected,
-            connected ? "Paste a Drive URL or choose a recently used file." : "Connect Google Drive to choose and import a file."
-          );
+          if (result.data && result.data.connect_url) googleDriveConnectUrl = result.data.connect_url;
+          setGoogleDriveConnectionState(connected, "");
           if (googleDriveGroupPicker && connected && result.data && !result.data.picker_configured) {
             googleDriveGroupPicker.disabled = true;
             if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Google Picker is not configured on this server. You can still paste an authorized file URL.";
@@ -10849,15 +10846,20 @@
           return connected;
         })
         .catch(() => {
-          setGoogleDriveConnectionState(false, "Could not check the Google Drive connection.");
+          googleDriveConnectionState = null;
+          if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Could not check the Google Drive connection.";
           return false;
         });
     };
 
-    const openGoogleDriveConnection = (url) => {
+    const openGoogleDriveConnection = (url, existingPopup) => {
       const connectUrl = url || "/connect/google/drive?popup=1";
-      const popup = window.open(connectUrl, "termin-google-drive-connect", "popup=yes,width=620,height=760");
+      const popup = existingPopup && !existingPopup.closed
+        ? existingPopup
+        : window.open(connectUrl, "termin-google-drive-connect", "popup=yes,width=620,height=760");
+      if (popup && existingPopup) popup.location.href = connectUrl;
       if (!popup) window.location.href = connectUrl.replace(/[?&]popup=1(?:&|$)/, "");
+      return popup;
     };
     window.__openGoogleDriveConnection = openGoogleDriveConnection;
     window.__refreshGoogleDriveConnectionState = refreshGoogleDriveConnectionState;
@@ -10867,28 +10869,46 @@
       googleDriveGroupModal.style.display = "none";
       googleDriveGroupProjectId = "";
       googleDriveSelectedFile = null;
+      googleDriveResumePickerAfterConnect = false;
       if (googleDriveGroupUrl) googleDriveGroupUrl.value = "";
-      if (googleDriveGroupSelectedFile) {
-        googleDriveGroupSelectedFile.hidden = true;
-        googleDriveGroupSelectedFile.textContent = "";
-      }
       if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "";
       if (googleDriveGroupSubmit) {
         googleDriveGroupSubmit.disabled = false;
-        googleDriveGroupSubmit.textContent = "Import comments";
+        googleDriveGroupSubmit.textContent = "Use link";
       }
+    };
+
+    const showGoogleDriveGroupModal = () => {
+      if (!googleDriveGroupModal || !googleDriveGroupProjectId) return;
+      googleDriveGroupModal.style.display = "flex";
+      if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "";
+      if (googleDriveGroupUrl) googleDriveGroupUrl.readOnly = false;
+      if (googleDriveGroupPicker) googleDriveGroupPicker.focus();
     };
 
     const openGoogleDriveGroupModal = (projectId) => {
       if (!googleDriveGroupModal || !projectId) return;
       googleDriveGroupProjectId = String(projectId);
       googleDriveSelectedFile = null;
-      googleDriveGroupModal.style.display = "flex";
       if (googleDriveGroupUrl) googleDriveGroupUrl.value = "";
-      if (googleDriveGroupSelectedFile) googleDriveGroupSelectedFile.hidden = true;
-      setGoogleDriveConnectionState(false, "Checking Google Drive connection…");
+      if (googleDriveConnectionState === true) {
+        showGoogleDriveGroupModal();
+        return;
+      }
+      googleDriveResumePickerAfterConnect = true;
+      if (googleDriveConnectionState === false) {
+        openGoogleDriveConnection(googleDriveConnectUrl);
+        return;
+      }
+      const pendingPopup = window.open("", "termin-google-drive-connect", "popup=yes,width=620,height=760");
       refreshGoogleDriveConnectionState().then((connected) => {
-        if (connected && googleDriveGroupUrl) googleDriveGroupUrl.focus();
+        if (connected) {
+          if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
+          googleDriveResumePickerAfterConnect = false;
+          showGoogleDriveGroupModal();
+          return;
+        }
+        openGoogleDriveConnection(googleDriveConnectUrl, pendingPopup);
       });
     };
 
@@ -10931,6 +10951,11 @@
       if (!googleDriveGroupPicker || googleDriveGroupPicker.disabled) return;
       googleDriveGroupPicker.disabled = true;
       if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Opening Google Drive…";
+      if (googleDriveGroupModal) googleDriveGroupModal.style.display = "none";
+      const restoreModal = (message) => {
+        showGoogleDriveGroupModal();
+        if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = message || "";
+      };
       Promise.all([
         fetch("/api/google/drive/picker-token", { credentials: "same-origin", headers: { "Accept": "application/json" } })
           .then((res) => res.json().catch(() => ({})).then((data) => ({ ok: res.ok, data }))),
@@ -10953,23 +10978,31 @@
             .setAppId(tokenResult.data.app_id)
             .setOrigin(window.location.protocol + "//" + window.location.host)
             .setCallback((data) => {
+              if (data.action === pickerApi.Action.CANCEL) {
+                restoreModal("");
+                return;
+              }
               if (data.action !== pickerApi.Action.PICKED) return;
               const doc = data.docs && data.docs[0];
-              if (!doc || !doc.id) return;
+              if (!doc || !doc.id) {
+                restoreModal("Google Drive did not return a file.");
+                return;
+              }
               googleDriveSelectedFile = { id: doc.id, name: doc.name || "Google Drive file", url: doc.url || "" };
               if (googleDriveGroupUrl) googleDriveGroupUrl.value = doc.url || ("https://drive.google.com/open?id=" + encodeURIComponent(doc.id));
-              if (googleDriveGroupSelectedFile) {
-                googleDriveGroupSelectedFile.hidden = false;
-                googleDriveGroupSelectedFile.textContent = googleDriveSelectedFile.name;
-              }
               submitGoogleDriveGroup();
             })
             .build();
           picker.setVisible(true);
         })
         .catch((error) => {
-          if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = error && error.message ? error.message : "Could not open Google Drive.";
-          if (error && error.connectUrl) openGoogleDriveConnection(error.connectUrl);
+          const message = error && error.message ? error.message : "Could not open Google Drive.";
+          if (error && error.connectUrl) {
+            googleDriveResumePickerAfterConnect = true;
+            openGoogleDriveConnection(error.connectUrl);
+          } else {
+            restoreModal(message);
+          }
         })
         .finally(() => {
           googleDriveGroupPicker.disabled = false;
@@ -10987,8 +11020,8 @@
       }
       const projectId = googleDriveGroupProjectId;
       googleDriveGroupSubmit.disabled = true;
-      googleDriveGroupSubmit.textContent = "Importing…";
-      if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Loading comments from Google Drive…";
+      googleDriveGroupSubmit.textContent = "Creating…";
+      if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Creating group from Google Drive…";
       fetch(`/api/projects/${projectId}/google-drive-groups`, {
         method: "POST",
         credentials: "same-origin",
@@ -11009,9 +11042,14 @@
         })
         .catch((error) => {
           googleDriveGroupSubmit.disabled = false;
-          googleDriveGroupSubmit.textContent = "Import comments";
+          googleDriveGroupSubmit.textContent = "Use link";
+          showGoogleDriveGroupModal();
           if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = error && error.message ? error.message : "Could not import Google Drive comments.";
-          if (error && error.connectUrl && googleDriveGroupConnect) googleDriveGroupConnect.hidden = false;
+          if (error && error.connectUrl) {
+            googleDriveResumePickerAfterConnect = true;
+            if (googleDriveGroupModal) googleDriveGroupModal.style.display = "none";
+            openGoogleDriveConnection(error.connectUrl);
+          }
         });
     };
 
@@ -13155,11 +13193,9 @@
     if (googleDriveGroupForm) googleDriveGroupForm.addEventListener("submit", submitGoogleDriveGroup);
     if (googleDriveGroupCancel) googleDriveGroupCancel.addEventListener("click", closeGoogleDriveGroupModal);
     if (googleDriveGroupPicker) googleDriveGroupPicker.addEventListener("click", chooseGoogleDriveFile);
-    if (googleDriveGroupConnect) googleDriveGroupConnect.addEventListener("click", () => openGoogleDriveConnection());
     if (googleDriveGroupUrl) {
       googleDriveGroupUrl.addEventListener("input", () => {
         googleDriveSelectedFile = null;
-        if (googleDriveGroupSelectedFile) googleDriveGroupSelectedFile.hidden = true;
       });
     }
     if (googleDriveGroupModal) {
@@ -13169,8 +13205,21 @@
     }
     window.addEventListener("message", (event) => {
       if (event.origin !== window.location.origin || !event.data || event.data.type !== "termin:google-drive-connected") return;
-      refreshGoogleDriveConnectionState();
+      if (event.data.connected === false) {
+        googleDriveConnectionState = false;
+        googleDriveResumePickerAfterConnect = false;
+        showGoogleDriveGroupModal();
+        if (googleDriveGroupStatus) googleDriveGroupStatus.textContent = "Google Drive permission was not granted.";
+        return;
+      }
+      refreshGoogleDriveConnectionState().then((connected) => {
+        if (!connected || !googleDriveResumePickerAfterConnect || !googleDriveGroupProjectId) return;
+        googleDriveResumePickerAfterConnect = false;
+        showGoogleDriveGroupModal();
+        chooseGoogleDriveFile();
+      });
     });
+    refreshGoogleDriveConnectionState();
 
     if (groupTemplateModal) {
       groupTemplateModal.addEventListener("click", (event) => {

@@ -9,7 +9,7 @@
     <p>{% if connected %}Google Drive is connected. This window can be closed.{% else %}Google Drive permission was not granted. Close this window and try again.{% endif %}</p>
     <script>
       if (window.opener) {
-        window.opener.postMessage({ type: "termin:google-drive-connected" }, window.location.origin);
+        window.opener.postMessage({ type: "termin:google-drive-connected", connected: {{ connected|tojson }} }, window.location.origin);
         window.close();
       }
     </script>

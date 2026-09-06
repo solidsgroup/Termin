@@ -798,6 +798,20 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             "app_id": "123456789",
         })
 
+    def test_google_drive_connect_prompts_for_google_account_selection(self):
+        with self.app.app_context():
+            owner = self.create_user("drive-account-choice@example.com", "Drive Account Choice")
+            owner_id = owner.id
+        self.login(self.client, owner_id)
+
+        with patch("app.auth.oauth.google.authorize_redirect", return_value="oauth redirect") as authorize_redirect:
+            response = self.client.get("/connect/google/drive?popup=1")
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = authorize_redirect.call_args.kwargs
+        self.assertEqual(call_kwargs["prompt"], "select_account consent")
+        self.assertIn("https://www.googleapis.com/auth/drive.file", call_kwargs["scope"])
+
     def test_google_drive_fetch_uses_incremental_comment_fields(self):
         class FakeResponse:
             def __init__(self, payload):

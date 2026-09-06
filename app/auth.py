@@ -422,7 +422,7 @@ def connect_google_drive():
         scope=" ".join(("openid", "email", "profile", GOOGLE_CALENDAR_SCOPE, GOOGLE_DRIVE_SCOPE)),
         access_type="offline",
         include_granted_scopes="true",
-        prompt="consent",
+        prompt="select_account consent",
     )
 
 
