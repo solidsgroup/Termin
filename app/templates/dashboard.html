@@ -418,7 +418,7 @@
             <div class="due-summary{% if not task.due_at %} is-fallback{% endif %}" data-due-summary title="{% if task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') == 'asap' %}ASAP{% elif task.due_at %}Due {{ task.due_at.strftime('%Y-%m-%d') }}{% else %}No Date{% endif %}">
               <span class="due-summary-label">{% if task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') == 'asap' %}ASAP{% elif task.due_at %}{{ task.due_at.strftime('%b') }} {{ task.due_at.day }}{% else %}No Date{% endif %}</span>
             </div>
-            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-start-date="{{ task_info.get('meta', {}).get('start_date', '') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" {% if task.locked %}disabled{% endif %} />
+            <input class="due-input hidden" type="date" data-task-id="{{ task.id }}" data-field="due_at" data-col="2" data-created-at="{{ task.created_at.strftime('%Y-%m-%d') }}" data-start-date="{{ task_info.get('meta', {}).get('start_date', '') }}" data-due-mode="{{ task_info.get('meta', {}).get('due_mode', 'date' if task.due_at else 'none') }}" value="{% if task.due_at %}{{ task.due_at.strftime('%Y-%m-%d') }}{% endif %}" {% if task.locked and not task_info.get('meta', {}).get('google_drive') %}disabled{% endif %} />
           </div>
         </td>
         <td>
@@ -1159,7 +1159,7 @@
       </div>
 
       {% for group in groups %}
-        <div class="group-block" data-group-id="{{ group.id }}">
+        <div class="group-block" data-group-id="{{ group.id }}" data-specialty-type="{{ group.specialty_type or '' }}">
         <div class="group-insert-wrap{% if not can_manage_project or is_github_project %} disabled{% endif %}">
             <div class="group-insert" data-project-id="{{ selected_project.id }}">
               <div class="group-insert-line"></div>
@@ -1184,6 +1184,14 @@
                   <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ selected_project.name|e }}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
                   <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="{{ group.id }}" data-entity-title="{{ group.name|e }}" data-entity-project="{{ selected_project.name|e }}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:{{ group.id }}">0</span></button>
                 </span>
+                {% if group.specialty_type in ['canvas', 'google_drive'] %}
+                  <span class="specialty-group-refresh" data-specialty-refresh-group="{{ group.id }}" data-specialty-type="{{ group.specialty_type }}" data-last-refreshed-at="{{ group.specialty_last_synced_at.isoformat() if group.specialty_last_synced_at else '' }}" contenteditable="false" draggable="false">
+                    {% if can_manage_project %}
+                      <button class="specialty-group-refresh-button" type="button" data-specialty-refresh-trigger="{{ group.id }}" data-specialty-type="{{ group.specialty_type }}" aria-label="Refresh {{ 'Canvas' if group.specialty_type == 'canvas' else 'Google Drive' }} group" title="Refresh now"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>
+                    {% endif %}
+                    <span class="specialty-group-refresh-age" data-specialty-refresh-age>Last refresh</span>
+                  </span>
+                {% endif %}
               </h3>
             </div>
             {% if group_info_by_id.get(group.id, {}).get('rendered_description') %}
@@ -1201,7 +1209,7 @@
             <tbody data-task-dropzone="1">
               {% set group_tasks = tasks_by_group.get(group.id, []) %}
               {{ render_tasks(group_tasks, assignments_by_task, user_map, can_manage_project, manageable_group_ids, info_by_task, github_task_meta, selected_project_display_name, dependents_by_task) }}
-	              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project and group.specialty_type != 'canvas' %}
+	              {% if (can_manage_project or group.id in manageable_group_ids) and not is_github_project and not group.specialty_type %}
 	                <tr class="new-row">
 	                    <td></td>
 	                    <td>
@@ -3615,6 +3623,37 @@
           '</div>';
         }
 
+        window.__renderSpecialtyGroupRefreshControl = function renderSpecialtyGroupRefreshControl(group, canManage) {
+          var specialtyType = String(group && group.specialty_type || "").trim().toLowerCase();
+          if (specialtyType !== "canvas" && specialtyType !== "google_drive") return "";
+          var metadata = specialtyType === "canvas" ? (group.canvas || {}) : (group.google_drive || {});
+          var lastRefreshedAt = String(metadata.last_synced_at || "");
+          var label = specialtyType === "canvas" ? "Canvas" : "Google Drive";
+          var ageLabel = "Never refreshed";
+          if (lastRefreshedAt) {
+            var timestampText = lastRefreshedAt;
+            if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestampText)) timestampText += "Z";
+            var timestamp = new Date(timestampText);
+            if (!Number.isNaN(timestamp.getTime())) {
+              ageLabel = "Last refresh · " + Math.max(0, Math.floor((Date.now() - timestamp.getTime()) / 60000)) + " min ago";
+            }
+          }
+          function escapeRefreshText(value) {
+            return String(value == null ? "" : value)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#39;");
+          }
+          return '<span class="specialty-group-refresh" data-specialty-refresh-group="' + escapeRefreshText(group.id) + '" data-specialty-type="' + specialtyType + '" data-last-refreshed-at="' + escapeRefreshText(lastRefreshedAt) + '" contenteditable="false" draggable="false">' +
+            (canManage
+              ? '<button class="specialty-group-refresh-button" type="button" data-specialty-refresh-trigger="' + escapeRefreshText(group.id) + '" data-specialty-type="' + specialtyType + '" aria-label="Refresh ' + label + ' group" title="Refresh now"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>'
+              : '') +
+            '<span class="specialty-group-refresh-age" data-specialty-refresh-age>' + ageLabel + '</span>' +
+          '</span>';
+        };
+
 	      function buildTreeProjectBoard(project, canManage) {
 	        if (!project || !project.id) return null;
         function escapeTreeText(value) {
@@ -3792,6 +3831,7 @@
 	        var block = document.createElement("div");
         block.className = "group-block";
         block.setAttribute("data-group-id", String(group.id));
+        block.setAttribute("data-specialty-type", String(group.specialty_type || ""));
         block.setAttribute("data-tree-group-board", String(group.id));
         if (group.position !== undefined && group.position !== null) {
           block.setAttribute("data-group-position", String(group.position));
@@ -3813,6 +3853,7 @@
                   '<button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="' + String(group.id) + '" data-entity-title="' + escapeTreeText(group.name || "Group") + '" data-entity-project="' + escapeTreeText(projectName) + '"><i class="fa-solid fa-link" aria-hidden="true"></i></button>' +
                   '<button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="' + String(group.id) + '" data-entity-title="' + escapeTreeText(group.name || "Group") + '" data-entity-project="' + escapeTreeText(projectName) + '"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:' + String(group.id) + '">0</span></button>' +
                 '</span>' +
+                window.__renderSpecialtyGroupRefreshControl(group, canManage) +
               '</h3>' +
             '</div>' +
             (groupDescriptionHtml
@@ -3826,7 +3867,7 @@
                     ? window.__renderTasksTableHeadHtml()
                     : '<thead><tr><th></th><th><span class="tree-sort-header-label">Task</span><button class="tree-sort-button" type="button" data-task-sort-trigger="task" aria-label="Sort by Task" title="Sort by Task"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="1"></span></th><th><span class="tree-sort-header-label">Due</span><button class="tree-sort-button" type="button" data-task-sort-trigger="due" aria-label="Sort by Due" title="Sort by Due"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="2"></span></th><th><span class="tree-sort-header-label">Status</span><button class="tree-sort-button" type="button" data-task-sort-trigger="status" aria-label="Sort by Status" title="Sort by Status"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="3"></span></th><th><span class="tree-sort-header-label">Assign</span><button class="tree-sort-button" type="button" data-task-sort-trigger="assign" aria-label="Sort by Assign" title="Sort by Assign"><i class="fa-solid fa-sort" aria-hidden="true"></i></button><span class="col-resizer" data-col="4"></span></th></tr></thead>')) +
               '<tbody data-task-dropzone="1">' +
-                (canManage && String(group.specialty_type || "") !== "canvas"
+                (canManage && !String(group.specialty_type || "")
                   ? '<tr class="new-row">' +
                       '<td></td>' +
                       '<td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>' +
@@ -3845,6 +3886,8 @@
         if (!table) return;
         var tbody = table.querySelector("tbody[data-task-dropzone='1']");
         if (!tbody) return;
+        var specialtyGroupBlock = table.closest(".group-block[data-specialty-type]");
+        var groupSpecialtyType = String(specialtyGroupBlock && specialtyGroupBlock.getAttribute("data-specialty-type") || "").trim().toLowerCase();
         var newRow = tbody.querySelector(".new-row");
         Array.prototype.slice.call(tbody.querySelectorAll('tr:not(.new-row)')).forEach(function (row) {
           row.remove();
@@ -3905,11 +3948,18 @@
             });
           }
           if (task.locked) {
+            var driveManagedTask = groupSpecialtyType === "google_drive" || (
+              typeof window.__taskIsGoogleDriveManaged === "function" && window.__taskIsGoogleDriveManaged(task)
+            );
             row.querySelectorAll(
               '.editable[data-field="title"], .editable[data-field="status"], .due-input, .assign-input, ' +
               '.assign-add-btn, [data-remove-assignment], [data-remove-assignee-intent], [data-task-multi-status-trigger]'
             ).forEach(function (control) {
               if (control.matches("[data-task-poll-trigger]")) return;
+              if (control.matches(".due-input") && driveManagedTask) {
+                control.disabled = false;
+                return;
+              }
               if (control.matches(".editable")) {
                 control.setAttribute("contenteditable", "false");
               } else {
@@ -8902,6 +8952,7 @@
       const block = document.createElement("div");
       block.className = "group-block";
       block.setAttribute("data-group-id", String(groupData.id));
+      block.setAttribute("data-specialty-type", String(groupData.specialty_type || ""));
       if (groupData.position !== undefined && groupData.position !== null) {
         block.setAttribute("data-group-position", String(groupData.position));
       }
@@ -8929,6 +8980,7 @@
               <button class="task-pill-segment" type="button" data-open-entity="links" data-entity-type="group" data-entity-id="${groupData.id}" data-entity-title="${escapeHtml(groupData.name || "Untitled Group")}" data-entity-project="${escapeHtml(projectName || "")}"><i class="fa-solid fa-link" aria-hidden="true"></i></button>
               <button class="task-pill-segment comment-button" type="button" data-open-entity="messages" data-entity-type="group" data-entity-id="${groupData.id}" data-entity-title="${escapeHtml(groupData.name || "Untitled Group")}" data-entity-project="${escapeHtml(projectName || "")}"><i class="fa-regular fa-comments" aria-hidden="true"></i><span data-comment-count="group:${groupData.id}">0</span></button>
             </span>
+            ${window.__renderSpecialtyGroupRefreshControl(groupData, canManageGroup)}
           </h3>
         </div>
         <table class="table tasks-table" data-project-id="${projectId}" data-group-id="${groupData.id}">
@@ -8941,7 +8993,7 @@
           </colgroup>
           {{ render_tasks_table_head() }}
           <tbody data-task-dropzone="1">
-            ${canManageGroup && String(groupData.specialty_type || "") !== "canvas" ? `
+            ${canManageGroup && !String(groupData.specialty_type || "") ? `
 	              <tr class="new-row">
 	                <td></td>
 	                <td><input placeholder="New task..." data-new-task="title" data-col="1" autocomplete="termin-nope-title" autocorrect="off" autocapitalize="off" spellcheck="false" /></td>
@@ -9321,6 +9373,8 @@
 
     function openDueModeMenu(input) {
       if (!input) return false;
+      const taskId = input.getAttribute("data-task-id");
+      if (taskId && typeof window.__taskIdCanEditDue === "function" && !window.__taskIdCanEditDue(taskId)) return false;
       const dueCell = input.closest("[data-due-cell]");
       if (!dueCell) return false;
       closeDueModeMenu();
@@ -9537,7 +9591,7 @@
       if (!cell) return false;
       const input = cell.querySelector(".due-input");
       if (!input) return false;
-      if (window.__taskIdIsLocked(input.getAttribute("data-task-id"))) return false;
+      if (typeof window.__taskIdCanEditDue === "function" && !window.__taskIdCanEditDue(input.getAttribute("data-task-id"))) return false;
       openDueModeMenu(input);
       return false;
     };
@@ -9554,7 +9608,7 @@
     const applyDueInput = (input) => {
       if (!input) return;
       const taskId = input.getAttribute("data-task-id");
-      if (taskId && window.__taskIdIsLocked(taskId)) {
+      if (taskId && typeof window.__taskIdCanEditDue === "function" && !window.__taskIdCanEditDue(taskId)) {
         hideDueInput(input);
         return;
       }
@@ -15485,8 +15539,15 @@
     function taskIsGoogleDriveManaged(task) {
       var info = task && task.info && typeof task.info === "object" ? task.info : {};
       var meta = info.meta && typeof info.meta === "object" ? info.meta : {};
-      return !!(meta.google_drive && typeof meta.google_drive === "object");
+      if (meta.google_drive && typeof meta.google_drive === "object") return true;
+      var group = task && task.group_id ? dashboardGroupEntity(task.group_id) : null;
+      if (String(group && group.specialty_type || "").trim().toLowerCase() === "google_drive") return true;
+      var groupNode = task && task.group_id
+        ? document.querySelector('.group-block[data-group-id="' + String(task.group_id) + '"]')
+        : null;
+      return String(groupNode && groupNode.getAttribute("data-specialty-type") || "").trim().toLowerCase() === "google_drive";
     }
+    window.__taskIsGoogleDriveManaged = taskIsGoogleDriveManaged;
 
     function taskIsExternallyManaged(task) {
       return taskIsCanvasManaged(task) || taskIsGoogleDriveManaged(task);
@@ -15506,6 +15567,19 @@
       return !!(node && String(node.getAttribute("data-task-locked") || "") === "1");
     };
 
+    function taskPayloadForId(taskId) {
+      var normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId) return null;
+      if (String(currentTaskId || "") === normalizedTaskId && currentTaskData) return currentTaskData;
+      var host = document.querySelector('[data-task-status-host="' + normalizedTaskId + '"]');
+      if (host && host._taskPayload) return host._taskPayload;
+      return dashboardEntityMap("tasks")[normalizedTaskId] || null;
+    }
+
+    window.__taskIdCanEditDue = function taskIdCanEditDue(taskId) {
+      return !window.__taskIdIsLocked(taskId) || taskIsGoogleDriveManaged(taskPayloadForId(taskId));
+    };
+
     function applyTaskLockState(taskId, locked) {
       var normalizedTaskId = String(taskId || "").trim();
       var isLocked = !!locked;
@@ -15520,7 +15594,7 @@
         cell.setAttribute("contenteditable", isLocked ? "false" : "true");
       });
       document.querySelectorAll('.due-input[data-task-id="' + normalizedTaskId + '"]').forEach(function (input) {
-        input.disabled = isLocked;
+        input.disabled = isLocked && !taskIsGoogleDriveManaged(taskPayloadForId(normalizedTaskId));
       });
       document.querySelectorAll('.assign-input[data-target-id="' + normalizedTaskId + '"], .assign-input[data-task-id="' + normalizedTaskId + '"]').forEach(function (input) {
         input.disabled = isLocked;
@@ -19474,6 +19548,7 @@
       }
       var task = currentTaskData || {};
       var locked = taskIsLocked(task);
+      var dueLocked = locked && !taskIsGoogleDriveManaged(task);
       var externallyManaged = taskIsExternallyManaged(task);
       renderCanvasGroupSettings(task);
       renderGoogleDriveGroupSettings(task);
@@ -19485,28 +19560,28 @@
       taskSettingsTitleEl.disabled = locked;
       if (taskSettingsDueModeEl) {
         taskSettingsDueModeEl.value = taskDueModeValue(task);
-        taskSettingsDueModeEl.disabled = locked;
+        taskSettingsDueModeEl.disabled = dueLocked;
       }
       taskSettingsDueEl.value = task.due_at ? String(task.due_at).slice(0, 10) : "";
-      taskSettingsDueEl.disabled = locked;
+      taskSettingsDueEl.disabled = dueLocked;
       if (taskSettingsRelativeDueTaskEl) {
         var relativeDue = task.due_relative || {};
         taskSettingsRelativeDueTaskEl.value = relativeDue.task_title || "";
         taskSettingsRelativeDueTaskEl.dataset.selectedTaskId = relativeDue.task_id ? String(relativeDue.task_id) : "";
-        taskSettingsRelativeDueTaskEl.disabled = locked;
+        taskSettingsRelativeDueTaskEl.disabled = dueLocked;
       }
       if (taskSettingsRelativeDueDaysEl) {
         var relativeDays = task.due_relative && task.due_relative.days != null ? task.due_relative.days : 0;
         taskSettingsRelativeDueDaysEl.value = String(relativeDays);
-        taskSettingsRelativeDueDaysEl.disabled = locked;
+        taskSettingsRelativeDueDaysEl.disabled = dueLocked;
       }
       if (taskSettingsStartDateEl) {
         taskSettingsStartDateEl.value = task.start_date ? String(task.start_date).slice(0, 10) : "";
-        taskSettingsStartDateEl.disabled = locked;
+        taskSettingsStartDateEl.disabled = dueLocked;
       }
       if (taskSettingsRelativeStartDaysEl) {
         taskSettingsRelativeStartDaysEl.value = task.due_relative_start_days != null ? String(task.due_relative_start_days) : "";
-        taskSettingsRelativeStartDaysEl.disabled = locked;
+        taskSettingsRelativeStartDaysEl.disabled = dueLocked;
       }
       syncTaskSettingsDueControl();
       var taskSettingsCreatorEl = document.getElementById("task-settings-creator");
@@ -19959,6 +20034,122 @@
     };
     window.__renderTaskSettings = renderTaskSettings;
 
+    function specialtyRefreshTimestamp(rawValue) {
+      var raw = String(rawValue || "").trim();
+      if (!raw) return null;
+      if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) raw += "Z";
+      var value = new Date(raw);
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    function updateSpecialtyRefreshAge(control) {
+      if (!control) return;
+      var label = control.querySelector("[data-specialty-refresh-age]");
+      if (!label || control.classList.contains("is-refreshing") || control.classList.contains("is-error")) return;
+      var refreshedAt = specialtyRefreshTimestamp(control.getAttribute("data-last-refreshed-at"));
+      if (!refreshedAt) {
+        label.textContent = "Never refreshed";
+        control.removeAttribute("title");
+        return;
+      }
+      var minutesAgo = Math.max(0, Math.floor((Date.now() - refreshedAt.getTime()) / 60000));
+      label.textContent = "Last refresh · " + minutesAgo + " min ago";
+      control.title = "Last refreshed " + refreshedAt.toLocaleString();
+    }
+
+    function updateSpecialtyRefreshAges(root) {
+      var scope = root && typeof root.querySelectorAll === "function" ? root : document;
+      scope.querySelectorAll("[data-specialty-refresh-group]").forEach(updateSpecialtyRefreshAge);
+    }
+    window.__updateSpecialtyRefreshAges = updateSpecialtyRefreshAges;
+
+    function setSpecialtyRefreshBusy(groupId, busy, errorMessage) {
+      document.querySelectorAll('[data-specialty-refresh-group="' + String(groupId) + '"]').forEach(function (control) {
+        control.classList.toggle("is-refreshing", !!busy);
+        control.classList.toggle("is-error", !!errorMessage);
+        var button = control.querySelector("[data-specialty-refresh-trigger]");
+        var label = control.querySelector("[data-specialty-refresh-age]");
+        if (button) button.disabled = !!busy;
+        if (label && busy) label.textContent = "Refreshing…";
+        if (label && errorMessage) label.textContent = "Refresh failed";
+        if (errorMessage) control.title = String(errorMessage);
+        if (!busy && !errorMessage) updateSpecialtyRefreshAge(control);
+      });
+    }
+
+    function updateSpecialtyRefreshGroup(group) {
+      if (!group || !group.id) return;
+      var specialtyType = String(group.specialty_type || "").trim().toLowerCase();
+      var metadata = specialtyType === "canvas" ? group.canvas : group.google_drive;
+      var lastRefreshedAt = metadata && metadata.last_synced_at ? String(metadata.last_synced_at) : "";
+      document.querySelectorAll('.group-block[data-group-id="' + String(group.id) + '"]').forEach(function (block) {
+        block.setAttribute("data-specialty-type", specialtyType);
+      });
+      document.querySelectorAll('[data-specialty-refresh-group="' + String(group.id) + '"]').forEach(function (control) {
+        control.setAttribute("data-last-refreshed-at", lastRefreshedAt);
+        control.classList.remove("is-error");
+        updateSpecialtyRefreshAge(control);
+      });
+    }
+
+    function refreshSpecialtyGroup(button) {
+      if (!button || button.disabled) return Promise.resolve(null);
+      var groupId = String(button.getAttribute("data-specialty-refresh-trigger") || "").trim();
+      var specialtyType = String(button.getAttribute("data-specialty-type") || "").trim().toLowerCase();
+      if (!groupId || (specialtyType !== "canvas" && specialtyType !== "google_drive")) return Promise.resolve(null);
+      var routeType = specialtyType === "canvas" ? "canvas" : "google-drive";
+      setSpecialtyRefreshBusy(groupId, true, "");
+      return fetch("/api/groups/" + encodeURIComponent(groupId) + "/" + routeType + "/refresh", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            return { ok: res.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          var group = result.data && result.data.group ? result.data.group : null;
+          if (group) {
+            mergeDashboardEntity("groups", group);
+            updateSpecialtyRefreshGroup(group);
+          }
+          if (!result.ok) {
+            var refreshError = new Error((result.data && result.data.error) || "Group refresh failed");
+            refreshError.connectUrl = result.data && result.data.connect_url;
+            throw refreshError;
+          }
+          var projectId = String(group && group.project_id || "");
+          if (projectId && typeof window.__refreshTreeProjectSnapshotLocal === "function") {
+            window.__refreshTreeProjectSnapshotLocal(projectId);
+          }
+          setSpecialtyRefreshBusy(groupId, false, "");
+          return result.data;
+        })
+        .catch(function (error) {
+          setSpecialtyRefreshBusy(groupId, false, error && error.message ? error.message : "Group refresh failed");
+          if (error && error.connectUrl && typeof window.__openGoogleDriveConnection === "function") {
+            window.__openGoogleDriveConnection(error.connectUrl);
+          }
+          return null;
+        });
+    }
+    window.__refreshSpecialtyGroup = refreshSpecialtyGroup;
+
+    document.addEventListener("pointerdown", function (event) {
+      if (event.target.closest("[data-specialty-refresh-trigger]")) event.stopPropagation();
+    });
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-specialty-refresh-trigger]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      refreshSpecialtyGroup(button);
+    });
+    updateSpecialtyRefreshAges(document);
+    window.setInterval(function () { updateSpecialtyRefreshAges(document); }, 30000);
+
     if (canvasGroupSettingsRefreshEl) {
       canvasGroupSettingsRefreshEl.addEventListener("click", function () {
         var targetGroupId = currentEntityType === "group"
@@ -19983,6 +20174,8 @@
             if (currentEntityType === "task" && String((currentTaskData && currentTaskData.group_id) || "") !== refreshGroupId) return;
             if (result.data && result.data.group && currentEntityType === "group") {
               currentEntityData = Object.assign({}, currentEntityData || {}, result.data.group);
+              mergeDashboardEntity("groups", result.data.group);
+              updateSpecialtyRefreshGroup(result.data.group);
               renderEntitySettings();
             }
             if (!result.ok) throw new Error((result.data && result.data.error) || "Canvas refresh failed");
@@ -20040,6 +20233,8 @@
             if (currentEntityType === "task" && String((currentTaskData && currentTaskData.group_id) || "") !== refreshGroupId) return;
             if (result.data && result.data.group && currentEntityType === "group") {
               currentEntityData = Object.assign({}, currentEntityData || {}, result.data.group);
+              mergeDashboardEntity("groups", result.data.group);
+              updateSpecialtyRefreshGroup(result.data.group);
               renderEntitySettings();
             }
             if (!result.ok) {
@@ -20595,6 +20790,16 @@
           description: descriptionPayload.description,
           description_format: descriptionPayload.description_format,
         };
+        if (taskIsGoogleDriveManaged(currentTaskData || {})) {
+          payload = {
+            due_at: payload.due_at,
+            due_mode: payload.due_mode,
+            start_date: payload.start_date,
+            due_relative_task_id: payload.due_relative_task_id,
+            due_relative_days: payload.due_relative_days,
+            due_relative_start_days: payload.due_relative_start_days,
+          };
+        }
         if (statusMode === "single" && taskSettingsStatusEl) {
           var nextDrawerStatus = String(taskSettingsStatusEl.dataset.statusValue || "").trim();
           var baselineDrawerStatus = String(taskSettingsStatusEl.dataset.statusBaseline || "").trim();
@@ -24018,7 +24223,7 @@
                 <span class="todo-mobile-due-text">${escapeHtml(dueCompactLabel)}</span>
                 <span class="due-summary-label"><i class="fa-regular fa-calendar" aria-hidden="true"></i></span>
               </div>
-              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" data-due-relative-task-id="${task.due_relative && task.due_relative.task_id ? escapeHtml(String(task.due_relative.task_id)) : ""}" data-due-relative-task-title="${task.due_relative && task.due_relative.task_title ? escapeHtml(String(task.due_relative.task_title)) : ""}" data-due-relative-days="${task.due_relative && task.due_relative.days != null ? escapeHtml(String(task.due_relative.days)) : "0"}" value="${dueValue}" ${task.locked ? "disabled" : ""} />
+              <input class="due-input hidden" type="date" data-task-id="${task.id}" data-field="due_at" data-col="2" data-created-at="${createdValue}" data-due-mode="${dueMode}" data-due-relative-task-id="${task.due_relative && task.due_relative.task_id ? escapeHtml(String(task.due_relative.task_id)) : ""}" data-due-relative-task-title="${task.due_relative && task.due_relative.task_title ? escapeHtml(String(task.due_relative.task_title)) : ""}" data-due-relative-days="${task.due_relative && task.due_relative.days != null ? escapeHtml(String(task.due_relative.days)) : "0"}" value="${dueValue}" ${task.locked && !taskIsGoogleDriveManaged(task) ? "disabled" : ""} />
             </div>
             ${statusControlHtml}
           </div>

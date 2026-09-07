@@ -2906,6 +2906,108 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Open Google Drive group settings and refresh comments on demand.', page);
   });
 
+  test('Drive group header refreshes inline and keeps imported due dates editable', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['google-drive', 'groups', 'refresh', 'due-date']);
+    const state = await fetchSeedState(request);
+    let lastSyncedAt = new Date(Date.now() - (5 * 60 * 1000)).toISOString();
+    let refreshRequested = false;
+
+    await page.route(`**/api/projects/${state.project.id}/tree_snapshot*`, async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      const group = payload.groups.find((item) => Number(item.id) === Number(state.group.id));
+      group.specialty_type = 'google_drive';
+      group.google_drive = {
+        file_id: 'drive-header-file-12345',
+        source_url: 'https://docs.google.com/document/d/drive-header-file-12345/edit',
+        last_synced_at: lastSyncedAt,
+        sync_error: null,
+      };
+      const task = group.tasks.find((item) => Number(item.id) === Number(state.task.id));
+      task.locked = true;
+      await route.fulfill({
+        status: response.status(),
+        contentType: 'application/json',
+        body: JSON.stringify(payload),
+      });
+    });
+    await page.route(`**/api/groups/${state.group.id}/google-drive/refresh`, async (route) => {
+      refreshRequested = true;
+      lastSyncedAt = new Date().toISOString();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          group: {
+            id: state.group.id,
+            project_id: state.project.id,
+            name: state.group.name,
+            specialty_type: 'google_drive',
+            google_drive: {
+              file_id: 'drive-header-file-12345',
+              last_synced_at: lastSyncedAt,
+              sync_error: null,
+            },
+          },
+          tasks: [],
+          removed_task_ids: [],
+          sync: { created: 0, updated: 0, removed: 0, total: 0, scanned: 1, full_sync: true },
+        }),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const groupBlock = page.locator(`.group-block[data-group-id="${state.group.id}"]`);
+    const refreshControl = groupBlock.locator(`[data-specialty-refresh-group="${state.group.id}"]`);
+    await expect(refreshControl.locator('[data-specialty-refresh-age]')).toContainText('5 min ago');
+
+    const dueInput = groupBlock.locator(`.due-input[data-task-id="${state.task.id}"]`);
+    await expect(dueInput).toBeEnabled();
+    await groupBlock.locator(`[data-task-row-id="${state.task.id}"] [data-due-cell]`).click();
+    await expect(page.locator('.due-mode-menu')).toBeVisible();
+    await page.locator('.due-mode-menu [data-due-mode-action="date"]').click();
+
+    await refreshControl.locator('[data-specialty-refresh-trigger]').click();
+    await expect.poll(() => refreshRequested).toBe(true);
+    await expect(refreshControl.locator('[data-specialty-refresh-age]')).toContainText('0 min ago');
+    await steps.step('Refresh a Drive group from its header and open the date picker on a locked imported task.', page);
+  });
+
+  test('Drive-managed tasks are excluded from problem tasks', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['google-drive', 'problems']);
+    const state = await fetchSeedState(request);
+
+    await page.route('**/api/dashboard-bootstrap', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      const dashboard = body.dashboard || body;
+      const group = dashboard.entities.groups[String(state.group.id)];
+      const task = dashboard.entities.tasks[String(state.task.id)];
+      group.specialty_type = 'google_drive';
+      group.google_drive = { file_id: 'drive-problem-file-12345', last_synced_at: new Date().toISOString() };
+      task.assignments = [];
+      task.assignee_mode = 'default';
+      task.due_at = null;
+      task.due_mode = 'none';
+      task.locked = true;
+      await route.fulfill({
+        status: response.status(),
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      });
+    });
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto('/problems');
+    await expect(page.locator('[data-problems-list]')).toBeVisible();
+    await expect(page.locator(`[data-problem-task-id="${state.task.id}"]`)).toHaveCount(0);
+    await steps.step('Verify a Drive-managed task with no date or assignee does not enter the Problems view.', page);
+  });
+
   test('email collaborator invite accepts from the magic link page', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['collaborator', 'email', 'invite']);

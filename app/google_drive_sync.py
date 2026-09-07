@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.extensions import db
 from app.google_oauth import GOOGLE_DRIVE_SCOPE, GoogleOAuthError, ensure_google_access_token
 from app.identity import find_user_by_email, normalize_email
-from app.info_utils import normalize_info_payload
+from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import (
     Assignment,
     CalendarAccount,
@@ -40,6 +40,13 @@ GOOGLE_DRIVE_API_ROOT = "https://www.googleapis.com/drive/v3"
 GOOGLE_DRIVE_FULL_SYNC_INTERVAL = timedelta(hours=1)
 GOOGLE_DRIVE_SYNC_OVERLAP = timedelta(minutes=2)
 _FILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{10,255}$")
+_TERMIN_DUE_META_KEYS = {
+    "due_mode",
+    "due_relative_days",
+    "due_relative_start_days",
+    "due_relative_task_id",
+    "start_date",
+}
 _active_group_ids: set[int] = set()
 _active_group_lock = Lock()
 _worker_started = False
@@ -261,8 +268,23 @@ def fetch_google_drive_file(
     )
 
 
+def _comment_content(comment: GoogleDriveComment) -> str:
+    content = str(comment.content or "")
+    assignee_email = normalize_email(comment.assignee_email)
+    if not assignee_email:
+        return content.strip()
+    mention_pattern = re.compile(
+        rf"(?<![\w@])@{re.escape(assignee_email)}(?=$|[\s,.;:!?\)\]\}}])",
+        re.IGNORECASE,
+    )
+    cleaned = mention_pattern.sub("", content)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"(?m)^[ \t]+", "", cleaned)
+    return cleaned.strip()
+
+
 def _comment_title(comment: GoogleDriveComment) -> str:
-    for line in comment.content.splitlines():
+    for line in _comment_content(comment).splitlines():
         normalized = " ".join(line.split())
         if normalized:
             return normalized[:255]
@@ -270,7 +292,7 @@ def _comment_title(comment: GoogleDriveComment) -> str:
 
 
 def _comment_description(comment: GoogleDriveComment) -> str:
-    parts = [comment.content.strip()]
+    parts = [_comment_content(comment)]
     if comment.quoted_content:
         quoted = "\n".join("> " + line for line in comment.quoted_content.splitlines())
         parts.append("Referenced text:\n\n" + quoted)
@@ -289,19 +311,23 @@ def _comment_description(comment: GoogleDriveComment) -> str:
     return "\n\n".join(part for part in parts if part).strip()
 
 
-def _comment_info(comment: GoogleDriveComment, drive_file: GoogleDriveFile) -> str:
+def _comment_info(comment: GoogleDriveComment, drive_file: GoogleDriveFile, task: Task | None = None) -> str:
+    existing_meta = load_info_payload(task.info, task.link).get("meta", {}) if task else {}
     meta = {
-        "due_mode": "none",
-        "google_drive": {
-            "file_id": drive_file.file_id,
-            "file_name": drive_file.name,
-            "comment_id": comment.comment_id,
-            "comment_modified_at": comment.modified_at.isoformat() if comment.modified_at else None,
-            "resolved": comment.resolved,
-            "assignee_email": comment.assignee_email or None,
-            "author_name": comment.author_name or None,
-            "author_avatar_url": comment.author_avatar_url or None,
-        },
+        key: existing_meta[key]
+        for key in _TERMIN_DUE_META_KEYS
+        if key in existing_meta
+    }
+    meta.setdefault("due_mode", "date" if task and task.due_at else "none")
+    meta["google_drive"] = {
+        "file_id": drive_file.file_id,
+        "file_name": drive_file.name,
+        "comment_id": comment.comment_id,
+        "comment_modified_at": comment.modified_at.isoformat() if comment.modified_at else None,
+        "resolved": comment.resolved,
+        "assignee_email": comment.assignee_email or None,
+        "author_name": comment.author_name or None,
+        "author_avatar_url": comment.author_avatar_url or None,
     }
     if not comment.assignee_email:
         meta["assignee_mode"] = "none"
@@ -419,9 +445,8 @@ def apply_google_drive_file(
             "title": _comment_title(comment),
             "description": _comment_description(comment) or None,
             "description_format": "markdown",
-            "info": _comment_info(comment, drive_file),
+            "info": _comment_info(comment, drive_file, task),
             "link": drive_file.web_view_link or None,
-            "due_at": None,
             "locked": True,
             "status": "complete" if comment.resolved else "open",
             "status_mode": "single",

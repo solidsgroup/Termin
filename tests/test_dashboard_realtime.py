@@ -621,7 +621,7 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                 comments=(
                     GoogleDriveComment(
                         comment_id="comment-1",
-                        content="Revise the abstract\nwith the new result.",
+                        content="@drive-assignee@example.com Revise the abstract\nwith the new result.",
                         created_at=datetime(2026, 9, 1, 12, 0),
                         modified_at=datetime(2026, 9, 1, 12, 30),
                         resolved=False,
@@ -668,13 +668,22 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             tasks = Task.query.filter_by(group_id=group.id).order_by(Task.position.asc()).all()
             first_task_id, second_task_id = tasks[0].id, tasks[1].id
             self.assertEqual([task.title for task in tasks], ["Revise the abstract", "Check the figure caption"])
+            self.assertEqual(tasks[0].description.splitlines()[0], "Revise the abstract")
             self.assertEqual([task.status for task in tasks], ["open", "complete"])
             self.assertTrue(all(task.locked for task in tasks))
+            first_info = load_info_payload(tasks[0].info)
+            self.assertEqual(first_info["meta"]["google_drive"]["comment_id"], "comment-1")
+            self.assertEqual(first_info["meta"]["google_drive"]["assignee_email"], assignee.email)
             first_assignment = Assignment.query.filter_by(task_id=first_task_id).one()
             self.assertEqual(first_assignment.user_id, assignee.id)
             self.assertIsNone(first_assignment.email)
             self.assertEqual(Assignment.query.filter_by(task_id=second_task_id).count(), 0)
             self.assertEqual(load_info_payload(tasks[1].info)["meta"]["assignee_mode"], "none")
+
+            tasks[0].due_at = datetime(2026, 9, 12)
+            first_info["meta"]["due_mode"] = "urgent"
+            tasks[0].info = normalize_info_payload(first_info, tasks[0].link)
+            db.session.commit()
 
             resolved_comment = GoogleDriveComment(
                 **{**initial_file.comments[0].__dict__, "resolved": True, "modified_at": datetime(2026, 9, 2, 9, 0)}
@@ -695,7 +704,10 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             )
             db.session.commit()
             self.assertEqual([task.id for task in incremental_result.updated_tasks], [first_task_id])
-            self.assertEqual(Task.query.get(first_task_id).status, "complete")
+            refreshed_first_task = Task.query.get(first_task_id)
+            self.assertEqual(refreshed_first_task.status, "complete")
+            self.assertEqual(refreshed_first_task.due_at, datetime(2026, 9, 12))
+            self.assertEqual(load_info_payload(refreshed_first_task.info)["meta"]["due_mode"], "urgent")
             self.assertIsNotNone(Task.query.get(second_task_id))
             group_version_after_change = Group.query.get(group.id).updated_at
 
@@ -785,6 +797,17 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         update_response = self.client.patch(f"/api/tasks/{task_id}", json={"status": "complete"})
         self.assertEqual(update_response.status_code, 423)
         self.assertEqual(update_response.get_json()["error"], "Google Drive tasks are managed by Google Drive")
+        due_response = self.client.patch(
+            f"/api/tasks/{task_id}",
+            json={"due_at": "2026-09-21", "due_mode": "date"},
+        )
+        self.assertEqual(due_response.status_code, 200)
+        self.assertEqual(due_response.get_json()["due_at"], "2026-09-21T00:00:00")
+        self.assertEqual(due_response.get_json()["due_mode"], "date")
+        self.assertEqual(
+            due_response.get_json()["info"]["meta"]["google_drive"]["comment_id"],
+            "route-comment-1",
+        )
 
         with patch.dict(self.app.config, {
             "GOOGLE_PICKER_API_KEY": "test-picker-key",

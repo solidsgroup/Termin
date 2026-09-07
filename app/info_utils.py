@@ -15,7 +15,7 @@ ALLOWED_ATTRS = {
     "a": {"href", "target", "rel"},
     "span": {"class", "data-mentioned-user-id", "data-mentioned-email"},
 }
-ALLOWED_META_KEYS = {"assignee_mode", "canvas", "due_mode", "due_relative_days", "due_relative_start_days", "due_relative_task_id", "follow_project_members", "gantt_ranges", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
+ALLOWED_META_KEYS = {"assignee_mode", "canvas", "due_mode", "due_relative_days", "due_relative_start_days", "due_relative_task_id", "follow_project_members", "gantt_ranges", "google_drive", "poll", "start_date", "status_mode", "status_percentage", "task_type"}
 
 
 def _normalize_gantt_ranges(value) -> list[dict]:
@@ -77,6 +77,27 @@ def _normalize_canvas_meta(value) -> dict:
     if isinstance(submission_types, list):
         canvas["submission_types"] = [str(item).strip()[:100] for item in submission_types if str(item or "").strip()]
     return canvas
+
+
+def _normalize_google_drive_meta(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    google_drive = {}
+    for key in {
+        "file_id",
+        "file_name",
+        "comment_id",
+        "comment_modified_at",
+        "assignee_email",
+        "author_name",
+        "author_avatar_url",
+    }:
+        text = str(value.get(key) or "").strip()
+        if text:
+            google_drive[key] = text[:2048]
+    if "resolved" in value:
+        google_drive["resolved"] = bool(value.get("resolved"))
+    return google_drive
 
 def _normalize_poll_meta(value) -> dict:
     poll = value if isinstance(value, dict) else {}
@@ -259,6 +280,11 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
                 if canvas:
                     meta[key] = canvas
                 continue
+            if key == "google_drive":
+                google_drive = _normalize_google_drive_meta(value)
+                if google_drive:
+                    meta[key] = google_drive
+                continue
             if key == "poll":
                 meta[key] = _normalize_poll_meta(value)
                 continue
@@ -320,6 +346,11 @@ def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> 
                 canvas = _normalize_canvas_meta(value)
                 if canvas:
                     meta[key] = canvas
+                continue
+            if key == "google_drive":
+                google_drive = _normalize_google_drive_meta(value)
+                if google_drive:
+                    meta[key] = google_drive
                 continue
             if key == "poll":
                 meta[key] = _normalize_poll_meta(value)

@@ -7787,6 +7787,52 @@ body[data-theme="light"] .panel.group .table {
   text-shadow: 0 6px 16px color-mix(in srgb, var(--group-color, transparent) 20%, transparent);
 }
 
+.specialty-group-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.specialty-group-refresh-button {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--group-color, var(--accent)) 58%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--group-color, var(--accent)) 14%, var(--panel));
+  color: var(--group-color, var(--accent));
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.specialty-group-refresh-button:hover {
+  border-color: var(--group-color, var(--accent));
+  background: color-mix(in srgb, var(--group-color, var(--accent)) 24%, var(--panel));
+}
+
+.specialty-group-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.specialty-group-refresh.is-refreshing .specialty-group-refresh-button i {
+  animation: specialty-refresh-spin 800ms linear infinite;
+}
+
+.specialty-group-refresh.is-error .specialty-group-refresh-age {
+  color: var(--danger, #ef4444);
+}
+
+@keyframes specialty-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
 body[data-theme="light"] .group-title {
   color: color-mix(in srgb, var(--group-color, var(--accent)) 94%, #0f172a 6%);
   text-shadow: none;

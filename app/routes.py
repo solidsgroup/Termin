@@ -231,6 +231,14 @@ TASK_LOCKED_PROTECTED_FIELDS = {
     "task_type",
     "poll",
 }
+GOOGLE_DRIVE_EDITABLE_TASK_FIELDS = {
+    "due_at",
+    "due_mode",
+    "due_relative_days",
+    "due_relative_start_days",
+    "due_relative_task_id",
+    "start_date",
+}
 
 
 def _task_is_locked(task: Task | None) -> bool:
@@ -2928,9 +2936,22 @@ def update_task(task_id: int):
     description_format = payload.get("description_format")
     locked = payload.get("locked")
 
-    if _task_is_externally_managed(task) and payload:
-        return _externally_managed_task_response(task)
-    if _task_is_locked(task) and _task_payload_touches_locked_fields(payload):
+    managed_specialty_type = _task_managed_specialty_type(task)
+    if managed_specialty_type and payload:
+        drive_due_only = (
+            managed_specialty_type == GOOGLE_DRIVE_SPECIALTY_TYPE
+            and all(field in GOOGLE_DRIVE_EDITABLE_TASK_FIELDS for field in payload)
+        )
+        if not drive_due_only:
+            return _externally_managed_task_response(task)
+    locked_payload = payload
+    if managed_specialty_type == GOOGLE_DRIVE_SPECIALTY_TYPE:
+        locked_payload = {
+            field: value
+            for field, value in payload.items()
+            if field not in GOOGLE_DRIVE_EDITABLE_TASK_FIELDS
+        }
+    if _task_is_locked(task) and _task_payload_touches_locked_fields(locked_payload):
         return _locked_task_response()
 
     if title is not None:
