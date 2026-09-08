@@ -1793,7 +1793,9 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
             return cached_context
         project_is_github = bool(github_project_id and project.id == github_project_id)
         pref = sidebar_pref_map.get(project.id) if _is_standard_project(project) else None
-        project_color = division_color_map.get(pref.division_id if pref else None, "#4cc9f0")
+        project_color = "#9aa6b2" if project.is_direct or getattr(project, "is_team", False) else (
+            division_color_map.get(pref.division_id if pref else None, "#4cc9f0")
+        )
         project_is_owner = project.owner_id == user.id
         project_is_member = project.id in member_project_id_set
         project_can_manage = project_is_owner or project_is_member
@@ -2033,7 +2035,9 @@ def _render_dashboard(route_view: str | None = None, route_project_id: int | Non
                 "task": task,
                 "project": project,
                 "group": todo_groups.get(task.group_id),
-                "division_color": division_effective_color(division, active_theme_name) if division else "#4cc9f0",
+                "division_color": "#9aa6b2" if project.is_direct or getattr(project, "is_team", False) else (
+                    division_effective_color(division, active_theme_name) if division else "#4cc9f0"
+                ),
                 "division_id": (division.id if division else None),
                 "date_key": bucket_key,
                 "date_label": bucket_label,

@@ -10092,7 +10092,8 @@ body[data-theme="light"] .project-item-top strong {
   margin-top: 6px;
 }
 
-.direct-project-item {
+.direct-project-item,
+.team-project-item {
   --project-color: #9aa6b2;
 }
 

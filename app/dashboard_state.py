@@ -163,6 +163,8 @@ def _serialize_project(
     info = load_info_payload(project.info, project.link)
     division_id = sidebar_pref.division_id if sidebar_pref else None
     updated_at = getattr(project, "updated_at", None)
+    is_direct = bool(project.is_direct)
+    is_team = bool(getattr(project, "is_team", False))
     return {
         "id": project.id,
         "name": project.name,
@@ -171,8 +173,8 @@ def _serialize_project(
         "division_id": division_id,
         "position": project.position,
         "sidebar_position": sidebar_pref.position if sidebar_pref else None,
-        "is_direct": bool(project.is_direct),
-        "is_team": bool(getattr(project, "is_team", False)),
+        "is_direct": is_direct,
+        "is_team": is_team,
         "direct_user_a_id": project.direct_user_a_id,
         "direct_user_b_id": project.direct_user_b_id,
         "default_owner_calendar_opt_in": bool(project.default_owner_calendar_opt_in),
@@ -188,7 +190,9 @@ def _serialize_project(
         "attachments": list(info.get("attachments") or []),
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "updated_at": updated_at.isoformat() if updated_at else None,
-        "division_color": division_effective_color(None, theme_name) if division_id is None else None,
+        "division_color": "#9aa6b2" if is_direct or is_team else (
+            division_effective_color(None, theme_name) if division_id is None else None
+        ),
     }
 
 

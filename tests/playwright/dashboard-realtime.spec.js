@@ -3636,6 +3636,24 @@ test.describe('dashboard and realtime flows', () => {
     expect(Math.max(...toolbarMetrics.map((row) => row.height)) - Math.min(...toolbarMetrics.map((row) => row.height))).toBeLessThanOrEqual(1);
     expect(Math.max(...toolbarMetrics.map((row) => row.center)) - Math.min(...toolbarMetrics.map((row) => row.center))).toBeLessThanOrEqual(1);
     expect(toolbarMetrics.every((row) => Math.abs(row.height - 32) <= 1)).toBeTruthy();
+    await expect(board.locator('[data-project-gantt-export]')).toBeVisible();
+
+    const weekGuide = axis.locator('[data-gantt-guide-unit="week"]').first();
+    await expect(weekGuide).toBeVisible();
+    const weekGuidePosition = await weekGuide.evaluate((guide, range) => {
+      const start = new Date(`${range.start}T00:00:00`);
+      const end = new Date(`${range.end}T00:00:00`);
+      const sunday = new Date(`${guide.dataset.ganttGuideDate}T00:00:00`);
+      const rangeDays = Math.round((end - start) / 86400000);
+      const sundayOffset = Math.round((sunday - start) / 86400000);
+      return {
+        weekday: sunday.getDay(),
+        renderedOffset: Number.parseFloat(guide.style.left) * rangeDays / 100,
+        expectedOffset: sundayOffset - 0.5,
+      };
+    }, { start: projectStart, end: projectEnd });
+    expect(weekGuidePosition.weekday).toBe(0);
+    expect(weekGuidePosition.renderedOffset).toBeCloseTo(weekGuidePosition.expectedOffset, 2);
 
     const axisBox = await axisTrack.boundingBox();
     const axisOuterBox = await axis.boundingBox();
@@ -3662,7 +3680,7 @@ test.describe('dashboard and realtime flows', () => {
     await expect(shell).toHaveClass(/is-gantt-hovering/);
     const hoverDate = axis.locator('[data-gantt-hover-date]');
     await expect(hoverDate).toBeVisible();
-    await expect(hoverDate).toHaveText(/^[A-Z][a-z]{2} \d{2}$/);
+    await expect(hoverDate).toHaveText(/^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2}$/);
     const rulerOpacity = await shell.locator('.project-gantt-overlay-track').evaluate((track) => (
       Number(getComputedStyle(track, '::after').opacity)
     ));
@@ -3916,6 +3934,9 @@ test.describe('dashboard and realtime flows', () => {
     await expect(page.locator(`${directRowSelector} [data-tree-toggle-project="${state.direct_project.id}"]`)).toHaveCount(0);
     await expect(page.locator(`${directNodeSelector} .todo-tree-groups [data-tree-group-row]`)).toHaveCount(0);
     const directBoard = page.locator(`[data-tree-project-board="${state.direct_project.id}"]`);
+    await expect.poll(() => directBoard.evaluate((board) => (
+      getComputedStyle(board).getPropertyValue('--project-color').trim().toLowerCase()
+    ))).toBe('#9aa6b2');
     const directAddGroup = directBoard.locator(`[data-tree-group-insert-tail="${state.direct_project.id}"] .group-insert-btn`);
     await expect(directAddGroup).toBeVisible();
     await directAddGroup.click();
@@ -3985,7 +4006,11 @@ test.describe('dashboard and realtime flows', () => {
     await page.goto(`/tree/project/${teamId}`);
     await waitForTreeProjectReady(page, teamId, null);
     await expect(page.locator(`[data-tree-team-project="${teamId}"]`)).toHaveCount(1);
-    await expect(page.locator(`[data-tree-project-board="${teamId}"]`)).toContainText('Playwright Team');
+    const teamBoard = page.locator(`[data-tree-project-board="${teamId}"]`);
+    await expect(teamBoard).toContainText('Playwright Team');
+    await expect.poll(() => teamBoard.evaluate((board) => (
+      getComputedStyle(board).getPropertyValue('--project-color').trim().toLowerCase()
+    ))).toBe('#9aa6b2');
     await steps.step('Create a Team through the API, open its tree page, and verify the Team sidebar row and board render without client errors.', page);
   });
 
@@ -4420,6 +4445,7 @@ test.describe('dashboard and realtime flows', () => {
     await expect(page.locator('[data-todo-gantt-start]')).toHaveCount(0);
     await expect(page.locator('[data-todo-gantt-end]')).toHaveCount(0);
     await expect(page.locator('[data-todo-gantt-horizon]')).toHaveValue('1m');
+    await expect(ganttView.locator('[data-project-gantt-export]')).toHaveCount(0);
     await expect.poll(() => panel.locator('[data-todo-gantt-task]').evaluateAll((rows) => (
       rows.map((row) => row.getAttribute('data-todo-gantt-task'))
     ))).toEqual(todoLayout.taskIds);

@@ -560,7 +560,7 @@
           </div>
         {% endif %}
         {% if team_projects %}
-          <div class="todo-tree-node" data-division-id="team" style="--division-color: #36c2a1;">
+          <div class="todo-tree-node" data-division-id="team" style="--division-color: #9aa6b2;">
             <div class="todo-tree-row">
               <label class="todo-tree-label-row">
                 <input type="checkbox" class="todo-tree-checkbox" data-todo-division="team" checked />
@@ -3529,7 +3529,8 @@
 	      }
 
 	      function resolveProjectColor(project) {
-	        if (!project || project.is_direct) return project && project.color ? project.color : (project && project.division_color ? project.division_color : "#4cc9f0");
+	        if (!project) return "#4cc9f0";
+	        if (project.is_direct || project.is_team) return "#9aa6b2";
 	        var divisionId = project.division_id === null || project.division_id === undefined ? "" : String(project.division_id);
 	        if (divisionId) {
 	          var divisionNode = document.querySelector('[data-tree-division-node="' + divisionId + '"], [data-sidebar-division="' + divisionId + '"], .todo-tree-node[data-division-id="' + divisionId + '"]');
@@ -4673,7 +4674,8 @@
             cursor.setHours(0, 0, 0, 0);
 	          while (cursor <= endDate) {
 	            var deltaDays = Math.round((cursor.getTime() - startDate.getTime()) / 86400000);
-	            var percent = rangeDays <= 0 ? 0 : (deltaDays / rangeDays) * 100;
+	            var guideDeltaDays = deltaDays - (unit === "week" ? 0.5 : 0);
+	            var percent = rangeDays <= 0 ? 0 : (guideDeltaDays / rangeDays) * 100;
 	            if (percent > 0 && percent < 100 && (unit !== "day" || dayMask.indexOf(cursor.getDay()) !== -1)) {
 	              positions.push({ date: new Date(cursor.getTime()), percent: percent });
 	            }
@@ -5069,10 +5071,10 @@
           '</span>';
         });
 	        (data.minorLines || []).forEach(function (line) {
-	          html += '<span class="project-gantt-guide is-minor" style="left:' + Number(line.percent || 0).toFixed(2) + '%;"></span>';
+	          html += '<span class="project-gantt-guide is-minor" data-gantt-guide-unit="' + escapeProjectGanttControlText(data.minorUnit || "") + '" data-gantt-guide-date="' + escapeProjectGanttControlText(formatProjectGanttIsoLocal(line.date)) + '" style="left:' + Number(line.percent || 0).toFixed(2) + '%;"></span>';
 	        });
 	        (data.majorLines || []).forEach(function (line) {
-	          html += '<span class="project-gantt-guide is-major" style="left:' + Number(line.percent || 0).toFixed(2) + '%;"></span>';
+	          html += '<span class="project-gantt-guide is-major" data-gantt-guide-unit="' + escapeProjectGanttControlText(data.majorUnit || "") + '" data-gantt-guide-date="' + escapeProjectGanttControlText(formatProjectGanttIsoLocal(line.date)) + '" style="left:' + Number(line.percent || 0).toFixed(2) + '%;"></span>';
 	        });
         if (todayPercent != null) {
           html += '<span class="project-gantt-guide is-today" style="left:' + Number(todayPercent || 0).toFixed(2) + '%;"></span>';
@@ -11384,7 +11386,7 @@
 
     function quickTaskProjectColor(project) {
       if (!project) return "#4cc9f0";
-      if (project.is_team) return "#36c2a1";
+      if (project.is_direct || project.is_team) return "#9aa6b2";
       if (project.division_id != null) {
         var division = quickTaskEntityMap("divisions")[String(project.division_id)];
         if (division && division.color) return division.color;
@@ -11483,7 +11485,7 @@
         teamProjects.forEach(function (project) {
           var selected = String(quickTaskSelection.projectId || "") === String(project.id) && !quickTaskSelection.groupId;
           html.push(
-            '<button class="quick-task-project-option' + (selected ? ' is-selected' : '') + '" type="button" data-quick-task-select-project="' + quickTaskEscape(project.id) + '" style="--quick-task-option-color:#36c2a1;">' +
+            '<button class="quick-task-project-option' + (selected ? ' is-selected' : '') + '" type="button" data-quick-task-select-project="' + quickTaskEscape(project.id) + '" style="--quick-task-option-color:#9aa6b2;">' +
               '<span class="quick-task-project-option-dot"></span>' +
               '<span class="quick-task-option-copy">' +
                 '<span class="quick-task-option-title">' + quickTaskEscape(project.display_name || project.name || "Team") + '</span>' +
@@ -16337,9 +16339,9 @@
       var myEmailKey = currentUserEmail ? "email:" + String(currentUserEmail || "").trim().toLowerCase() : "";
       function dashboardAccentColorForProject(project) {
         if (project) {
+          if (project.is_direct || project.is_team) return "#9aa6b2";
           var directColor = String(project.division_color || project.color || "").trim();
           if (directColor) return directColor;
-          if (project.is_direct) return "#9aa6b2";
           if (project.division_id !== null && project.division_id !== undefined && project.division_id !== "") {
             var divisionId = String(project.division_id);
             var divisionMap = dashboardEntityMap("divisions");
@@ -22565,7 +22567,8 @@
         if (!isoValue) return "";
         var parsed = new Date(String(isoValue).slice(0, 10) + "T00:00:00");
         if (Number.isNaN(parsed.getTime())) return String(isoValue);
-        return parsed.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+        return parsed.toLocaleDateString([], { weekday: "short" }) + " " +
+          parsed.toLocaleDateString([], { month: "short", day: "numeric" });
       }
 
       function ensureGanttTooltip() {
@@ -22972,7 +22975,7 @@
 	        var parsedDate = isoValue ? new Date(String(isoValue).slice(0, 10) + "T00:00:00") : null;
 	        if (hoverDate) {
 	          hoverDate.textContent = parsedDate && !Number.isNaN(parsedDate.getTime())
-	            ? parsedDate.toLocaleDateString([], { month: "short", day: "2-digit" })
+	            ? formatGanttDragLabel(isoValue)
 	            : "";
 	        }
 	        shell.setAttribute("data-gantt-hover-iso", String(isoValue || "").slice(0, 10));
@@ -23929,6 +23932,10 @@
         : (projectLabel ? projectLabel.textContent.trim() : "Project");
       var divisionId = projectNode ? projectNode.getAttribute("data-division-id") : "none";
       var divisionColor = projectData ? String(projectData.division_color || projectData.color || "").trim() : "";
+      if (projectData && (projectData.is_direct || projectData.is_team)) {
+        divisionId = projectData.is_team ? "team" : "direct";
+        divisionColor = "#9aa6b2";
+      }
       if (!divisionColor) {
         divisionColor = projectNode ? projectNode.style.getPropertyValue("--division-color") : "";
       }
@@ -24062,7 +24069,11 @@
           title: String(task.title || "Task"),
           projectName: String(project.display_name || project.name || meta.projectName || "Project"),
           groupName: String(meta.groupName || ""),
-          divisionColor: String(project.division_color || project.color || meta.divisionColor || "").trim() || "var(--accent)",
+          divisionColor: String(
+            project.is_direct || project.is_team
+              ? "#9aa6b2"
+              : (project.division_color || project.color || meta.divisionColor || "")
+          ).trim() || "var(--accent)",
           divisionId: String(meta.divisionId || "none"),
           dueDate: dueDate,
           dueMode: dueMode,
@@ -30664,8 +30675,7 @@
           dayMask("major", settings.majorDays, settings.major === "day") +
           '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + ganttId + '">' + markOptions(settings.minor, true) + '</select></label>' +
           dayMask("minor", settings.minorDays, settings.minor === "day") +
-          '<label class="project-gantt-filter-control" aria-label="Filter Todo Gantt tasks"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" data-project-gantt-filter="' + ganttId + '" placeholder="Filter tasks" autocomplete="off" /></label>' +
-          '<button class="project-gantt-export-btn" type="button" data-project-gantt-export="' + ganttId + '">Copy Latex</button>';
+          '<label class="project-gantt-filter-control" aria-label="Filter Todo Gantt tasks"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" data-project-gantt-filter="' + ganttId + '" placeholder="Filter tasks" autocomplete="off" /></label>';
         var horizon = toolbar.querySelector("[data-todo-gantt-horizon]");
         var filter = toolbar.querySelector("[data-project-gantt-filter]");
         if (horizon) horizon.value = settings.horizon;
