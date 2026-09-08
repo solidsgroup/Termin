@@ -40,7 +40,7 @@ from app.canvas_sync import CanvasAssignment, CanvasCourse, CanvasSyncError, app
 from app.google_drive_sync import GoogleDriveComment, GoogleDriveFile, apply_google_drive_file, fetch_google_drive_file
 from app.extensions import db, socketio
 from app.info_utils import load_info_payload, normalize_info_payload
-from app.models import Assignment, CalendarAccount, CanvasAssignmentLink, DevMailboxMessage, ExternalIdentity, GoogleDriveCommentLink, GoogleDriveIntegration, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskComment, TaskFollower, TaskPrerequisite, TaskUserStatus, TeamInvite, User
+from app.models import Assignment, CalendarAccount, CanvasAssignmentLink, DevMailboxMessage, ExternalIdentity, GoogleDriveCommentLink, GoogleDriveIntegration, Group, Project, ProjectMember, ProjectTeamShare, Task, TaskComment, TaskFollower, TaskPrerequisite, TaskUserStatus, TeamInvite, User, UserEmail
 from app.realtime import emit_task_updated
 from app.task_status import task_status_meta
 
@@ -600,7 +600,14 @@ class DashboardRealtimeTestCase(unittest.TestCase):
     def test_google_drive_comments_sync_assignments_resolution_and_deletion(self):
         with self.app.app_context():
             owner = self.create_user("drive-owner@example.com", "Drive Owner")
-            assignee = self.create_user("drive-assignee@example.com", "Drive Assignee")
+            assignee = self.create_user("drive-assignee-primary@example.com", "Drive Assignee")
+            alternate_assignee_email = "drive-assignee@alternate.example.com"
+            db.session.add(ExternalIdentity(
+                user_id=assignee.id,
+                provider="google",
+                provider_user_id="alternate-google-account",
+                email=alternate_assignee_email,
+            ))
             project = self.create_project(owner, "Drive Project")
             group = Group(project_id=project.id, name="Draft", specialty_type="google_drive")
             db.session.add(group)
@@ -621,12 +628,12 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                 comments=(
                     GoogleDriveComment(
                         comment_id="comment-1",
-                        content="@drive-assignee@example.com Revise the abstract\nwith the new result.",
+                        content=f"@{alternate_assignee_email} Revise the abstract\nwith the new result.",
                         created_at=datetime(2026, 9, 1, 12, 0),
                         modified_at=datetime(2026, 9, 1, 12, 30),
                         resolved=False,
                         deleted=False,
-                        assignee_email=assignee.email,
+                        assignee_email=alternate_assignee_email,
                         author_name="Reviewer",
                         author_avatar_url="https://example.com/reviewer.png",
                         quoted_content="Old abstract",
@@ -673,7 +680,7 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             self.assertTrue(all(task.locked for task in tasks))
             first_info = load_info_payload(tasks[0].info)
             self.assertEqual(first_info["meta"]["google_drive"]["comment_id"], "comment-1")
-            self.assertEqual(first_info["meta"]["google_drive"]["assignee_email"], assignee.email)
+            self.assertEqual(first_info["meta"]["google_drive"]["assignee_email"], alternate_assignee_email)
             first_assignment = Assignment.query.filter_by(task_id=first_task_id).one()
             self.assertEqual(first_assignment.user_id, assignee.id)
             self.assertIsNone(first_assignment.email)
@@ -740,6 +747,47 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             self.assertEqual({task.id for task in removed_result.deleted_tasks}, {first_task_id, second_task_id})
             self.assertEqual(Task.query.filter_by(group_id=group.id).count(), 0)
             self.assertEqual(GoogleDriveCommentLink.query.filter_by(group_id=group.id).count(), 0)
+
+    def test_google_drive_connection_records_secondary_google_identity(self):
+        with self.app.app_context():
+            user = self.create_user("primary@example.com", "Primary User")
+            user_id = user.id
+
+        self.login(self.client, user_id)
+        with self.client.session_transaction() as session:
+            session["google_drive_connect_user_id"] = user_id
+            session["google_drive_connect_popup"] = True
+
+        userinfo_response = types.SimpleNamespace(json=lambda: {
+            "sub": "secondary-google-account",
+            "email": "Secondary.Google@example.com",
+            "name": "Secondary Google",
+            "picture": "https://example.com/secondary.png",
+        })
+        with (
+            patch("app.auth.oauth.google.authorize_access_token", return_value={
+                "access_token": "drive-access-token",
+                "refresh_token": "drive-refresh-token",
+                "expires_in": 3600,
+                "scope": "openid email profile https://www.googleapis.com/auth/drive.readonly",
+            }),
+            patch("app.auth.oauth.google.get", return_value=userinfo_response),
+        ):
+            response = self.client.get("/auth/google/callback")
+
+        self.assertEqual(response.status_code, 200)
+        with self.app.app_context():
+            identity = ExternalIdentity.query.filter_by(
+                provider="google",
+                provider_user_id="secondary-google-account",
+            ).one()
+            self.assertEqual(identity.user_id, user_id)
+            self.assertEqual(identity.email, "secondary.google@example.com")
+            alias = UserEmail.query.filter_by(email="secondary.google@example.com").one()
+            self.assertEqual(alias.user_id, user_id)
+            self.assertFalse(alias.is_primary)
+            account = CalendarAccount.query.filter_by(user_id=user_id, provider="google").one()
+            self.assertEqual(account.provider_user_id, "secondary-google-account")
 
     def test_google_drive_group_route_requires_scope_and_creates_locked_tasks(self):
         file_url = "https://docs.google.com/document/d/drive-file-98765/edit"

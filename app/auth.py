@@ -149,6 +149,50 @@ def _store_external_identity(
             db.session.flush()
 
 
+def _attach_provider_identity(
+    *,
+    user: User,
+    provider: str,
+    provider_user_id: str | None,
+    email: str | None,
+    display_name: str | None,
+    avatar_url: str | None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    expires_in: int | None = None,
+) -> None:
+    normalized_email = normalize_email(email)
+    identity_user = find_user_by_external_identity(provider, provider_user_id)
+    if identity_user and identity_user.id != user.id:
+        raise ValueError(f"That {provider.title()} account is already linked to another user.")
+
+    email_user = find_user_by_email(normalized_email) if normalized_email else None
+    if email_user and email_user.id != user.id:
+        raise ValueError("That email is already attached to another account.")
+
+    if normalized_email:
+        ensure_primary_user_email(user)
+        if normalized_email != normalize_email(user.email):
+            add_user_email(user, normalized_email)
+
+    _store_external_identity(
+        user=user,
+        provider=provider,
+        provider_user_id=provider_user_id,
+        email=normalized_email,
+        display_name=display_name,
+        avatar_url=avatar_url,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+    )
+
+    login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first() if normalized_email else None
+    if avatar_url and login_alias and login_alias.user_id == user.id:
+        login_alias.avatar_url = avatar_url
+    sync_user_avatar_from_primary_email(user)
+
+
 def _link_provider_account(
     *,
     provider: str,
@@ -168,32 +212,17 @@ def _link_provider_account(
     if not user:
         raise ValueError("Signed-in account not found.")
 
-    normalized_email = normalize_email(email)
-    existing_user = find_user_by_email(normalized_email) if normalized_email else None
-    if existing_user and existing_user.id != user.id:
-        raise ValueError("That email is already attached to another account.")
-
-    if normalized_email:
-        ensure_primary_user_email(user)
-        if normalized_email != user.email:
-            add_user_email(user, normalized_email)
-
-    _store_external_identity(
+    _attach_provider_identity(
         user=user,
         provider=provider,
         provider_user_id=provider_user_id,
-        email=normalized_email,
+        email=email,
         display_name=display_name,
         avatar_url=avatar_url,
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=expires_in,
     )
-
-    login_alias = UserEmail.query.filter(UserEmail.email.ilike(normalized_email)).first() if normalized_email else None
-    if avatar_url and login_alias and login_alias.user_id == user.id:
-        login_alias.avatar_url = avatar_url
-    sync_user_avatar_from_primary_email(user)
     db.session.commit()
     _establish_session(user.id)
     _accept_pending_team_invite_if_available(user)
@@ -444,6 +473,14 @@ def google_callback():
             user = User.query.get(int(drive_connect_user_id))
             if not user:
                 return "Termin account not found", 404
+            _attach_provider_identity(
+                user=user,
+                provider="google",
+                provider_user_id=userinfo.get("sub"),
+                email=email,
+                display_name=userinfo.get("name"),
+                avatar_url=userinfo.get("picture"),
+            )
             account = _upsert_calendar_account(
                 user_id=user.id,
                 provider="google",

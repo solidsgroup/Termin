@@ -20,7 +20,21 @@ def find_user_by_email(email: str | None) -> User | None:
     alias = UserEmail.query.filter(UserEmail.email.ilike(normalized)).first()
     if alias:
         return User.query.get(alias.user_id)
-    return User.query.filter(User.email.ilike(normalized)).first()
+    user = User.query.filter(User.email.ilike(normalized)).first()
+    if user:
+        return user
+
+    identity_user_ids = [
+        row.user_id
+        for row in ExternalIdentity.query.with_entities(ExternalIdentity.user_id)
+        .filter(ExternalIdentity.email.ilike(normalized))
+        .distinct()
+        .limit(2)
+        .all()
+    ]
+    if len(identity_user_ids) != 1:
+        return None
+    return User.query.get(identity_user_ids[0])
 
 
 def find_user_by_external_identity(provider: str, provider_user_id: str | None) -> User | None:
