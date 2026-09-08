@@ -150,6 +150,22 @@ def _google_timestamp(value: datetime) -> str:
     return value.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _comment_assignee_email(payload: dict) -> str:
+    explicit = normalize_email(payload.get("assigneeEmailAddress"))
+    if explicit:
+        return explicit
+
+    mentioned = payload.get("mentionedEmailAddresses")
+    if not isinstance(mentioned, list):
+        return ""
+    candidates = {
+        normalized
+        for value in mentioned
+        if (normalized := normalize_email(value))
+    }
+    return next(iter(candidates)) if len(candidates) == 1 else ""
+
+
 def _drive_get(account: CalendarAccount, path: str, *, params: dict | None = None) -> dict:
     try:
         token = ensure_google_access_token(account, required_scope=GOOGLE_DRIVE_SCOPE)
@@ -218,6 +234,7 @@ def fetch_google_drive_file(
             "fields": (
                 "nextPageToken,comments(id,content,createdTime,modifiedTime,resolved,deleted,"
                 "quotedFileContent(value,mimeType),author(displayName,photoLink,me),assigneeEmailAddress,"
+                "mentionedEmailAddresses,"
                 "replies(id,content,createdTime,modifiedTime,deleted,author(displayName,photoLink,me)))"
             ),
         }
@@ -245,7 +262,7 @@ def fetch_google_drive_file(
                     modified_at=_parse_google_datetime(row.get("modifiedTime")),
                     resolved=bool(row.get("resolved")),
                     deleted=bool(row.get("deleted")),
-                    assignee_email=normalize_email(row.get("assigneeEmailAddress")),
+                    assignee_email=_comment_assignee_email(row),
                     author_name=str(author.get("displayName") or "").strip(),
                     author_avatar_url=str(author.get("photoLink") or "").strip(),
                     quoted_content=str(quoted_content.get("value") or "").strip(),

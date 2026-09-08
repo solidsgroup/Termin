@@ -912,18 +912,35 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                     "webViewLink": "https://docs.google.com/document/d/drive-file-24680/edit",
                 }),
                 FakeResponse({
-                    "comments": [{
-                        "id": "comment-24680",
-                        "content": "Update this section",
-                        "createdTime": "2026-09-05T15:00:00Z",
-                        "modifiedTime": "2026-09-05T15:05:00Z",
-                        "resolved": False,
-                        "deleted": False,
-                        "assigneeEmailAddress": "ASSIGNEE@example.com",
-                        "author": {"displayName": "Reviewer", "photoLink": "https://example.com/avatar.png"},
-                        "quotedFileContent": {"value": "Original section"},
-                        "replies": [{"content": "I will revise it", "author": {"displayName": "Author"}}],
-                    }],
+                    "comments": [
+                        {
+                            "id": "comment-24680",
+                            "content": "@ASSIGNEE@example.com Update this section",
+                            "createdTime": "2026-09-05T15:00:00Z",
+                            "modifiedTime": "2026-09-05T15:05:00Z",
+                            "resolved": False,
+                            "deleted": False,
+                            "mentionedEmailAddresses": ["ASSIGNEE@example.com"],
+                            "author": {"displayName": "Reviewer", "photoLink": "https://example.com/avatar.png"},
+                            "quotedFileContent": {"value": "Original section"},
+                            "replies": [{"content": "I will revise it", "author": {"displayName": "Author"}}],
+                        },
+                        {
+                            "id": "comment-explicit",
+                            "content": "Assign this directly",
+                            "createdTime": "2026-09-05T15:01:00Z",
+                            "modifiedTime": "2026-09-05T15:06:00Z",
+                            "assigneeEmailAddress": "EXPLICIT@example.com",
+                            "mentionedEmailAddresses": ["mentioned@example.com"],
+                        },
+                        {
+                            "id": "comment-multiple-mentions",
+                            "content": "Ask two people",
+                            "createdTime": "2026-09-05T15:02:00Z",
+                            "modifiedTime": "2026-09-05T15:07:00Z",
+                            "mentionedEmailAddresses": ["first@example.com", "second@example.com"],
+                        },
+                    ],
                 }),
             ]
             with patch("app.google_drive_sync.requests.get", side_effect=responses) as drive_get:
@@ -934,12 +951,16 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                 )
 
         self.assertEqual(drive_file.name, "Design Notes")
-        self.assertEqual(drive_file.comments[0].assignee_email, "assignee@example.com")
+        self.assertEqual(
+            [comment.assignee_email for comment in drive_file.comments],
+            ["assignee@example.com", "explicit@example.com", ""],
+        )
         self.assertEqual(drive_file.comments[0].modified_at, datetime(2026, 9, 5, 15, 5))
         comment_params = drive_get.call_args_list[1].kwargs["params"]
         self.assertEqual(comment_params["includeDeleted"], "true")
         self.assertEqual(comment_params["startModifiedTime"], "2026-09-05T14:58:00Z")
         self.assertIn("assigneeEmailAddress", comment_params["fields"])
+        self.assertIn("mentionedEmailAddresses", comment_params["fields"])
         self.assertIn("resolved", comment_params["fields"])
         self.assertIn("replies", comment_params["fields"])
 
