@@ -4191,6 +4191,64 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Verify the sidebar trigger becomes visible and opens the mobile sidebar drawer.', page);
   });
 
+  test('desktop sidebar collapse control works in todo and tree and persists', async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    await page.goto('/todo');
+
+    const layout = page.locator('[data-layout]');
+    const sidebar = page.locator('[data-dashboard-sidebar]');
+    const handle = sidebar.locator('[data-sidebar-toggle]');
+    const todoPane = sidebar.locator('[data-dashboard-sidebar-pane="todo"]');
+    await expect(todoPane).toBeVisible();
+    await expect(handle).toBeVisible();
+    const expandedBounds = await sidebar.evaluate((node) => {
+      const sidebarRect = node.getBoundingClientRect();
+      const handleRect = node.querySelector('[data-sidebar-toggle]').getBoundingClientRect();
+      return {
+        sidebarWidth: sidebarRect.width,
+        containedLeft: handleRect.left >= sidebarRect.left,
+        containedRight: handleRect.right <= sidebarRect.right + 1,
+      };
+    });
+    expect(expandedBounds.sidebarWidth).toBeGreaterThan(200);
+    expect(expandedBounds.containedLeft).toBeTruthy();
+    expect(expandedBounds.containedRight).toBeTruthy();
+
+    await handle.click();
+    await expect(layout).toHaveClass(/sidebar-collapsed/);
+    await expect(sidebar).toHaveClass(/is-collapsed/);
+    await expect(handle).toHaveAttribute('aria-expanded', 'false');
+    await expect(handle).toHaveAttribute('aria-label', 'Expand sidebar');
+    await expect(todoPane).toBeHidden();
+    await expect.poll(() => sidebar.evaluate((node) => Math.round(node.getBoundingClientRect().width))).toBe(38);
+    const collapsedContained = await sidebar.evaluate((node) => {
+      const sidebarRect = node.getBoundingClientRect();
+      const handleRect = node.querySelector('[data-sidebar-toggle]').getBoundingClientRect();
+      return handleRect.left >= sidebarRect.left && handleRect.right <= sidebarRect.right + 1;
+    });
+    expect(collapsedContained).toBeTruthy();
+
+    await handle.click();
+    await expect(layout).not.toHaveClass(/sidebar-collapsed/);
+    await expect(todoPane).toBeVisible();
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    const treePane = sidebar.locator('[data-dashboard-sidebar-pane="tree"]');
+    await expect(treePane).toBeVisible();
+    await handle.click();
+    await expect(layout).toHaveClass(/sidebar-collapsed/);
+    await expect(treePane).toBeHidden();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('termin:dashboard-sidebar:collapsed'))).toBe('true');
+
+    await page.reload();
+    await waitForTreeProjectReady(page, state.project.id, state.task.id);
+    await expect(layout).toHaveClass(/sidebar-collapsed/);
+    await expect(handle).toHaveAttribute('aria-expanded', 'false');
+    await handle.click();
+    await expect(treePane).toBeVisible();
+  });
+
   test('todo compact mode uses dense rows and persists after refresh', async ({ page, request }) => {
     const state = await fetchSeedState(request);
     await login(page, state.owner.email, state.owner.password);
@@ -4546,9 +4604,25 @@ test.describe('dashboard and realtime flows', () => {
 
     const major = page.locator(`[data-project-gantt-major="todo-${state.owner.id}"]`);
     const minor = page.locator(`[data-project-gantt-minor="todo-${state.owner.id}"]`);
-    await major.selectOption('month');
-    await minor.selectOption('day');
-    await page.locator('[data-project-gantt-day-mask="minor"][value="0"]').locator('..').click();
+    const majorTrigger = page.locator('[data-todo-gantt-unit-trigger="major"]');
+    const minorTrigger = page.locator('[data-todo-gantt-unit-trigger="minor"]');
+    const majorMenu = page.locator('[data-todo-gantt-unit-menu="major"]');
+    const minorMenu = page.locator('[data-todo-gantt-unit-menu="minor"]');
+    const minorDayPanel = minorMenu.locator('[data-project-gantt-day-mask-panel="minor"]');
+    await expect(majorMenu).toBeHidden();
+    await expect(minorMenu).toBeHidden();
+    await expect(minorDayPanel).toBeHidden();
+    await majorTrigger.click();
+    await expect(majorMenu).toBeVisible();
+    await majorMenu.locator('[data-todo-gantt-unit-option="major"][data-todo-gantt-unit-value="month"]').click();
+    await expect(majorTrigger).toContainText('Month');
+    await expect(majorMenu).toBeHidden();
+    await minorTrigger.click();
+    await expect(minorMenu).toBeVisible();
+    await expect(minorDayPanel).toBeVisible();
+    await minorDayPanel.locator('.project-gantt-day-chip[title="Sunday"]').click();
+    await page.keyboard.press('Escape');
+    await expect(minorMenu).toBeHidden();
     await page.locator('[data-todo-gantt-horizon]').selectOption('2m');
     const ganttFilter = page.locator(`[data-project-gantt-filter="todo-${state.owner.id}"]`);
     await ganttFilter.click();
@@ -4577,7 +4651,13 @@ test.describe('dashboard and realtime flows', () => {
     await expect(page.locator('[data-todo-gantt-horizon]')).toHaveValue('2m');
     await expect(major).toHaveValue('month');
     await expect(minor).toHaveValue('day');
+    await expect(majorTrigger).toContainText('Month');
+    await expect(minorTrigger).toContainText('Day');
     await expect(page.locator('[data-project-gantt-day-mask="minor"][value="0"]')).not.toBeChecked();
+    await expect(minorDayPanel).toBeHidden();
+    await minorTrigger.click();
+    await expect(minorDayPanel).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(ganttFilter).toHaveValue('Realtime');
     await expect(taskRow).toBeVisible();
     await ganttFilter.click();

@@ -471,8 +471,10 @@
 {% set is_github_project = selected_project and github_project_id and selected_project.id == github_project_id %}
 <div class="layout dashboard-layout{% if current_view in ['dashboard', 'inbox', 'problems'] %} no-sidebar{% endif %}"{% if github_auto_sync_needed %} data-github-auto-sync="1"{% endif %}{% if canvas_auto_sync_needed %} data-canvas-auto-sync="1"{% endif %} data-layout data-dashboard-current-view="{{ current_view }}">
   <aside class="sidebar todo-tree dashboard-sidebar" data-dashboard-sidebar data-todo-tree data-tree-sidebar>
+    <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar">
+      <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+    </button>
     <div class="dashboard-sidebar-pane{% if current_view == 'todo' %} is-active{% endif %}" data-dashboard-sidebar-pane="todo">
-      <button class="sidebar-collapse-handle" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse filters"></button>
       <div class="sidebar-heading-row todo-sidebar-subhead is-top">
         <h3 style="margin: 0;">Structure</h3>
         <button class="todo-tree-only-btn todo-tree-heading-action" type="button" data-todo-only-all="structure" aria-label="Show all structure items">All</button>
@@ -29794,7 +29796,9 @@
       var todoTree = document.querySelector("[data-todo-tree]");
       if (!todoTree) return;
       var storageKey = "termin:todo-tree:v1";
-      var filterKey = "termin:todo-sidebar:collapsed";
+      var sidebarCollapseStorageKey = "termin:dashboard-sidebar:collapsed";
+      var legacySidebarCollapseStorageKey = "termin:todo-sidebar:collapsed";
+      var sidebarCollapsedPreference = false;
       var todoInitialShowCompleted = {{ 'true' if show_completed else 'false' }};
       var sidebarToggle = document.querySelector("[data-sidebar-toggle]");
       var layout = document.querySelector("[data-layout]");
@@ -29836,7 +29840,8 @@
         }
         if (sidebarToggle) {
           sidebarToggle.setAttribute("aria-expanded", nextCollapsed ? "false" : "true");
-          sidebarToggle.setAttribute("aria-label", nextCollapsed ? "Expand filters" : "Collapse filters");
+          sidebarToggle.setAttribute("aria-label", nextCollapsed ? "Expand sidebar" : "Collapse sidebar");
+          sidebarToggle.setAttribute("title", nextCollapsed ? "Expand sidebar" : "Collapse sidebar");
         }
       }
 
@@ -30203,9 +30208,10 @@
         var sidebarBtn = event.target.closest("[data-sidebar-toggle]");
         if (sidebarBtn) {
           var nextCollapsed = !todoTree.classList.contains("is-collapsed");
+          sidebarCollapsedPreference = nextCollapsed;
           applySidebarCollapse(nextCollapsed);
           try {
-            localStorage.setItem(filterKey, JSON.stringify(nextCollapsed));
+            localStorage.setItem(sidebarCollapseStorageKey, JSON.stringify(nextCollapsed));
           } catch (err) {}
           return;
         }
@@ -30373,17 +30379,18 @@
       window.__saveTodoTreeState = saveState;
       window.addEventListener("beforeunload", saveState);
       try {
-        var storedCollapsed = JSON.parse(localStorage.getItem(filterKey) || "false");
-        applySidebarCollapse(!!storedCollapsed);
+        var storedCollapsed = localStorage.getItem(sidebarCollapseStorageKey);
+        if (storedCollapsed === null) storedCollapsed = localStorage.getItem(legacySidebarCollapseStorageKey);
+        sidebarCollapsedPreference = !!JSON.parse(storedCollapsed || "false");
+        applySidebarCollapse(sidebarCollapsedPreference);
       } catch (err) {
+        sidebarCollapsedPreference = false;
         applySidebarCollapse(false);
       }
       if (window.matchMedia) {
         var sidebarCollapseMql = window.matchMedia("(max-width: 900px)");
         var syncSidebarCollapseForViewport = function () {
-          if (sidebarCollapseMql.matches) {
-            applySidebarCollapse(false);
-          }
+          applySidebarCollapse(sidebarCollapsedPreference);
         };
         if (sidebarCollapseMql.addEventListener) {
           sidebarCollapseMql.addEventListener("change", syncSidebarCollapseForViewport);
@@ -30636,9 +30643,9 @@
         } catch (err) {}
       }
 
-      function markOptions(selected, includeNone) {
+      function markChoices(includeNone) {
         var options = includeNone ? [{ value: "none", label: "None" }] : [];
-        options = options.concat([
+        return options.concat([
           { value: "day", label: "Day" },
           { value: "week", label: "Week" },
           { value: "month", label: "Month" },
@@ -30649,21 +30656,90 @@
           { value: "project_quarter", label: "Timeline Quarter" },
           { value: "project_year", label: "Timeline Year" },
         ]);
-        return options.map(function (option) {
+      }
+
+      function markOptions(selected, includeNone) {
+        return markChoices(includeNone).map(function (option) {
           return '<option value="' + option.value + '"' + (option.value === selected ? " selected" : "") + '>' + option.label + '</option>';
         }).join("");
       }
 
+      function markLabel(value, includeNone) {
+        var match = markChoices(includeNone).find(function (option) {
+          return option.value === value;
+        });
+        return match ? match.label : "Week";
+      }
+
       function dayMask(kind, selectedDays, visible) {
         var labels = ["S", "M", "T", "W", "R", "F", "S"];
-        return '<span class="project-gantt-day-mask" data-project-gantt-day-mask-panel="' + kind + '" aria-label="' + kind + ' day line filter"' + (visible ? "" : " hidden") + '>' +
-          labels.map(function (label, day) {
-            return '<label class="project-gantt-day-chip" title="' + label + '">' +
-              '<input type="checkbox" data-project-gantt-day-mask="' + kind + '" data-project-id="' + ganttId + '" value="' + day + '"' + (selectedDays.indexOf(day) !== -1 ? " checked" : "") + ' />' +
-              '<span>' + label + '</span>' +
-            '</label>';
-          }).join("") +
-        '</span>';
+        var names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        return '<div class="project-gantt-day-mask todo-gantt-day-submenu" data-project-gantt-day-mask-panel="' + kind + '" aria-label="' + kind + ' day line filter"' + (visible ? "" : " hidden") + '>' +
+          '<span class="todo-gantt-day-submenu-label">Days shown</span>' +
+          '<span class="todo-gantt-day-submenu-options">' +
+            labels.map(function (label, day) {
+              return '<label class="project-gantt-day-chip" title="' + names[day] + '">' +
+                '<input type="checkbox" data-project-gantt-day-mask="' + kind + '" data-project-id="' + ganttId + '" value="' + day + '"' + (selectedDays.indexOf(day) !== -1 ? " checked" : "") + ' />' +
+                '<span>' + label + '</span>' +
+              '</label>';
+            }).join("") +
+          '</span>' +
+        '</div>';
+      }
+
+      function unitMenu(kind, label, selected, selectedDays, includeNone) {
+        var optionRows = markChoices(includeNone).map(function (option) {
+          var selectedOption = option.value === selected;
+          return '<div class="todo-gantt-unit-option-shell' + (option.value === "day" ? ' has-day-submenu' : '') + '">' +
+            '<button class="todo-gantt-unit-option' + (selectedOption ? ' is-selected' : '') + '" type="button" role="menuitemradio" aria-checked="' + (selectedOption ? 'true' : 'false') + '" data-todo-gantt-unit-option="' + kind + '" data-todo-gantt-unit-value="' + option.value + '">' +
+              '<span>' + option.label + '</span>' +
+              '<i class="fa-solid fa-check" aria-hidden="true"></i>' +
+            '</button>' +
+            (option.value === "day" ? dayMask(kind, selectedDays, selectedOption) : '') +
+          '</div>';
+        }).join("");
+        return '<div class="project-gantt-mark-control todo-gantt-unit-control" data-todo-gantt-unit-control="' + kind + '">' +
+          '<span class="project-gantt-mark-label">' + label + '</span>' +
+          '<select data-project-gantt-' + kind + '="' + ganttId + '" hidden tabindex="-1" aria-hidden="true">' + markOptions(selected, includeNone) + '</select>' +
+          '<button class="todo-gantt-unit-trigger" type="button" data-todo-gantt-unit-trigger="' + kind + '" aria-haspopup="menu" aria-expanded="false">' +
+            '<span data-todo-gantt-unit-label="' + kind + '">' + markLabel(selected, includeNone) + '</span>' +
+            '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>' +
+          '</button>' +
+          '<div class="todo-gantt-unit-menu" data-todo-gantt-unit-menu="' + kind + '" role="menu" hidden>' + optionRows + '</div>' +
+        '</div>';
+      }
+
+      function setUnitMenuOpen(control, open) {
+        if (!control) return;
+        var trigger = control.querySelector("[data-todo-gantt-unit-trigger]");
+        var menu = control.querySelector("[data-todo-gantt-unit-menu]");
+        if (!trigger || !menu) return;
+        trigger.setAttribute("aria-expanded", open ? "true" : "false");
+        menu.hidden = !open;
+        control.classList.toggle("is-open", open);
+      }
+
+      function closeUnitMenus(exceptControl) {
+        toolbar.querySelectorAll("[data-todo-gantt-unit-control]").forEach(function (control) {
+          if (control !== exceptControl) setUnitMenuOpen(control, false);
+        });
+      }
+
+      function syncUnitMenus() {
+        toolbar.querySelectorAll("[data-todo-gantt-unit-control]").forEach(function (control) {
+          var kind = control.getAttribute("data-todo-gantt-unit-control");
+          var select = control.querySelector('[data-project-gantt-' + kind + ']');
+          var currentValue = String(select && select.value || "");
+          var labelNode = control.querySelector('[data-todo-gantt-unit-label="' + kind + '"]');
+          if (labelNode) labelNode.textContent = markLabel(currentValue, kind === "minor");
+          control.querySelectorAll('[data-todo-gantt-unit-option="' + kind + '"]').forEach(function (option) {
+            var selectedOption = option.getAttribute("data-todo-gantt-unit-value") === currentValue;
+            option.classList.toggle("is-selected", selectedOption);
+            option.setAttribute("aria-checked", selectedOption ? "true" : "false");
+          });
+          var dayPanel = control.querySelector('[data-project-gantt-day-mask-panel="' + kind + '"]');
+          if (dayPanel) dayPanel.hidden = currentValue !== "day";
+        });
       }
 
       function buildToolbar() {
@@ -30671,15 +30747,14 @@
           '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Range</span><select data-todo-gantt-horizon>' +
             '<option value="1w">One week</option><option value="2w">Two weeks</option><option value="1m">One month</option><option value="2m">Two months</option><option value="3m">Three months</option><option value="6m">Six months</option><option value="1y">One year</option>' +
           '</select></label>' +
-          '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Major</span><select data-project-gantt-major="' + ganttId + '">' + markOptions(settings.major, false) + '</select></label>' +
-          dayMask("major", settings.majorDays, settings.major === "day") +
-          '<label class="project-gantt-mark-control"><span class="project-gantt-mark-label">Minor</span><select data-project-gantt-minor="' + ganttId + '">' + markOptions(settings.minor, true) + '</select></label>' +
-          dayMask("minor", settings.minorDays, settings.minor === "day") +
+          unitMenu("major", "Major", settings.major, settings.majorDays, false) +
+          unitMenu("minor", "Minor", settings.minor, settings.minorDays, true) +
           '<label class="project-gantt-filter-control" aria-label="Filter Todo Gantt tasks"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" data-project-gantt-filter="' + ganttId + '" placeholder="Filter tasks" autocomplete="off" /></label>';
         var horizon = toolbar.querySelector("[data-todo-gantt-horizon]");
         var filter = toolbar.querySelector("[data-project-gantt-filter]");
         if (horizon) horizon.value = settings.horizon;
         if (filter) filter.value = settings.filter;
+        syncUnitMenus();
       }
 
       function checkedDays(kind) {
@@ -30818,7 +30893,33 @@
         return JSON.parse(JSON.stringify(settings));
       };
 
+      toolbar.addEventListener("click", function (event) {
+        var trigger = event.target.closest("[data-todo-gantt-unit-trigger]");
+        if (trigger) {
+          event.preventDefault();
+          event.stopPropagation();
+          var control = trigger.closest("[data-todo-gantt-unit-control]");
+          var open = trigger.getAttribute("aria-expanded") !== "true";
+          closeUnitMenus(control);
+          setUnitMenuOpen(control, open);
+          return;
+        }
+        var option = event.target.closest("[data-todo-gantt-unit-option]");
+        if (!option) return;
+        event.preventDefault();
+        event.stopPropagation();
+        var optionControl = option.closest("[data-todo-gantt-unit-control]");
+        var kind = option.getAttribute("data-todo-gantt-unit-option");
+        var value = option.getAttribute("data-todo-gantt-unit-value");
+        var select = optionControl ? optionControl.querySelector('[data-project-gantt-' + kind + ']') : null;
+        if (!select || !value) return;
+        select.value = value;
+        syncUnitMenus();
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        if (value !== "day") setUnitMenuOpen(optionControl, false);
+      });
       toolbar.addEventListener("change", function () {
+        syncUnitMenus();
         syncSettingsFromToolbar();
         scheduleRender();
       });
@@ -30826,6 +30927,18 @@
         if (!event.target.matches("[data-project-gantt-filter]")) return;
         settings.filter = String(event.target.value || "");
         saveSettings();
+      });
+      document.addEventListener("click", function (event) {
+        if (event.target.closest("[data-todo-gantt-unit-control]")) return;
+        closeUnitMenus(null);
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        var openControl = toolbar.querySelector("[data-todo-gantt-unit-control].is-open");
+        if (!openControl) return;
+        var openTrigger = openControl.querySelector("[data-todo-gantt-unit-trigger]");
+        setUnitMenuOpen(openControl, false);
+        if (openTrigger) openTrigger.focus();
       });
       document.addEventListener("termin:todo-view-mode-change", function (event) {
         if (event.detail && event.detail.mode === "gantt") scheduleRender();
