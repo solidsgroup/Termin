@@ -18747,6 +18747,8 @@
     function renderTodoChecklistControl(task) {
       if (!task || !task.id) return "";
       var meta = taskStatusMeta(task);
+      var hasPrerequisites = Math.max(0, Number(meta.prereq_total_count || 0)) > 0
+        || (Array.isArray(task.prerequisites) && task.prerequisites.length > 0);
       if (meta.mode === "poll") {
         var isResponded = taskMyStatusState(task) === "complete";
         var title = isResponded ? "Update poll response" : "Respond to poll";
@@ -18757,6 +18759,7 @@
             ' data-task-id="' + escapeHtml(task.id) + '"' +
             ' aria-pressed="' + (isResponded ? "true" : "false") + '"' +
             ' title="' + escapeHtml(title) + '"' +
+            (hasPrerequisites ? ' data-todo-prereq-trigger="1"' : '') +
             (!!meta.prereq_blocked ? ' disabled' : '') +
           '>' +
             '<span class="todo-check-toggle-icon">' + renderPollGlyphHtml() + '</span>' +
@@ -18767,23 +18770,31 @@
       var isComplete = state === "complete";
       var isPercent = meta.mode === "percent";
       var isPrereqBlocked = !!meta.prereq_blocked;
+      var hasCompletedPrerequisites = hasPrerequisites && !isPrereqBlocked && !isComplete;
       var title = isPercent
         ? "Adjust percent complete"
-        : (isPrereqBlocked ? "Prerequisites incomplete" : (isComplete ? "Mark incomplete" : "Mark complete"));
+        : (isPrereqBlocked
+          ? "Prerequisites incomplete"
+          : (isComplete
+            ? "Mark incomplete"
+            : (hasCompletedPrerequisites ? "Prerequisites complete; mark task complete" : "Mark complete")));
       var iconHtml = isPrereqBlocked
         ? renderStatusGlyphHtml("prereq")
+        : (hasCompletedPrerequisites
+          ? '<i class="fa-regular fa-circle-check" aria-hidden="true"></i>'
         : (isPercent
           ? '<i class="fa-solid fa-percent" aria-hidden="true"></i>'
           : (isComplete
             ? '<i class="fa-solid fa-check" aria-hidden="true"></i>'
-            : '<span aria-hidden="true"></span>'));
+            : '<span aria-hidden="true"></span>')));
       return '' +
-        '<button class="todo-check-toggle' + (isComplete ? ' is-complete' : '') + (isPercent ? ' is-percent' : '') + (isPrereqBlocked ? ' is-prereq-blocked' : '') + '"' +
+        '<button class="todo-check-toggle' + (isComplete ? ' is-complete' : '') + (isPercent ? ' is-percent' : '') + (isPrereqBlocked ? ' is-prereq-blocked' : '') + (hasCompletedPrerequisites ? ' is-prereq-complete' : '') + '"' +
           ' type="button"' +
           ' data-todo-check-toggle="' + escapeHtml(task.id) + '"' +
           ' data-task-id="' + escapeHtml(task.id) + '"' +
           ' aria-pressed="' + (isComplete ? "true" : "false") + '"' +
           ' title="' + escapeHtml(title) + '"' +
+          (hasPrerequisites ? ' data-todo-prereq-trigger="1"' : '') +
           ((task.locked || isPrereqBlocked) ? ' disabled' : '') +
         '>' +
           '<span class="todo-check-toggle-icon">' + iconHtml + '</span>' +
@@ -21121,10 +21132,10 @@
 
     function prereqHoverTargetForNode(node) {
       if (!node || !node.closest) return null;
-      var target = node.closest('[data-status-cell="1"][data-status-state="prereq"]');
+      var target = node.closest('[data-todo-prereq-trigger], [data-status-cell="1"][data-status-state="prereq"]');
       if (!target) return null;
       if (target.closest("#discussion-drawer")) return null;
-      if (!target.closest(".todo-item, .task-row, .subtasks-row, .tasks-table")) return null;
+      if (!target.closest(".todo-item, .todo-gantt-row, .task-row, .subtasks-row, .tasks-table")) return null;
       return target;
     }
 
@@ -21132,11 +21143,15 @@
       if (!target) return null;
       var statusHost = target.closest("[data-task-status-host]");
       if (statusHost && statusHost._taskPayload) return statusHost._taskPayload;
-      var todoItem = target.closest(".todo-item[data-task-id]");
+      var todoItem = target.closest(".todo-item[data-task-id], .todo-gantt-row[data-todo-gantt-task]");
       if (todoItem && todoItem._taskPayload) return todoItem._taskPayload;
       var taskId = statusHost
         ? String(statusHost.getAttribute("data-task-status-host") || "").trim()
-        : "";
+        : String(
+          target.getAttribute("data-task-id")
+          || (todoItem && (todoItem.getAttribute("data-task-id") || todoItem.getAttribute("data-todo-gantt-task")))
+          || ""
+        ).trim();
       if (!taskId) return null;
       return (typeof dashboardTaskEntity === "function" ? dashboardTaskEntity(taskId) : null)
         || (typeof taskById === "function" ? taskById(taskId) : null)

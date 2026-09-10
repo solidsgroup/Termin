@@ -2764,6 +2764,10 @@ header:has(.alerts-shell.is-open) {
     0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
+.todo-check-toggle.is-prereq-blocked:disabled {
+  cursor: help;
+}
+
 .todo-check-toggle.is-complete {
   border-color: color-mix(in srgb, #15803d 84%, #0b2a18 16%);
   background: linear-gradient(180deg, color-mix(in srgb, #1f9d55 92%, #ffffff 8%), color-mix(in srgb, #166534 90%, #0b1f14 10%));
@@ -2978,6 +2982,19 @@ body[data-theme="light"] .todo-check-toggle.is-percent {
   box-shadow:
     inset 0 0 0 1px rgba(148, 163, 184, 0.14),
     0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.todo-check-toggle.is-prereq-complete,
+body[data-theme="light"] .todo-check-toggle.is-prereq-complete {
+  border-color: color-mix(in srgb, #22c55e 42%, var(--line));
+  background: color-mix(in srgb, #22c55e 9%, var(--panel));
+  color: color-mix(in srgb, #22c55e 64%, var(--muted));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #22c55e 7%, transparent);
+}
+
+.todo-check-toggle.is-prereq-complete:hover {
+  border-color: color-mix(in srgb, #22c55e 58%, var(--line));
+  box-shadow: 0 5px 12px color-mix(in srgb, #22c55e 10%, transparent);
 }
 
 .todo-check-toggle-label {
@@ -4210,7 +4227,7 @@ body[data-theme="light"] .todo-mode-menu {
   border-radius: 4px;
 }
 
-.todo-gantt-row .todo-check-toggle:not(.is-complete):not(.is-percent):not(.is-prereq-blocked) {
+.todo-gantt-row .todo-check-toggle:not(.is-complete):not(.is-percent):not(.is-prereq-blocked):not(.is-prereq-complete) {
   border-color: color-mix(in srgb, var(--ink) 52%, var(--border));
   background: color-mix(in srgb, var(--panel) 90%, var(--ink) 10%);
 }

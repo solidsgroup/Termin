@@ -1809,8 +1809,56 @@ test.describe('dashboard and realtime flows', () => {
 
     await page.goto('/todo');
     await expect(page.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
-    await expectPrereqHoverCard(page, `.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`, 'Hover Source Task');
-    await steps.step('Hover the blocked Todo status badge and verify the same prereq hover card appears there as well.', page);
+    const todoPrereqCheck = page.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-todo-check-toggle]`);
+    await expect(todoPrereqCheck).toBeDisabled();
+    await expect(todoPrereqCheck).toHaveClass(/is-prereq-blocked/);
+    await expectPrereqHoverCard(page, `.todo-item[data-task-id="${dependentTask.id}"] [data-todo-check-toggle]`, 'Hover Source Task');
+    await installTaskFetchRecorder(page, prerequisiteTask.id);
+    await page.locator(`#prereq-hover-card [data-prerequisite-task-id="${prerequisiteTask.id}"]`).click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await expect(page.locator('#discussion-drawer')).toHaveAttribute('data-open-task-id', String(prerequisiteTask.id));
+    await expect(page.locator('#discussion-title')).toHaveText('Hover Source Task');
+    await expectNoRecordedTaskFetches(page);
+    await steps.step('Hover the blocked Todo checkbox, inspect its prerequisites, and open one in the drawer.', page);
+  });
+
+  test('todo checkbox distinguishes completed prerequisites and keeps them inspectable', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['prereq', 'todo', 'checkbox', 'complete', 'drawer']);
+    const state = await fetchSeedState(request);
+
+    await login(page, state.owner.email, state.owner.password);
+    const prerequisiteTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Completed Prerequisite Task',
+      assignee_email: state.owner.email,
+      due_at: isoDateWithOffset(0),
+      due_mode: 'date',
+    });
+    const dependentTask = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Ready Dependent Task',
+      assignee_email: state.owner.email,
+      due_at: isoDateWithOffset(0),
+      due_mode: 'date',
+    });
+    await patchTask(page, prerequisiteTask.id, { status: 'complete' });
+    await createTaskPrerequisite(page, dependentTask.id, prerequisiteTask.id);
+
+    await page.goto('/todo');
+    const checkButton = page.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-todo-check-toggle]`);
+    await expect(checkButton).toBeEnabled();
+    await expect(checkButton).toHaveClass(/is-prereq-complete/);
+    await expect(checkButton).not.toHaveClass(/is-complete/);
+    await expect(checkButton.locator('.fa-circle-check')).toHaveCount(1);
+    await expectPrereqHoverCard(page, `.todo-item[data-task-id="${dependentTask.id}"] [data-todo-check-toggle]`, 'Completed Prerequisite Task');
+    await page.locator(`#prereq-hover-card [data-prerequisite-task-id="${prerequisiteTask.id}"]`).click();
+    await expect(page.locator('#discussion-drawer')).toHaveClass(/open/);
+    await expect(page.locator('#discussion-drawer')).toHaveAttribute('data-open-task-id', String(prerequisiteTask.id));
+    await expect(page.locator('#discussion-title')).toHaveText('Completed Prerequisite Task');
+    await steps.step('Verify completed prerequisites have a muted green indicator and remain available from the Todo prerequisite card.', page);
   });
 
   test('dependency badge shows dependent tasks in tree todo and gantt', async ({ page, request }) => {
