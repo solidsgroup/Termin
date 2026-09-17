@@ -2199,17 +2199,54 @@ test.describe('dashboard and realtime flows', () => {
     await memberPage.goto('/todo');
     await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
     await expect(memberPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
+    const ownerDependentCheck = ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-todo-check-toggle]`);
+    await expect(ownerDependentCheck).toHaveClass(/is-prereq-blocked/);
+    await expect(ownerDependentCheck).toBeDisabled();
     await steps.step('Open Todo in both browsers with a dependent task initially blocked by an incomplete prerequisite.', ownerPage);
 
-    await patchTask(memberPage, prerequisiteTask.id, { status: 'complete' });
+    let staleBootstrapCaptured;
+    const staleBootstrapCapturedPromise = new Promise((resolve) => { staleBootstrapCaptured = resolve; });
+    let releaseStaleBootstrap;
+    const staleBootstrapGate = new Promise((resolve) => { releaseStaleBootstrap = resolve; });
+    let interceptNextBootstrap = true;
+    await ownerPage.route('**/api/dashboard-bootstrap**', async (route) => {
+      if (!interceptNextBootstrap) {
+        await route.continue();
+        return;
+      }
+      interceptNextBootstrap = false;
+      const response = await route.fetch();
+      staleBootstrapCaptured();
+      await staleBootstrapGate;
+      await route.fulfill({ response });
+    });
+    await ownerPage.evaluate(() => {
+      window.__prerequisiteRaceBootstrap = window.__fetchDashboardBootstrapStore();
+    });
+    await staleBootstrapCapturedPromise;
+
+    const ownerPrerequisiteCheck = ownerPage.locator(`.todo-item[data-task-id="${prerequisiteTask.id}"] [data-todo-check-toggle]`);
+    await expect(ownerPrerequisiteCheck).toBeEnabled();
+    await ownerPrerequisiteCheck.click();
     await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'open');
     await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'open');
+    await expect(ownerDependentCheck).toHaveClass(/is-prereq-complete/);
+    await expect(ownerDependentCheck).not.toHaveClass(/is-prereq-blocked/);
+    await expect(ownerDependentCheck).toBeEnabled();
+    await expect(ownerDependentCheck.locator('.fa-circle-check')).toHaveCount(1);
+    releaseStaleBootstrap();
+    await ownerPage.evaluate(() => window.__prerequisiteRaceBootstrap);
+    await expect(ownerDependentCheck).toHaveClass(/is-prereq-complete/);
+    await expect(ownerDependentCheck).not.toHaveClass(/is-prereq-blocked/);
     await focusTodoTask(ownerPage, dependentTask.id, 'Todo dependent after prerequisite completion', ['Completing the prerequisite should unblock the Todo row immediately.']);
     await steps.step('Complete the prerequisite in one browser and verify the dependent Todo row unblocks live in the other browser.', ownerPage);
 
     await patchTask(memberPage, prerequisiteTask.id, { status: 'open' });
     await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"]`)).toHaveAttribute('data-status-state', 'prereq');
     await expect(ownerPage.locator(`.todo-item[data-task-id="${dependentTask.id}"] [data-status-cell="1"]`)).toHaveAttribute('data-status-state', 'prereq');
+    await expect(ownerDependentCheck).toHaveClass(/is-prereq-blocked/);
+    await expect(ownerDependentCheck).not.toHaveClass(/is-prereq-complete/);
+    await expect(ownerDependentCheck).toBeDisabled();
     await focusTodoTask(ownerPage, dependentTask.id, 'Todo dependent after prerequisite reopen', ['Reopening the prerequisite should block the Todo row again live.']);
     await steps.step('Reopen the prerequisite and verify the dependent Todo row returns to prereq-blocked live in the other browser.', ownerPage);
 
@@ -5150,6 +5187,37 @@ test.describe('dashboard and realtime flows', () => {
     await page.locator('[data-todo-assignees-none]').click();
     await expect(activeRow).toHaveCSS('display', 'none');
     await steps.step('Switch the Todo assignee filter to no assignees and verify the compact Active Tasks strip hides the assigned active task.', page);
+  });
+
+  test('todo rebuckets at local midnight without a page refresh', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['todo', 'date-rollover', 'freshness', 'midnight']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    await page.clock.install({ time: new Date(`${today}T23:59:58`) });
+    const task = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Midnight Rollover Task',
+      due_at: today,
+      due_mode: 'date',
+      assignee_email: state.owner.email,
+    });
+
+    await page.goto('/todo');
+    const taskSelector = `.todo-item[data-task-id="${task.id}"]`;
+    await expect(page.locator(`.todo-date-group[data-todo-date-key="today"] ${taskSelector}`)).toHaveCount(1);
+    const midnightBootstrap = page.waitForResponse((response) =>
+      response.url().includes('/api/dashboard-bootstrap') && response.ok()
+    );
+
+    await page.clock.fastForward(3000);
+    await midnightBootstrap;
+    await expect(page.locator(`.todo-date-group[data-todo-date-key="overdue"] ${taskSelector}`)).toHaveCount(1);
+    await expect(page.locator(`.todo-date-group[data-todo-date-key="today"] ${taskSelector}`)).toHaveCount(0);
+    await steps.step('Leave Todo open across local midnight and verify the due-today task moves to Overdue while the dashboard refreshes in place.', page);
   });
 
   test('todo rebuckets live when another user changes due date', async ({ browser, request }) => {

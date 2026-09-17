@@ -14900,6 +14900,11 @@
     var dashboardBootstrapCacheDisabled = false;
     var dashboardBootstrapCacheSchemaVersion = 6;
     var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v5.user." + String(currentUserId);
+    var dashboardLastServerRefreshAt = Date.now();
+    var dashboardFreshnessRequest = null;
+    var dashboardFreshnessDayKey = "";
+    var dashboardMidnightRefreshTimer = 0;
+    var dashboardFreshnessInterval = 0;
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
     var terminClientPerfEvents = [];
     var pollSettingsPersistTimer = 0;
@@ -15159,7 +15164,27 @@
     }
 
     function setDashboardBootstrapStore(payload) {
+      var previousTaskMap = dashboardBootstrapStore
+        && dashboardBootstrapStore.entities
+        && dashboardBootstrapStore.entities.tasks
+        ? dashboardBootstrapStore.entities.tasks
+        : null;
       dashboardBootstrapStore = payload && typeof payload === "object" ? payload : null;
+      var incomingTaskMap = dashboardBootstrapStore
+        && dashboardBootstrapStore.entities
+        && dashboardBootstrapStore.entities.tasks
+        ? dashboardBootstrapStore.entities.tasks
+        : null;
+      if (previousTaskMap && incomingTaskMap) {
+        Object.keys(incomingTaskMap).forEach(function (taskId) {
+          var previousTask = previousTaskMap[String(taskId)] || null;
+          if (!previousTask) return;
+          incomingTaskMap[String(taskId)] = selectNewerTaskPayload(
+            normalizeDashboardTaskPayload(incomingTaskMap[String(taskId)]),
+            previousTask
+          );
+        });
+      }
       var sharedInfoByTask = window.__infoByTask || {};
       if (dashboardBootstrapStore && dashboardBootstrapStore.entities && dashboardBootstrapStore.entities.tasks) {
         Object.keys(dashboardBootstrapStore.entities.tasks).forEach(function (taskId) {
@@ -15416,7 +15441,9 @@
           if (!result.ok || !result.data || !result.data.dashboard) {
             throw new Error("Could not load dashboard changes");
           }
-          return applyDashboardChangesPayload(result.data.dashboard);
+          var store = applyDashboardChangesPayload(result.data.dashboard);
+          dashboardLastServerRefreshAt = Date.now();
+          return store;
         });
     }
 
@@ -15437,7 +15464,9 @@
             throw new Error("Could not load dashboard bootstrap");
           }
           recordClientPerf("dashboard-bootstrap-fetch", startedAt, { payload_bytes: result.payloadBytes || 0 });
-          return setDashboardBootstrapStore(result.data.dashboard);
+          var store = setDashboardBootstrapStore(result.data.dashboard);
+          dashboardLastServerRefreshAt = Date.now();
+          return store;
         })
         .catch(function (error) {
           recordClientPerf("dashboard-bootstrap-fetch-failed", startedAt);
@@ -15478,6 +15507,107 @@
     }
 
     window.__scheduleDashboardBootstrapRefresh = scheduleDashboardBootstrapRefresh;
+
+    function dashboardLocalDayKey() {
+      var now = new Date();
+      return [
+        String(now.getFullYear()),
+        String(now.getMonth() + 1).padStart(2, "0"),
+        String(now.getDate()).padStart(2, "0"),
+      ].join("-");
+    }
+
+    function renderDashboardForDateChange() {
+      if (typeof window.__sortDashboardTodoTaskIds === "function") {
+        window.__sortDashboardTodoTaskIds();
+      }
+      refreshDashboardHomeFromTodo();
+      if (typeof window.__renderTodoActiveTasksFromStore === "function") {
+        window.__renderTodoActiveTasksFromStore();
+      }
+      if (typeof window.__renderTodoBoardFromStore === "function") {
+        window.__renderTodoBoardFromStore({ showLoading: false, renderWhenHidden: true });
+      }
+      if (typeof window.__refreshDueDisplays === "function") {
+        window.__refreshDueDisplays();
+      }
+      if (typeof window.__refreshDashboardAlerts === "function") {
+        window.__refreshDashboardAlerts();
+      }
+      if (typeof window.__scheduleTodoGanttRender === "function") {
+        window.__scheduleTodoGanttRender();
+      }
+      if (typeof window.__renderProjectGantt === "function") {
+        document.querySelectorAll("[data-project-gantt]").forEach(function (panel) {
+          if (panel.getAttribute("data-todo-gantt-ready") === "1") return;
+          window.__renderProjectGantt(panel);
+        });
+      }
+      document.dispatchEvent(new CustomEvent("termin:dashboard-date-change", {
+        detail: { dayKey: dashboardFreshnessDayKey },
+      }));
+    }
+
+    function requestDashboardFreshness(forceBootstrap) {
+      if (dashboardFreshnessRequest) return dashboardFreshnessRequest;
+      dashboardFreshnessRequest = (forceBootstrap
+        ? fetchDashboardBootstrapStore()
+        : refreshDashboardBootstrapStore())
+        .finally(function () {
+          dashboardFreshnessRequest = null;
+        });
+      return dashboardFreshnessRequest;
+    }
+
+    function scheduleDashboardMidnightRefresh() {
+      if (dashboardMidnightRefreshTimer) {
+        window.clearTimeout(dashboardMidnightRefreshTimer);
+      }
+      var now = new Date();
+      var nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 250);
+      dashboardMidnightRefreshTimer = window.setTimeout(function () {
+        dashboardMidnightRefreshTimer = 0;
+        ensureDashboardFreshness("midnight");
+      }, Math.max(250, nextMidnight.getTime() - now.getTime()));
+    }
+
+    function ensureDashboardFreshness(reason) {
+      var nextDayKey = dashboardLocalDayKey();
+      var dayChanged = nextDayKey !== dashboardFreshnessDayKey;
+      if (dayChanged) {
+        dashboardFreshnessDayKey = nextDayKey;
+        renderDashboardForDateChange();
+        scheduleDashboardMidnightRefresh();
+        return requestDashboardFreshness(true);
+      }
+      scheduleDashboardMidnightRefresh();
+      var stale = Date.now() - dashboardLastServerRefreshAt >= 5 * 60 * 1000;
+      if (stale && !document.hidden && reason !== "initialize") {
+        return requestDashboardFreshness(false);
+      }
+      return Promise.resolve(dashboardBootstrapStore);
+    }
+    window.__ensureDashboardFreshness = ensureDashboardFreshness;
+
+    function initializeDashboardFreshness() {
+      dashboardFreshnessDayKey = dashboardLocalDayKey();
+      scheduleDashboardMidnightRefresh();
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) ensureDashboardFreshness("visibility");
+      });
+      window.addEventListener("focus", function () {
+        ensureDashboardFreshness("focus");
+      });
+      window.addEventListener("pageshow", function () {
+        ensureDashboardFreshness("pageshow");
+      });
+      window.addEventListener("online", function () {
+        ensureDashboardFreshness("online");
+      });
+      dashboardFreshnessInterval = window.setInterval(function () {
+        if (!document.hidden) ensureDashboardFreshness("interval");
+      }, 60 * 1000);
+    }
     var emojiShortcodeEntries = [
       [":grinning:", "😀"], [":smiley:", "😃"], [":smile:", "😄"], [":grin:", "😁"], [":laughing:", "😆"], [":sweat_smile:", "😅"],
       [":joy:", "😂"], [":rofl:", "🤣"], [":wink:", "😉"], [":blush:", "😊"], [":innocent:", "😇"], [":slight_smile:", "🙂"],
@@ -31495,6 +31625,7 @@
 
     hydrateDashboardBootstrapStoreFromCache();
     scheduleDashboardBootstrapRefreshStartup();
+    initializeDashboardFreshness();
     if (typeof restoreAllTreeTaskTableSortStates === "function") {
       window.requestAnimationFrame(function () {
         restoreAllTreeTaskTableSortStates(document.querySelector("[data-tree-board]") || document);
