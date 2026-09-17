@@ -5196,7 +5196,7 @@ test.describe('dashboard and realtime flows', () => {
     const today = isoDateWithOffset(0);
 
     await login(page, state.owner.email, state.owner.password);
-    await page.clock.install({ time: new Date(`${today}T23:59:58`) });
+    await page.clock.install({ time: new Date(`${today}T23:53:58`) });
     const task = await createTask(page, {
       project_id: state.project.id,
       group_id: state.group.id,
@@ -5209,11 +5209,25 @@ test.describe('dashboard and realtime flows', () => {
     await page.goto('/todo');
     const taskSelector = `.todo-item[data-task-id="${task.id}"]`;
     await expect(page.locator(`.todo-date-group[data-todo-date-key="today"] ${taskSelector}`)).toHaveCount(1);
+    await page.clock.fastForward(5000);
+    await page.waitForTimeout(100);
+
+    const sameDayDashboardRequests = [];
+    page.on('request', (request) => {
+      if (/\/api\/dashboard-(?:bootstrap|changes)/.test(request.url())) {
+        sameDayDashboardRequests.push(request.url());
+      }
+    });
+    await page.clock.fastForward(5 * 60 * 1000 + 20 * 1000);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(100);
+    expect(sameDayDashboardRequests).toEqual([]);
+
     const midnightBootstrap = page.waitForResponse((response) =>
       response.url().includes('/api/dashboard-bootstrap') && response.ok()
     );
 
-    await page.clock.fastForward(3000);
+    await page.clock.fastForward(40 * 1000);
     await midnightBootstrap;
     await expect(page.locator(`.todo-date-group[data-todo-date-key="overdue"] ${taskSelector}`)).toHaveCount(1);
     await expect(page.locator(`.todo-date-group[data-todo-date-key="today"] ${taskSelector}`)).toHaveCount(0);

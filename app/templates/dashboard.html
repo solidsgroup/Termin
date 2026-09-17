@@ -14900,11 +14900,9 @@
     var dashboardBootstrapCacheDisabled = false;
     var dashboardBootstrapCacheSchemaVersion = 6;
     var dashboardBootstrapCacheKey = "termin.dashboardBootstrapCache.v5.user." + String(currentUserId);
-    var dashboardLastServerRefreshAt = Date.now();
     var dashboardFreshnessRequest = null;
     var dashboardFreshnessDayKey = "";
     var dashboardMidnightRefreshTimer = 0;
-    var dashboardFreshnessInterval = 0;
     var discussionDrawerHistoryKey = "discussionDrawerOpen";
     var terminClientPerfEvents = [];
     var pollSettingsPersistTimer = 0;
@@ -15441,9 +15439,7 @@
           if (!result.ok || !result.data || !result.data.dashboard) {
             throw new Error("Could not load dashboard changes");
           }
-          var store = applyDashboardChangesPayload(result.data.dashboard);
-          dashboardLastServerRefreshAt = Date.now();
-          return store;
+          return applyDashboardChangesPayload(result.data.dashboard);
         });
     }
 
@@ -15464,9 +15460,7 @@
             throw new Error("Could not load dashboard bootstrap");
           }
           recordClientPerf("dashboard-bootstrap-fetch", startedAt, { payload_bytes: result.payloadBytes || 0 });
-          var store = setDashboardBootstrapStore(result.data.dashboard);
-          dashboardLastServerRefreshAt = Date.now();
-          return store;
+          return setDashboardBootstrapStore(result.data.dashboard);
         })
         .catch(function (error) {
           recordClientPerf("dashboard-bootstrap-fetch-failed", startedAt);
@@ -15548,11 +15542,9 @@
       }));
     }
 
-    function requestDashboardFreshness(forceBootstrap) {
+    function requestMidnightDashboardRefresh() {
       if (dashboardFreshnessRequest) return dashboardFreshnessRequest;
-      dashboardFreshnessRequest = (forceBootstrap
-        ? fetchDashboardBootstrapStore()
-        : refreshDashboardBootstrapStore())
+      dashboardFreshnessRequest = fetchDashboardBootstrapStore()
         .finally(function () {
           dashboardFreshnessRequest = null;
         });
@@ -15567,24 +15559,20 @@
       var nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 250);
       dashboardMidnightRefreshTimer = window.setTimeout(function () {
         dashboardMidnightRefreshTimer = 0;
-        ensureDashboardFreshness("midnight");
+        ensureDashboardFreshness();
       }, Math.max(250, nextMidnight.getTime() - now.getTime()));
     }
 
-    function ensureDashboardFreshness(reason) {
+    function ensureDashboardFreshness() {
       var nextDayKey = dashboardLocalDayKey();
       var dayChanged = nextDayKey !== dashboardFreshnessDayKey;
       if (dayChanged) {
         dashboardFreshnessDayKey = nextDayKey;
         renderDashboardForDateChange();
         scheduleDashboardMidnightRefresh();
-        return requestDashboardFreshness(true);
+        return requestMidnightDashboardRefresh();
       }
       scheduleDashboardMidnightRefresh();
-      var stale = Date.now() - dashboardLastServerRefreshAt >= 5 * 60 * 1000;
-      if (stale && !document.hidden && reason !== "initialize") {
-        return requestDashboardFreshness(false);
-      }
       return Promise.resolve(dashboardBootstrapStore);
     }
     window.__ensureDashboardFreshness = ensureDashboardFreshness;
@@ -15593,20 +15581,17 @@
       dashboardFreshnessDayKey = dashboardLocalDayKey();
       scheduleDashboardMidnightRefresh();
       document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) ensureDashboardFreshness("visibility");
+        if (!document.hidden) ensureDashboardFreshness();
       });
       window.addEventListener("focus", function () {
-        ensureDashboardFreshness("focus");
+        ensureDashboardFreshness();
       });
       window.addEventListener("pageshow", function () {
-        ensureDashboardFreshness("pageshow");
+        ensureDashboardFreshness();
       });
       window.addEventListener("online", function () {
-        ensureDashboardFreshness("online");
+        ensureDashboardFreshness();
       });
-      dashboardFreshnessInterval = window.setInterval(function () {
-        if (!document.hidden) ensureDashboardFreshness("interval");
-      }, 60 * 1000);
     }
     var emojiShortcodeEntries = [
       [":grinning:", "😀"], [":smiley:", "😃"], [":smile:", "😄"], [":grin:", "😁"], [":laughing:", "😆"], [":sweat_smile:", "😅"],
