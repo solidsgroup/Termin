@@ -206,7 +206,7 @@
   {% set poll_payload = task.poll if task and task.poll is mapping else {} %}
   {% set poll_options = poll_payload.get('options', []) if poll_payload else [] %}
   {% set inferred_task_type = (task.task_type if task and task.task_type is defined else '')|string|trim|lower %}
-  {% set inferred_poll = 1 if inferred_task_type == 'poll' or poll_payload.get('question') or poll_payload.get('allows_multiple') or poll_options else 0 %}
+  {% set inferred_poll = 1 if inferred_task_type == 'poll' or poll_payload.get('question') or poll_payload.get('allows_multiple') or poll_payload.get('allow_voter_options') or poll_payload.get('closed') or poll_options else 0 %}
   {% set status_mode = status_payload.get('mode') if status_payload and status_payload.get('mode') else ('poll' if inferred_poll else ('multi' if status_payload and status_payload.get('enabled') else 'single')) %}
   {% set prereq_blocked = 1 if status_payload and status_payload.get('prereq_blocked') else 0 %}
   {% set aggregate_state = status_payload.get('aggregate_state') or status_payload.get('my_status_state') or status_payload.get('task_status_state', status_state(task.status)) if status_payload else status_state(task.status) %}
@@ -1559,6 +1559,13 @@
           </label>
         </div>
         <div class="discussion-setting-field is-inline">
+          <span class="discussion-setting-label discussion-setting-label--row">Suggestions</span>
+          <label class="discussion-poll-checkbox">
+            <input id="task-settings-poll-voter-options" type="checkbox" />
+            <span>Allow participants to add options while voting</span>
+          </label>
+        </div>
+        <div class="discussion-setting-field is-inline">
           <span class="discussion-setting-label discussion-setting-label--row">Accepting</span>
           <label class="discussion-poll-checkbox">
             <input id="task-settings-poll-closed" type="checkbox" />
@@ -1606,6 +1613,11 @@
       <button class="btn secondary" type="button" id="poll-response-close">Close</button>
     </div>
     <div class="poll-response-options" id="poll-response-options"></div>
+    <label class="poll-response-add-option" id="poll-response-add-option" hidden>
+      <span>Add another option</span>
+      <input id="poll-response-new-option" type="text" maxlength="200" placeholder="Suggest an option" autocomplete="termin-nope-poll-suggestion" />
+      <small>The option will be added and selected when you save.</small>
+    </label>
     <div class="poll-response-pending" id="poll-response-pending" hidden>
       <div class="poll-response-pending-label" id="poll-response-pending-label">Awaiting response</div>
       <div class="poll-response-pending-avatars" id="poll-response-pending-avatars"></div>
@@ -14826,6 +14838,7 @@
     var taskSettingsPollEditorEl = document.getElementById("task-settings-poll-editor");
     var taskSettingsPollQuestionEl = document.getElementById("task-settings-poll-question");
     var taskSettingsPollMultipleEl = document.getElementById("task-settings-poll-multiple");
+    var taskSettingsPollVoterOptionsEl = document.getElementById("task-settings-poll-voter-options");
     var taskSettingsPollClosedEl = document.getElementById("task-settings-poll-closed");
     var taskSettingsPollResultsVisibilityEl = document.getElementById("task-settings-poll-results-visibility");
     var taskSettingsPollOptionsEl = document.getElementById("task-settings-poll-options");
@@ -14856,6 +14869,8 @@
     var pollResponseQuestionEl = document.getElementById("poll-response-question");
     var pollResponseMetaEl = document.getElementById("poll-response-meta");
     var pollResponseOptionsEl = document.getElementById("poll-response-options");
+    var pollResponseAddOptionEl = document.getElementById("poll-response-add-option");
+    var pollResponseNewOptionEl = document.getElementById("poll-response-new-option");
     var pollResponsePendingEl = document.getElementById("poll-response-pending");
     var pollResponsePendingLabelEl = document.getElementById("poll-response-pending-label");
     var pollResponsePendingAvatarsEl = document.getElementById("poll-response-pending-avatars");
@@ -15032,6 +15047,7 @@
       return {
         question: String(source.question || "").trim(),
         allows_multiple: !!source.allows_multiple,
+        allow_voter_options: !!source.allow_voter_options,
         closed: !!source.closed,
         results_visibility: (function (value) {
           var normalized = String(value || "everyone").trim().toLowerCase();
@@ -15044,7 +15060,7 @@
     function taskIsPoll(task) {
       var poll = taskPollConfig(task);
       return normalizeTaskType(task && task.task_type) === "poll"
-        || !!(poll.question || poll.allows_multiple || poll.closed || poll.options.length);
+        || !!(poll.question || poll.allows_multiple || poll.allow_voter_options || poll.closed || poll.options.length);
     }
 
     function currentTaskTypeValue(task) {
@@ -18443,21 +18459,34 @@
     function renderTaskPollOptions() {
       if (!taskSettingsPollOptionsEl) return;
       var poll = taskPollConfig(currentTaskData || {});
+      var meta = taskStatusMeta(currentTaskData || {});
+      var votedOptionIds = Object.create(null);
+      if (Array.isArray(meta.poll_option_results)) {
+        meta.poll_option_results.forEach(function (result) {
+          if (!result || !result.id || !Array.isArray(result.responders) || !result.responders.length) return;
+          votedOptionIds[String(result.id)] = result.responders.length;
+        });
+      }
       if (!poll.options.length) {
         taskSettingsPollOptionsEl.innerHTML = '<div class="footer-note">No options yet.</div>';
         return;
       }
       taskSettingsPollOptionsEl.innerHTML = poll.options.map(function (option, index) {
         var optionLabel = String(option && option.label ? option.label : "");
+        var responseCount = Number(votedOptionIds[String(option.id)] || 0);
+        var voteLocked = responseCount > 0;
+        var lockLabel = responseCount + " response" + (responseCount === 1 ? "" : "s") + "; this option cannot be changed";
         return '' +
-          '<div class="discussion-poll-option-row" data-poll-option-id="' + escapeHtml(option.id) + '">' +
+          '<div class="discussion-poll-option-row' + (voteLocked ? ' is-voted' : '') + '" data-poll-option-id="' + escapeHtml(option.id) + '">' +
             '<span class="discussion-poll-option-bullet" aria-hidden="true"></span>' +
-            '<input class="discussion-poll-option-input" type="text" value="' + escapeHtml(optionLabel) + '" data-poll-option-input="' + escapeHtml(option.id) + '" aria-label="Poll option: ' + escapeHtml(optionLabel || "option") + '" autocomplete="termin-nope-poll-option" autocorrect="off" autocapitalize="sentences" spellcheck="true" />' +
+            '<input class="discussion-poll-option-input" type="text" value="' + escapeHtml(optionLabel) + '" data-poll-option-input="' + escapeHtml(option.id) + '" aria-label="Poll option: ' + escapeHtml(optionLabel || "option") + '" autocomplete="termin-nope-poll-option" autocorrect="off" autocapitalize="sentences" spellcheck="true"' + (voteLocked ? ' data-vote-locked="1" disabled title="' + escapeHtml(lockLabel) + '"' : '') + ' />' +
             '<span class="discussion-poll-option-order" aria-label="Move option">' +
               '<button class="discussion-poll-option-move" type="button" data-poll-option-move="up" data-poll-option-id="' + escapeHtml(option.id) + '" aria-label="Move option up"' + (index <= 0 ? ' data-boundary-disabled="1" disabled' : '') + '><i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>' +
               '<button class="discussion-poll-option-move" type="button" data-poll-option-move="down" data-poll-option-id="' + escapeHtml(option.id) + '" aria-label="Move option down"' + (index >= poll.options.length - 1 ? ' data-boundary-disabled="1" disabled' : '') + '><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>' +
             '</span>' +
-            '<button class="discussion-poll-option-remove" type="button" data-poll-option-remove="' + escapeHtml(option.id) + '" data-poll-option-label="' + escapeHtml(optionLabel) + '" aria-label="Remove poll option ' + escapeHtml(optionLabel || "option") + '">×</button>' +
+            (voteLocked
+              ? '<span class="discussion-poll-option-lock" data-poll-option-locked="' + escapeHtml(option.id) + '" title="' + escapeHtml(lockLabel) + '" aria-label="' + escapeHtml(lockLabel) + '"><i class="fa-solid fa-lock" aria-hidden="true"></i></span>'
+              : '<button class="discussion-poll-option-remove" type="button" data-poll-option-remove="' + escapeHtml(option.id) + '" data-poll-option-label="' + escapeHtml(optionLabel) + '" aria-label="Remove poll option ' + escapeHtml(optionLabel || "option") + '">×</button>') +
           '</div>';
       }).join("");
     }
@@ -18483,9 +18512,14 @@
       var locked = currentTaskData && taskIsLocked(currentTaskData);
       var taskType = drawerTaskTypeValue(currentTaskData || {});
       var poll = taskPollConfig(currentTaskData || {});
+      var pollStatus = taskStatusMeta(currentTaskData || {});
+      var pollHasResponses = !!pollStatus.poll_has_responses;
       if (taskSettingsTypeEl) {
         taskSettingsTypeEl.value = taskType;
-        taskSettingsTypeEl.disabled = !!locked;
+        taskSettingsTypeEl.disabled = !!locked || (taskType === "poll" && pollHasResponses);
+        taskSettingsTypeEl.title = taskType === "poll" && pollHasResponses
+          ? "A poll with responses cannot be converted to a standard task"
+          : "";
       }
       syncPollTabAppearance();
       if (taskSettingsPollEditorEl) {
@@ -18499,7 +18533,14 @@
       }
       if (taskSettingsPollMultipleEl) {
         taskSettingsPollMultipleEl.checked = !!poll.allows_multiple;
-        taskSettingsPollMultipleEl.disabled = !!locked || taskType !== "poll";
+        taskSettingsPollMultipleEl.disabled = !!locked || taskType !== "poll" || pollHasResponses;
+        taskSettingsPollMultipleEl.title = pollHasResponses
+          ? "Selection mode cannot be changed after responses have been submitted"
+          : "";
+      }
+      if (taskSettingsPollVoterOptionsEl) {
+        taskSettingsPollVoterOptionsEl.checked = !!poll.allow_voter_options;
+        taskSettingsPollVoterOptionsEl.disabled = !!locked || taskType !== "poll";
       }
       if (taskSettingsPollClosedEl) {
         taskSettingsPollClosedEl.checked = !!poll.closed;
@@ -18519,7 +18560,7 @@
       if (taskSettingsPollOptionsEl) {
         taskSettingsPollOptionsEl.querySelectorAll("[data-poll-option-input], [data-poll-option-remove], [data-poll-option-move]").forEach(function (node) {
           if ("disabled" in node) {
-            node.disabled = !!locked || taskType !== "poll" || node.hasAttribute("data-boundary-disabled");
+            node.disabled = !!locked || taskType !== "poll" || node.hasAttribute("data-boundary-disabled") || node.hasAttribute("data-vote-locked");
           }
         });
       }
@@ -18540,6 +18581,7 @@
       return normalizeTaskPollConfig({
         question: taskSettingsPollQuestionEl ? taskSettingsPollQuestionEl.value : "",
         allows_multiple: !!(taskSettingsPollMultipleEl && taskSettingsPollMultipleEl.checked),
+        allow_voter_options: !!(taskSettingsPollVoterOptionsEl && taskSettingsPollVoterOptionsEl.checked),
         closed: !!(taskSettingsPollClosedEl && taskSettingsPollClosedEl.checked),
         results_visibility: taskSettingsPollResultsVisibilityEl ? taskSettingsPollResultsVisibilityEl.value : "everyone",
         options: options,
@@ -18723,6 +18765,7 @@
       var inferredPollMode = taskType === "poll"
         || !!String(taskPoll.question || "").trim()
         || !!taskPoll.allows_multiple
+        || !!taskPoll.allow_voter_options
         || !!(Array.isArray(taskPoll.options) && taskPoll.options.length);
       var mode = normalizeMode(
         (localOverride && localOverride.mode)
@@ -18791,6 +18834,8 @@
         poll_total_count: effectivePollTotalCount,
         poll_complete_count: effectivePollCompleteCount,
         poll_allows_multiple: !!meta.poll_allows_multiple,
+        poll_allow_voter_options: !!meta.poll_allow_voter_options,
+        poll_has_responses: !!meta.poll_has_responses,
         poll_closed: !!meta.poll_closed,
         poll_question: String(meta.poll_question || ""),
         poll_results_visibility: String(meta.poll_results_visibility || "everyone"),
@@ -19126,6 +19171,12 @@
       if (pollResponseOptionsEl) {
         pollResponseOptionsEl.innerHTML = "";
       }
+      if (pollResponseAddOptionEl) {
+        pollResponseAddOptionEl.hidden = true;
+      }
+      if (pollResponseNewOptionEl) {
+        pollResponseNewOptionEl.value = "";
+      }
       if (pollResponsePendingEl) {
         pollResponsePendingEl.hidden = true;
       }
@@ -19156,6 +19207,7 @@
       var allowsMultiple = !!meta.poll_allows_multiple;
       var pollClosed = !!(meta.poll_closed || poll.closed);
       var canRespond = !!meta.viewer_can_set && !pollClosed && !taskStatusBlockedByPrereq(task || {});
+      var canAddOptions = canRespond && !!(meta.poll_allow_voter_options || poll.allow_voter_options);
       var resultsVisible = !!meta.poll_results_visible;
       var optionResultsById = {};
       if (Array.isArray(meta.poll_option_results)) {
@@ -19173,6 +19225,7 @@
       if (pollResponseNoteEl) {
         if (canRespond) {
           pollResponseNoteEl.textContent = (allowsMultiple ? "Select one or more options." : "Select one option.")
+            + (canAddOptions ? " You may also add a new option." : "")
             + (resultsVisible ? "" : " Results are visible to the creator only.");
         } else if (pollClosed) {
           pollResponseNoteEl.textContent = "This poll is closed to new responses."
@@ -19187,6 +19240,12 @@
       }
       if (pollResponseSaveEl) {
         pollResponseSaveEl.disabled = !canRespond;
+      }
+      if (pollResponseAddOptionEl) {
+        pollResponseAddOptionEl.hidden = !canAddOptions;
+      }
+      if (pollResponseNewOptionEl) {
+        pollResponseNewOptionEl.disabled = !canAddOptions;
       }
       var incompleteAssignees = resultsVisible && Array.isArray(meta.poll_incomplete_assignees)
         ? meta.poll_incomplete_assignees
@@ -19241,19 +19300,23 @@
     function openTaskPollDialog(task, options) {
       if (!pollResponseDialogEl || !task || !task.id) return;
       activePollDialogTask = task;
+      if (pollResponseNewOptionEl) pollResponseNewOptionEl.value = "";
       renderTaskPollDialog(task);
       pollResponseDialogEl.hidden = false;
       pollResponseDialogEl.setAttribute("aria-hidden", "false");
     }
     window.__openTaskPollDialog = openTaskPollDialog;
 
-    function saveTaskPollResponse(task, optionIds) {
+    function saveTaskPollResponse(task, optionIds, newOptionLabel) {
       if (!task || !task.id) return Promise.reject(new Error("Task missing"));
       return fetch("/api/tasks/" + task.id + "/poll_response", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ option_ids: Array.isArray(optionIds) ? optionIds : [] }),
+        body: JSON.stringify({
+          option_ids: Array.isArray(optionIds) ? optionIds : [],
+          new_option_label: String(newOptionLabel || "").trim(),
+        }),
       })
         .then(function (res) {
           return res.json().catch(function () { return {}; }).then(function (data) {
@@ -20092,6 +20155,11 @@
       if (taskSettingsPollMultipleEl) {
         taskSettingsPollMultipleEl.checked = false;
         taskSettingsPollMultipleEl.disabled = false;
+        taskSettingsPollMultipleEl.title = "";
+      }
+      if (taskSettingsPollVoterOptionsEl) {
+        taskSettingsPollVoterOptionsEl.checked = false;
+        taskSettingsPollVoterOptionsEl.disabled = false;
       }
       if (taskSettingsPollClosedEl) {
         taskSettingsPollClosedEl.checked = false;
@@ -20115,6 +20183,7 @@
       if (taskSettingsTypeEl) {
         taskSettingsTypeEl.value = "standard";
         taskSettingsTypeEl.disabled = false;
+        taskSettingsTypeEl.title = "";
       }
       if (taskSettingsPollEditorEl) {
         taskSettingsPollEditorEl.classList.add("is-inactive");
@@ -20892,7 +20961,7 @@
         var pollPayload = taskPollPayloadFromInputs();
         var taskType = normalizeTaskType(taskSettingsTypeEl ? taskSettingsTypeEl.value : "standard");
         if (taskType !== "poll") {
-          pollPayload = { question: "", allows_multiple: false, options: [] };
+          pollPayload = { question: "", allows_multiple: false, allow_voter_options: false, options: [] };
         }
         var persistTaskId = String(currentEntityId || "");
         var previousTaskSnapshot = cloneTaskForUndo(currentTaskData);
@@ -20943,8 +21012,16 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
-          .then(function (res) { return res.json().catch(function () { return {}; }); })
-          .then(function (data) {
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (data) {
+              return { ok: res.ok, data: data };
+            });
+          })
+          .then(function (result) {
+            if (!result.ok) {
+              throw new Error((result.data && result.data.error) || "Could not save task settings");
+            }
+            var data = result.data;
             if (!data || !data.id) return;
             rememberRecentTaskSnapshot(data);
             maybeShowTaskCompletionToast(previousTaskSnapshot, data);
@@ -20959,6 +21036,15 @@
           .catch(function (err) {
             taskTypeDraft = null;
             console.error('persistEntitySettings failed', err);
+            return fetchTaskSnapshot(persistTaskId).then(function (task) {
+              if (!task || !task.id) return;
+              mergeDashboardTask(task);
+              applyTaskRowUpdate(task);
+              if (String(currentTaskId || "") === persistTaskId) {
+                currentTaskData = task;
+                renderTaskSettings();
+              }
+            });
           });
       }
       var nameValue = taskSettingsTitleEl ? taskSettingsTitleEl.value.trim() : "";
@@ -25795,7 +25881,7 @@
           taskTypeDraft = nextType;
           currentTaskData = Object.assign({}, currentTaskData || {}, {
             task_type: nextType,
-            poll: nextType === "poll" ? taskPollConfig(currentTaskData) : { question: "", allows_multiple: false, closed: false, options: [] },
+            poll: nextType === "poll" ? taskPollConfig(currentTaskData) : { question: "", allows_multiple: false, allow_voter_options: false, closed: false, options: [] },
           });
           renderTaskPollSettings();
           persistEntitySettings();
@@ -25819,7 +25905,21 @@
       if (taskSettingsPollMultipleEl) {
         taskSettingsPollMultipleEl.addEventListener("change", function () {
           if (currentTaskData) {
-            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
+            var poll = taskPollConfig(currentTaskData);
+            poll.allows_multiple = !!taskSettingsPollMultipleEl.checked;
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
+            if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
+            syncPollTabAppearance();
+          }
+          schedulePollSettingsPersist();
+        });
+      }
+      if (taskSettingsPollVoterOptionsEl) {
+        taskSettingsPollVoterOptionsEl.addEventListener("change", function () {
+          if (currentTaskData) {
+            var poll = taskPollConfig(currentTaskData);
+            poll.allow_voter_options = !!taskSettingsPollVoterOptionsEl.checked;
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
             if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
             syncPollTabAppearance();
           }
@@ -25829,7 +25929,9 @@
       if (taskSettingsPollClosedEl) {
         taskSettingsPollClosedEl.addEventListener("change", function () {
           if (currentTaskData) {
-            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
+            var poll = taskPollConfig(currentTaskData);
+            poll.closed = !!taskSettingsPollClosedEl.checked;
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
             if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
             syncPollTabAppearance();
           }
@@ -25839,7 +25941,9 @@
       if (taskSettingsPollResultsVisibilityEl) {
         taskSettingsPollResultsVisibilityEl.addEventListener("change", function () {
           if (currentTaskData) {
-            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll" });
+            var poll = taskPollConfig(currentTaskData);
+            poll.results_visibility = String(taskSettingsPollResultsVisibilityEl.value || "everyone") === "creator" ? "creator" : "everyone";
+            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
             if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
             syncPollTabAppearance();
           }
@@ -25924,7 +26028,7 @@
           });
           optionLabel = matchingOption && matchingOption.label ? String(matchingOption.label) : "this option";
         }
-        if (!window.confirm('Remove poll option "' + optionLabel + '"? This will also clear any responses to it.')) {
+        if (!window.confirm('Remove poll option "' + optionLabel + '"?')) {
           return;
         }
         poll.options = poll.options.filter(function (option) {
@@ -26420,6 +26524,7 @@
           node.setAttribute("data-selected", "0");
           node.classList.remove("is-selected");
         });
+        if (pollResponseNewOptionEl) pollResponseNewOptionEl.value = "";
       });
     }
     if (pollResponseSaveEl) {
@@ -26428,8 +26533,9 @@
         var selectedOptionIds = Array.from(pollResponseOptionsEl.querySelectorAll('[data-poll-response-option][data-selected="1"]')).map(function (node) {
           return String(node.getAttribute("data-poll-response-option") || "").trim();
         }).filter(Boolean);
+        var newOptionLabel = pollResponseNewOptionEl ? String(pollResponseNewOptionEl.value || "").trim() : "";
         pollResponseSaveEl.disabled = true;
-        saveTaskPollResponse(activePollDialogTask, selectedOptionIds)
+        saveTaskPollResponse(activePollDialogTask, selectedOptionIds, newOptionLabel)
           .then(function (task) {
             if (!task || !task.id) return;
             mergeDashboardTask(task);

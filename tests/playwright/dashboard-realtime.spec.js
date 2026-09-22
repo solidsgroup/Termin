@@ -1512,6 +1512,169 @@ test.describe('dashboard and realtime flows', () => {
     await memberContext.close();
   });
 
+  test('poll configuration edits preserve responses and lock voted options', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'responses', 'editor', 'regression']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Durable Poll Responses',
+      assignee_email: state.owner.email,
+    });
+    await createAssignment(ownerPage, pollTask.id, state.member.email);
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      poll: {
+        question: 'Choose the durable option',
+        allows_multiple: false,
+        results_visibility: 'everyone',
+        options: [
+          { id: 'durable-a', label: 'Durable A' },
+          { id: 'durable-b', label: 'Durable B' },
+        ],
+      },
+    });
+
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await submitPollResponse(memberPage, 'durable-a');
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
+    await ownerPage.locator(`[data-task-row-id="${pollTask.id}"] [data-open-settings="${pollTask.id}"]`).click();
+    await expect(ownerPage.locator('#discussion-drawer')).toHaveClass(/open/);
+    await ownerPage.locator('[data-drawer-tab="poll"]').click();
+
+    const votedInput = ownerPage.locator('[data-poll-option-input="durable-a"]');
+    await expect(votedInput).toBeDisabled();
+    await expect(ownerPage.locator('[data-poll-option-locked="durable-a"]')).toHaveCount(1);
+    await expect(ownerPage.locator('[data-poll-option-input="durable-b"]')).toBeEnabled();
+    await expect(ownerPage.locator('#task-settings-poll-multiple')).toBeDisabled();
+    await expect(ownerPage.locator('#task-settings-type')).toBeDisabled();
+    await steps.step('Open the poll editor and verify the voted option and selection mode are locked.', ownerPage);
+
+    await ownerPage.locator('#task-settings-poll-question').click();
+    await ownerPage.locator('#task-settings-poll-question').fill('Choose the updated durable option');
+    await ownerPage.locator('#task-settings-poll-question').blur();
+    await expect.poll(async () => {
+      const task = await fetchTaskViaApi(ownerPage, pollTask.id);
+      return task.poll.question;
+    }).toBe('Choose the updated durable option');
+
+    await ownerPage.locator('#task-settings-poll-results-visibility').selectOption('creator');
+    await ownerPage.locator('#task-settings-poll-new-option').click();
+    await ownerPage.locator('#task-settings-poll-new-option').fill('Durable C');
+    await ownerPage.locator('#task-settings-poll-add-option').click();
+    await expect.poll(async () => {
+      const task = await fetchTaskViaApi(ownerPage, pollTask.id);
+      return {
+        visibility: task.poll.results_visibility,
+        labels: task.poll.options.map((option) => option.label),
+        complete: task.status_meta.poll_complete_count,
+      };
+    }).toEqual({
+      visibility: 'creator',
+      labels: ['Durable A', 'Durable B', 'Durable C'],
+      complete: 1,
+    });
+
+    const rejectedRemoval = await ownerContext.request.patch(`/api/tasks/${pollTask.id}`, {
+      data: {
+        task_type: 'poll',
+        poll: {
+          question: 'Choose the updated durable option',
+          allows_multiple: false,
+          results_visibility: 'creator',
+          options: [
+            { id: 'durable-b', label: 'Durable B' },
+            { id: 'durable-c-direct', label: 'Durable C' },
+          ],
+        },
+      },
+    });
+    expect(rejectedRemoval.status()).toBe(409);
+    expect((await rejectedRemoval.json()).error).toContain('cannot be removed');
+
+    const memberTask = await fetchTaskViaApi(memberPage, pollTask.id);
+    expect(memberTask.status_meta.poll_viewer_option_ids).toEqual(['durable-a']);
+    expect(memberTask.status_meta.poll_complete_count).toBe(1);
+    expect(memberTask.poll.options.map((option) => option.label)).toEqual(['Durable A', 'Durable B', 'Durable C']);
+    await steps.step('Edit safe poll settings and verify the existing response survives while destructive API edits are rejected.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
+  test('assigned voters can add and select poll options when enabled', async ({ browser, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['poll', 'voter-options', 'response', 'editor']);
+    const state = await fetchSeedState(request);
+    const ownerContext = await browser.newContext();
+    const memberContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const memberPage = await memberContext.newPage();
+
+    await login(ownerPage, state.owner.email, state.owner.password);
+    await login(memberPage, state.member.email, state.member.password);
+
+    const pollTask = await createTask(ownerPage, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Suggested Poll Options',
+      assignee_email: state.member.email,
+    });
+    await patchTask(ownerPage, pollTask.id, {
+      task_type: 'poll',
+      poll: {
+        question: 'Suggest a destination',
+        allows_multiple: false,
+        allow_voter_options: true,
+        results_visibility: 'everyone',
+        options: [
+          { id: 'destination-a', label: 'Destination A' },
+        ],
+      },
+    });
+
+    await memberPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(memberPage, state.project.id, pollTask.id);
+    await openPollDialogFromTree(memberPage, pollTask.id);
+    await expect(memberPage.locator('#poll-response-add-option')).toBeVisible();
+    await memberPage.locator('#poll-response-new-option').click();
+    await memberPage.locator('#poll-response-new-option').fill('Destination B');
+    await memberPage.locator('#poll-response-save').click();
+    await expect(memberPage.locator('#poll-response-dialog')).toBeHidden();
+
+    const memberTask = await fetchTaskViaApi(memberPage, pollTask.id);
+    const addedOption = memberTask.poll.options.find((option) => option.label === 'Destination B');
+    expect(addedOption).toBeTruthy();
+    expect(memberTask.status_meta.poll_viewer_option_ids).toEqual([addedOption.id]);
+    expect(memberTask.status_meta.poll_complete_count).toBe(1);
+    await steps.step('Add an option while voting and verify the new option is selected and counted atomically.', memberPage);
+
+    await ownerPage.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(ownerPage, state.project.id, pollTask.id);
+    await ownerPage.locator(`[data-task-row-id="${pollTask.id}"] [data-open-settings="${pollTask.id}"]`).click();
+    await ownerPage.locator('[data-drawer-tab="poll"]').click();
+    await expect(ownerPage.locator(`[data-poll-option-input="${addedOption.id}"]`)).toBeDisabled();
+    await expect(ownerPage.locator(`[data-poll-option-locked="${addedOption.id}"]`)).toHaveCount(1);
+    await expect(ownerPage.locator('#task-settings-poll-voter-options')).toBeChecked();
+    await steps.step('Open the owner editor and verify the participant-created option is persisted and vote-locked.', ownerPage);
+
+    await ownerContext.close();
+    await memberContext.close();
+  });
+
   test('locked poll tasks still allow assigned participants to update their vote', async ({ browser, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['poll', 'locked', 'response']);

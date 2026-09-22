@@ -103,6 +103,7 @@ def _normalize_poll_meta(value) -> dict:
     poll = value if isinstance(value, dict) else {}
     question = str(poll.get("question") or "").strip()
     allows_multiple = bool(poll.get("allows_multiple"))
+    allow_voter_options = bool(poll.get("allow_voter_options"))
     closed = bool(poll.get("closed"))
     results_visibility = str(poll.get("results_visibility") or "everyone").strip().lower()
     if results_visibility not in {"everyone", "creator"}:
@@ -166,6 +167,7 @@ def _normalize_poll_meta(value) -> dict:
     return {
         "question": question,
         "allows_multiple": allows_multiple,
+        "allow_voter_options": allow_voter_options,
         "closed": closed,
         "results_visibility": results_visibility,
         "options": options,

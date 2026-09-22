@@ -283,7 +283,13 @@ def _serialize_task(
                     "id": option_id,
                     "label": label,
                 })
-    task_type = "poll" if (str(poll_raw.get("question") or "").strip() or bool(poll_raw.get("allows_multiple")) or poll_options) else str(meta.get("task_type") or "standard").strip().lower()
+    task_type = "poll" if (
+        str(poll_raw.get("question") or "").strip()
+        or bool(poll_raw.get("allows_multiple"))
+        or bool(poll_raw.get("allow_voter_options"))
+        or bool(poll_raw.get("closed"))
+        or poll_options
+    ) else str(meta.get("task_type") or "standard").strip().lower()
     if task_type not in {"standard", "poll"}:
         task_type = "standard"
     updated_at = getattr(task, "updated_at", None)
@@ -319,6 +325,7 @@ def _serialize_task(
         "poll": {
             "question": str(poll_raw.get("question") or "").strip(),
             "allows_multiple": bool(poll_raw.get("allows_multiple")),
+            "allow_voter_options": bool(poll_raw.get("allow_voter_options")),
             "closed": bool(poll_raw.get("closed")),
             "results_visibility": "creator" if str(poll_raw.get("results_visibility") or "").strip().lower() == "creator" else "everyone",
             "options": poll_options,

@@ -398,6 +398,30 @@
       gap: 10px;
     }
 
+    .poll-response-add-option {
+      display: grid;
+      gap: 7px;
+      padding: 13px 15px;
+      border: 1px dashed color-mix(in srgb, var(--accent) 42%, var(--border));
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--accent) 7%, var(--panel-alt));
+    }
+
+    .poll-response-add-option[hidden] {
+      display: none;
+    }
+
+    .poll-response-add-option > span {
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .poll-response-add-option > small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
     .poll-response-option {
       width: 100%;
       display: flex;
@@ -650,6 +674,11 @@
         <button class="btn secondary" type="button" id="collab-poll-response-close">Close</button>
       </div>
       <div class="poll-response-options" id="collab-poll-response-options"></div>
+      <label class="poll-response-add-option" id="collab-poll-response-add-option" hidden>
+        <span>Add another option</span>
+        <input id="collab-poll-response-new-option" type="text" maxlength="200" placeholder="Suggest an option" autocomplete="termin-nope-poll-suggestion" />
+        <small>The option will be added and selected when you save.</small>
+      </label>
       <div class="poll-response-pending" id="collab-poll-response-pending" hidden>
         <div class="poll-response-pending-label" id="collab-poll-response-pending-label">Awaiting response</div>
         <div class="poll-response-pending-avatars" id="collab-poll-response-pending-avatars"></div>
@@ -677,6 +706,8 @@
       const pollQuestionEl = document.getElementById("collab-poll-response-question");
       const pollMetaEl = document.getElementById("collab-poll-response-meta");
       const pollOptionsEl = document.getElementById("collab-poll-response-options");
+      const pollAddOptionEl = document.getElementById("collab-poll-response-add-option");
+      const pollNewOptionEl = document.getElementById("collab-poll-response-new-option");
       const pollPendingEl = document.getElementById("collab-poll-response-pending");
       const pollPendingLabelEl = document.getElementById("collab-poll-response-pending-label");
       const pollPendingAvatarsEl = document.getElementById("collab-poll-response-pending-avatars");
@@ -825,6 +856,8 @@
         pollDialogEl.hidden = true;
         pollDialogEl.setAttribute("aria-hidden", "true");
         if (pollOptionsEl) pollOptionsEl.innerHTML = "";
+        if (pollAddOptionEl) pollAddOptionEl.hidden = true;
+        if (pollNewOptionEl) pollNewOptionEl.value = "";
         if (pollPendingEl) pollPendingEl.hidden = true;
         if (pollPendingAvatarsEl) pollPendingAvatarsEl.innerHTML = "";
       }
@@ -851,6 +884,7 @@
         }
         var allowsMultiple = !!meta.poll_allows_multiple;
         var canRespond = !!taskData.can_respond;
+        var canAddOptions = canRespond && !!(meta.poll_allow_voter_options || poll.allow_voter_options);
         if (pollQuestionEl) {
           pollQuestionEl.textContent = poll.question || taskData.title || "Poll";
         }
@@ -859,7 +893,8 @@
         }
         if (pollNoteEl) {
           if (canRespond) {
-            pollNoteEl.textContent = allowsMultiple ? "Select one or more options." : "Select one option.";
+            pollNoteEl.textContent = (allowsMultiple ? "Select one or more options." : "Select one option.")
+              + (canAddOptions ? " You may also add a new option." : "");
           } else if (meta.poll_closed || poll.closed) {
             pollNoteEl.textContent = "This poll is closed to new responses.";
           } else {
@@ -870,6 +905,8 @@
         }
         if (pollClearEl) pollClearEl.disabled = !canRespond;
         if (pollSaveEl) pollSaveEl.disabled = !canRespond;
+        if (pollAddOptionEl) pollAddOptionEl.hidden = !canAddOptions;
+        if (pollNewOptionEl) pollNewOptionEl.disabled = !canAddOptions;
         var incompleteAssignees = meta.poll_results_visible && Array.isArray(meta.poll_incomplete_assignees)
           ? meta.poll_incomplete_assignees
           : [];
@@ -916,6 +953,8 @@
         if (pollQuestionEl) pollQuestionEl.textContent = "Loading poll…";
         if (pollMetaEl) pollMetaEl.textContent = "";
         if (pollNoteEl) pollNoteEl.textContent = "";
+        if (pollAddOptionEl) pollAddOptionEl.hidden = true;
+        if (pollNewOptionEl) pollNewOptionEl.value = "";
         if (pollOptionsEl) pollOptionsEl.innerHTML = '<div class="footer-note">Loading poll…</div>';
         fetchCollaboratorPollTask(taskId)
           .then(function (result) {
@@ -1071,6 +1110,7 @@
             node.setAttribute("data-selected", "0");
             node.classList.remove("is-selected");
           });
+          if (pollNewOptionEl) pollNewOptionEl.value = "";
         });
       }
       if (pollSaveEl) {
@@ -1079,11 +1119,12 @@
           const selectedOptionIds = Array.from(pollOptionsEl.querySelectorAll('[data-collab-poll-response-option][data-selected="1"]')).map(function (node) {
             return String(node.getAttribute("data-collab-poll-response-option") || "").trim();
           }).filter(Boolean);
+          const newOptionLabel = pollNewOptionEl ? String(pollNewOptionEl.value || "").trim() : "";
           pollSaveEl.disabled = true;
           fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/0/poll_response".replace("/0/poll_response", "/" + activePollTask.id + "/poll_response"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ option_ids: selectedOptionIds }),
+            body: JSON.stringify({ option_ids: selectedOptionIds, new_option_label: newOptionLabel }),
           })
             .then((res) => res.json().catch(() => ({})))
             .then((result) => {

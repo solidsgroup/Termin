@@ -1368,11 +1368,9 @@ def _collaborator_poll_task_payload(collaborator: CollaboratorProfile, task_id: 
     status_meta = task_status_meta_map([task], viewer_email=collaborator.email).get(task.id, {})
     if str(status_meta.get("mode") or "").strip().lower() != "poll":
         return None
-    from app.routes import _normalize_task_poll_payload
+    from app.routes import _task_poll
 
-    info_payload = load_info_payload(task.info, task.link)
-    meta = info_payload.get("meta") or {}
-    poll_payload = _normalize_task_poll_payload(meta.get("poll"))
+    poll_payload = _task_poll(task)
     collaboration_status = str(entry.get("status") or "").strip().lower()
     can_respond = collaboration_status == "accepted" and bool(status_meta.get("viewer_can_set")) and not bool(status_meta.get("poll_closed"))
     return {
@@ -3416,12 +3414,12 @@ def collaborator_task_poll_response(token: str, task_id: int):
     collaborator = CollaboratorProfile.query.filter_by(access_token=token).first()
     if not collaborator:
         return {"error": "invalid collaborator"}, 404
+    task = Task.query.filter_by(id=task_id).with_for_update().first()
+    if not task:
+        return {"error": "task not found"}, 404
     payload = _collaborator_poll_task_payload(collaborator, task_id)
     if not payload:
         return {"error": "poll task not found"}, 404
-    task = Task.query.get(task_id)
-    if not task:
-        return {"error": "task not found"}, 404
     if not payload["task"].get("can_respond"):
         return {"error": "only accepted assignees can respond to this poll"}, 403
     request_payload = request.get_json(silent=True) or {}
@@ -3430,13 +3428,19 @@ def collaborator_task_poll_response(token: str, task_id: int):
         option_ids = []
     if not isinstance(option_ids, list):
         return {"error": "option_ids must be a list"}, 400
+    new_option_label = request_payload.get("new_option_label")
+    if new_option_label is not None and not isinstance(new_option_label, str):
+        return {"error": "new_option_label must be a string"}, 400
     from app.routes import _set_task_poll_response, _task_impacted_ids, _touch_tasks
 
-    poll_payload = _set_task_poll_response(
+    poll_payload, error = _set_task_poll_response(
         task,
         email=collaborator.email,
         option_ids=option_ids,
+        new_option_label=new_option_label,
     )
+    if error or poll_payload is None:
+        return {"error": error or "Unable to save poll response"}, 409
     db.session.commit()
 
     response_count = len(

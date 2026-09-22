@@ -33,12 +33,20 @@ def _task_type(task: Task | None) -> str:
 
 def _task_poll_payload(task: Task | None) -> dict:
     if not task:
-        return {"question": "", "allows_multiple": False, "results_visibility": "everyone", "options": [], "responses": []}
+        return {
+            "question": "",
+            "allows_multiple": False,
+            "allow_voter_options": False,
+            "results_visibility": "everyone",
+            "options": [],
+            "responses": [],
+        }
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     meta = info_payload.get("meta") or {}
     poll = meta.get("poll") if isinstance(meta.get("poll"), dict) else {}
     question = str(poll.get("question") or "").strip()
     allows_multiple = bool(poll.get("allows_multiple"))
+    allow_voter_options = bool(poll.get("allow_voter_options"))
     results_visibility = str(poll.get("results_visibility") or "everyone").strip().lower()
     if results_visibility not in {"everyone", "creator"}:
         results_visibility = "everyone"
@@ -93,6 +101,7 @@ def _task_poll_payload(task: Task | None) -> dict:
     return {
         "question": question,
         "allows_multiple": allows_multiple,
+        "allow_voter_options": allow_voter_options,
         "closed": bool(poll.get("closed")),
         "results_visibility": results_visibility,
         "options": options,
@@ -331,9 +340,20 @@ def _base_task_status_meta(
     percentage_complete = int(round((complete_count / len(assignment_backed_statuses)) * 100)) if assignment_backed_statuses else 0
     if mode == "percent":
         percentage_complete = task_status_percentage(task)
-    poll_payload = _task_poll_payload(task) if mode == "poll" else {"question": "", "allows_multiple": False, "options": [], "responses": []}
+    poll_payload = _task_poll_payload(task) if mode == "poll" else {
+        "question": "",
+        "allows_multiple": False,
+        "allow_voter_options": False,
+        "options": [],
+        "responses": [],
+    }
     poll_response_by_identity: dict[str, dict] = {}
     if mode == "poll":
+        poll_has_responses = any(
+            bool(list(response.get("option_ids") or []))
+            for response in list(poll_payload.get("responses") or [])
+            if isinstance(response, dict)
+        )
         for response in list(poll_payload.get("responses") or []):
             response_user_id = response.get("user_id")
             response_email = (response.get("email") or "").strip().lower()
@@ -438,6 +458,8 @@ def _base_task_status_meta(
             "assignees": assignees,
             "poll_question": str(poll_payload.get("question") or "").strip(),
             "poll_allows_multiple": bool(poll_payload.get("allows_multiple")),
+            "poll_allow_voter_options": bool(poll_payload.get("allow_voter_options")),
+            "poll_has_responses": poll_has_responses,
             "poll_closed": bool(poll_payload.get("closed")),
             "poll_results_visibility": str(poll_payload.get("results_visibility") or "everyone"),
             "poll_results_visible": can_view_results,
