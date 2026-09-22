@@ -9731,6 +9731,33 @@
 	    window.__getActiveSuggestItem = getActiveSuggestItem;
 	    window.__moveSuggestSelection = moveSuggestSelection;
 
+      const positionAssignSuggest = (input, menu) => {
+        if (!input || !menu || !input.isConnected || !menu.isConnected) return;
+        const margin = 12;
+        const gap = 4;
+        const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+        const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+        const rect = input.getBoundingClientRect();
+
+        menu.style.maxHeight = "";
+        const naturalHeight = Math.min(menu.scrollHeight || menu.offsetHeight, Math.max(0, viewportHeight - (margin * 2)));
+        const roomBelow = Math.max(0, viewportHeight - rect.bottom - gap - margin);
+        const roomAbove = Math.max(0, rect.top - gap - margin);
+        const placeAbove = naturalHeight > roomBelow && roomAbove > roomBelow;
+        const availableHeight = placeAbove ? roomAbove : roomBelow;
+        menu.style.maxHeight = Math.max(0, Math.floor(availableHeight)) + "px";
+
+        const menuWidth = Math.min(menu.offsetWidth, Math.max(0, viewportWidth - (margin * 2)));
+        const menuHeight = menu.offsetHeight;
+        const left = Math.max(margin, Math.min(rect.left, viewportWidth - menuWidth - margin));
+        const preferredTop = placeAbove ? rect.top - menuHeight - gap : rect.bottom + gap;
+        const top = Math.max(margin, Math.min(preferredTop, viewportHeight - menuHeight - margin));
+        menu.style.left = Math.round(left) + "px";
+        menu.style.top = Math.round(top) + "px";
+        menu.style.visibility = "visible";
+        menu.dataset.placement = placeAbove ? "top" : "bottom";
+      };
+
 	    const showSuggest = (input, results) => {
 	      hideSuggest(input);
 	      if (typeof window.__withAssignSpecialSuggestions === "function") {
@@ -9740,8 +9767,9 @@
       const rect = input.getBoundingClientRect();
       const menu = document.createElement("div");
       menu.className = "assign-suggest";
-      menu.style.left = `${rect.left + window.scrollX}px`;
-      menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
+      menu.style.left = `${Math.max(12, rect.left)}px`;
+      menu.style.top = `${Math.max(12, rect.bottom + 4)}px`;
+      menu.style.visibility = "hidden";
 	      input._suggestItems = results;
 	      input._suggestButtons = [];
 	      input._suggestActiveIndex = 0;
@@ -9802,10 +9830,19 @@
       document.body.appendChild(menu);
       input.dataset.suggestId = "active";
       input._suggestEl = menu;
+	      input._suggestPositionHandler = () => positionAssignSuggest(input, menu);
+	      window.addEventListener("resize", input._suggestPositionHandler);
+	      window.addEventListener("scroll", input._suggestPositionHandler, true);
+	      positionAssignSuggest(input, menu);
 	      setSuggestActiveIndex(input, 0);
     };
 
     const hideSuggest = (input) => {
+      if (input && input._suggestPositionHandler) {
+        window.removeEventListener("resize", input._suggestPositionHandler);
+        window.removeEventListener("scroll", input._suggestPositionHandler, true);
+        input._suggestPositionHandler = null;
+      }
       if (input && input._suggestEl) {
         input._suggestEl.remove();
         input._suggestEl = null;

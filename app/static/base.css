@@ -5318,7 +5318,7 @@ body[data-theme="light"] .discussion-comment-action:focus-visible {
   display: none;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
-  min-width: 220px;
+  min-width: min(220px, calc(100vw - 24px));
   max-height: 320px;
   padding: 8px;
   border: 1px solid var(--border);
@@ -9602,12 +9602,15 @@ body[data-theme="light"] .due-summary.is-progress {
 }
 
 .assign-suggest {
-  position: absolute;
+  position: fixed;
   background: color-mix(in srgb, var(--panel) 96%, var(--panel-alt) 4%);
   border: 1px solid color-mix(in srgb, var(--border) 88%, var(--ink-soft) 12%);
   border-radius: 10px;
   min-width: 220px;
-  max-width: 320px;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 1000;
   box-shadow: 0 10px 24px color-mix(in srgb, var(--ink) 16%, transparent);
   padding: 6px 0;

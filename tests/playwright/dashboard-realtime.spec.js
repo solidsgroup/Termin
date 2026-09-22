@@ -3594,6 +3594,57 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Set the same task back to Open and verify the row and status button return to the Open state.', page);
   });
 
+  test('tree assignee suggestions stay inside the viewport for bottom rows', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['tree', 'assignee', 'menu', 'positioning']);
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+
+    let targetTask = null;
+    for (let index = 0; index < 12; index += 1) {
+      targetTask = await createTask(page, {
+        project_id: state.project.id,
+        group_id: state.group.id,
+        title: `Bottom assignee menu task ${index + 1}`,
+        due_mode: 'none',
+      });
+    }
+
+    await page.setViewportSize({ width: 1280, height: 520 });
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, targetTask.id);
+    const taskRow = page.locator(`[data-task-row-id="${targetTask.id}"]:visible`).first();
+    await taskRow.evaluate((row) => row.scrollIntoView({ block: 'end', inline: 'nearest' }));
+    const assignButton = taskRow.locator('.assign-add-btn:visible').first();
+    await expect(assignButton).toBeVisible();
+    await assignButton.click();
+
+    const input = taskRow.locator('[data-assign-input="task"]').first();
+    const menu = page.locator('.assign-suggest').first();
+    await expect(menu).toBeVisible();
+    await expect(menu).toHaveAttribute('data-placement', 'top');
+    const geometry = await page.evaluate(({ taskId }) => {
+      const row = document.querySelector(`[data-task-row-id="${taskId}"]`);
+      const anchor = row && row.querySelector('[data-assign-input="task"]');
+      const popup = document.querySelector('.assign-suggest');
+      const anchorRect = anchor.getBoundingClientRect();
+      const popupRect = popup.getBoundingClientRect();
+      return {
+        viewportHeight: document.documentElement.clientHeight,
+        anchorTop: anchorRect.top,
+        popupTop: popupRect.top,
+        popupBottom: popupRect.bottom,
+      };
+    }, { taskId: String(targetTask.id) });
+    expect(geometry.popupTop).toBeGreaterThanOrEqual(11);
+    expect(geometry.popupBottom).toBeLessThanOrEqual(geometry.viewportHeight - 11);
+    expect(geometry.popupBottom).toBeLessThanOrEqual(geometry.anchorTop);
+    await steps.step('Open the assignee menu on the final visible Tree row and verify it flips above the input without leaving the viewport.', page);
+
+    await input.press('Escape');
+    await expect(menu).toHaveCount(0);
+  });
+
   test('tree no-assignee selection is immediate and remains a single badge', async ({ page, request }) => {
     const state = await fetchSeedState(request);
     await login(page, state.owner.email, state.owner.password);
