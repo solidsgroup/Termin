@@ -5311,7 +5311,8 @@
           }
           var trackHtml = "";
           var relativeClass = isRelativeDue ? " is-relative-due" : "";
-          var dueReadOnly = locked || (dueMode !== "date" && !(isRelativeDue && relativeAnchorIso));
+          var canSetDueDate = !item.due_at && dueMode !== "relative";
+          var dueReadOnly = locked || (!canSetDueDate && dueMode !== "date" && !(isRelativeDue && relativeAnchorIso));
           var startReadOnly = locked;
           if (hasSpan) {
             var clampedStart = Math.max(0, Math.min(rangeDays, startDeltaDays));
@@ -5336,7 +5337,7 @@
             var anchorPercent = ganttPercentForRenderIso(relativeAnchorIso);
             trackHtml += '<span class="project-gantt-relative-anchor' + (relativeReferenceInProject ? ' is-in-project' : '') + '" style="left:' + anchorPercent.toFixed(2) + '%;" title="' + escapeProjectGanttText("Reference due: " + relativeReferenceTitle + " (" + relativeAnchorIso + ")") + '"></span>';
           }
-          trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="' + (isRelativeDue ? 'Relative due date is derived' : 'Adjust due date') + '" style="left:' + endPercent.toFixed(2) + '%;"' + (dueReadOnly ? ' disabled' : '') + (relativeTitle ? ' title="' + escapeProjectGanttText(relativeTitle) + '"' : '') + '></button>';
+          trackHtml += '<button class="project-gantt-handle is-end" type="button" data-gantt-handle="end" data-task-id="' + escapeProjectGanttText(item.id) + '" aria-label="' + (canSetDueDate ? 'Set due date' : (isRelativeDue ? 'Relative due date is derived' : 'Adjust due date')) + '" style="left:' + endPercent.toFixed(2) + '%;"' + (dueReadOnly ? ' disabled' : '') + (relativeTitle ? ' title="' + escapeProjectGanttText(relativeTitle) + '"' : '') + '></button>';
           return overdueSpanHtml + trackHtml;
         }
 	        var rows = sections.map(function (section) {
@@ -23021,7 +23022,7 @@
           }
         }
         if (!patchBody) {
-          if (state.handle === "end" && taskDueMode !== "date") {
+          if (state.handle === "end" && taskDueMode !== "date" && !state.settingDueDate) {
             if (state.task && typeof window.__updateProjectGanttItemLocal === "function") {
               window.__updateProjectGanttItemLocal(state.task);
             }
@@ -23035,8 +23036,8 @@
           var propagationTask = optimisticTask ? Object.assign({}, optimisticTask) : (state.task ? Object.assign({}, state.task) : null);
           if (propagationTask) {
             propagationTask.due_at = nextIso;
-            if (!propagationTask.due_mode) {
-              propagationTask.due_mode = taskDueMode || "date";
+            if (state.settingDueDate || !propagationTask.due_mode) {
+              propagationTask.due_mode = state.settingDueDate ? "date" : (taskDueMode || "date");
             }
             if (typeof window.__updateProjectGanttItemLocal === "function") {
               window.__updateProjectGanttItemLocal(propagationTask);
@@ -26404,27 +26405,49 @@
     });
 
     document.addEventListener("pointerdown", function (event) {
-      var handle = event.target.closest("[data-gantt-handle]");
-      if (!handle) return;
-      if (handle.disabled) return;
-      var track = handle.closest("[data-gantt-track]");
+      if (event.button !== 0 || activeGanttDrag) return;
+      var track = event.target.closest("[data-gantt-track]");
       if (!track) return;
+      var handle = event.target.closest("[data-gantt-handle]");
       if (String(track.getAttribute("data-task-locked") || "") === "1") return;
       var panel = track.closest("[data-project-gantt]");
       var taskId = String(track.getAttribute("data-task-id") || "").trim();
       if (!taskId) return;
-      var handleType = String(handle.getAttribute("data-gantt-handle") || "").trim();
       var originalStart = String(track.getAttribute("data-task-start-date") || "").trim();
       var originalDue = String(track.getAttribute("data-task-due-date") || "").trim();
+      var dueMode = String(track.getAttribute("data-task-due-mode") || "none");
+      var settingDueDate = !originalDue && dueMode !== "relative";
+      var clickedIso = ganttTrackDateFromClientX(track, event.clientX);
+      // Resolve missing dates from the track itself, without requiring a prior
+      // hover or a hit on the small, moving provisional handle.
+      if (!handle) {
+        if (settingDueDate) {
+          handle = track.querySelector('[data-gantt-handle="end"]');
+        } else if (!originalStart && originalDue && dueMode === "date" && clickedIso && clickedIso < originalDue.slice(0, 10)) {
+          handle = track.querySelector('[data-gantt-provisional-start="1"]');
+        }
+      }
+      if (!handle || handle.disabled) return;
+      var handleType = String(handle.getAttribute("data-gantt-handle") || "").trim();
+      settingDueDate = settingDueDate && handleType === "end";
       var effectiveDue = String(track.getAttribute("data-task-effective-due-date") || originalDue).trim();
-      var provisionalStart = String(handle.getAttribute("data-gantt-provisional-iso") || "").trim();
+      var provisionalStart = handleType === "start" && !originalStart ? clickedIso : "";
+      if (provisionalStart && (!originalDue || provisionalStart >= originalDue.slice(0, 10))) return;
       var originalIso = handleType === "start" ? (originalStart || provisionalStart) : effectiveDue;
+      if (settingDueDate) {
+        originalIso = clickedIso;
+        if (originalIso && originalStart && originalIso < originalStart.slice(0, 10)) originalIso = originalStart.slice(0, 10);
+      }
       if (!originalIso) return;
       var existingItem = panel ? parseProjectGanttItemsLocal(panel).find(function (item) {
         return String(item && item.id || "") === taskId;
       }) : null;
       event.preventDefault();
-      updateGanttHoverLine(track, event.clientX, handle);
+      if (settingDueDate || provisionalStart) {
+        setGanttHoverLinePercent(track, ganttPercentForIso(track, originalIso), originalIso);
+      } else {
+        updateGanttHoverLine(track, event.clientX, handle);
+      }
       activeGanttDrag = {
         taskId: taskId,
         task: Object.assign({}, existingItem || {}, {
@@ -26434,7 +26457,7 @@
             ? handle.closest(".project-gantt-row").querySelector("[data-task-title]").getAttribute("data-task-title")
             : ""),
           start_date: originalStart,
-          due_at: handleType === "end" ? originalIso : originalDue,
+          due_at: originalDue,
           due_mode: track.getAttribute("data-task-due-mode") || (originalDue ? "date" : "none"),
         }),
         track: track,
@@ -26449,7 +26472,8 @@
         pointerId: event.pointerId,
         originalIso: originalIso,
         nextIso: originalIso,
-        commitOnClick: handleType === "start" && !originalStart && !!provisionalStart,
+        settingDueDate: settingDueDate,
+        commitOnClick: settingDueDate || (handleType === "start" && !originalStart && !!provisionalStart),
         clearOnClick: handleType === "start" && !!originalStart,
       };
       var activeGanttRow = track.closest(".project-gantt-row");
@@ -26462,7 +26486,7 @@
         } catch (_err) {}
       }
       document.body.classList.add("is-gantt-dragging");
-      positionGanttTooltip(activeGanttDrag);
+      applyGanttDragPreview(activeGanttDrag);
     });
 
 	    document.addEventListener("pointermove", function (event) {
@@ -26505,11 +26529,13 @@
       }
     });
 
-    document.addEventListener("pointerup", function () {
+    document.addEventListener("pointerup", function (event) {
+      if (!activeGanttDrag || event.pointerId !== activeGanttDrag.pointerId) return;
       finishActiveGanttDrag(true);
     });
 
-    document.addEventListener("pointercancel", function () {
+    document.addEventListener("pointercancel", function (event) {
+      if (!activeGanttDrag || event.pointerId !== activeGanttDrag.pointerId) return;
       finishActiveGanttDrag(false);
     });
 	    document.addEventListener("pointerout", function (event) {

@@ -3854,6 +3854,114 @@ test.describe('dashboard and realtime flows', () => {
     expect(regressedOrders).toEqual([]);
   });
 
+  for (const view of ['project', 'todo']) {
+    test(`${view} gantt track clicks set missing dates and preserve existing dates`, async ({ page, request }) => {
+      test.setTimeout(60_000);
+      const state = await fetchSeedState(request);
+      await login(page, state.owner.email, state.owner.password);
+      const configured = await page.evaluate(async ({ projectId, start, end }) => {
+        const response = await fetch(`/api/projects/${projectId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start_date: start, end_date: end }),
+        });
+        return response.ok;
+      }, { projectId: state.project.id, start: isoDateWithOffset(-2), end: isoDateWithOffset(30) });
+      expect(configured).toBeTruthy();
+      const task = await createTask(page, {
+        project_id: state.project.id,
+        group_id: state.group.id,
+        title: 'Click to schedule Gantt task',
+        assignee_email: state.owner.email,
+        due_mode: 'none',
+      });
+      let panel;
+      if (view === 'project') {
+        await page.goto(`/tree/project/${state.project.id}`);
+        await waitForTreeProjectReady(page, state.project.id, task.id);
+        const board = page.locator(`[data-tree-project-board="${state.project.id}"]`);
+        await board.locator('[data-project-mode-button="gantt"]').click();
+        panel = board.locator('[data-project-gantt]');
+      } else {
+        await page.goto('/todo');
+        await expect(page.locator('.todo-board[data-todo-client-board="1"]')).toHaveAttribute('data-todo-board-ready', '1');
+        await page.locator('[data-todo-mode-trigger]').click();
+        await page.locator('[data-todo-mode-option="gantt"]').click();
+        panel = page.locator('[data-todo-gantt]');
+      }
+      const track = panel.locator(`[data-gantt-track][data-task-id="${task.id}"]`);
+      async function pointAt(fraction) {
+        await track.scrollIntoViewIfNeeded();
+        const box = await track.boundingBox();
+        const start = await track.getAttribute('data-project-start-date');
+        const end = await track.getAttribute('data-project-end-date');
+        const range = Math.round((Date.parse(end) - Date.parse(start)) / 86400000);
+        return {
+          x: box.x + box.width * fraction,
+          // Above the small handle: the entire track must accept the click.
+          y: box.y + 1,
+          iso: new Date(Date.parse(start) + Math.round(range * fraction) * 86400000).toISOString().slice(0, 10),
+        };
+      }
+      async function clickTrack(fraction) {
+        const point = await pointAt(fraction);
+        await page.mouse.click(point.x, point.y);
+        return point.iso;
+      }
+      const due = await clickTrack(0.64);
+      await expect(track).toHaveAttribute('data-task-due-date', new RegExp(`^${due}`));
+      expect((await fetchTaskViaApi(page, task.id)).due_mode).toBe('date');
+      await page.reload();
+      if (view === 'project') {
+        await waitForTreeProjectReady(page, state.project.id, task.id);
+        await page.locator(`[data-tree-project-board="${state.project.id}"] [data-project-mode-button="gantt"]`).click();
+      }
+      await expect(track).toHaveAttribute('data-task-due-date', new RegExp(`^${due}`));
+
+      const start = await clickTrack(0.24);
+      await expect(track).toHaveAttribute('data-task-start-date', start);
+      expect((await fetchTaskViaApi(page, task.id)).start_date).toBe(start);
+      await expect(track.locator('.project-gantt-span')).toBeVisible();
+      await page.reload();
+      if (view === 'project') {
+        await waitForTreeProjectReady(page, state.project.id, task.id);
+        await page.locator(`[data-tree-project-board="${state.project.id}"] [data-project-mode-button="gantt"]`).click();
+      }
+      await expect(track).toHaveAttribute('data-task-start-date', start);
+      await expect(track).toHaveAttribute('data-task-due-date', new RegExp(`^${due}`));
+
+      // Blank track clicks must not replace an existing range.
+      await clickTrack(0.9);
+      expect((await fetchTaskViaApi(page, task.id)).start_date).toBe(start);
+      await track.locator('[data-gantt-handle="start"]').click();
+      await expect(track).toHaveAttribute('data-task-start-date', '');
+      // Click beyond the due date must not create an invalid start date.
+      await clickTrack(0.9);
+      expect((await fetchTaskViaApi(page, task.id)).start_date || '').toBe('');
+      const replacementStart = await clickTrack(0.36);
+      await expect(track).toHaveAttribute('data-task-start-date', replacementStart);
+
+      // Existing due-date dragging continues to work.
+      const endHandle = track.locator('[data-gantt-handle="end"]');
+      await endHandle.hover();
+      const handleBox = await endHandle.boundingBox();
+      const destination = await pointAt(0.8);
+      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(destination.x, destination.y, { steps: 5 });
+      await page.mouse.up();
+      await expect(track).toHaveAttribute('data-task-due-date', new RegExp(`^${destination.iso}`));
+
+      await patchTask(page, task.id, { due_mode: 'none', due_at: '', start_date: '', locked: true });
+      await expect(track).toHaveAttribute('data-task-locked', '1');
+      await clickTrack(0.5);
+      const lockedTask = await fetchTaskViaApi(page, task.id);
+      expect(lockedTask.due_mode).toBe('none');
+      expect(lockedTask.due_at).toBeFalsy();
+      expect(lockedTask.start_date).toBeFalsy();
+    });
+  }
+
   test('gantt ruler follows the full timeline and its header stays visible while scrolling', async ({ page, request }) => {
     const state = await fetchSeedState(request);
     await login(page, state.owner.email, state.owner.password);
