@@ -1151,6 +1151,47 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Verify the task disappears from Action Items when the viewer-specific status becomes complete.', page);
   });
 
+  test('stale drawer status-mode save does not reopen a completed per-user task', async ({ page, request }) => {
+    const steps = createStepRecorder(test.info());
+    await steps.tags(['dashboard', 'status', 'multi-status', 'regression']);
+    const state = await fetchSeedState(request);
+    const today = isoDateWithOffset(0);
+
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, {
+      project_id: state.project.id,
+      group_id: state.group.id,
+      title: 'Stale Mode Completed Task',
+      assignee_email: state.owner.email,
+      due_at: today,
+      due_mode: 'date',
+    });
+    await patchTask(page, task.id, { status: 'open', status_mode: 'multi' });
+    await patchTask(page, task.id, { user_status: 'complete', status_user_id: state.owner.id });
+    await steps.step('Create an owner-assigned multi-status task and mark the owner status complete.', page);
+
+    await patchTask(page, task.id, {
+      title: 'Stale Mode Completed Task',
+      due_at: today,
+      due_mode: 'date',
+      start_date: '',
+      status_mode: 'single',
+      description: '',
+      description_format: 'plain',
+    });
+    await steps.step('Replay the stale full drawer save that used to arrive after completion with only status_mode=single.', page);
+
+    await expect.poll(async () => {
+      const freshTask = await fetchTaskViaApi(page, task.id);
+      return {
+        mode: String(freshTask.status_mode || '').toLowerCase(),
+        status: String(freshTask.status || '').toLowerCase(),
+        state: String((freshTask.status_meta && freshTask.status_meta.task_status_state) || '').toLowerCase(),
+      };
+    }).toEqual({ mode: 'single', status: 'complete', state: 'complete' });
+    await steps.step('Verify the stale status-mode save preserves the completed state instead of reopening the task.', page);
+  });
+
   test('dashboard action items remove a 100 percent progress task without refresh', async ({ page, request }) => {
     const steps = createStepRecorder(test.info());
     await steps.tags(['dashboard', 'action-items', 'percent-status', 'regression']);

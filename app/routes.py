@@ -2983,6 +2983,7 @@ def update_task(task_id: int):
     old_due_mode = _task_due_mode(task)
     old_start_date = _task_start_date(task)
     old_status_mode = _task_status_mode(task)
+    preserved_single_status = None
     old_info_payload = _info_payload_for(task)
     old_per_user_status_enabled = bool(task.per_user_status_enabled)
     old_assign_group_members = bool(task.assign_group_members)
@@ -3051,9 +3052,21 @@ def update_task(task_id: int):
     if status is not None:
         task.status = status.strip() or task.status
     if status_mode is not None:
+        next_status_mode = normalize_task_status_mode(status_mode, default="single")
+        if next_status_mode == "single" and old_status_mode != "single" and status is None:
+            old_status_meta = task_status_meta(task, viewer_user_id=user.id)
+            old_aggregate_state = str(old_status_meta.get("aggregate_state") or old_status_meta.get("task_status_state") or "open")
+            if old_aggregate_state == "complete":
+                preserved_single_status = "complete"
+            elif old_aggregate_state == "critical":
+                preserved_single_status = "critical"
+            else:
+                preserved_single_status = "open"
         ok, error = _set_task_status_mode(task, status_mode)
         if not ok:
             return {"error": error}, 400
+        if preserved_single_status is not None:
+            task.status = preserved_single_status
     elif per_user_status_enabled is not None:
         task.status_mode = "multi" if bool(per_user_status_enabled) else "single"
         task.per_user_status_enabled = bool(per_user_status_enabled)

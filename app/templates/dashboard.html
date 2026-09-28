@@ -19916,6 +19916,7 @@
       }
       if (taskSettingsStatusModeEl) {
         taskSettingsStatusModeEl.value = meta.mode === "poll" ? "single" : (meta.mode || "single");
+        taskSettingsStatusModeEl.dataset.statusModeBaseline = taskSettingsStatusModeEl.value;
         taskSettingsStatusModeEl.disabled = locked || meta.mode === "poll";
       }
       if (taskSettingsStatusModePickerEl) {
@@ -20156,6 +20157,7 @@
       }
       if (taskSettingsStatusModeEl) {
         taskSettingsStatusModeEl.value = "single";
+        taskSettingsStatusModeEl.dataset.statusModeBaseline = "single";
         taskSettingsStatusModeEl.disabled = false;
       }
       if (taskSettingsStatusModePickerEl) {
@@ -21023,10 +21025,15 @@
             : "",
           task_type: taskType,
           poll: pollPayload,
-          status_mode: statusMode,
           description: descriptionPayload.description,
           description_format: descriptionPayload.description_format,
         };
+        var baselineStatusMode = taskSettingsStatusModeEl
+          ? String(taskSettingsStatusModeEl.dataset.statusModeBaseline || taskSettingsStatusModeEl.value || "single")
+          : "single";
+        if (statusMode !== baselineStatusMode) {
+          payload.status_mode = statusMode;
+        }
         if (taskIsGoogleDriveManaged(currentTaskData || {})) {
           payload = {
             due_at: payload.due_at,
