@@ -1,5 +1,6 @@
 from collections import Counter
 
+from app.volunteers import task_assignee_mode
 from app.extensions import db
 from app.info_utils import load_info_payload
 from app.models import Assignment, Task, TaskCollaboratorStatus, TaskPrerequisite, TaskUserStatus, User
@@ -266,6 +267,9 @@ def _base_task_status_meta(
     if assignments_by_task is None:
         assignments_by_task = load_task_assignment_rows([task.id] if task and task.id else [])
     assignments = list((assignments_by_task or {}).get(task.id, []))
+    volunteer_mode = task_assignee_mode(task) == "volunteer"
+    if volunteer_mode:
+        assignments = [row for row in assignments if row.volunteered_at]
     if users_by_id is None:
         assignment_user_ids = sorted({int(row.user_id) for row in assignments if row.user_id is not None})
         users_by_id = {
@@ -470,6 +474,13 @@ def _base_task_status_meta(
             "poll_viewer_option_ids": poll_viewer_option_ids,
         }
     has_viewer_identity = (viewer_user_id is not None) or bool((viewer_email or "").strip())
+    volunteer_waiting = volunteer_mode and mode == "multi" and len(assignments) < (task.volunteers_required or 1)
+    if mode == "percent":
+        aggregate_state = "complete" if percentage_complete >= 100 else "open"
+    elif enabled:
+        aggregate_state = "open" if volunteer_waiting else aggregate_status_state(assignment_backed_statuses)
+    else:
+        aggregate_state = task_status_state(base_status)
     return {
         "mode": mode,
         "enabled": enabled,
@@ -478,7 +489,7 @@ def _base_task_status_meta(
         "prereq_met_count": 0,
         "task_status": base_status,
         "task_status_state": task_status_state(base_status),
-        "aggregate_state": ("complete" if percentage_complete >= 100 else "open") if mode == "percent" else (aggregate_status_state(assignment_backed_statuses) if enabled else task_status_state(base_status)),
+        "aggregate_state": aggregate_state,
         "my_status": normalize_task_status(my_status) if (has_viewer_identity and my_status is not None) else None,
         "my_status_state": task_status_state(my_status) if (has_viewer_identity and my_status is not None) else None,
         "viewer_can_set": (not enabled) or viewer_is_assignee,

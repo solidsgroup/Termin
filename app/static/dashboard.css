@@ -4745,3 +4745,22 @@ body[data-theme="light"] .todo-mode-menu {
     width: auto;
   }
 }
+
+/* Volunteer controls stay beside the title, including on touch screens. */
+.task-volunteer-host { display: inline-flex; flex: 0 0 auto; align-items: center; }
+.task-volunteer-host:empty { display: none; }
+.task-volunteer-button {
+  display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap;
+  min-height: 32px; padding: .25rem .6rem; border-radius: 999px;
+  border: 1px solid #2586cf; background: #1476bd; color: #fff;
+  font-size: .78rem; line-height: 1.2; cursor: pointer; opacity: 1;
+}
+.task-volunteer-button:disabled { cursor: default; background: var(--panel); border-color: var(--border); color: var(--ink); }
+.task-volunteer-button:focus-visible { outline: 2px solid #48b9ff; outline-offset: 2px; }
+.volunteer-count { font-variant-numeric: tabular-nums; }
+.volunteer-settings { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .5rem; margin-top: .6rem; }
+.volunteer-settings label { font-size: .8rem; }
+.volunteer-settings [hidden] { display: none !important; }
+.volunteer-settings select, .volunteer-settings input { width: 100%; min-width: 0; }
+.volunteer-settings .needs-volunteers { border: 2px solid #d53a41 !important; }
+#volunteer-assignment-summary { grid-column: 1 / -1; font-size: .8rem; }

@@ -6,6 +6,7 @@ import re
 
 from markdown import markdown as render_markdown
 
+from app.volunteers import task_assignee_mode, volunteer_payload
 from app.discussion_activity import build_discussion_activity_items
 from app.extensions import db
 from app.group_assignments import serialize_group_assignment_members
@@ -310,7 +311,8 @@ def _serialize_task(
         "attachments": list(info.get("attachments") or []),
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": due_mode,
-        "assignee_mode": "none" if str(meta.get("assignee_mode") or "").strip().lower() == "none" else "default",
+        "assignee_mode": task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": {
             "task_id": due_relative_task_id,
             "task_title": due_relative_title,

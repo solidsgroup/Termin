@@ -46,7 +46,7 @@ def notification_event_key_for_kind(kind: str, *, task_id=None, project_id=None,
         if project_id and not task_id:
             return "project_message"
         return "task_message"
-    if normalized == "assignment_added":
+    if normalized in {"assignment_added", "volunteer_accepted"}:
         return "task_assigned"
     if normalized == "task_completed":
         return "task_completed"

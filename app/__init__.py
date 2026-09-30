@@ -112,7 +112,7 @@ def create_app() -> Flask:
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        return {"status": "ok", "commit": os.environ.get("RENDER_GIT_COMMIT")}
 
     @app.get("/manifest.webmanifest")
     def web_manifest():

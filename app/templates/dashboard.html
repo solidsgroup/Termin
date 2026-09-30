@@ -351,6 +351,7 @@
   </thead>
 {% endmacro %}
 {% macro render_dependency_badge(task_id, dependents) %}
+  <span class="task-volunteer-host" data-volunteer-host="{{ task_id }}"></span>
   {% set count = dependents|length if dependents else 0 %}
   {% if count %}
     <button class="task-dependency-badge" type="button" data-task-dependency-badge="{{ task_id }}" aria-label="{{ count }} dependent task{% if count != 1 %}s{% endif %}" title="{{ count }} dependent task{% if count != 1 %}s{% endif %}">
@@ -1304,6 +1305,7 @@
     <div>
       <div class="discussion-title-row">
         <div class="discussion-title" id="discussion-title">Discussion</div>
+        <span id="discussion-volunteer"></span>
         <button class="discussion-lock-toggle" type="button" id="discussion-lock-toggle" aria-label="Lock task" title="Lock task" hidden>
           <i class="fa-solid fa-lock-open" aria-hidden="true"></i>
         </button>
@@ -1467,6 +1469,16 @@
         <span class="discussion-setting-label discussion-setting-label--row">Assign</span>
         <div class="discussion-setting-group-body">
           <input id="task-settings-assignee" type="text" placeholder="assignee@email" aria-label="Assign" autocomplete="termin-nope-assign" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <div class="volunteer-settings">
+            <label for="task-assignment-mode">Assignment mode</label>
+            <select id="task-assignment-mode">
+              <option value="default">Assign</option>
+              <option value="volunteer">Get Volunteer</option>
+            </select>
+            <label id="volunteer-count-label" for="task-volunteers-required" hidden>Volunteers needed</label>
+            <input id="task-volunteers-required" type="number" min="1" step="1" value="1" hidden />
+            <span id="volunteer-assignment-summary" role="status"></span>
+          </div>
           <div class="discussion-settings-assignments" id="task-settings-assignments"></div>
         </div>
       </div>
@@ -2547,6 +2559,7 @@
         '<td>' +
           '<div class="task-cell' + (hasInfo ? " has-info" : "") + '">' +
             '<div class="editable" contenteditable="true" data-task-id="' + taskId + '" data-field="title" data-col="1">' + escapeHtml(title) + '</div>' +
+            '<span class="task-volunteer-host" data-volunteer-host="' + taskId + '"></span>' +
             '<span data-task-dependency-badge-host="' + taskId + '"></span>' +
             '<span class="task-link-badges" data-task-link-badges="' + taskId + '">' + renderTaskLinkBadges(info.links || []) + '</span>' +
             "<span class=\"task-pill\">" +
@@ -5374,6 +5387,7 @@
 		                '<div class="project-gantt-task-title-row">' +
 		                  todoCheckHtml +
 		                  '<button class="project-gantt-task-title" type="button" data-open-gantt-task="' + escapeProjectGanttText(item.id) + '" data-task-title="' + escapeProjectGanttText(item.title || "Task") + '" data-project-name="' + escapeProjectGanttText(itemProjectName || "") + '">' + escapeProjectGanttText(item.title || "Task") + '</button>' +
+                          (typeof window.__renderVolunteerButtonHtml === "function" ? window.__renderVolunteerButtonHtml(item) : "") +
                           (typeof window.__renderDependencyBadgeHtml === "function" ? window.__renderDependencyBadgeHtml(item, { host: false }) : "") +
 		                '</div>' +
 		              '</div>' +
@@ -7511,7 +7525,7 @@
               taskMeta.assignments = mergedAssignments;
               var updatedTaskMeta = Object.assign({}, taskMeta, {
                 assignments: mergedAssignments,
-                assignee_mode: "default",
+                assignee_mode: taskMeta.assignee_mode === "volunteer" ? "volunteer" : "default",
               });
               if (typeof mergeDashboardTask === "function") mergeDashboardTask(updatedTaskMeta);
               else if (typeof window.__mergeDashboardTask === "function") window.__mergeDashboardTask(updatedTaskMeta);
@@ -7535,18 +7549,16 @@
     }
 
     function updateSendLinkBadge(assignmentId) {
-      var badge = document.querySelector('[data-assignment-id="' + assignmentId + '"]');
-      if (badge) {
-        var button = badge.querySelector("[data-send-link]");
-        if (button) button.textContent = "Resend";
-      }
-      var settingsRow = taskSettingsAssignmentsEl ? taskSettingsAssignmentsEl.querySelector('[data-assignment-id="' + assignmentId + '"]') : null;
-      if (settingsRow && currentTaskData && Array.isArray(currentTaskData.assignments)) {
-        currentTaskData.assignments = currentTaskData.assignments.map(function (row) {
-          if (String(row.id) !== String(assignmentId)) return row;
-          return Object.assign({}, row, { status: "link_sent" });
+      document.querySelectorAll('[data-assignment-id="' + assignmentId + '"] [data-send-link]').forEach(function (button) {
+        button.textContent = "Resend";
+      });
+      var task = typeof window.__getCurrentTaskData === "function" ? window.__getCurrentTaskData() : null;
+      if (task && Array.isArray(task.assignments) && typeof window.__setCurrentTaskData === "function") {
+        var assignments = task.assignments.map(function (row) {
+          return String(row.id) === String(assignmentId) ? Object.assign({}, row, { status: "link_sent" }) : row;
         });
-        renderTaskSettings();
+        window.__setCurrentTaskData(Object.assign({}, task, { assignments: assignments }));
+        if (typeof window.__renderTaskSettings === "function") window.__renderTaskSettings();
       }
     }
 
@@ -8424,6 +8436,11 @@
     };
 
     const taskAssignmentKeysFromData = (task, assignments) => {
+      if (task && task.assignee_mode === "volunteer" && task.volunteer &&
+          task.volunteer.accepted_count >= task.volunteer.required) {
+        const confirmed = new Set((task.volunteer.accepted_assignment_ids || []).map(String));
+        assignments = (assignments || []).filter((row) => confirmed.has(String(row.id)));
+      }
       if (task && task.assign_group_members) {
         const keys = new Set(taskAssignmentKeysFromMembers(task.group_assignment_members || []).split(",").filter(Boolean));
         (Array.isArray(assignments) ? assignments : []).forEach((assignment) => {
@@ -8598,17 +8615,16 @@
     };
 
     const updateSendLinkBadge = (assignmentId) => {
-      const badge = document.querySelector(`[data-assignment-id='${assignmentId}']`);
-      if (badge) {
-        const button = badge.querySelector("[data-send-link]");
-        if (button) button.textContent = "Resend";
-      }
-      const settingsRow = taskSettingsAssignmentsEl ? taskSettingsAssignmentsEl.querySelector(`[data-assignment-id='${assignmentId}']`) : null;
-      if (settingsRow && currentTaskData && Array.isArray(currentTaskData.assignments)) {
-        currentTaskData.assignments = currentTaskData.assignments.map((row) =>
-          String(row.id) !== String(assignmentId) ? row : Object.assign({}, row, { status: "link_sent" })
-        );
-        renderTaskSettings();
+      document.querySelectorAll('[data-assignment-id="' + assignmentId + '"] [data-send-link]').forEach(function (button) {
+        button.textContent = "Resend";
+      });
+      var task = typeof window.__getCurrentTaskData === "function" ? window.__getCurrentTaskData() : null;
+      if (task && Array.isArray(task.assignments) && typeof window.__setCurrentTaskData === "function") {
+        var assignments = task.assignments.map(function (row) {
+          return String(row.id) === String(assignmentId) ? Object.assign({}, row, { status: "link_sent" }) : row;
+        });
+        window.__setCurrentTaskData(Object.assign({}, task, { assignments: assignments }));
+        if (typeof window.__renderTaskSettings === "function") window.__renderTaskSettings();
       }
     };
 
@@ -8801,7 +8817,7 @@
         <td>
           <div class="task-cell${info && (info.html || (info.attachments || []).length) ? " has-info" : ""}">
             <div class="editable" contenteditable="true" data-task-id="${id}" data-field="title" data-col="1">${safeTitle}</div>
-            <span data-task-dependency-badge-host="${id}"></span>
+            <span class="task-volunteer-host" data-volunteer-host="${id}"></span><span data-task-dependency-badge-host="${id}"></span>
             <span class="task-link-badges" data-task-link-badges="${id}">${renderInlineTaskLinkBadges((info && info.links) || [])}</span>
             <span class="task-pill">
               <button class="task-pill-segment" type="button" data-open-settings="${id}" data-task-title="${safeTitle}" data-project-name=""><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
@@ -9170,7 +9186,7 @@
           const currentTask = typeof window.__getCurrentTaskData === "function"
             ? window.__getCurrentTaskData()
             : null;
-          if (container || !taskSettingsAssignmentsEl || String(openTaskId || "") !== String(targetId)) return;
+          if (container || !document.getElementById("task-settings-assignments") || String(openTaskId || "") !== String(targetId)) return;
           const added = (results || []).filter((row) => row && row.id);
           if (!added.length) return;
           const existing = Array.isArray((currentTask || {}).assignments) ? currentTask.assignments.slice() : [];
@@ -15016,6 +15032,117 @@
       return normalized;
     }
 
+    function volunteerState(task) {
+      var state = task && task.volunteer || {};
+      var assignments = task && Array.isArray(task.assignments) ? task.assignments : [];
+      var mine = assignments.find(function (row) {
+        return String(row.user_id || "") === String(currentUserId || "") ||
+          (row.email && String(row.email).toLowerCase() === String(currentUserEmail || "").toLowerCase());
+      });
+      var acceptedIds = state.accepted_assignment_ids || [];
+      var accepted = !!mine && acceptedIds.some(function (id) { return String(id) === String(mine.id); });
+      var active = !!task && task.assignee_mode === "volunteer";
+      var filled = Number(state.accepted_count || 0) >= Number(state.required || 1);
+      var complete = task && taskAggregateStatusState(task) === "complete";
+      return { active: active, mine: mine, accepted: accepted, filled: filled,
+        pending: active && !!mine && !accepted && !filled && !complete,
+        required: Number(state.required || 1), count: Number(state.accepted_count || 0),
+        label: Number(state.invitee_count || assignments.length) === Number(state.required || 1) ? "Accept" : "Volunteer" };
+    }
+
+    function renderVolunteerButtonHtml(task) {
+      if (!task || !task.id) return "";
+      task = dashboardTaskEntity(task.id) || task;
+      var state = volunteerState(task);
+      var content = "";
+      if (state.active) {
+        var label = state.accepted ? "Accepted" : state.filled ? "Filled" : state.label;
+        content = '<button type="button" class="task-volunteer-button" data-volunteer-task="' + escapeHtml(task.id) + '"' +
+          ((!state.pending || task.locked) ? ' disabled' : '') +
+          ' title="' + state.count + ' of ' + state.required + ' volunteers confirmed">' +
+          '<i class="fa-solid fa-hand" aria-hidden="true"></i> ' + label +
+          ' <span class="volunteer-count">' + state.count + '/' + state.required + '</span></button>';
+      }
+      return '<span class="task-volunteer-host" data-volunteer-host="' + escapeHtml(task.id) + '">' + content + '</span>';
+    }
+    window.__renderVolunteerButtonHtml = renderVolunteerButtonHtml;
+
+    function refreshVolunteerButtons(task) {
+      if (!task || !task.id) return;
+      document.querySelectorAll('[data-volunteer-host="' + task.id + '"]').forEach(function (host) {
+        host.outerHTML = renderVolunteerButtonHtml(task);
+      });
+    }
+
+    function taskTodoBucket(task, dueValue, createdValue, dueMode) {
+      if (volunteerState(task).pending) return { key: "volunteer", label: "Volunteer Requests", rank: -2 };
+      return todoBucketFor(dueValue, createdValue, dueMode);
+    }
+
+    function syncVolunteerSettings(task) {
+      var mode = document.getElementById("task-assignment-mode");
+      var count = document.getElementById("task-volunteers-required");
+      var label = document.getElementById("volunteer-count-label");
+      var summary = document.getElementById("volunteer-assignment-summary");
+      var active = task && task.assignee_mode === "volunteer";
+      mode.value = active ? "volunteer" : "default";
+      mode.disabled = !!task.locked;
+      count.hidden = label.hidden = !active;
+      count.value = task.volunteers_required || 1;
+      count.disabled = !!task.locked;
+      var invitees = (task.assignments || []).length;
+      var insufficient = active && invitees < Number(count.value);
+      mode.classList.toggle("needs-volunteers", insufficient);
+      count.classList.toggle("needs-volunteers", insufficient);
+      summary.textContent = active ? invitees + " invited; " + Number((task.volunteer || {}).accepted_count || 0) + " confirmed" : "";
+      var host = document.getElementById("discussion-volunteer");
+      if (host) host.innerHTML = renderVolunteerButtonHtml(task);
+    }
+
+    async function volunteerRequest(taskId, method, suffix, payload) {
+      var response = await fetch('/api/tasks/' + encodeURIComponent(taskId) + suffix, {
+        method: method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      var data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not update volunteer request');
+      mergeDashboardTask(data);
+      applyTaskRowUpdate(data);
+      if (String(currentTaskId) === String(taskId)) {
+        currentTaskData = Object.assign({}, currentTaskData || {}, data);
+        renderTaskSettings();
+      }
+      return data;
+    }
+
+    document.addEventListener('click', function (event) {
+      var button = event.target.closest('[data-volunteer-task]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) return;
+      button.disabled = true;
+      volunteerRequest(button.dataset.volunteerTask, 'POST', '/volunteer').catch(function (error) {
+        button.disabled = false;
+        if (window.__showActionToast) window.__showActionToast({ title: "Volunteer request", body: error.message });
+      });
+    }, true);
+
+    ['task-assignment-mode', 'task-volunteers-required'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function (event) {
+        var input = event.target;
+        if (!currentTaskId || currentEntityType !== 'task') return;
+        if (input.type === 'number' && !input.reportValidity()) return;
+        var payload = id === 'task-assignment-mode'
+          ? { assignee_mode: input.value }
+          : { volunteers_required: Number(input.value) };
+        volunteerRequest(currentTaskId, 'PATCH', '', payload).catch(function (error) {
+          renderTaskSettings();
+          if (window.__showActionToast) window.__showActionToast({ title: "Volunteer request", body: error.message });
+        });
+      });
+    });
+
     function taskDependents(task) {
       if (!task || task.id == null) return [];
       if (Array.isArray(task.dependents)) return task.dependents;
@@ -15037,6 +15164,7 @@
 
     function refreshDependencyBadgeForTask(task) {
       if (!task || task.id == null) return;
+      refreshVolunteerButtons(task);
       var html = renderDependencyBadgeHtml(task, { host: false });
       document.querySelectorAll('[data-task-dependency-badge="' + String(task.id) + '"]').forEach(function (node) {
         node.outerHTML = html || '<span data-task-dependency-badge-host="' + escapeHtml(task.id) + '"></span>';
@@ -15346,8 +15474,8 @@
       var rightDue = right.due_at ? String(right.due_at).slice(0, 10) : "";
       var leftMode = left.due_mode || (leftDue ? "date" : "none");
       var rightMode = right.due_mode || (rightDue ? "date" : "none");
-      var leftBucket = todoBucketFor(leftDue, left.created_at ? String(left.created_at).slice(0, 10) : "", leftMode);
-      var rightBucket = todoBucketFor(rightDue, right.created_at ? String(right.created_at).slice(0, 10) : "", rightMode);
+      var leftBucket = taskTodoBucket(left, leftDue, left.created_at ? String(left.created_at).slice(0, 10) : "", leftMode);
+      var rightBucket = taskTodoBucket(right, rightDue, right.created_at ? String(right.created_at).slice(0, 10) : "", rightMode);
       var rankDiff = todoBucketRank(leftBucket && leftBucket.key ? leftBucket.key : "")
         - todoBucketRank(rightBucket && rightBucket.key ? rightBucket.key : "");
       if (rankDiff) return rankDiff;
@@ -16558,7 +16686,7 @@
         var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
         var dueMode = String(task.due_mode || (dueValue ? "date" : "none")).trim().toLowerCase();
         var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
-        var bucket = todoBucketFor(dueValue, createdValue, dueMode);
+        var bucket = taskTodoBucket(task, dueValue, createdValue, dueMode);
         var project = dashboardProjectEntity(task.project_id);
         var group = task.group_id ? dashboardGroupEntity(task.group_id) : null;
         var projectName = project ? String(project.display_name || project.name || "Project") : "Project";
@@ -16645,7 +16773,7 @@
                 '<a href="' + escapeHtml(item.projectHref || "#") + '" class="dashboard-action-project">' + escapeHtml(item.projectName || "Project") + '</a>' +
                 groupHtml +
               '</div>' +
-              '<a href="' + escapeHtml(titleHref) + '" class="dashboard-action-title">' + escapeHtml(item.title || "Task") + '</a>' +
+              '<span class="dashboard-action-title-line"><a href="' + escapeHtml(titleHref) + '" class="dashboard-action-title">' + escapeHtml(item.title || "Task") + '</a>' + renderVolunteerButtonHtml(dashboardTaskEntity(item.taskId)) + '</span>' +
               '<div class="dashboard-action-due">' + escapeHtml(item.dueSummary || "") + '</div>' +
             '</div>' +
             '<div class="dashboard-action-status">' +
@@ -17635,6 +17763,7 @@
     }
 
     function todoBucketRank(key) {
+      if (key === "volunteer") return -2;
       if (key === "urgent") return -1;
       if (key === "overdue") return 0;
       if (key === "asap") return 1;
@@ -17697,7 +17826,7 @@
       item.setAttribute("data-due-at", dueValue || "");
       item.setAttribute("data-due-mode", dueMode || "none");
       if (createdValue) item.setAttribute("data-created-at", createdValue);
-      var bucket = todoBucketFor(dueValue, createdValue || item.getAttribute("data-created-at") || "", dueMode || item.getAttribute("data-due-mode") || "");
+      var bucket = taskTodoBucket(dashboardTaskEntity(taskId), dueValue, createdValue || item.getAttribute("data-created-at") || "", dueMode || item.getAttribute("data-due-mode") || "");
       var currentGroup = item.closest(".todo-date-group");
       var sameBucket = !!(currentGroup && currentGroup.getAttribute("data-todo-date-key") === bucket.key);
       var targetGroup = sameBucket ? currentGroup : ensureTodoGroup(bucket);
@@ -17923,6 +18052,7 @@
 
     function setDrawerEntityType(type) {
       currentEntityType = type || "task";
+      if (currentEntityType !== "task") document.getElementById("discussion-volunteer").innerHTML = "";
       taskOnlyEls.forEach(function (el) {
         el.style.display = currentEntityType === "task" ? "" : "none";
       });
@@ -18325,6 +18455,10 @@
           : status === "link_sent"
           ? '<button class="btn link" type="button" data-send-link="' + assignment.id + '">Resend</button>'
           : '<span class="discussion-assignment-pill">' + escapeHtml(status) + '</span>';
+        if (currentTaskData && currentTaskData.assignee_mode === "volunteer") {
+          var confirmed = ((currentTaskData.volunteer || {}).accepted_assignment_ids || []).some(function (id) { return String(id) === String(assignment.id); });
+          statusContent = '<span class="discussion-assignment-pill">' + (confirmed ? 'Volunteered' : 'Invited') + '</span>' + (assignment.user_id ? '' : statusContent);
+        }
         return (
           '<div class="discussion-assignment-row" data-assignment-id="' + assignment.id + '">' +
             '<div class="discussion-assignment-user">' +
@@ -19757,7 +19891,7 @@
     }
 
     function renderTaskSettings() {
-      if (currentEntityType !== "task") return;
+      if (currentEntityType !== "task") { document.getElementById("discussion-volunteer").innerHTML = ""; return; }
       if (!taskSettingsTitleEl || !taskSettingsDueEl || !taskSettingsStatusEl || !taskSettingsMetaEl) return;
       drawer.setAttribute("data-is-direct", "0");
       drawer.querySelectorAll("[data-task-only]").forEach(function (node) {
@@ -19927,6 +20061,7 @@
       taskSettingsStatusModeButtons.forEach(function (button) {
         button.disabled = locked;
       });
+      syncVolunteerSettings(task);
       if (taskSettingsAssignmentsEl) {
         var assignments = Array.isArray(task.assignments) ? task.assignments : [];
         var hasNoAssigneeIntent = String(task.assignee_mode || "default") === "none";
@@ -22195,7 +22330,7 @@
         if (typeof mergeDashboardTask === "function") {
           mergeDashboardTask(Object.assign({}, taskMeta, {
             assignments: currentAssignments,
-            assignee_mode: "default",
+            assignee_mode: taskMeta.assignee_mode === "volunteer" ? "volunteer" : "default",
           }));
         }
         var host = document.querySelector('[data-task-status-host="' + assignment.task_id + '"]');
@@ -22285,7 +22420,7 @@
         if (typeof mergeDashboardTask === "function") {
           mergeDashboardTask(Object.assign({}, taskMeta, {
             assignments: canonicalAssignments,
-            assignee_mode: "default",
+            assignee_mode: taskMeta.assignee_mode === "volunteer" ? "volunteer" : "default",
           }));
         }
       }
@@ -24316,7 +24451,7 @@
 
       taskIds.forEach(function (taskId) {
         var task = taskMap[String(taskId)];
-        if (!task || !task.project_id) return;
+        if (!task || !task.project_id || volunteerState(task).pending) return;
         if (String(taskMyStatusState(task) || "").toLowerCase() === "complete") return;
         var startDate = String(task.start_date || "").slice(0, 10);
         if (!startDate || startDate > todayKey) return;
@@ -24395,7 +24530,7 @@
         row.innerHTML = '' +
           '<span class="todo-active-task-accent" aria-hidden="true"></span>' +
           '<span class="todo-active-task-copy">' +
-            '<span class="todo-active-task-title-wrap"><button class="todo-active-task-title" type="button" data-active-task-open="' + escapeHtml(entry.id || "") + '" data-task-title="' + escapeHtml(entry.title || "Task") + '" data-project-name="' + escapeHtml(entry.projectName || "Project") + '">' + escapeHtml(entry.title || "Task") + '</button>' + renderDependencyBadgeHtml(entry, { host: false }) + '</span>' +
+            '<span class="todo-active-task-title-wrap"><button class="todo-active-task-title" type="button" data-active-task-open="' + escapeHtml(entry.id || "") + '" data-task-title="' + escapeHtml(entry.title || "Task") + '" data-project-name="' + escapeHtml(entry.projectName || "Project") + '">' + escapeHtml(entry.title || "Task") + '</button>' + renderVolunteerButtonHtml(entry) + renderDependencyBadgeHtml(entry, { host: false }) + '</span>' +
             '<span class="todo-active-task-meta">' +
               (projectHref ? '<a class="todo-active-task-scope" data-active-project-link href="' + escapeHtml(projectHref) + '">' + escapeHtml(entry.projectName || "Project") + '</a>' : escapeHtml(entry.projectName || "Project")) +
               (entry.groupName ? ' · ' + (groupHref ? '<a class="todo-active-task-scope" data-active-group-link href="' + escapeHtml(groupHref) + '">' + escapeHtml(entry.groupName) + '</a>' : escapeHtml(entry.groupName)) : '') +
@@ -24480,7 +24615,7 @@
           </div>
           <div class="todo-item-title-row">
             ${titleHtml}
-            ${renderDependencyBadgeHtml(task, { host: false })}
+            ${renderVolunteerButtonHtml(task)}${renderDependencyBadgeHtml(task, { host: false })}
             <span class="task-link-badges" data-task-link-badges="${task.id}">${linksHtml}</span>
             <span class="todo-main-spacer" aria-hidden="true"></span>
           </div>
@@ -24580,6 +24715,8 @@
         ? dashboardBootstrapStore.views.todo.task_ids
         : [];
       var taskMap = dashboardEntityMap("tasks");
+      var activeSection = document.querySelector("[data-todo-active-tasks]");
+      if (activeSection && activeSection.parentElement === board) board.before(activeSection);
       board.innerHTML = "";
       board.removeAttribute("data-todo-board-ready");
       if (!taskIds.length) {
@@ -24602,7 +24739,7 @@
         var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
         var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
         var dueMode = task.due_mode || (dueValue ? "date" : "none");
-        var bucket = todoBucketFor(dueValue, createdValue, dueMode);
+        var bucket = taskTodoBucket(task, dueValue, createdValue, dueMode);
         var bucketKey = String(bucket.key || "none");
         if (!bucketPanels[bucketKey]) {
           bucketPanels[bucketKey] = createTodoGroupElement(bucket);
@@ -24771,7 +24908,7 @@
         item.innerHTML =
           '<div class="problem-task-title-line">' +
             '<button class="problem-task-title" type="button" data-open-settings="' + escapeHtml(task.id) + '" data-task-title="' + escapeHtml(task.title || "Task") + '" data-project-name="' + escapeHtml(meta.projectName || "Project") + '">' + escapeHtml(task.title || "Task") + '</button>' +
-            renderDependencyBadgeHtml(task, { host: false }) +
+            renderVolunteerButtonHtml(task) + renderDependencyBadgeHtml(task, { host: false }) +
             '<span class="problem-task-links task-link-badges" data-task-link-badges="' + escapeHtml(task.id) + '">' + linksHtml + '</span>' +
           '</div>' +
           '<div class="problem-task-context"><a href="' + escapeHtml(projectUrl) + '">' + escapeHtml(meta.projectName || "Project") + '</a>' +
@@ -24902,7 +25039,8 @@
       var urgentEntries = urgentAlertTasksForViewer();
       var urgentCount = urgentEntries.length;
       var problemCount = problemTasksFromStore().length;
-      var total = urgentCount + problemCount;
+      var volunteerTasks = Object.values(dashboardEntityMap("tasks") || {}).filter(function (task) { return volunteerState(task).pending; });
+      var total = urgentCount + problemCount + volunteerTasks.length;
       shell.hidden = total === 0;
       var badge = trigger.querySelector(".notifications-count");
       if (total > 0 && !badge) {
@@ -24915,6 +25053,9 @@
         else badge.remove();
       }
       var rows = [];
+      volunteerTasks.forEach(function (task) {
+        rows.push('<button class="notifications-open alert-item" type="button" data-alert-task-id="' + escapeHtml(task.id) + '"><div class="notifications-title">' + escapeHtml(task.title) + '</div><div class="notifications-copy">Your response is needed: ' + volunteerState(task).label + '</div></button>');
+      });
       urgentEntries.slice(0, 5).forEach(function (entry) {
         var task = entry.task || {};
         var dependencyTitle = entry.dependency ? String(entry.dependency.title || "prerequisite") : "";
@@ -25049,7 +25190,7 @@
       var dueValue = task.due_at ? String(task.due_at).slice(0, 10) : "";
       var createdValue = task.created_at ? String(task.created_at).slice(0, 10) : "";
       var dueMode = task.due_mode || (dueValue ? "date" : "none");
-      var bucket = todoBucketFor(dueValue, createdValue, dueMode);
+      var bucket = taskTodoBucket(task, dueValue, createdValue, dueMode);
       var group = ensureTodoGroup(bucket);
       var list = group ? group.querySelector(".todo-list") : null;
       if (!list) return false;
@@ -30344,6 +30485,13 @@
         if (activeTasksSection) {
           var hasVisibleActiveTasks = !!activeTasksSection.querySelector(".todo-active-task-row:not(.is-filtered)");
           activeTasksSection.hidden = !hasVisibleActiveTasks;
+          var todoBoard = document.querySelector(".todo-board");
+          var volunteerGroup = todoBoard && todoBoard.querySelector('[data-todo-date-key="volunteer"]');
+          if (volunteerGroup && volunteerGroup.style.display !== "none") {
+            if (volunteerGroup.nextElementSibling !== activeTasksSection) volunteerGroup.after(activeTasksSection);
+          } else if (todoBoard && activeTasksSection.parentElement === todoBoard) {
+            todoBoard.before(activeTasksSection);
+          }
         }
         updateAssigneeSummary();
         if (typeof window.__scheduleTodoGanttRender === "function") {
@@ -31103,7 +31251,7 @@
           var bucketKey = String(bucketGroup && bucketGroup.getAttribute("data-todo-date-key") || "none");
           var bucketHeading = bucketGroup ? bucketGroup.querySelector(".todo-date-heading") : null;
           var bucketLabel = String(bucketHeading && bucketHeading.textContent || "Tasks").trim();
-          var isActive = bucketKey !== "urgent" && Object.prototype.hasOwnProperty.call(activeTaskOrder, taskId);
+          var isActive = bucketKey !== "urgent" && bucketKey !== "volunteer" && Object.prototype.hasOwnProperty.call(activeTaskOrder, taskId);
           if (isActive) {
             bucketKey = "active";
             bucketLabel = "Active Tasks";
@@ -31139,6 +31287,7 @@
         }).filter(Boolean);
         records.sort(function (a, b) {
           function priority(record) {
+            if (record.item.todo_bucket === "volunteer") return -1;
             if (record.item.todo_bucket === "urgent") return 0;
             if (record.item.todo_bucket === "active") return 1;
             return 2;

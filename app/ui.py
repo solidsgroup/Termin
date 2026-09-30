@@ -6,10 +6,11 @@ from pathlib import Path
 import secrets
 import subprocess
 
-from flask import Blueprint, Response, current_app, redirect, render_template, request, session, url_for
+from flask import abort, Blueprint, Response, current_app, redirect, render_template, request, session, url_for
 from sqlalchemy import func, or_
 from werkzeug.security import generate_password_hash
 
+from app.volunteers import task_assignee_mode, volunteer_payload, lock_volunteer_task, confirm_volunteer
 from app.auth import login_required
 from app.calendar_sync import CalendarSyncError, ensure_task_event
 from app.collaborators import get_or_create_collaborator_profile
@@ -76,6 +77,7 @@ from app.realtime import (
     emit_user_notification_preview,
     is_user_viewing_discussion,
     queue_task_notifications,
+    queue_user_notification,
     is_user_viewing_task,
     _task_notification_user_ids,
 )
@@ -218,6 +220,8 @@ def _calendar_feed_tasks(email: str) -> list[Task]:
     )
     if not tasks:
         return []
+    confirmed_task_ids = {row.task_id for row in assignments if row.volunteered_at}
+    tasks = [task for task in tasks if task_assignee_mode(task) != "volunteer" or task.id in confirmed_task_ids]
     status_map = task_status_meta_map(tasks, viewer_email=normalized)
     return [
         task
@@ -1301,10 +1305,25 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
 
     final_entries = list(deduped.values())
 
+    for entry in final_entries:
+        task = entry.get("task")
+        if not task or task_assignee_mode(task) != "volunteer":
+            continue
+        state = volunteer_payload(task)["volunteer"]
+        assignment = entry.get("assignment")
+        accepted = bool(assignment and assignment.volunteered_at)
+        pending = not accepted and state["accepted_count"] < state["required"] and not entry["is_complete"]
+        entry["volunteer"] = dict(state, accepted=accepted, pending=pending,
+            label="Accept" if state["invitee_count"] == state["required"] else "Volunteer")
+        if pending:
+            entry["sort"]["bucket"] = -2
+
     def entry_sort_key(item: dict) -> tuple:
         task = item.get("task")
         due_mode = str(item.get("due_mode") or "none").strip().lower()
-        if due_mode == "urgent":
+        if item.get("volunteer", {}).get("pending"):
+            bucket = -2
+        elif due_mode == "urgent":
             bucket = -1
         elif due_mode == "asap":
             bucket = 0
@@ -1509,6 +1528,26 @@ def _serialize_portal_comment(comment: TaskComment, users: dict[int, User], coll
 
 
 def _apply_invite_response(invite: Invite, action: str, calendar_opt_in: bool) -> None:
+    task = Task.query.get(invite.task_id) if invite.task_id else None
+    if task and task_assignee_mode(task) == "volunteer":
+        task = lock_volunteer_task(task.id)
+        assignment = Assignment.query.get(invite.assignment_id) if invite.assignment_id else None
+        if not assignment:
+            abort(409, description="A volunteer request requires an assignment")
+        db.session.refresh(assignment)
+        if action == "accept":
+            confirmed, error = confirm_volunteer(task, assignment)
+            if error:
+                abort(409, description=error)
+            if confirmed and task.creator_user_id:
+                collaborator = CollaboratorProfile.query.filter_by(email=invite.email).first()
+                detail = _task_notification_collaborator_payload(collaborator) if collaborator else {"actor_name": invite.email}
+                queue_user_notification(user_id=task.creator_user_id, kind="volunteer_accepted", task_id=task.id, detail_payload=detail)
+        elif action == "decline":
+            if task.locked:
+                abort(409, description="This task is locked")
+            assignment.volunteered_at = None
+            task.updated_at = datetime.utcnow()
     if action == "accept":
         invite.status = "accepted"
         invite.calendar_opt_in = calendar_opt_in
@@ -3510,7 +3549,7 @@ def quick_collaborator_invite_action(token: str, invite_id: int, action: str):
 
     if action == "accept" and invite.calendar_opt_in and task:
         _safe_ensure_task_event(task.id, invite.email)
-    if task and action in {"complete", "uncomplete"}:
+    if task and action in {"complete", "uncomplete", "accept", "decline"}:
         emit_task_updated(task)
     if task:
         emit_task_notification_updates(task, exclude_user_id=exclude_notification_user_id)
@@ -3646,7 +3685,7 @@ def update_collaborator_invite(token: str, invite_id: int):
     exclude_notification_user_id = _queue_collaborator_task_action_notification(task, collaborator, action)
     db.session.commit()
 
-    if task and action in {"complete", "uncomplete"}:
+    if task and action in {"complete", "uncomplete", "accept", "decline"}:
         emit_task_updated(task)
     if invite.assignment_id and task:
         assignment = Assignment.query.get(invite.assignment_id)
@@ -3680,7 +3719,7 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     exclude_notification_user_id = _queue_collaborator_task_action_notification(task, collaborator, action)
     db.session.commit()
 
-    if task and action in {"complete", "uncomplete"}:
+    if task and action in {"complete", "uncomplete", "accept", "decline"}:
         emit_task_updated(task)
     if task:
         emit_assignment_updated(task, assignment)

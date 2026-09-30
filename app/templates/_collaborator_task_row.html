@@ -18,6 +18,14 @@
   <div>
     <div class="collab-title">
       <span>{{ task.title if task else 'Unknown task' }}</span>
+      {% if entry.volunteer and assignment %}
+        <form method="post" action="{{ url_for('ui.update_collaborator_assignment', token=collaborator.access_token, assignment_id=assignment.id) }}">
+          <button class="btn" type="submit" name="action" value="accept" data-collab-volunteer="{{ task.id }}" {% if not entry.volunteer.pending or task.locked %}disabled{% endif %}>
+            {{ 'Accepted' if entry.volunteer.accepted else entry.volunteer.label if entry.volunteer.pending else 'Filled' }}
+            {{ entry.volunteer.accepted_count }}/{{ entry.volunteer.required }}
+          </button>
+        </form>
+      {% endif %}
       {% if entry.links %}
         {% for link in entry.links %}
           <a class="collab-link-chip" href="{{ link }}" target="_blank" rel="noreferrer noopener" title="{{ link }}">
@@ -55,7 +63,7 @@
     </div>
   </div>
   <form class="collab-actions" method="post" action="{% if invite %}{{ url_for('ui.update_collaborator_invite', token=collaborator.access_token, invite_id=invite.id) }}{% else %}{{ url_for('ui.update_collaborator_assignment', token=collaborator.access_token, assignment_id=assignment.id) }}{% endif %}">
-    {% if not entry.is_complete %}
+    {% if not entry.is_complete and not entry.volunteer %}
       <button class="btn choice-btn accept{% if entry.status == 'accepted' %} is-selected{% endif %}" type="submit" name="action" value="accept">Accept</button>
       <button class="btn choice-btn decline{% if entry.status in ['declined', 'denied'] %} is-selected{% endif %}" type="submit" name="action" value="decline">Decline</button>
     {% endif %}

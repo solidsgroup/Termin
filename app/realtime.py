@@ -10,6 +10,7 @@ from sqlalchemy.exc import OperationalError
 from flask import current_app, request
 from flask_socketio import emit, join_room, leave_room
 
+from app.volunteers import task_assignee_mode, volunteer_payload
 from app.extensions import db, socketio
 
 from app.group_assignments import serialize_group_assignment_members
@@ -142,10 +143,7 @@ def _task_due_mode(task: Task | None) -> str:
 
 
 def _task_assignee_mode(task: Task | None) -> str:
-    if not task:
-        return "default"
-    info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
-    return "none" if str((info_payload.get("meta") or {}).get("assignee_mode") or "").strip().lower() == "none" else "default"
+    return task_assignee_mode(task) if task else "default"
 
 
 def _task_start_date(task: Task | None) -> str:
@@ -296,6 +294,9 @@ def _web_push_payload_for_notification(
         if kind == "comment":
             title = f"{actor_name} commented"
             body = f'On "{task_title}"'
+        elif kind == "volunteer_accepted":
+            title = "Volunteer confirmed"
+            body = actor_name + " volunteered for " + task_title
         elif kind == "task_completed":
             title = "Task completed"
             body = f'{actor_name} completed "{task_title}"'
@@ -767,6 +768,7 @@ def _task_summary(task: Task | None) -> dict | None:
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -906,6 +908,7 @@ def _serialize_task_data(
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "status": task.status,
@@ -1123,7 +1126,11 @@ def notification_payload_for_user(user_id: int) -> dict:
                 preview = "New comment"
             inbox_preview = preview
         else:
-            if row.kind == "task_completed":
+            if row.kind == "volunteer_accepted":
+                summary = "Volunteer confirmed"
+                preview = (actor_name or "Someone") + " volunteered for " + task_label
+                inbox_preview = "volunteered"
+            elif row.kind == "task_completed":
                 summary = "Task completed"
                 preview = (actor_name + " completed " + task_label) if actor_name else "Task completed"
                 inbox_preview = "completed"

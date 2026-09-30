@@ -1690,5 +1690,46 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             member_socket.disconnect()
 
 
+    def test_calendar_feed_includes_only_confirmed_volunteer_assignments(self):
+        from app.ui import _calendar_feed_tasks
+
+        with self.app.app_context():
+            user = self.create_user("volunteer@example.com")
+            project = self.create_project(user)
+            task = self.create_task(project, "Volunteer calendar task", creator=user, due_at=datetime.utcnow())
+            task.info = normalize_info_payload({"meta": {"assignee_mode": "volunteer"}}, None)
+            assignment = self.add_assignment(task, user=user)
+            self.assertEqual(_calendar_feed_tasks(user.email), [])
+            assignment.volunteered_at = datetime.utcnow()
+            db.session.commit()
+            self.assertEqual([row.id for row in _calendar_feed_tasks(user.email)], [task.id])
+            task.status = "complete"
+            db.session.commit()
+            self.assertEqual(_calendar_feed_tasks(user.email), [])
+
+
+    def test_volunteer_invitation_changes_are_included_in_reconnect_updates(self):
+        with self.app.app_context():
+            user = self.create_user("owner@example.com")
+            project = self.create_project(user)
+            task = self.create_task(project, "Volunteer reconnect task", creator=user)
+            task.info = normalize_info_payload({"meta": {"assignee_mode": "volunteer"}}, None)
+            db.session.commit()
+            task_id, user_id = task.id, user.id
+        self.login(self.client, user_id)
+        cursor = self.client.get("/api/dashboard-bootstrap").json["dashboard"]["meta"]["cursor"]
+        response = self.client.post("/api/assignments", json={"target_type": "task", "target_id": task_id, "email": "owner@example.com"})
+        self.assertEqual(response.status_code, 201)
+        assignment_id = response.json["id"]
+        changes = self.client.get("/api/dashboard-changes", query_string={"cursor": cursor}).json["dashboard"]
+        updated = next(row for row in changes["changes"]["upserts"]["tasks"] if row["id"] == task_id)
+        self.assertEqual(updated["volunteer"]["invitee_count"], 1)
+        cursor = changes["meta"]["cursor"]
+        self.assertEqual(self.client.delete(f"/api/assignments/{assignment_id}").status_code, 200)
+        changes = self.client.get("/api/dashboard-changes", query_string={"cursor": cursor}).json["dashboard"]
+        updated = next(row for row in changes["changes"]["upserts"]["tasks"] if row["id"] == task_id)
+        self.assertEqual(updated["volunteer"]["invitee_count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

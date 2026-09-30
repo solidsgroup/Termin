@@ -5958,3 +5958,195 @@ test.describe('dashboard and realtime flows', () => {
     await memberContext.close();
   });
 });
+
+test('volunteer requests are prioritized, persistent, and accepted live across views', async ({ page, browser, request }) => {
+  test.setTimeout(60000);
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Volunteer for the open house', assignee_email: state.member.email, due_mode: 'none' });
+  await createTask(page, { project_id: state.project.id, title: 'An active task', assignee_email: state.member.email, due_mode: 'date', due_at: isoDateWithOffset(2), start_date: isoDateWithOffset(-1) });
+  await createTask(page, { project_id: state.project.id, title: 'An urgent task', assignee_email: state.member.email, due_mode: 'urgent' });
+  await page.goto(`/task/${task.id}`);
+  await expect(page.locator('#task-assignment-mode')).toBeVisible();
+  await page.locator('#task-assignment-mode').selectOption('volunteer');
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).assignee_mode).toBe('volunteer');
+  await page.locator('#task-volunteers-required').fill('2');
+  await page.locator('#task-volunteers-required').press('Tab');
+  await expect(page.locator('#task-assignment-mode')).toHaveClass(/needs-volunteers/);
+  await page.locator('#task-volunteers-required').fill('1');
+  await page.locator('#task-volunteers-required').press('Tab');
+  await expect(page.locator('#task-assignment-mode')).not.toHaveClass(/needs-volunteers/);
+
+  const memberContext = await browser.newContext();
+  const member = await memberContext.newPage();
+  await login(member, state.member.email, state.member.password);
+  await member.goto('/todo');
+  const requestRow = member.locator(`.todo-item[data-task-id="${task.id}"]`);
+  await expect(requestRow).toBeVisible();
+  await expect(member.locator('.todo-date-group').first()).toHaveAttribute('data-todo-date-key', 'volunteer');
+  await expect(requestRow.getByRole('button', { name: /Accept/ })).toBeVisible();
+  await expect(member.locator(`[data-alert-task-id="${task.id}"]`)).toHaveCount(1);
+  await expect(member.locator('[data-todo-active-tasks]')).toBeVisible();
+  await expect.poll(async () => member.evaluate(() => {
+    const volunteers = document.querySelector('[data-todo-date-key="volunteer"]');
+    const active = document.querySelector('[data-todo-active-tasks]');
+    return volunteers.getBoundingClientRect().top < active.getBoundingClientRect().top;
+  })).toBe(true);
+  await member.locator('[data-todo-mode-trigger]').click();
+  await member.locator('[data-todo-mode-option="gantt"]').click();
+  await expect(member.locator('[data-todo-gantt-bucket]').first()).toHaveAttribute('data-todo-gantt-bucket', 'volunteer');
+  await member.locator('[data-todo-mode-trigger]').click();
+  await member.locator('[data-todo-mode-option="default"]').click();
+  await member.reload();
+  await expect(member.locator(`[data-alert-task-id="${task.id}"]`)).toHaveCount(1);
+  await member.setViewportSize({ width: 390, height: 844 });
+  await member.goto('/dashboard');
+  const homeRow = member.locator(`[data-dashboard-action-task-id="${task.id}"]`);
+  await expect(homeRow.getByRole('button', { name: /Accept/ })).toBeVisible({ timeout: 15000 });
+  await homeRow.getByRole('button', { name: /Accept/ }).click();
+  await expect(page.locator('#volunteer-assignment-summary')).toContainText('1 confirmed');
+  await expect(member.locator(`[data-alert-task-id="${task.id}"]`)).toHaveCount(0);
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(1);
+  const notifications = await page.request.get('/api/notifications');
+  expect(JSON.stringify(await notifications.json())).toContain('volunteer_accepted');
+  await member.goto(`/tree/project/${state.project.id}`);
+  await expect(member.locator(`[data-tree-project-board="${state.project.id}"] [data-volunteer-task="${task.id}"]`).first()).toHaveText(/Accepted/, { timeout: 15000 });
+  await expect(member.locator(`[data-tree-project-board="${state.project.id}"] [data-volunteer-task="${task.id}"]`).first()).toBeVisible();
+  await memberContext.close();
+});
+
+test('volunteer capacity is enforced for duplicate, concurrent, and unauthorized requests', async ({ page, browser, request }) => {
+  test.setTimeout(60000);
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'One volunteer place', assignee_email: state.owner.email, assignee_mode: 'volunteer', volunteers_required: 1 });
+  const memberContext = await browser.newContext();
+  const member = await memberContext.newPage();
+  await login(member, state.member.email, state.member.password);
+  expect((await member.request.post(`/api/tasks/${task.id}/volunteer`)).status()).toBe(403);
+  const assignment = await page.request.post('/api/assignments', { data: { target_type: 'task', target_id: task.id, email: state.member.email } });
+  expect(assignment.ok()).toBeTruthy();
+  await member.goto('/todo');
+  await expect(member.locator(`.todo-item[data-task-id="${task.id}"]`).getByRole('button', { name: /Volunteer/ })).toBeVisible();
+  const results = await Promise.all([
+    page.request.post(`/api/tasks/${task.id}/volunteer`),
+    member.request.post(`/api/tasks/${task.id}/volunteer`),
+  ]);
+  expect(results.map(result => result.status()).sort()).toEqual([200, 409]);
+  const winner = results[0].ok() ? page : member;
+  expect((await winner.request.post(`/api/tasks/${task.id}/volunteer`)).ok()).toBeTruthy();
+  const fresh = await fetchTaskViaApi(page, task.id);
+  expect(fresh.assignee_mode).toBe('volunteer');
+  expect(fresh.volunteer.accepted_count).toBe(1);
+  for (const count of [0, -1, 1.5, '2', true]) {
+    expect((await page.request.patch(`/api/tasks/${task.id}`, { data: { volunteers_required: count } })).status()).toBe(400);
+  }
+  await patchTask(page, task.id, { assignee_mode: 'default' });
+  expect((await member.request.post(`/api/tasks/${task.id}/volunteer`)).status()).toBe(409);
+  await memberContext.close();
+});
+
+test('volunteer buttons work in tree and gantt and requests reopen when a volunteer is removed', async ({ page, browser, request }) => {
+  test.setTimeout(60000);
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  expect((await page.request.patch(`/api/projects/${state.project.id}`, { data: { start_date: isoDateWithOffset(-2), end_date: isoDateWithOffset(30) } })).ok()).toBeTruthy();
+  const task = await createTask(page, { project_id: state.project.id, group_id: state.group.id, title: 'Gantt volunteer request', assignee_email: state.member.email, assignee_mode: 'volunteer', volunteers_required: 2, due_mode: 'date', due_at: isoDateWithOffset(2) });
+  const assign = await page.request.post('/api/assignments', { data: { target_type: 'task', target_id: task.id, email: state.owner.email } });
+  expect(assign.ok()).toBeTruthy();
+  const memberContext = await browser.newContext();
+  const member = await memberContext.newPage();
+  await login(member, state.member.email, state.member.password);
+  await member.goto(`/tree/project/${state.project.id}`);
+  const board = member.locator(`[data-tree-project-board="${state.project.id}"]`);
+  await expect(board.locator(`[data-volunteer-task="${task.id}"]`).first()).toHaveText(/Accept/);
+  await board.locator('[data-project-mode-button="gantt"]').click();
+  const ganttButton = board.locator(`[data-project-gantt] [data-volunteer-task="${task.id}"]`);
+  await expect(ganttButton).toBeVisible();
+  await ganttButton.click();
+  await expect(ganttButton).toHaveText(/Accepted/);
+  await expect(ganttButton).toBeDisabled();
+  await page.goto(`/task/${task.id}`);
+  await expect(page.locator('#discussion-volunteer button')).toHaveText(/Accept/);
+  await page.locator('#discussion-volunteer button').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(2);
+  await member.goto('/todo');
+  await expect(member.locator(`[data-alert-task-id="${task.id}"]`)).toHaveCount(0);
+  const fresh = await fetchTaskViaApi(page, task.id);
+  const memberAssignment = fresh.assignments.find(row => row.user_id === state.member.id);
+  expect((await page.request.delete(`/api/assignments/${memberAssignment.id}`)).ok()).toBeTruthy();
+  await page.request.post('/api/assignments', { data: { target_type: 'task', target_id: task.id, email: state.member.email } });
+  await expect(member.locator(`[data-alert-task-id="${task.id}"]`)).toHaveCount(1);
+  await expect(member.locator('.todo-date-group').first()).toHaveAttribute('data-todo-date-key', 'volunteer');
+  await patchTask(page, task.id, { locked: true });
+  await expect(member.locator(`.todo-item[data-task-id="${task.id}"] [data-volunteer-task]`)).toBeDisabled();
+  expect((await member.request.post(`/api/tasks/${task.id}/volunteer`)).status()).toBe(423);
+  await memberContext.close();
+});
+
+test('email collaborators can volunteer and notify the creator without exceeding capacity', async ({ page, browser, request }) => {
+  test.setTimeout(60000);
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Email volunteer request', assignee_email: state.collaborator.email, assignee_mode: 'volunteer', volunteers_required: 1 });
+  await page.goto(`/task/${task.id}`);
+  const context = await browser.newContext();
+  const collaborator = await context.newPage();
+  await collaborator.goto(`/collaborators/${state.collaborator.access_token}`);
+  const button = collaborator.locator(`[data-collab-volunteer="${task.id}"]`);
+  await expect(button).toHaveText(/Accept/);
+  await button.click();
+  await expect(button).toHaveText(/Accepted/);
+  await expect(button).toBeDisabled();
+  await expect(page.locator('#volunteer-assignment-summary')).toContainText('1 confirmed');
+  const notifications = await page.request.get('/api/notifications');
+  expect(JSON.stringify(await notifications.json())).toContain('volunteer_accepted');
+  expect((await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(1);
+  await context.close();
+});
+
+test('volunteer invitations preserve normal assignment tools and only confirmed people count toward completion', async ({ page, browser, request }) => {
+  test.setTimeout(60000);
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Volunteer completion', assignee_mode: 'volunteer', volunteers_required: 1 });
+  await patchTask(page, task.id, { status_mode: 'multi' });
+  expect((await page.request.post(`/api/tasks/${task.id}/assign_all`)).ok()).toBeTruthy();
+  const fresh = await fetchTaskViaApi(page, task.id);
+  expect(fresh.assignee_mode).toBe('volunteer');
+  expect(fresh.assignments).toHaveLength(2);
+  await page.goto('/dashboard');
+  await expect(page.locator(`[data-dashboard-action-task-id="${task.id}"]`)).toBeVisible();
+  const context = await browser.newContext();
+  const member = await context.newPage();
+  await login(member, state.member.email, state.member.password);
+  expect((await member.request.post(`/api/tasks/${task.id}/volunteer`)).ok()).toBeTruthy();
+  await expect(page.locator(`[data-dashboard-action-task-id="${task.id}"]`)).toHaveCount(0);
+  await patchTask(member, task.id, { user_status: 'complete', status_user_id: state.member.id });
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_meta.aggregate_state).toBe('complete');
+  await patchTask(page, task.id, { volunteers_required: 2 });
+  await expect(page.locator(`[data-alert-task-id="${task.id}"]`)).toHaveCount(1);
+  await expect(page.locator(`[data-dashboard-action-task-id="${task.id}"]`).getByRole('button', { name: /Accept/ })).toBeVisible();
+  expect((await page.request.post(`/api/tasks/${task.id}/volunteer`)).ok()).toBeTruthy();
+  expect((await page.request.patch(`/api/tasks/${task.id}`, { data: { volunteers_required: 1 } })).status()).toBe(400);
+  await patchTask(page, task.id, { user_status: 'complete', status_user_id: state.owner.id });
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_meta.aggregate_state).toBe('complete');
+  await context.close();
+});
+
+test('adding invitees through the drawer preserves volunteer mode and updates its required count warning', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Invite through the picker' });
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-assignment-mode').selectOption('volunteer');
+  await expect(page.locator('#task-assignment-mode')).toHaveClass(/needs-volunteers/);
+  await page.locator('#task-settings-assignee').focus();
+  await page.locator('.assign-suggest button').filter({ has: page.locator('.assign-suggest-label', { hasText: /^Member$/ }) }).click();
+  await expect(page.locator('#task-assignment-mode')).toHaveValue('volunteer');
+  await expect(page.locator('#task-assignment-mode')).not.toHaveClass(/needs-volunteers/);
+  await expect(page.locator('#volunteer-assignment-summary')).toHaveText('1 invited; 0 confirmed');
+  const fresh = await fetchTaskViaApi(page, task.id);
+  expect(fresh.assignee_mode).toBe('volunteer');
+  expect(fresh.assignments.map(row => row.user_id)).toEqual([state.member.id]);
+});

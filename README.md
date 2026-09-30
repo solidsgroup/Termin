@@ -12,6 +12,13 @@
 - todo list + tree views that load client-side data, support keyboard navigation, and render shared metadata
 - OAuth for Google/GitHub/Microsoft, magic-link invites, and email/collaborator workflows
 - SQLite-backed persistence suitable for Render/any deploy with optional Postgres later
+- volunteer requests with a required count, persistent alerts, and live confirmations
+
+### Volunteer Requests
+
+In a task's settings, select **Get Volunteer** under **Assignment mode**, set the number of volunteers needed, and add invitees using the usual assignee picker. The selector stays red until enough people have been invited. Invitees see a **Volunteer** button next to the title, or **Accept** when every invitee is needed. Requests appear first in their todo list, in Home, and in persistent alerts until they respond or all places are filled. The creator receives a notification for each confirmation. Email collaborators can respond from their existing Termin link too.
+
+Only confirmed volunteers count toward per-person completion or appear in subscribed calendars. Removing a confirmed volunteer frees their place; increasing the required count reopens requests for remaining invitees. Switching back to **Assign** ends the volunteer request and clears its confirmations.
 
 ## Architecture & Stack
 - Flask + SQLAlchemy + Alembic migrations

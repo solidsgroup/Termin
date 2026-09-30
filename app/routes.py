@@ -10,6 +10,7 @@ from sqlalchemy import or_
 from flask import Blueprint, current_app, request, send_from_directory, url_for
 
 from markdown import markdown as render_markdown
+from app.volunteers import task_assignee_mode, volunteer_payload, lock_volunteer_task, confirm_volunteer
 from app.auth import login_required
 from app.canvas_sync import (
     CANVAS_SPECIALTY_TYPE,
@@ -228,6 +229,7 @@ TASK_LOCKED_PROTECTED_FIELDS = {
     "per_user_status_enabled",
     "assign_group_members",
     "assignee_mode",
+    "volunteers_required",
     "task_type",
     "poll",
 }
@@ -1119,27 +1121,71 @@ def _normalize_due_mode(value: str | None, *, fallback: str = "date") -> str:
 
 
 def _task_assignee_mode(task: Task | None) -> str:
-    if not task:
-        return "default"
-    info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
-    return "none" if str((info.get("meta") or {}).get("assignee_mode") or "").strip().lower() == "none" else "default"
+    return task_assignee_mode(task) if task else "default"
 
 
 def _set_task_assignee_mode(task: Task, value) -> tuple[bool, str | None]:
     mode = str(value or "default").strip().lower()
-    if mode not in {"default", "none"}:
+    if mode not in {"default", "none", "volunteer"}:
         return False, "invalid assignee mode"
     if mode == "none" and getattr(task, "id", None) and Assignment.query.filter_by(task_id=task.id).first():
         return False, "remove existing assignees before selecting no assignee"
+    if mode != _task_assignee_mode(task) and task.id:
+        Assignment.query.filter_by(task_id=task.id).update({"volunteered_at": None})
+    if mode == "volunteer":
+        task.assign_group_members = False
     info = load_info_payload(task.info, task.link)
     meta = dict(info.get("meta") or {})
-    if mode == "none":
-        meta["assignee_mode"] = "none"
+    if mode in {"none", "volunteer"}:
+        meta["assignee_mode"] = mode
     else:
         meta.pop("assignee_mode", None)
     info["meta"] = meta
     task.info = normalize_info_payload(info, task.link)
     return True, None
+
+
+def _set_volunteers_required(task, value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 2147483647:
+        return "required volunteers must be a positive whole number"
+    accepted = Assignment.query.filter_by(task_id=task.id).filter(Assignment.volunteered_at.isnot(None)).count() if task.id else 0
+    if value < accepted:
+        return "required volunteers cannot be fewer than confirmed volunteers"
+    task.volunteers_required = value
+    return None
+
+
+@api_bp.post("/tasks/<int:task_id>/volunteer")
+@login_required
+def volunteer_for_task(task_id):
+    user = current_user()
+    task = lock_volunteer_task(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
+    if _task_assignee_mode(task) != "volunteer":
+        return {"error": "this task is not seeking volunteers"}, 409
+    if task_status_meta(task, viewer_user_id=user.id).get("aggregate_state") == "complete":
+        return {"error": "this task is complete"}, 409
+    assignment = Assignment.query.filter_by(task_id=task.id, user_id=user.id).first()
+    if not assignment:
+        return {"error": "only invited assignees may volunteer"}, 403
+    confirmed, error = confirm_volunteer(task, assignment)
+    if error:
+        return {"error": error}, 409
+    if confirmed:
+        actor_name = display_name_for_user(user) or user.email
+        log_task_history(task, actor=user, action="updated", changed_fields=["assignees"], task_body=actor_name + " volunteered.", scoped_body=actor_name + " volunteered for " + task.title + ".")
+        if task.creator_user_id and task.creator_user_id != user.id:
+            queue_user_notification(user_id=task.creator_user_id, kind="volunteer_accepted", task_id=task.id, detail_payload=_task_notification_actor_payload(user))
+    db.session.commit()
+    emit_task_updated(task, actor_user_id=user.id)
+    if task.creator_user_id:
+        emit_notification_state(task.creator_user_id)
+    return get_task(task.id)
 
 
 def _task_start_date(task: Task) -> str:
@@ -2272,6 +2318,7 @@ def _serialize_task_prerequisite_row(
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -2320,6 +2367,7 @@ def _serialize_task_dependent_row(
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -2588,6 +2636,7 @@ def _serialize_task_row(
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -2874,6 +2923,10 @@ def create_task():
     )
     if not ok:
         return {"error": error}, 400
+    if "volunteers_required" in payload:
+        error = _set_volunteers_required(task, payload["volunteers_required"])
+        if error:
+            return {"error": error}, 400
     ok, error = _set_task_assignee_mode(task, assignee_mode)
     if not ok:
         return {"error": error}, 400
@@ -2970,7 +3023,10 @@ def update_task(task_id: int):
     payload = request.get_json(silent=True) or {}
     user = current_user()
 
-    task = Task.query.filter_by(id=task_id).with_for_update().first()
+    if {"volunteers_required", "assignee_mode"}.intersection(payload):
+        task = lock_volunteer_task(task_id)
+    else:
+        task = Task.query.filter_by(id=task_id).with_for_update().first()
     if not task:
         return {"error": "task not found"}, 404
 
@@ -3140,6 +3196,10 @@ def update_task(task_id: int):
             ok, error = _set_task_start_date(task, "")
             if not ok:
                 return {"error": error}, 400
+    if "volunteers_required" in payload:
+        error = _set_volunteers_required(task, payload["volunteers_required"])
+        if error:
+            return {"error": error}, 400
     if assignee_mode is not None:
         if bool(task.assign_group_members) and str(assignee_mode or "").strip().lower() == "none":
             return {"error": "group-assigned tasks cannot use no-assignee mode"}, 400
@@ -3306,6 +3366,7 @@ def update_task(task_id: int):
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -3366,6 +3427,7 @@ def get_task(task_id: int):
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "due_mode": _task_due_mode(task),
         "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "due_relative": _task_due_relative(task),
         "due_relative_start_days": _task_due_relative_start_days(task),
         "start_date": _task_start_date(task),
@@ -6250,13 +6312,16 @@ def create_assignment():
         email=email,
     )
     if existing_assignment:
-        _set_task_assignee_mode(task, "default")
+        if _task_assignee_mode(task) != "volunteer":
+            _set_task_assignee_mode(task, "default")
         existing_assignment = _collapse_duplicate_task_assignments(
             task_id=task.id,
             account_user_id=account_user.id if account_user else None,
             email=email,
         ) or existing_assignment
-        _reset_existing_assignment(existing_assignment)
+        if _task_assignee_mode(task) != "volunteer":
+            _reset_existing_assignment(existing_assignment)
+        task.updated_at = datetime.utcnow()
         db.session.commit()
         actor_name = display_name_for_user(user) or user.email or "Someone"
         assignee_label = _assignment_history_label(
@@ -6276,6 +6341,7 @@ def create_assignment():
             fallback_assignee_label=display_name_for_user(account_user) if account_user else (existing_assignment.email or email),
         )
         emit_assignment_updated(task, existing_assignment, actor_user_id=user.id)
+        emit_task_updated(task, actor_user_id=user.id)
         return {
             "id": existing_assignment.id,
             "user_id": existing_assignment.user_id,
@@ -6292,7 +6358,9 @@ def create_assignment():
         status="assigned" if account_user else "draft",
     )
     db.session.add(assignment)
-    _set_task_assignee_mode(task, "default")
+    task.updated_at = datetime.utcnow()
+    if _task_assignee_mode(task) != "volunteer":
+        _set_task_assignee_mode(task, "default")
     db.session.commit()
     assignment = _collapse_duplicate_task_assignments(
         task_id=task.id,
@@ -6319,6 +6387,7 @@ def create_assignment():
     )
     emit_assignment_updated(task, assignment, action="created", actor_user_id=user.id)
 
+    emit_task_updated(task, actor_user_id=user.id)
     return {
         "id": assignment.id,
         "user_id": assignment.user_id,
@@ -6341,9 +6410,11 @@ def assign_all_task_members(task_id: int):
         return {"error": "unauthorized"}, 403
     if _task_is_locked(task):
         return _locked_task_response()
-    task.assign_group_members = True
-    _set_task_assignee_mode(task, "default")
+    task.assign_group_members = _task_assignee_mode(task) != "volunteer"
+    if task.assign_group_members:
+        _set_task_assignee_mode(task, "default")
     changes = sync_group_task_assignments(task)
+    task.updated_at = datetime.utcnow()
     db.session.commit()
     actor_name = display_name_for_user(user) or user.email or "Someone"
     created_labels = [_assignment_history_label(_serialize_assignment_row(row)) for row in changes["created"][:3]]
@@ -6362,7 +6433,9 @@ def assign_all_task_members(task_id: int):
     _queue_group_assignment_notifications(task, changes["created"], user)
     emit_task_updated(task, actor_user_id=user.id)
     return {
-        "assign_group_members": True,
+        "assign_group_members": bool(task.assign_group_members),
+        "assignee_mode": _task_assignee_mode(task),
+        **volunteer_payload(task),
         "group_assignment_members": serialize_group_assignment_members(task),
         "assignments": [_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()],
     }, 200
@@ -6939,6 +7012,7 @@ def delete_assignment(assignment_id: int):
     Invite.query.filter_by(assignment_id=assignment.id).delete()
     removed_assignment = _serialize_assignment_row(assignment)
     db.session.delete(assignment)
+    task.updated_at = datetime.utcnow()
     db.session.commit()
     actor_name = display_name_for_user(user) or user.email or "Someone"
     assignee_label = _assignment_history_label(removed_assignment)
@@ -6947,6 +7021,7 @@ def delete_assignment(assignment_id: int):
     log_task_history(task, actor=user, action="updated", changed_fields=["assignees"], task_body=history_task_body, scoped_body=history_scoped_body)
     db.session.commit()
     emit_assignment_updated(task, assignment, action="deleted", actor_user_id=user.id)
+    emit_task_updated(task, actor_user_id=user.id)
     return {"status": "deleted"}, 200
 
 
