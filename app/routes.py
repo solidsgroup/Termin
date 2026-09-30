@@ -1188,6 +1188,52 @@ def volunteer_for_task(task_id):
     return get_task(task.id)
 
 
+@api_bp.post("/tasks/<int:task_id>/volunteer/decline")
+@login_required
+def decline_volunteer_task(task_id):
+    user = current_user()
+    task = lock_volunteer_task(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if _task_assignee_mode(task) != "volunteer":
+        return {"error": "this task is not seeking volunteers"}, 409
+    assignment = Assignment.query.filter_by(task_id=task.id, user_id=user.id).first()
+    if not assignment:
+        return {"error": "only invited assignees may decline"}, 403
+    result = delete_assignment(assignment.id)
+    if result[1] != 200:
+        return result
+    return get_task(task.id)
+
+
+@api_bp.delete("/tasks/<int:task_id>/volunteer/<int:assignment_id>")
+@login_required
+def unvolunteer_assignee(task_id, assignment_id):
+    user = current_user()
+    task = lock_volunteer_task(task_id)
+    if not task:
+        return {"error": "task not found"}, 404
+    if not _can_access_task(user, task):
+        return {"error": "unauthorized"}, 403
+    if _task_is_locked(task):
+        return _locked_task_response()
+    if _task_assignee_mode(task) != "volunteer":
+        return {"error": "this task is not seeking volunteers"}, 409
+    assignment = Assignment.query.filter_by(id=assignment_id, task_id=task.id).first()
+    if not assignment:
+        return {"error": "assignment not found"}, 404
+    if assignment.volunteered_at:
+        assignment.volunteered_at = None
+        task.updated_at = datetime.utcnow()
+        log_task_history(task, actor=user, action="updated", changed_fields=["assignees"],
+                         task_body="Volunteer confirmation removed for " + _assignment_history_label(_serialize_assignment_row(assignment)) + ".")
+    db.session.commit()
+    emit_task_updated(task, actor_user_id=user.id)
+    return get_task(task.id)
+
+
 def _task_start_date(task: Task) -> str:
     info = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     return str((info.get("meta") or {}).get("start_date") or "").strip()

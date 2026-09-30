@@ -15057,11 +15057,12 @@
       var content = "";
       if (state.active) {
         var label = state.accepted ? "Accepted" : state.filled ? "Filled" : state.label;
-        content = '<button type="button" class="task-volunteer-button" data-volunteer-task="' + escapeHtml(task.id) + '"' +
-          ((!state.pending || task.locked) ? ' disabled' : '') +
-          ' title="' + state.count + ' of ' + state.required + ' volunteers confirmed">' +
-          '<i class="fa-solid fa-hand" aria-hidden="true"></i> ' + label +
-          ' <span class="volunteer-count">' + state.count + '/' + state.required + '</span></button>';
+        content = '<select class="task-volunteer-button" data-volunteer-task="' + escapeHtml(task.id) + '"' +
+          ((!state.mine || task.locked) ? ' disabled' : '') +
+          ' aria-label="Volunteer response" title="' + state.count + ' of ' + state.required + ' volunteers confirmed">' +
+          '<option value="" selected disabled>' + label + ' ' + state.count + '/' + state.required + '</option>' +
+          (state.pending ? '<option value="volunteer">' + state.label + '</option>' : '') +
+          (state.mine ? '<option value="decline">Decline</option>' : '') + '</select>';
       }
       return '<span class="task-volunteer-host" data-volunteer-host="' + escapeHtml(task.id) + '">' + content + '</span>';
     }
@@ -15115,15 +15116,29 @@
       return data;
     }
 
+    // Keep task-row navigation from consuming interactions with the native menu.
     document.addEventListener('click', function (event) {
-      var button = event.target.closest('[data-volunteer-task]');
-      if (!button) return;
+      if (event.target.closest('[data-volunteer-task]')) event.stopPropagation();
+      var button = event.target.closest('[data-unvolunteer-assignment]');
+      if (!button || button.disabled) return;
       event.preventDefault();
       event.stopPropagation();
-      if (button.disabled) return;
       button.disabled = true;
-      volunteerRequest(button.dataset.volunteerTask, 'POST', '/volunteer').catch(function (error) {
+      volunteerRequest(currentTaskId, 'DELETE', '/volunteer/' + button.dataset.unvolunteerAssignment).catch(function (error) {
         button.disabled = false;
+        if (window.__showActionToast) window.__showActionToast({ title: "Volunteer request", body: error.message });
+      });
+    }, true);
+
+    document.addEventListener('change', function (event) {
+      var menu = event.target.closest('[data-volunteer-task]');
+      if (!menu || menu.disabled || !menu.value) return;
+      event.stopPropagation();
+      var suffix = menu.value === 'decline' ? '/volunteer/decline' : '/volunteer';
+      menu.value = '';
+      menu.disabled = true;
+      volunteerRequest(menu.dataset.volunteerTask, 'POST', suffix).catch(function (error) {
+        menu.disabled = false;
         if (window.__showActionToast) window.__showActionToast({ title: "Volunteer request", body: error.message });
       });
     }, true);
@@ -18458,6 +18473,7 @@
         if (currentTaskData && currentTaskData.assignee_mode === "volunteer") {
           var confirmed = ((currentTaskData.volunteer || {}).accepted_assignment_ids || []).some(function (id) { return String(id) === String(assignment.id); });
           statusContent = '<span class="discussion-assignment-pill">' + (confirmed ? 'Volunteered' : 'Invited') + '</span>' + (assignment.user_id ? '' : statusContent);
+          if (confirmed) statusContent += '<button type="button" class="btn link" data-unvolunteer-assignment="' + assignment.id + '"' + (currentTaskData.locked ? ' disabled' : '') + '>Unvolunteer</button>';
         }
         return (
           '<div class="discussion-assignment-row" data-assignment-id="' + assignment.id + '">' +

@@ -1546,7 +1546,10 @@ def _apply_invite_response(invite: Invite, action: str, calendar_opt_in: bool) -
         elif action == "decline":
             if task.locked:
                 abort(409, description="This task is locked")
-            assignment.volunteered_at = None
+            # Preserve invite history but remove the declined invitation entirely.
+            for related_invite in Invite.query.filter_by(assignment_id=assignment.id).all():
+                related_invite.assignment_id = None
+            db.session.delete(assignment)
             task.updated_at = datetime.utcnow()
     if action == "accept":
         invite.status = "accepted"
@@ -3722,7 +3725,7 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     if task and action in {"complete", "uncomplete", "accept", "decline"}:
         emit_task_updated(task)
     if task:
-        emit_assignment_updated(task, assignment)
+        emit_assignment_updated(task, assignment, action="deleted" if action == "decline" and task_assignee_mode(task) == "volunteer" else "updated")
         emit_task_notification_updates(task, exclude_user_id=exclude_notification_user_id)
     return redirect(url_for("ui.collaborator_portal", token=token))
 
