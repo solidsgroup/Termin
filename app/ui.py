@@ -221,7 +221,7 @@ def _calendar_feed_tasks(email: str) -> list[Task]:
     if not tasks:
         return []
     confirmed_task_ids = {row.task_id for row in assignments if row.volunteered_at}
-    tasks = [task for task in tasks if task_assignee_mode(task) != "volunteer" or task.id in confirmed_task_ids]
+    tasks = [task for task in tasks if task_assignee_mode(task) not in {"volunteer", "confirm"} or task.id in confirmed_task_ids]
     status_map = task_status_meta_map(tasks, viewer_email=normalized)
     return [
         task
@@ -438,7 +438,15 @@ def _build_notification_items(rows: list[TaskNotification], *, user_id: int) -> 
             summary = f"{sender_name or 'New message'} commented"
             inbox_preview = preview
         else:
-            if row.kind == "task_completed":
+            if row.kind == "assignment_confirmed":
+                summary = "Assignment confirmed"
+                preview = (actor_name or "Someone") + " confirmed the assignment for " + task_label
+                inbox_preview = "confirmed the assignment"
+            elif row.kind == "volunteer_accepted":
+                summary = "Volunteer confirmed"
+                preview = (actor_name or "Someone") + " volunteered for " + task_label
+                inbox_preview = "volunteered"
+            elif row.kind == "task_completed":
                 summary = "Task completed"
                 preview = (actor_name + " completed " + task_label) if actor_name else "Task completed"
                 inbox_preview = "completed"
@@ -1307,14 +1315,15 @@ def _build_collaborator_entries(collaborator: CollaboratorProfile) -> list[dict]
 
     for entry in final_entries:
         task = entry.get("task")
-        if not task or task_assignee_mode(task) != "volunteer":
+        if not task or task_assignee_mode(task) not in {"volunteer", "confirm"}:
             continue
         state = volunteer_payload(task)["volunteer"]
         assignment = entry.get("assignment")
         accepted = bool(assignment and assignment.volunteered_at)
-        pending = not accepted and state["accepted_count"] < state["required"] and not entry["is_complete"]
+        pending = not accepted and (state["required"] is None or state["accepted_count"] < state["required"]) and not entry["is_complete"]
         entry["volunteer"] = dict(state, accepted=accepted, pending=pending,
-            label="Accept" if state["invitee_count"] == state["required"] else "Volunteer")
+            label="Confirm" if task_assignee_mode(task) == "confirm" else "Volunteer",
+            accepted_label="Confirmed" if task_assignee_mode(task) == "confirm" else "Accepted")
         if pending:
             entry["sort"]["bucket"] = -2
 
@@ -1529,11 +1538,11 @@ def _serialize_portal_comment(comment: TaskComment, users: dict[int, User], coll
 
 def _apply_invite_response(invite: Invite, action: str, calendar_opt_in: bool) -> None:
     task = Task.query.get(invite.task_id) if invite.task_id else None
-    if task and task_assignee_mode(task) == "volunteer":
+    if task and task_assignee_mode(task) in {"volunteer", "confirm"}:
         task = lock_volunteer_task(task.id)
         assignment = Assignment.query.get(invite.assignment_id) if invite.assignment_id else None
         if not assignment:
-            abort(409, description="A volunteer request requires an assignment")
+            abort(409, description="An assignment response requires an assignment")
         db.session.refresh(assignment)
         if action == "accept":
             confirmed, error = confirm_volunteer(task, assignment)
@@ -1542,7 +1551,7 @@ def _apply_invite_response(invite: Invite, action: str, calendar_opt_in: bool) -
             if confirmed and task.creator_user_id:
                 collaborator = CollaboratorProfile.query.filter_by(email=invite.email).first()
                 detail = _task_notification_collaborator_payload(collaborator) if collaborator else {"actor_name": invite.email}
-                queue_user_notification(user_id=task.creator_user_id, kind="volunteer_accepted", task_id=task.id, detail_payload=detail)
+                queue_user_notification(user_id=task.creator_user_id, kind="assignment_confirmed" if task_assignee_mode(task) == "confirm" else "volunteer_accepted", task_id=task.id, detail_payload=detail)
         elif action == "decline":
             if task.locked:
                 abort(409, description="This task is locked")
@@ -3311,6 +3320,7 @@ def accept_invite(token: str):
         status=invite.status,
         invite=invite,
         task=task,
+        assignee_mode=task_assignee_mode(task) if task else "default",
         collaborator=CollaboratorProfile.query.filter_by(email=invite.email).first(),
     )
 
@@ -3338,6 +3348,7 @@ def respond_invite(token: str):
         status=invite.status,
         invite=invite,
         task=task,
+        assignee_mode=task_assignee_mode(task) if task else "default",
         collaborator=CollaboratorProfile.query.filter_by(email=invite.email).first(),
     )
 
@@ -3357,7 +3368,7 @@ def quick_respond_invite(token: str, action: str):
             subtitle="Email links require confirmation before they change task status.",
             summary=task.title if task else "Task",
             detail=None,
-            confirm_label="Accept" if action == "accept" else "Decline",
+            confirm_label=("Confirm" if task and task_assignee_mode(task) == "confirm" else "Volunteer" if task and task_assignee_mode(task) == "volunteer" else "Accept") if action == "accept" else "Decline",
             confirm_tone="primary" if action == "accept" else "secondary",
             cancel_href=url_for("ui.view_invite", token=token),
         )
@@ -3374,6 +3385,7 @@ def quick_respond_invite(token: str, action: str):
         status=invite.status,
         invite=invite,
         task=task,
+        assignee_mode=task_assignee_mode(task) if task else "default",
         collaborator=None,
     )
 
@@ -3725,7 +3737,7 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     if task and action in {"complete", "uncomplete", "accept", "decline"}:
         emit_task_updated(task)
     if task:
-        emit_assignment_updated(task, assignment, action="deleted" if action == "decline" and task_assignee_mode(task) == "volunteer" else "updated")
+        emit_assignment_updated(task, assignment, action="deleted" if action == "decline" and task_assignee_mode(task) in {"volunteer", "confirm"} else "updated")
         emit_task_notification_updates(task, exclude_user_id=exclude_notification_user_id)
     return redirect(url_for("ui.collaborator_portal", token=token))
 

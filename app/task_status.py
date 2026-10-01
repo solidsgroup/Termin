@@ -267,7 +267,10 @@ def _base_task_status_meta(
     if assignments_by_task is None:
         assignments_by_task = load_task_assignment_rows([task.id] if task and task.id else [])
     assignments = list((assignments_by_task or {}).get(task.id, []))
-    volunteer_mode = task_assignee_mode(task) == "volunteer"
+    volunteer_mode = task_assignee_mode(task) in {"volunteer", "confirm"}
+    required_responses = task.volunteers_required if task_assignee_mode(task) == "volunteer" else None
+    if required_responses is None:
+        required_responses = len(assignments)
     if volunteer_mode:
         assignments = [row for row in assignments if row.volunteered_at]
     if users_by_id is None:
@@ -474,7 +477,7 @@ def _base_task_status_meta(
             "poll_viewer_option_ids": poll_viewer_option_ids,
         }
     has_viewer_identity = (viewer_user_id is not None) or bool((viewer_email or "").strip())
-    volunteer_waiting = volunteer_mode and mode == "multi" and len(assignments) < (task.volunteers_required or 1)
+    volunteer_waiting = volunteer_mode and mode == "multi" and len(assignments) < required_responses
     if mode == "percent":
         aggregate_state = "complete" if percentage_complete >= 100 else "open"
     elif enabled:

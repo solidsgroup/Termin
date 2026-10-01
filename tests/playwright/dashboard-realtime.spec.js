@@ -6059,7 +6059,7 @@ test('volunteer buttons work in tree and gantt and requests reopen when a volunt
   await login(member, state.member.email, state.member.password);
   await member.goto(`/tree/project/${state.project.id}`);
   const board = member.locator(`[data-tree-project-board="${state.project.id}"]`);
-  await expect(board.locator(`[data-volunteer-task="${task.id}"]`).first()).toHaveText(/Accept/);
+  await expect(board.locator(`[data-volunteer-task="${task.id}"]`).first()).toHaveText(/Volunteer/);
   await board.locator('[data-project-mode-button="gantt"]').click();
   const ganttButton = board.locator(`[data-project-gantt] [data-volunteer-task="${task.id}"]`);
   await expect(ganttButton).toBeVisible();
@@ -6067,7 +6067,7 @@ test('volunteer buttons work in tree and gantt and requests reopen when a volunt
   await expect(ganttButton).toHaveText(/Accepted/);
   await expect(ganttButton).toBeEnabled();
   await page.goto(`/task/${task.id}`);
-  await expect(page.locator('#discussion-volunteer select')).toHaveText(/Accept/);
+  await expect(page.locator('#discussion-volunteer select')).toHaveText(/Volunteer/);
   await page.locator('#discussion-volunteer select').selectOption('volunteer');
   await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(2);
   await member.goto('/todo');
@@ -6094,7 +6094,7 @@ test('email collaborators can volunteer and notify the creator without exceeding
   const collaborator = await context.newPage();
   await collaborator.goto(`/collaborators/${state.collaborator.access_token}`);
   const button = collaborator.locator(`[data-collab-volunteer="${task.id}"]`);
-  await expect(button).toHaveText(/Accept/);
+  await expect(button).toHaveText(/Volunteer/);
   await button.selectOption('accept');
   await expect(button).toHaveText(/Accepted/);
   await expect(button).toBeEnabled();
@@ -6144,9 +6144,12 @@ test('adding invitees through the drawer preserves volunteer mode and updates it
   const task = await createTask(page, { project_id: state.project.id, title: 'Invite through the picker' });
   await page.goto(`/task/${task.id}`);
   await page.locator('#task-assignment-mode').selectOption('volunteer');
+  await expect(page.locator('#task-volunteers-required')).toHaveValue('');
+  await page.locator('#task-volunteers-required').fill('1');
+  await page.locator('#volunteer-assignment-summary').click();
   await expect(page.locator('#task-assignment-mode')).toHaveClass(/needs-volunteers/);
   await page.locator('#task-settings-assignee').focus();
-  await page.locator('.assign-suggest button').filter({ has: page.locator('.assign-suggest-label', { hasText: /^Member$/ }) }).click();
+  await page.locator('.assign-suggest:visible button').filter({ has: page.locator('.assign-suggest-label', { hasText: /^Member$/ }) }).click();
   await expect(page.locator('#task-assignment-mode')).toHaveValue('volunteer');
   await expect(page.locator('#task-assignment-mode')).not.toHaveClass(/needs-volunteers/);
   await expect(page.locator('#volunteer-assignment-summary')).toHaveText('1 invited; 0 confirmed');
@@ -6191,3 +6194,75 @@ test('volunteer dropdown decline removes invitation and unvolunteer reopens a pl
   expect((await fetchTaskViaApi(page, task.id)).assignments).toHaveLength(0);
   await context.close();
 });
+
+for (const mode of ['volunteer', 'confirm']) {
+  test(`${mode} mode asks every invitee independently without an implicit capacity`, async ({ page, browser, request }) => {
+    test.setTimeout(60000);
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, {
+      project_id: state.project.id, title: `Everyone responds: ${mode}`,
+      assignee_email: state.member.email, due_mode: 'none',
+    });
+    expect((await fetchTaskViaApi(page, task.id)).volunteers_required).toBeNull();
+    await page.goto(`/task/${task.id}`);
+    if (mode === 'confirm') await patchTask(page, task.id, { volunteers_required: 1 });
+    await page.locator('#task-assignment-mode').selectOption(mode);
+    await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).assignee_mode).toBe(mode);
+    const count = page.locator('#task-volunteers-required');
+    if (mode === 'volunteer') {
+      await expect(count).toHaveValue('');
+      await count.fill('2');
+      await count.press('Tab');
+      await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteers_required).toBe(2);
+      await count.fill('');
+      await count.press('Tab');
+      await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteers_required).toBeNull();
+      await expect(page.locator('#task-assignment-mode')).not.toHaveClass(/needs-volunteers/);
+    } else {
+      await expect(count).toBeHidden();
+    }
+    expect((await page.request.post(`/api/tasks/${task.id}/assign_all`)).ok()).toBeTruthy();
+    await expect(page.locator('#task-assignment-mode')).toHaveValue(mode);
+    const context = await browser.newContext();
+    const member = await context.newPage();
+    await login(member, state.member.email, state.member.password);
+    await member.goto('/todo');
+    await page.goto('/todo');
+    const ownerMenu = page.locator(`.todo-item[data-task-id="${task.id}"] [data-volunteer-task]`);
+    const memberMenu = member.locator(`.todo-item[data-task-id="${task.id}"] [data-volunteer-task]`);
+    const responseLabel = mode === 'confirm' ? 'Confirm' : 'Volunteer';
+    await expect(memberMenu.locator('option[value="volunteer"]')).toHaveText(responseLabel);
+    await memberMenu.selectOption('volunteer');
+    await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(1);
+    // The first response must not hide the remaining user's task or prompt.
+    await expect(ownerMenu).toBeVisible();
+    await expect(ownerMenu.locator('option[value="volunteer"]')).toHaveText(responseLabel);
+    await page.reload();
+    await expect(ownerMenu.locator('option[value="volunteer"]')).toHaveText(responseLabel);
+    await ownerMenu.selectOption('volunteer');
+    await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(2);
+    await expect(ownerMenu).toHaveText(mode === 'confirm' ? /Confirmed/ : /Accepted/);
+    expect((await page.request.post(`/api/tasks/${task.id}/volunteer`)).ok()).toBeTruthy();
+    const notifications = await page.request.get('/api/notifications');
+    expect(JSON.stringify(await notifications.json())).toContain(mode === 'confirm' ? 'assignment_confirmed' : 'volunteer_accepted');
+
+    // Newly invited email collaborators must also be able to respond after others.
+    expect((await page.request.post('/api/assignments', { data: {
+      target_type: 'task', target_id: task.id, email: state.collaborator.email,
+    } })).ok()).toBeTruthy();
+    expect((await fetchTaskViaApi(page, task.id)).assignee_mode).toBe(mode);
+    const collaborator = await context.newPage();
+    await collaborator.goto(`/collaborators/${state.collaborator.access_token}`);
+    const collabMenu = collaborator.locator(`[data-collab-volunteer="${task.id}"]`);
+    await expect(collabMenu.locator('option[value="accept"]')).toHaveText(responseLabel);
+    await collabMenu.selectOption('accept');
+    await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(3);
+    await collabMenu.selectOption('decline');
+    await expect(collabMenu).toHaveCount(0);
+    await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(2);
+    await memberMenu.selectOption('decline');
+    await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).assignments.length).toBe(1);
+    await context.close();
+  });
+}

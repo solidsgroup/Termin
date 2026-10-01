@@ -1,4 +1,4 @@
-"""Shared volunteer request state for HTTP, bootstrap, and socket payloads."""
+"""Shared volunteer and assignment-confirmation state for HTTP and socket payloads."""
 
 from datetime import datetime
 
@@ -9,16 +9,16 @@ from app.models import Assignment, Task
 def task_assignee_mode(task):
     info = load_info_payload(task.info, task.link)
     mode = str((info.get("meta") or {}).get("assignee_mode") or "default")
-    return mode if mode in {"default", "none", "volunteer"} else "default"
+    return mode if mode in {"default", "none", "volunteer", "confirm"} else "default"
 
 
 def volunteer_payload(task):
-    rows = Assignment.query.filter_by(task_id=task.id).all() if task.id and task_assignee_mode(task) == "volunteer" else []
+    rows = Assignment.query.filter_by(task_id=task.id).all() if task.id and task_assignee_mode(task) in {"volunteer", "confirm"} else []
     accepted = [row.id for row in rows if row.volunteered_at]
     return {
-        "volunteers_required": task.volunteers_required or 1,
+        "volunteers_required": task.volunteers_required,
         "volunteer": {
-            "required": task.volunteers_required or 1,
+            "required": task.volunteers_required if task_assignee_mode(task) == "volunteer" else None,
             "invitee_count": len(rows),
             "accepted_count": len(accepted),
             "accepted_assignment_ids": accepted,
@@ -38,14 +38,14 @@ def confirm_volunteer(task, assignment):
 
     if task.locked:
         return False, "this task is locked"
-    if task_assignee_mode(task) != "volunteer":
-        return False, "this task is not seeking volunteers"
+    if task_assignee_mode(task) not in {"volunteer", "confirm"}:
+        return False, "this task is not requesting assignment responses"
     if task_status_meta(task).get("aggregate_state") == "complete":
         return False, "this task is complete"
     if assignment.volunteered_at:
         return False, None
     accepted = Assignment.query.filter_by(task_id=task.id).filter(Assignment.volunteered_at.isnot(None)).count()
-    if accepted >= task.volunteers_required:
+    if task_assignee_mode(task) == "volunteer" and task.volunteers_required is not None and accepted >= task.volunteers_required:
         return False, "all volunteer places have been filled"
     assignment.volunteered_at = datetime.utcnow()
     task.updated_at = datetime.utcnow()

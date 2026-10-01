@@ -1474,9 +1474,10 @@
             <select id="task-assignment-mode">
               <option value="default">Assign</option>
               <option value="volunteer">Get Volunteer</option>
+              <option value="confirm">Confirm assignment</option>
             </select>
             <label id="volunteer-count-label" for="task-volunteers-required" hidden>Volunteers needed</label>
-            <input id="task-volunteers-required" type="number" min="1" step="1" value="1" hidden />
+            <input id="task-volunteers-required" type="number" min="1" step="1" placeholder="All invitees" title="Leave blank to ask every invitee to volunteer or decline" hidden />
             <span id="volunteer-assignment-summary" role="status"></span>
           </div>
           <div class="discussion-settings-assignments" id="task-settings-assignments"></div>
@@ -7525,7 +7526,7 @@
               taskMeta.assignments = mergedAssignments;
               var updatedTaskMeta = Object.assign({}, taskMeta, {
                 assignments: mergedAssignments,
-                assignee_mode: taskMeta.assignee_mode === "volunteer" ? "volunteer" : "default",
+                assignee_mode: ["volunteer", "confirm"].indexOf(taskMeta.assignee_mode) !== -1 ? taskMeta.assignee_mode : "default",
               });
               if (typeof mergeDashboardTask === "function") mergeDashboardTask(updatedTaskMeta);
               else if (typeof window.__mergeDashboardTask === "function") window.__mergeDashboardTask(updatedTaskMeta);
@@ -8437,7 +8438,7 @@
 
     const taskAssignmentKeysFromData = (task, assignments) => {
       if (task && task.assignee_mode === "volunteer" && task.volunteer &&
-          task.volunteer.accepted_count >= task.volunteer.required) {
+          task.volunteer.required != null && task.volunteer.accepted_count >= task.volunteer.required) {
         const confirmed = new Set((task.volunteer.accepted_assignment_ids || []).map(String));
         assignments = (assignments || []).filter((row) => confirmed.has(String(row.id)));
       }
@@ -15041,13 +15042,15 @@
       });
       var acceptedIds = state.accepted_assignment_ids || [];
       var accepted = !!mine && acceptedIds.some(function (id) { return String(id) === String(mine.id); });
-      var active = !!task && task.assignee_mode === "volunteer";
-      var filled = Number(state.accepted_count || 0) >= Number(state.required || 1);
+      var confirmation = !!task && task.assignee_mode === "confirm";
+      var active = !!task && (task.assignee_mode === "volunteer" || confirmation);
+      var required = !confirmation && state.required != null ? Number(state.required) : null;
+      var filled = required != null && Number(state.accepted_count || 0) >= required;
       var complete = task && taskAggregateStatusState(task) === "complete";
       return { active: active, mine: mine, accepted: accepted, filled: filled,
         pending: active && !!mine && !accepted && !filled && !complete,
-        required: Number(state.required || 1), count: Number(state.accepted_count || 0),
-        label: Number(state.invitee_count || assignments.length) === Number(state.required || 1) ? "Accept" : "Volunteer" };
+        required: required, count: Number(state.accepted_count || 0), confirmation: confirmation,
+        label: confirmation ? "Confirm" : "Volunteer" };
     }
 
     function renderVolunteerButtonHtml(task) {
@@ -15056,11 +15059,13 @@
       var state = volunteerState(task);
       var content = "";
       if (state.active) {
-        var label = state.accepted ? "Accepted" : state.filled ? "Filled" : state.label;
+        var label = state.accepted ? (state.confirmation ? "Confirmed" : "Accepted") : state.filled ? "Filled" : state.label;
+        var progress = state.required == null ? "" : " " + state.count + "/" + state.required;
+        var description = state.required == null ? state.count + " confirmed" : state.count + " of " + state.required + " volunteers confirmed";
         content = '<select class="task-volunteer-button" data-volunteer-task="' + escapeHtml(task.id) + '"' +
           ((!state.mine || task.locked) ? ' disabled' : '') +
-          ' aria-label="Volunteer response" title="' + state.count + ' of ' + state.required + ' volunteers confirmed">' +
-          '<option value="" selected disabled>' + label + ' ' + state.count + '/' + state.required + '</option>' +
+          ' aria-label="' + (state.confirmation ? 'Assignment confirmation' : 'Volunteer response') + '" title="' + description + '">' +
+          '<option value="" selected disabled>' + label + progress + '</option>' +
           (state.pending ? '<option value="volunteer">' + state.label + '</option>' : '') +
           (state.mine ? '<option value="decline">Decline</option>' : '') + '</select>';
       }
@@ -15076,7 +15081,7 @@
     }
 
     function taskTodoBucket(task, dueValue, createdValue, dueMode) {
-      if (volunteerState(task).pending) return { key: "volunteer", label: "Volunteer Requests", rank: -2 };
+      if (volunteerState(task).pending) return { key: "volunteer", label: "Assignment Requests", rank: -2 };
       return todoBucketFor(dueValue, createdValue, dueMode);
     }
 
@@ -15086,16 +15091,17 @@
       var label = document.getElementById("volunteer-count-label");
       var summary = document.getElementById("volunteer-assignment-summary");
       var active = task && task.assignee_mode === "volunteer";
-      mode.value = active ? "volunteer" : "default";
+      var confirmation = task && task.assignee_mode === "confirm";
+      mode.value = active ? "volunteer" : confirmation ? "confirm" : "default";
       mode.disabled = !!task.locked;
       count.hidden = label.hidden = !active;
-      count.value = task.volunteers_required || 1;
+      count.value = task.volunteers_required == null ? "" : task.volunteers_required;
       count.disabled = !!task.locked;
       var invitees = (task.assignments || []).length;
-      var insufficient = active && invitees < Number(count.value);
+      var insufficient = active && count.value !== "" && invitees < Number(count.value);
       mode.classList.toggle("needs-volunteers", insufficient);
       count.classList.toggle("needs-volunteers", insufficient);
-      summary.textContent = active ? invitees + " invited; " + Number((task.volunteer || {}).accepted_count || 0) + " confirmed" : "";
+      summary.textContent = (active || confirmation) ? invitees + " invited; " + Number((task.volunteer || {}).accepted_count || 0) + " confirmed" : "";
       var host = document.getElementById("discussion-volunteer");
       if (host) host.innerHTML = renderVolunteerButtonHtml(task);
     }
@@ -15150,7 +15156,7 @@
         if (input.type === 'number' && !input.reportValidity()) return;
         var payload = id === 'task-assignment-mode'
           ? { assignee_mode: input.value }
-          : { volunteers_required: Number(input.value) };
+          : { volunteers_required: input.value === "" ? null : Number(input.value) };
         volunteerRequest(currentTaskId, 'PATCH', '', payload).catch(function (error) {
           renderTaskSettings();
           if (window.__showActionToast) window.__showActionToast({ title: "Volunteer request", body: error.message });
@@ -18470,10 +18476,10 @@
           : status === "link_sent"
           ? '<button class="btn link" type="button" data-send-link="' + assignment.id + '">Resend</button>'
           : '<span class="discussion-assignment-pill">' + escapeHtml(status) + '</span>';
-        if (currentTaskData && currentTaskData.assignee_mode === "volunteer") {
+        if (currentTaskData && ["volunteer", "confirm"].indexOf(currentTaskData.assignee_mode) !== -1) {
           var confirmed = ((currentTaskData.volunteer || {}).accepted_assignment_ids || []).some(function (id) { return String(id) === String(assignment.id); });
-          statusContent = '<span class="discussion-assignment-pill">' + (confirmed ? 'Volunteered' : 'Invited') + '</span>' + (assignment.user_id ? '' : statusContent);
-          if (confirmed) statusContent += '<button type="button" class="btn link" data-unvolunteer-assignment="' + assignment.id + '"' + (currentTaskData.locked ? ' disabled' : '') + '>Unvolunteer</button>';
+          statusContent = '<span class="discussion-assignment-pill">' + (confirmed ? (currentTaskData.assignee_mode === 'confirm' ? 'Confirmed' : 'Volunteered') : (currentTaskData.assignee_mode === 'confirm' ? 'Awaiting confirmation' : 'Invited')) + '</span>' + (assignment.user_id ? '' : statusContent);
+          if (confirmed) statusContent += '<button type="button" class="btn link" data-unvolunteer-assignment="' + assignment.id + '"' + (currentTaskData.locked ? ' disabled' : '') + '>' + (currentTaskData.assignee_mode === 'confirm' ? 'Reset confirmation' : 'Unvolunteer') + '</button>';
         }
         return (
           '<div class="discussion-assignment-row" data-assignment-id="' + assignment.id + '">' +
@@ -22346,7 +22352,7 @@
         if (typeof mergeDashboardTask === "function") {
           mergeDashboardTask(Object.assign({}, taskMeta, {
             assignments: currentAssignments,
-            assignee_mode: taskMeta.assignee_mode === "volunteer" ? "volunteer" : "default",
+            assignee_mode: ["volunteer", "confirm"].indexOf(taskMeta.assignee_mode) !== -1 ? taskMeta.assignee_mode : "default",
           }));
         }
         var host = document.querySelector('[data-task-status-host="' + assignment.task_id + '"]');
@@ -22436,7 +22442,7 @@
         if (typeof mergeDashboardTask === "function") {
           mergeDashboardTask(Object.assign({}, taskMeta, {
             assignments: canonicalAssignments,
-            assignee_mode: taskMeta.assignee_mode === "volunteer" ? "volunteer" : "default",
+            assignee_mode: ["volunteer", "confirm"].indexOf(taskMeta.assignee_mode) !== -1 ? taskMeta.assignee_mode : "default",
           }));
         }
       }

@@ -129,6 +129,9 @@ def _notification_preview(row: TaskNotification) -> dict:
             message = actor_name + " renamed this task"
         else:
             message = ("Renamed to " + new_title) if new_title else "Task renamed"
+    elif row.kind == "assignment_confirmed":
+        title = task_label
+        message = (actor_name or "Someone") + " confirmed this assignment"
     elif row.kind == "volunteer_accepted":
         title = task_label
         message = (actor_name or "Someone") + " volunteered for this task"

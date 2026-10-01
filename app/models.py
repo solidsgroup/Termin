@@ -232,7 +232,7 @@ class Task(db.Model):
     status_mode = db.Column(db.String(32), default="single", nullable=False)
     per_user_status_enabled = db.Column(db.Boolean, default=False, nullable=False)
     assign_group_members = db.Column(db.Boolean, default=False, nullable=False)
-    volunteers_required = db.Column(db.Integer, default=1, nullable=False)
+    volunteers_required = db.Column(db.Integer, nullable=True)
     owner_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -304,6 +304,7 @@ class Assignment(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="assigned", nullable=False)
+    # Acceptance timestamp for both volunteer and confirmation assignment modes.
     volunteered_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 

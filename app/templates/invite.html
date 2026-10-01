@@ -8,7 +8,7 @@
     <h2>Task invite</h2>
     <p><strong>{{ task.title if task else "Unknown task" }}</strong></p>
     {% if status == "accepted" %}
-      <p class="footer-note" style="color: var(--success);">You already accepted this invite.</p>
+      <p class="footer-note" style="color: var(--success);">{{ 'You confirmed this assignment.' if assignee_mode == 'confirm' else 'You already accepted this invite.' }}</p>
     {% elif status == "declined" %}
       <p class="footer-note" style="color: #f87171;">You declined this invite.</p>
     {% else %}
@@ -18,7 +18,7 @@
           Send me a calendar invitation and keep it updated
         </label>
         <div style="margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn" type="submit" name="action" value="accept">Accept</button>
+          <button class="btn" type="submit" name="action" value="accept">{{ "Confirm" if assignee_mode == "confirm" else "Volunteer" if assignee_mode == "volunteer" else "Accept" }}</button>
           <button class="btn secondary" type="submit" name="action" value="decline">Decline</button>
         </div>
       </form>

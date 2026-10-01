@@ -294,6 +294,9 @@ def _web_push_payload_for_notification(
         if kind == "comment":
             title = f"{actor_name} commented"
             body = f'On "{task_title}"'
+        elif kind == "assignment_confirmed":
+            title = "Assignment confirmed"
+            body = actor_name + " confirmed the assignment for " + task_title
         elif kind == "volunteer_accepted":
             title = "Volunteer confirmed"
             body = actor_name + " volunteered for " + task_title
@@ -1126,7 +1129,11 @@ def notification_payload_for_user(user_id: int) -> dict:
                 preview = "New comment"
             inbox_preview = preview
         else:
-            if row.kind == "volunteer_accepted":
+            if row.kind == "assignment_confirmed":
+                summary = "Assignment confirmed"
+                preview = (actor_name or "Someone") + " confirmed the assignment for " + task_label
+                inbox_preview = "confirmed the assignment"
+            elif row.kind == "volunteer_accepted":
                 summary = "Volunteer confirmed"
                 preview = (actor_name or "Someone") + " volunteered for " + task_label
                 inbox_preview = "volunteered"

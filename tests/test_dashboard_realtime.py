@@ -1731,5 +1731,97 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertEqual(updated["volunteer"]["invitee_count"], 0)
 
 
+    def test_unlimited_and_confirm_assignments_wait_for_every_invitee(self):
+        with self.app.app_context():
+            owner = self.create_user('response-owner@example.com')
+            member = self.create_user('response-member@example.com')
+            project = self.create_project(owner, direct_peer=member)
+            owner_id, member_id, project_id = owner.id, member.id, project.id
+        member_client = self.app.test_client()
+        self.login(self.client, owner_id)
+        self.login(member_client, member_id)
+        for mode in ('volunteer', 'confirm'):
+            with self.subTest(mode=mode):
+                response = self.client.post('/api/tasks', json={
+                    'project_id': project_id, 'title': 'Every response ' + mode,
+                    'assignee_mode': mode,
+                    # Confirmation ignores any stored volunteer limit.
+                    'volunteers_required': 1 if mode == 'confirm' else None,
+                })
+                self.assertEqual(response.status_code, 201)
+                task_id = response.json['id']
+                self.assertIsNone(response.json['task']['volunteer']['required'])
+                self.assertEqual(self.client.post(f'/api/tasks/{task_id}/assign_all').status_code, 200)
+                self.assertEqual(self.client.patch(f'/api/tasks/{task_id}', json={'status_mode': 'multi'}).status_code, 200)
+                self.assertEqual(self.client.post(f'/api/tasks/{task_id}/volunteer').status_code, 200)
+                response = self.client.patch(f'/api/tasks/{task_id}', json={'user_status': 'complete', 'status_user_id': owner_id})
+                self.assertEqual(response.json['status_meta']['aggregate_state'], 'open')
+                response = member_client.post(f'/api/tasks/{task_id}/volunteer')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json['volunteer']['accepted_count'], 2)
+                self.assertEqual(response.json['assignee_mode'], mode)
+                inbox = self.client.get('/inbox')
+                self.assertEqual(inbox.status_code, 200)
+                self.assertIn(b'Assignment confirmed' if mode == 'confirm' else b'Volunteer confirmed', inbox.data)
+                # Duplicate responses are idempotent, even beyond a stored limit.
+                self.assertEqual(member_client.post(f'/api/tasks/{task_id}/volunteer').json['volunteer']['accepted_count'], 2)
+                response = member_client.patch(f'/api/tasks/{task_id}', json={'user_status': 'complete', 'status_user_id': member_id})
+                self.assertEqual(response.json['status_meta']['aggregate_state'], 'complete')
+
+    def test_optional_volunteer_limit_can_be_cleared_and_still_validates_caps(self):
+        with self.app.app_context():
+            owner = self.create_user('capacity-owner@example.com')
+            project = self.create_project(owner)
+            owner_id, project_id = owner.id, project.id
+        self.login(self.client, owner_id)
+        response = self.client.post('/api/tasks', json={'project_id': project_id, 'title': 'No default cap', 'assignee_mode': 'volunteer'})
+        self.assertEqual(response.status_code, 201)
+        task_id = response.json['id']
+        self.assertIsNone(response.json['task']['volunteers_required'])
+        for value in (2, None, 3, ''):
+            response = self.client.patch(f'/api/tasks/{task_id}', json={'volunteers_required': value})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json['volunteers_required'], value or None)
+        for value in (0, -1, True, 1.5, '2', 2147483648):
+            response = self.client.patch(f'/api/tasks/{task_id}', json={'volunteers_required': value})
+            self.assertEqual(response.status_code, 400)
+
+    def test_confirm_assignments_calendar_access_locks_and_mode_changes(self):
+        from app.ui import _calendar_feed_tasks
+        with self.app.app_context():
+            owner = self.create_user('confirmation-owner@example.com')
+            member = self.create_user('confirmation-member@example.com')
+            project = self.create_project(owner, direct_peer=member)
+            owner_id, member_id, project_id = owner.id, member.id, project.id
+        self.login(self.client, owner_id)
+        member_client = self.app.test_client()
+        self.login(member_client, member_id)
+        response = self.client.post('/api/tasks', json={
+            'project_id': project_id, 'title': 'Confirm calendar', 'assignee_mode': 'confirm',
+            'assignee_email': 'confirmation-owner@example.com', 'due_mode': 'date', 'due_at': '2027-01-01',
+        })
+        task_id = response.json['id']
+        self.assertEqual(member_client.post(f'/api/tasks/{task_id}/volunteer').status_code, 403)
+        with self.app.app_context():
+            self.assertEqual(_calendar_feed_tasks('confirmation-owner@example.com'), [])
+        self.client.patch(f'/api/tasks/{task_id}', json={'locked': True})
+        self.assertEqual(self.client.post(f'/api/tasks/{task_id}/volunteer').status_code, 423)
+        self.assertEqual(self.client.post(f'/api/tasks/{task_id}/volunteer/decline').status_code, 423)
+        self.client.patch(f'/api/tasks/{task_id}', json={'locked': False})
+        response = self.client.post(f'/api/tasks/{task_id}/volunteer')
+        self.assertEqual(response.status_code, 200)
+        with self.app.app_context():
+            self.assertEqual([task.id for task in _calendar_feed_tasks('confirmation-owner@example.com')], [task_id])
+        assignment_id = response.json['assignments'][0]['id']
+        self.assertEqual(self.client.delete(f'/api/tasks/{task_id}/volunteer/{assignment_id}').json['volunteer']['accepted_count'], 0)
+        self.client.post(f'/api/tasks/{task_id}/volunteer')
+        self.client.patch(f'/api/tasks/{task_id}', json={'assignee_mode': 'default'})
+        response = self.client.patch(f'/api/tasks/{task_id}', json={'assignee_mode': 'confirm'})
+        self.assertEqual(response.json['volunteer']['accepted_count'], 0)
+        response = self.client.post(f'/api/tasks/{task_id}/volunteer/decline')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['assignments'], [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

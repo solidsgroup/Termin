@@ -16,6 +16,7 @@ Brief, living record of key decisions, changes, and known issues while iterating
 - `invites` ties magic links to assignments.
 
 ## UI/UX Notes
+- Assignment modes distinguish direct assignment, volunteer requests, and confirmation requests. A blank volunteer count asks every invitee to respond; confirmation mode always asks every assignee. Existing volunteer limits are preserved by the nullable-capacity migration.
 - Gantt tracks in project and Todo views accept clicks to set an undated task's due date, or add a missing start date before an existing due date. Date selection is computed on pointer press, without depending on hovering over the provisional handle. Locked tasks and relative-date rules remain protected.
 - Playwright coverage checks Gantt date creation, persistence after reload, clearing/recreating start dates, due-date dragging, and locked tasks.
 - Assign badges unified for user/email with hover remove (X) affordance.

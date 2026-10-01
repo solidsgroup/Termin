@@ -1126,17 +1126,17 @@ def _task_assignee_mode(task: Task | None) -> str:
 
 def _set_task_assignee_mode(task: Task, value) -> tuple[bool, str | None]:
     mode = str(value or "default").strip().lower()
-    if mode not in {"default", "none", "volunteer"}:
+    if mode not in {"default", "none", "volunteer", "confirm"}:
         return False, "invalid assignee mode"
     if mode == "none" and getattr(task, "id", None) and Assignment.query.filter_by(task_id=task.id).first():
         return False, "remove existing assignees before selecting no assignee"
     if mode != _task_assignee_mode(task) and task.id:
         Assignment.query.filter_by(task_id=task.id).update({"volunteered_at": None})
-    if mode == "volunteer":
+    if mode in {"volunteer", "confirm"}:
         task.assign_group_members = False
     info = load_info_payload(task.info, task.link)
     meta = dict(info.get("meta") or {})
-    if mode in {"none", "volunteer"}:
+    if mode in {"none", "volunteer", "confirm"}:
         meta["assignee_mode"] = mode
     else:
         meta.pop("assignee_mode", None)
@@ -1146,6 +1146,9 @@ def _set_task_assignee_mode(task: Task, value) -> tuple[bool, str | None]:
 
 
 def _set_volunteers_required(task, value):
+    if value is None or value == "":
+        task.volunteers_required = None
+        return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 2147483647:
         return "required volunteers must be a positive whole number"
     accepted = Assignment.query.filter_by(task_id=task.id).filter(Assignment.volunteered_at.isnot(None)).count() if task.id else 0
@@ -1166,21 +1169,22 @@ def volunteer_for_task(task_id):
         return {"error": "unauthorized"}, 403
     if _task_is_locked(task):
         return _locked_task_response()
-    if _task_assignee_mode(task) != "volunteer":
-        return {"error": "this task is not seeking volunteers"}, 409
+    if _task_assignee_mode(task) not in {"volunteer", "confirm"}:
+        return {"error": "this task is not requesting assignment responses"}, 409
     if task_status_meta(task, viewer_user_id=user.id).get("aggregate_state") == "complete":
         return {"error": "this task is complete"}, 409
     assignment = Assignment.query.filter_by(task_id=task.id, user_id=user.id).first()
     if not assignment:
-        return {"error": "only invited assignees may volunteer"}, 403
+        return {"error": "only invited assignees may respond"}, 403
     confirmed, error = confirm_volunteer(task, assignment)
     if error:
         return {"error": error}, 409
     if confirmed:
         actor_name = display_name_for_user(user) or user.email
-        log_task_history(task, actor=user, action="updated", changed_fields=["assignees"], task_body=actor_name + " volunteered.", scoped_body=actor_name + " volunteered for " + task.title + ".")
+        action_text = " confirmed the assignment" if _task_assignee_mode(task) == "confirm" else " volunteered"
+        log_task_history(task, actor=user, action="updated", changed_fields=["assignees"], task_body=actor_name + action_text + ".", scoped_body=actor_name + action_text + " for " + task.title + ".")
         if task.creator_user_id and task.creator_user_id != user.id:
-            queue_user_notification(user_id=task.creator_user_id, kind="volunteer_accepted", task_id=task.id, detail_payload=_task_notification_actor_payload(user))
+            queue_user_notification(user_id=task.creator_user_id, kind="assignment_confirmed" if _task_assignee_mode(task) == "confirm" else "volunteer_accepted", task_id=task.id, detail_payload=_task_notification_actor_payload(user))
     db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     if task.creator_user_id:
@@ -1197,8 +1201,8 @@ def decline_volunteer_task(task_id):
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
         return {"error": "unauthorized"}, 403
-    if _task_assignee_mode(task) != "volunteer":
-        return {"error": "this task is not seeking volunteers"}, 409
+    if _task_assignee_mode(task) not in {"volunteer", "confirm"}:
+        return {"error": "this task is not requesting assignment responses"}, 409
     assignment = Assignment.query.filter_by(task_id=task.id, user_id=user.id).first()
     if not assignment:
         return {"error": "only invited assignees may decline"}, 403
@@ -1219,8 +1223,8 @@ def unvolunteer_assignee(task_id, assignment_id):
         return {"error": "unauthorized"}, 403
     if _task_is_locked(task):
         return _locked_task_response()
-    if _task_assignee_mode(task) != "volunteer":
-        return {"error": "this task is not seeking volunteers"}, 409
+    if _task_assignee_mode(task) not in {"volunteer", "confirm"}:
+        return {"error": "this task is not requesting assignment responses"}, 409
     assignment = Assignment.query.filter_by(id=assignment_id, task_id=task.id).first()
     if not assignment:
         return {"error": "assignment not found"}, 404
@@ -1228,7 +1232,7 @@ def unvolunteer_assignee(task_id, assignment_id):
         assignment.volunteered_at = None
         task.updated_at = datetime.utcnow()
         log_task_history(task, actor=user, action="updated", changed_fields=["assignees"],
-                         task_body="Volunteer confirmation removed for " + _assignment_history_label(_serialize_assignment_row(assignment)) + ".")
+                         task_body=("Assignment confirmation removed for " if _task_assignee_mode(task) == "confirm" else "Volunteer confirmation removed for ") + _assignment_history_label(_serialize_assignment_row(assignment)) + ".")
     db.session.commit()
     emit_task_updated(task, actor_user_id=user.id)
     return get_task(task.id)
@@ -6358,14 +6362,14 @@ def create_assignment():
         email=email,
     )
     if existing_assignment:
-        if _task_assignee_mode(task) != "volunteer":
+        if _task_assignee_mode(task) not in {"volunteer", "confirm"}:
             _set_task_assignee_mode(task, "default")
         existing_assignment = _collapse_duplicate_task_assignments(
             task_id=task.id,
             account_user_id=account_user.id if account_user else None,
             email=email,
         ) or existing_assignment
-        if _task_assignee_mode(task) != "volunteer":
+        if _task_assignee_mode(task) not in {"volunteer", "confirm"}:
             _reset_existing_assignment(existing_assignment)
         task.updated_at = datetime.utcnow()
         db.session.commit()
@@ -6405,7 +6409,7 @@ def create_assignment():
     )
     db.session.add(assignment)
     task.updated_at = datetime.utcnow()
-    if _task_assignee_mode(task) != "volunteer":
+    if _task_assignee_mode(task) not in {"volunteer", "confirm"}:
         _set_task_assignee_mode(task, "default")
     db.session.commit()
     assignment = _collapse_duplicate_task_assignments(
@@ -6456,7 +6460,7 @@ def assign_all_task_members(task_id: int):
         return {"error": "unauthorized"}, 403
     if _task_is_locked(task):
         return _locked_task_response()
-    task.assign_group_members = _task_assignee_mode(task) != "volunteer"
+    task.assign_group_members = _task_assignee_mode(task) not in {"volunteer", "confirm"}
     if task.assign_group_members:
         _set_task_assignee_mode(task, "default")
     changes = sync_group_task_assignments(task)

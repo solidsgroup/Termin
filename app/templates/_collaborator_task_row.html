@@ -20,8 +20,8 @@
       <span>{{ task.title if task else 'Unknown task' }}</span>
       {% if entry.volunteer and assignment %}
         <form method="post" action="{{ url_for('ui.update_collaborator_assignment', token=collaborator.access_token, assignment_id=assignment.id) }}">
-          <select name="action" aria-label="Volunteer response" data-collab-volunteer="{{ task.id }}" onchange="this.form.requestSubmit()" style="width:auto; min-height:0; height:24px; padding:0 .3rem; font-size:.7rem; border-radius:4px" {% if task.locked %}disabled{% endif %}>
-            <option value="" selected disabled>{{ 'Accepted' if entry.volunteer.accepted else entry.volunteer.label if entry.volunteer.pending else 'Filled' }} {{ entry.volunteer.accepted_count }}/{{ entry.volunteer.required }}</option>
+          <select name="action" aria-label="{{ 'Assignment confirmation' if entry.volunteer.label == 'Confirm' else 'Volunteer response' }}" data-collab-volunteer="{{ task.id }}" onchange="this.form.requestSubmit()" style="width:auto; min-height:0; height:24px; padding:0 .3rem; font-size:.7rem; border-radius:4px" {% if task.locked %}disabled{% endif %}>
+            <option value="" selected disabled>{{ entry.volunteer.accepted_label if entry.volunteer.accepted else entry.volunteer.label if entry.volunteer.pending else 'Filled' }}{% if entry.volunteer.required is not none %} {{ entry.volunteer.accepted_count }}/{{ entry.volunteer.required }}{% endif %}</option>
             {% if entry.volunteer.pending %}<option value="accept">{{ entry.volunteer.label }}</option>{% endif %}
             <option value="decline">Decline</option>
           </select>
