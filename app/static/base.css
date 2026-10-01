@@ -11926,3 +11926,17 @@ body[data-theme="light"] .color-custom-row input[type="color"] {
     transition: none !important;
   }
 }
+
+/* Highlight pending assignment responses without changing control dimensions. */
+.task-volunteer-button.is-response-needed:not(:disabled),
+[data-collab-volunteer].is-response-needed:not(:disabled) {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+}
+
+.task-volunteer-button.is-response-needed:not(:disabled):hover,
+[data-collab-volunteer].is-response-needed:not(:disabled):hover {
+  background: #1d4ed8;
+}

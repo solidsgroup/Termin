@@ -4746,6 +4746,19 @@ body[data-theme="light"] .todo-mode-menu {
   }
 }
 
+.dashboard-layout[data-dashboard-current-view="todo"] .dashboard-content {
+  padding-top: 16px;
+}
+
+/* Keep the response control next to the text instead of a stretched title. */
+.todo-item-title-row:has(> .task-volunteer-host:not(:empty)) {
+  display: flex;
+}
+
+.todo-item-title-row:has(> .task-volunteer-host:not(:empty)) > .todo-item-title {
+  flex: 0 1 auto;
+}
+
 /* Volunteer controls stay beside the title, including on touch screens. */
 .task-volunteer-host { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .task-volunteer-host:empty { display: none; }

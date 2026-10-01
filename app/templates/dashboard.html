@@ -15062,7 +15062,7 @@
         var label = state.accepted ? (state.confirmation ? "Confirmed" : "Accepted") : state.filled ? "Filled" : state.label;
         var progress = state.required == null ? "" : " " + state.count + "/" + state.required;
         var description = state.required == null ? state.count + " confirmed" : state.count + " of " + state.required + " volunteers confirmed";
-        content = '<select class="task-volunteer-button" data-volunteer-task="' + escapeHtml(task.id) + '"' +
+        content = '<select class="task-volunteer-button' + (state.pending ? ' is-response-needed' : '') + '" data-volunteer-task="' + escapeHtml(task.id) + '"' +
           ((!state.mine || task.locked) ? ' disabled' : '') +
           ' aria-label="' + (state.confirmation ? 'Assignment confirmation' : 'Volunteer response') + '" title="' + description + '">' +
           '<option value="" selected disabled>' + label + progress + '</option>' +
