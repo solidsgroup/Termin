@@ -1768,6 +1768,74 @@ class DashboardRealtimeTestCase(unittest.TestCase):
                 response = member_client.patch(f'/api/tasks/{task_id}', json={'user_status': 'complete', 'status_user_id': member_id})
                 self.assertEqual(response.json['status_meta']['aggregate_state'], 'complete')
 
+    def test_response_assign_all_preserves_existing_volunteers_outside_project_membership(self):
+        for mode in ("volunteer", "confirm"):
+            with self.subTest(mode=mode), self.app.app_context():
+                owner = self.create_user(mode + "-owner@example.com")
+                former_member = self.create_user(mode + "-former@example.com")
+                project = self.create_project(owner)
+                task = self.create_task(project, "Keep confirmed people", creator=owner)
+                task.info = normalize_info_payload({"meta": {"assignee_mode": mode}}, None)
+                assignment = self.add_assignment(task, user=former_member)
+                assignment.volunteered_at = datetime.utcnow()
+                db.session.commit()
+                task_id, assignment_id = task.id, assignment.id
+                self.login(self.client, owner.id)
+                for _ in range(2):
+                    response = self.client.post(f"/api/tasks/{task_id}/assign_all")
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(assignment_id, [row["id"] for row in response.json["assignments"]])
+                    self.assertIn(assignment_id, response.json["volunteer"]["accepted_assignment_ids"])
+
+    def test_reinviting_duplicate_assignment_preserves_volunteer_response_and_invite(self):
+        from app.models import Invite
+        with self.app.app_context():
+            owner = self.create_user("duplicate-owner@example.com")
+            project = self.create_project(owner)
+            task = self.create_task(project, "Keep response during deduplication", creator=owner)
+            task.info = normalize_info_payload({"meta": {"assignee_mode": "volunteer"}}, None)
+            primary = self.add_assignment(task, user=owner)
+            duplicate = self.add_assignment(task, user=owner)
+            duplicate.volunteered_at = datetime.utcnow()
+            invite = Invite(task_id=task.id, assignment_id=duplicate.id, email=owner.email,
+                            token="preserved-volunteer-invite", status="accepted")
+            db.session.add(invite)
+            db.session.commit()
+            task_id, owner_id, primary_id, invite_id = task.id, owner.id, primary.id, invite.id
+        self.login(self.client, owner_id)
+        response = self.client.post("/api/assignments", json={
+            "target_type": "task", "target_id": task_id, "email": "duplicate-owner@example.com"})
+        self.assertEqual(response.status_code, 200)
+        response = self.client.get(f"/api/tasks/{task_id}")
+        self.assertEqual(response.json["volunteer"]["accepted_count"], 1)
+        self.assertEqual(len(response.json["assignments"]), 1)
+        with self.app.app_context():
+            invite = db.session.get(Invite, invite_id)
+            self.assertIsNotNone(invite)
+            self.assertEqual(invite.assignment_id, primary_id)
+
+    def test_assign_all_merges_duplicate_responses_and_keeps_invite_links(self):
+        from app.models import Invite
+        with self.app.app_context():
+            owner = self.create_user("group-duplicate@example.com")
+            project = self.create_project(owner)
+            task = self.create_task(project, "Keep duplicate acceptance", creator=owner)
+            task.info = normalize_info_payload({"meta": {"assignee_mode": "confirm"}}, None)
+            primary = self.add_assignment(task, user=owner)
+            duplicate = self.add_assignment(task, user=owner)
+            duplicate.volunteered_at = datetime.utcnow()
+            invite = Invite(task_id=task.id, assignment_id=duplicate.id, email=owner.email,
+                            token="group-preserved-invite", status="accepted")
+            db.session.add(invite)
+            db.session.commit()
+            task_id, owner_id, primary_id, invite_id = task.id, owner.id, primary.id, invite.id
+        self.login(self.client, owner_id)
+        response = self.client.post(f"/api/tasks/{task_id}/assign_all")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["volunteer"]["accepted_assignment_ids"], [primary_id])
+        with self.app.app_context():
+            self.assertEqual(db.session.get(Invite, invite_id).assignment_id, primary_id)
+
     def test_optional_volunteer_limit_can_be_cleared_and_still_validates_caps(self):
         with self.app.app_context():
             owner = self.create_user('capacity-owner@example.com')

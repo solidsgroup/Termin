@@ -6171,7 +6171,10 @@ test('volunteer dropdown decline removes invitation and unvolunteer reopens a pl
   await member.goto(`/task/${task.id}`);
   const menu = member.locator('#discussion-volunteer select');
   await expect(menu).toBeVisible();
-  expect((await menu.boundingBox()).height).toBeLessThanOrEqual(26);
+  await expect.poll(async () => {
+    const box = await menu.boundingBox();
+    return box ? box.height : Infinity;
+  }).toBeLessThanOrEqual(26);
   await menu.selectOption('volunteer');
   const unvolunteer = page.locator('[data-unvolunteer-assignment]');
   await expect(unvolunteer).toBeVisible();
@@ -6266,3 +6269,102 @@ for (const mode of ['volunteer', 'confirm']) {
     await context.close();
   });
 }
+
+for (const mode of ['volunteer', 'confirm']) {
+  test(`${mode} names and responses survive live updates, repeated invitations, and reload`, async ({ page, browser, request }) => {
+    test.setTimeout(60000);
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, { project_id: state.project.id, title: 'Keep every response ' + mode, assignee_mode: mode });
+    for (const email of [state.owner.email, state.member.email, state.collaborator.email]) {
+      expect((await page.request.post('/api/assignments', { data: { target_type: 'task', target_id: task.id, email } })).ok()).toBeTruthy();
+    }
+    const original = await fetchTaskViaApi(page, task.id);
+    const ids = original.assignments.map(row => row.id).sort((a, b) => a - b);
+    await page.goto(`/task/${task.id}`);
+    const rows = page.locator('#task-settings-assignments [data-assignment-id]');
+    await expect(rows).toHaveCount(3);
+    const context = await browser.newContext();
+    try {
+      const member = await context.newPage();
+      await login(member, state.member.email, state.member.password);
+      const collaborator = await context.newPage();
+      await collaborator.goto(`/collaborators/${state.collaborator.access_token}`);
+      // Exercise account and email responses while the owner keeps the list open.
+      const responses = await Promise.all([
+        page.request.post(`/api/tasks/${task.id}/volunteer`),
+        member.request.post(`/api/tasks/${task.id}/volunteer`),
+      ]);
+      responses.forEach(response => expect(response.ok()).toBeTruthy());
+      await collaborator.locator(`[data-collab-volunteer="${task.id}"]`).selectOption('accept');
+      await expect(page.locator('#volunteer-assignment-summary')).toHaveText('3 invited; 3 confirmed');
+      await expect(rows).toHaveCount(3);
+      await expect(page.locator('#task-settings-assignments [data-assignment-response="confirmed"]')).toHaveCount(3);
+      for (let repeat = 0; repeat < 2; repeat++) {
+        expect((await page.request.post(`/api/tasks/${task.id}/assign_all`)).ok()).toBeTruthy();
+        expect((await page.request.post('/api/assignments', { data: { target_type: 'task', target_id: task.id, email: state.member.email } })).ok()).toBeTruthy();
+      }
+      await patchTask(page, task.id, { title: 'Responses retained ' + mode });
+      // Opening the task URL again loads a fresh document and persisted assignments.
+      await page.goto(`/task/${task.id}`);
+      await expect(rows).toHaveCount(3);
+      await expect(page.locator('#volunteer-assignment-summary')).toHaveText('3 invited; 3 confirmed');
+      const saved = await fetchTaskViaApi(page, task.id);
+      expect(saved.assignments.map(row => row.id).sort((a, b) => a - b)).toEqual(ids);
+      expect(saved.volunteer.accepted_assignment_ids.sort((a, b) => a - b)).toEqual(ids);
+      const memberId = saved.assignments.find(row => row.user_id === state.member.id).id;
+      await page.locator(`[data-unvolunteer-assignment="${memberId}"]`).click();
+      await expect(page.locator(`#task-settings-assignments [data-assignment-id="${memberId}"]`)).toHaveAttribute('data-assignment-response', 'pending');
+      await expect(rows).toHaveCount(3);
+      expect((await member.request.post(`/api/tasks/${task.id}/volunteer`)).ok()).toBeTruthy();
+      await expect(page.locator('#volunteer-assignment-summary')).toHaveText('3 invited; 3 confirmed');
+      await expect(rows).toHaveCount(3);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+test('a delayed volunteer response cannot erase a newer assignee from the open list', async ({ page, browser, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Delayed volunteer response', assignee_email: state.owner.email, assignee_mode: 'volunteer' });
+  await page.goto(`/task/${task.id}`);
+  const context = await browser.newContext();
+  const member = await context.newPage();
+  await login(member, state.member.email, state.member.password);
+  let releaseResponse;
+  let responseCaptured;
+  const release = new Promise(resolve => { releaseResponse = resolve; });
+  const captured = new Promise(resolve => { responseCaptured = resolve; });
+  await page.route(`**/api/tasks/${task.id}/volunteer`, async route => {
+    const response = await route.fetch();
+    responseCaptured();
+    await release;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.locator('#discussion-volunteer select').selectOption('volunteer');
+    await captured;
+    expect((await page.request.post('/api/assignments', { data: { target_type: 'task', target_id: task.id, email: state.member.email } })).ok()).toBeTruthy();
+    expect((await member.request.post(`/api/tasks/${task.id}/volunteer`)).ok()).toBeTruthy();
+    await expect(page.locator('#volunteer-assignment-summary')).toHaveText('2 invited; 2 confirmed');
+    const saved = await fetchTaskViaApi(page, task.id);
+    const addedId = saved.assignments.find(row => row.user_id === state.member.id).id;
+    const addedRow = page.locator(`#task-settings-assignments [data-assignment-id="${addedId}"]`);
+    await expect(addedRow).toBeVisible();
+    const delivered = page.waitForResponse(response => response.url().endsWith(`/api/tasks/${task.id}/volunteer`) && response.request().method() === 'POST');
+    releaseResponse();
+    await (await delivered).finished();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(page.locator('#discussion-volunteer select')).toBeEnabled();
+    // The delayed HTTP response must not replace the newer socket snapshot.
+    await expect.poll(() => page.evaluate(id => window.__getCurrentTaskData().assignments.map(row => row.id).includes(id), addedId)).toBe(true);
+    await expect(addedRow).toBeVisible();
+    await expect(page.locator('#volunteer-assignment-summary')).toHaveText('2 invited; 2 confirmed');
+  } finally {
+    releaseResponse();
+    await page.unrouteAll({ behavior: 'wait' });
+    await context.close();
+  }
+});

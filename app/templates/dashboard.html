@@ -15113,6 +15113,9 @@
       });
       var data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not update volunteer request');
+      // A newer socket update may have arrived while this HTTP response was in flight.
+      // Use the same freshest snapshot for the store, rows, and open assignee list.
+      data = resolveFreshestTaskPayload(data);
       mergeDashboardTask(data);
       applyTaskRowUpdate(data);
       if (String(currentTaskId) === String(taskId)) {

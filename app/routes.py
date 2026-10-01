@@ -10,7 +10,7 @@ from sqlalchemy import or_
 from flask import Blueprint, current_app, request, send_from_directory, url_for
 
 from markdown import markdown as render_markdown
-from app.volunteers import task_assignee_mode, volunteer_payload, lock_volunteer_task, confirm_volunteer
+from app.volunteers import task_assignee_mode, volunteer_payload, lock_volunteer_task, confirm_volunteer, merge_assignment_response
 from app.auth import login_required
 from app.canvas_sync import (
     CANVAS_SPECIALTY_TYPE,
@@ -2895,7 +2895,7 @@ def _collapse_duplicate_task_assignments(
         return None
     primary = matches[0]
     for duplicate in matches[1:]:
-        Invite.query.filter_by(assignment_id=duplicate.id).delete(synchronize_session=False)
+        merge_assignment_response(primary, duplicate)
         db.session.delete(duplicate)
     return primary
 
@@ -6338,7 +6338,7 @@ def create_assignment():
     if "@" not in email:
         return {"error": "invalid email"}, 400
 
-    task = Task.query.get(target_id)
+    task = lock_volunteer_task(target_id)
     if not task:
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):
@@ -6453,7 +6453,7 @@ def create_assignment():
 @login_required
 def assign_all_task_members(task_id: int):
     user = current_user()
-    task = Task.query.get(task_id)
+    task = lock_volunteer_task(task_id)
     if not task:
         return {"error": "task not found"}, 404
     if not _can_access_task(user, task):

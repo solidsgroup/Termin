@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from app.info_utils import load_info_payload
-from app.models import Assignment, Task
+from app.models import Assignment, Invite, Task
 
 
 def task_assignee_mode(task):
@@ -50,3 +50,15 @@ def confirm_volunteer(task, assignment):
     assignment.volunteered_at = datetime.utcnow()
     task.updated_at = datetime.utcnow()
     return True, None
+
+
+def merge_assignment_response(primary, duplicate):
+    """Preserve a person's response and working invite links when deduplicating."""
+    if duplicate.volunteered_at and (
+        not primary.volunteered_at or duplicate.volunteered_at < primary.volunteered_at
+    ):
+        primary.volunteered_at = duplicate.volunteered_at
+    if duplicate.status == "accepted":
+        primary.status = "accepted"
+    for invite in Invite.query.filter_by(assignment_id=duplicate.id).all():
+        invite.assignment_id = primary.id

@@ -1,6 +1,7 @@
 from app.extensions import db
 from app.models import Assignment, Project, Task, User
 from app.team_shares import project_access_user_ids
+from app.volunteers import merge_assignment_response, task_assignee_mode
 
 
 def group_assignment_candidate_users(task: Task) -> list[User]:
@@ -36,21 +37,25 @@ def serialize_group_assignment_members(task: Task) -> list[dict]:
 
 
 def sync_group_task_assignments(task: Task) -> dict:
+    response_mode = task_assignee_mode(task) in {"volunteer", "confirm"}
     candidate_users = group_assignment_candidate_users(task)
     candidate_ids = {user.id for user in candidate_users}
-    existing_rows = Assignment.query.filter_by(task_id=task.id).all()
+    existing_rows = Assignment.query.filter_by(task_id=task.id).order_by(Assignment.id.asc()).all()
     rows_by_user_id: dict[int, Assignment] = {}
     created: list[Assignment] = []
     deleted: list[Assignment] = []
 
     for row in existing_rows:
         if row.user_id and row.user_id in rows_by_user_id:
+            merge_assignment_response(rows_by_user_id[row.user_id], row)
             deleted.append(row)
             continue
         if row.user_id:
             rows_by_user_id[row.user_id] = row
         # Keep explicit email collaborators; group mode only manages account users.
-        if row.user_id is not None and row.user_id not in candidate_ids:
+        # In response modes, "assign all" adds invitations; it must not revoke
+        # existing invitations or confirmations when project membership changes.
+        if not response_mode and row.user_id is not None and row.user_id not in candidate_ids:
             deleted.append(row)
 
     for user in candidate_users:

@@ -23,6 +23,11 @@ Brief, living record of key decisions, changes, and known issues while iterating
 - Send-link button reduced to text link.
 - Task delete confirm when subtasks or sent invites exist.
 
+## Volunteer Reliability
+- Reproduced delayed volunteer HTTP responses overwriting a newer assignee list in the open drawer. Response handling now resolves the newest task snapshot before updating both the store and drawer.
+- Bulk invitations in volunteer/confirmation modes are additive: existing assignees and accepted responses survive project membership changes. Duplicate cleanup preserves acceptance and reattaches invite links to the retained assignment.
+- Assignment creation and bulk invitation use the same task lock as volunteer responses. Regression coverage includes out-of-order responses, live account/email acceptance, repeated invitations, reloading, and unvolunteering without removing the assignee.
+
 ## Known Considerations
 - Google avatar URLs may fail to load in some environments; UI falls back to initials.
 - If external image loading becomes unreliable, consider proxying avatar images through the app.
