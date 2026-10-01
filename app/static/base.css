@@ -4816,6 +4816,22 @@ body[data-theme="light"] .discussion-compose textarea::placeholder {
   text-overflow: ellipsis;
 }
 
+.discussion-assignment-row[data-assignment-response="confirmed"] .discussion-assignment-name {
+  color: #86cfa5;
+}
+
+.discussion-assignment-row[data-assignment-response="pending"] .discussion-assignment-name {
+  color: #dfc477;
+}
+
+body[data-theme="light"] .discussion-assignment-row[data-assignment-response="confirmed"] .discussion-assignment-name {
+  color: #26754b;
+}
+
+body[data-theme="light"] .discussion-assignment-row[data-assignment-response="pending"] .discussion-assignment-name {
+  color: #8a680f;
+}
+
 .discussion-assignment-email {
   font-size: 12px;
   color: var(--muted);

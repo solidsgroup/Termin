@@ -18476,13 +18476,18 @@
           : status === "link_sent"
           ? '<button class="btn link" type="button" data-send-link="' + assignment.id + '">Resend</button>'
           : '<span class="discussion-assignment-pill">' + escapeHtml(status) + '</span>';
+        var responseState = "";
+        var responseLabel = "";
         if (currentTaskData && ["volunteer", "confirm"].indexOf(currentTaskData.assignee_mode) !== -1) {
           var confirmed = ((currentTaskData.volunteer || {}).accepted_assignment_ids || []).some(function (id) { return String(id) === String(assignment.id); });
-          statusContent = '<span class="discussion-assignment-pill">' + (confirmed ? (currentTaskData.assignee_mode === 'confirm' ? 'Confirmed' : 'Volunteered') : (currentTaskData.assignee_mode === 'confirm' ? 'Awaiting confirmation' : 'Invited')) + '</span>' + (assignment.user_id ? '' : statusContent);
-          if (confirmed) statusContent += '<button type="button" class="btn link" data-unvolunteer-assignment="' + assignment.id + '"' + (currentTaskData.locked ? ' disabled' : '') + '>' + (currentTaskData.assignee_mode === 'confirm' ? 'Reset confirmation' : 'Unvolunteer') + '</button>';
+          responseState = confirmed ? "confirmed" : "pending";
+          responseLabel = confirmed ? (currentTaskData.assignee_mode === "confirm" ? "Confirmed" : "Volunteered") : "Awaiting response";
+          // Keep email invitation actions, but let name color convey response status.
+          statusContent = !assignment.user_id && (status === "draft" || status === "link_sent") ? statusContent : "";
+          if (confirmed) statusContent = '<button type="button" class="btn link" data-unvolunteer-assignment="' + assignment.id + '"' + (currentTaskData.locked ? ' disabled' : '') + '>' + (currentTaskData.assignee_mode === 'confirm' ? 'Reset confirmation' : 'Unvolunteer') + '</button>';
         }
         return (
-          '<div class="discussion-assignment-row" data-assignment-id="' + assignment.id + '">' +
+          '<div class="discussion-assignment-row" data-assignment-id="' + assignment.id + '"' + (responseState ? ' data-assignment-response="' + responseState + '"' : '') + '>' +
             '<div class="discussion-assignment-user">' +
               '<button class="discussion-assignment-avatar' + (avatarUrl ? ' has-photo' : '') + '" type="button" data-remove-assignment="' + assignment.id + '"' + (assignment.user_id ? ' data-user-id="' + escapeHtml(String(assignment.user_id)) + '"' : '') + ' aria-label="Remove assignment for ' + escapeHtml(label) + '">' +
                 '<span class="badge-initial">' + escapeHtml(initial) + '</span>' +
@@ -18490,7 +18495,7 @@
                 '<span class="badge-x">×</span>' +
               '</button>' +
               '<div class="discussion-assignment-meta">' +
-                '<div class="discussion-assignment-name">' + escapeHtml(label) + '</div>' +
+                '<div class="discussion-assignment-name"' + (responseLabel ? ' title="' + escapeHtml(responseLabel) + '"' : '') + '>' + escapeHtml(label) + '</div>' +
                 (secondary ? '<div class="discussion-assignment-email">' + escapeHtml(secondary) + '</div>' : '') +
               '</div>' +
             '</div>' +
