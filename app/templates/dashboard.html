@@ -19797,6 +19797,15 @@
         var isTodoRow = row.classList && row.classList.contains("todo-item");
         row.setAttribute("data-status-state", isTodoRow ? myState : aggregateState);
       });
+      var menu = document.getElementById("multi-status-menu");
+      if (menu && menu.style.display !== "none" && String(menu.dataset.taskId) === String(task.id)) {
+        if (taskStatusMeta(effectiveTask).mode !== "multi" || taskIsLocked(effectiveTask) || taskStatusBlockedByPrereq(effectiveTask)) {
+          closeMultiStatusMenu();
+        } else {
+          var anchor = resolveMultiStatusAnchor(task.id, menu.dataset.source, menu._anchor);
+          if (anchor) openMultiStatusMenu(effectiveTask, anchor, menu.dataset.source);
+        }
+      }
     }
 
     function taskStatusSummaryFromHost(taskId) {
@@ -25511,8 +25520,10 @@
           if (!result.ok) {
             throw new Error((result.data && result.data.error) || "Could not update status");
           }
-          rememberRecentTaskSnapshot(result.data || {});
-          return result.data || {};
+          // A newer socket snapshot can arrive before this HTTP acknowledgment.
+          var task = resolveFreshestTaskPayload(result.data || {});
+          rememberRecentTaskSnapshot(task);
+          return task;
         });
     }
     window.__patchTaskUserStatus = patchTaskUserStatus;
@@ -26908,31 +26919,8 @@
         patchTaskUserStatus(taskId, userId, nextValue)
           .then(function (data) {
             if (data && data.status_meta) {
-              var task = (multiStatusMenu._task && String(multiStatusMenu._task.id) === String(taskId))
-                ? Object.assign({}, multiStatusMenu._task, {
-                    status_mode: (function (value, fallback) {
-                      var normalized = String(value || "").trim().toLowerCase();
-                      if (normalized === "per_user" || normalized === "multi") return "multi";
-                      if (normalized === "percentage" || normalized === "percent") return "percent";
-                      if (normalized === "single") return "single";
-                      return fallback || "single";
-                    })((multiStatusMenu._task && multiStatusMenu._task.status_mode) || (currentTaskData && currentTaskData.status_mode), "multi"),
-                    status_meta: data.status_meta,
-                    per_user_status_enabled: true,
-                  })
-                : {
-                    id: taskId,
-                    status: data.status || "open",
-                    status_mode: (function (value, fallback) {
-                      var normalized = String(value || "").trim().toLowerCase();
-                      if (normalized === "per_user" || normalized === "multi") return "multi";
-                      if (normalized === "percentage" || normalized === "percent") return "percent";
-                      if (normalized === "single") return "single";
-                      return fallback || "single";
-                    })((currentTaskData && currentTaskData.status_mode), "multi"),
-                    status_meta: data.status_meta,
-                    per_user_status_enabled: true,
-                  };
+              // Keep the canonical version and all assignee statuses together.
+              var task = resolveFreshestTaskPayload(data);
               if (String(currentTaskId || "") === String(taskId) && currentTaskData) {
                 currentTaskData = Object.assign({}, currentTaskData, task);
                 renderTaskSettings();
@@ -27894,6 +27882,9 @@
           renderTaskSettings();
           return;
         }
+        // Capture the changed mode before optimistic rendering resets the
+        // input's saved-value baseline. Otherwise the PATCH omits status_mode.
+        persistEntitySettings();
         if (currentTaskData) {
           var nextMode = taskSettingsStatusModeEl.value || "single";
           var currentMeta = taskStatusMeta(currentTaskData);
@@ -27917,7 +27908,6 @@
           applyTaskRowUpdate(currentTaskData);
           renderTaskSettings();
         }
-        persistEntitySettings();
       });
     }
     taskSettingsStatusModeButtons.forEach(function (button) {

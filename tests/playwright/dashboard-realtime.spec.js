@@ -6471,3 +6471,176 @@ test('unassigned non-creator can view public poll results but not creator-only r
   await expect(member.locator('#poll-response-save')).toBeDisabled();
   await context.close();
 });
+
+// Eventual assertions can pass during an optimistic flash. Sample for longer
+// than the reported 2-3 second reversal window, checking UI and persisted state.
+async function expectStableFor(check, durationMs = 4500) {
+  const deadline = Date.now() + durationMs;
+  do {
+    await check();
+    await new Promise(resolve => setTimeout(resolve, 200));
+  } while (Date.now() < deadline);
+}
+
+test('drawer multi-status mode persists beyond delayed settings refresh', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Persist multi mode from UI', assignee_email: state.owner.email });
+  await page.goto(`/task/${task.id}`);
+  const saved = page.waitForResponse(response => response.url().endsWith(`/api/tasks/${task.id}`) && response.request().method() === 'PATCH');
+  await page.locator('[data-status-mode-option="multi"]').click();
+  await (await saved).finished();
+  await expectStableFor(async () => {
+    const fresh = await fetchTaskViaApi(page, task.id);
+    expect(fresh.status_mode).toBe('multi');
+    expect(await page.locator('#task-settings-status-mode').inputValue()).toBe('multi');
+  });
+});
+
+test('existing multi-status completion stays complete after socket and settings refreshes', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Stable per-user completion', assignee_email: state.owner.email });
+  await createAssignment(page, task.id, state.member.email);
+  await patchTask(page, task.id, { status_mode: 'multi' });
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-settings-status').click();
+  const choice = page.locator(`#multi-status-menu [data-multi-status-user-id="${state.owner.id}"] [data-status-value="complete"]`);
+  await choice.click();
+  await expect(choice).toHaveClass(/is-active/);
+  await expectStableFor(async () => {
+    const fresh = await fetchTaskViaApi(page, task.id);
+    expect(fresh.status_meta.my_status).toBe('complete');
+    const current = await page.evaluate(() => window.__getCurrentTaskData());
+    expect(current.status_meta.my_status).toBe('complete');
+    expect(await choice.getAttribute('class')).toContain('is-active');
+  });
+});
+
+test('multi-status completion survives a stale snapshot delivered three seconds later', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Delayed multi-status snapshot', assignee_email: state.owner.email });
+  await patchTask(page, task.id, { status_mode: 'multi' });
+  await page.goto(`/task/${task.id}`);
+  await expect(page.locator('#task-settings-status')).toBeVisible();
+  let captured;
+  const capturedPromise = new Promise(resolve => { captured = resolve; });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let intercept = true;
+  await page.route(`**/api/tasks/${task.id}`, async route => {
+    if (route.request().method() !== 'GET' || !intercept) return route.continue();
+    intercept = false;
+    const response = await route.fetch();
+    captured();
+    await gate;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.evaluate(id => {
+      window.__delayedStatusSnapshot = window.__fetchTaskSnapshot(id, { preferCache: false })
+        .then(task => window.__applyTaskRowUpdate(task));
+    }, task.id);
+    await capturedPromise;
+    await page.locator('#task-settings-status').click();
+    const choice = page.locator(`#multi-status-menu [data-multi-status-user-id="${state.owner.id}"] [data-status-value="complete"]`);
+    await choice.click();
+    await expect(choice).toHaveClass(/is-active/);
+    await expectStableFor(async () => {
+      expect((await page.evaluate(() => window.__getCurrentTaskData())).status_meta.my_status).toBe('complete');
+    }, 3000);
+    release();
+    await page.evaluate(() => window.__delayedStatusSnapshot);
+    await expectStableFor(async () => {
+      expect((await fetchTaskViaApi(page, task.id)).status_meta.my_status).toBe('complete');
+      expect((await page.evaluate(() => window.__getCurrentTaskData())).status_meta.my_status).toBe('complete');
+      expect(await page.locator('#task-settings-status').getAttribute('data-status-state')).toBe('complete');
+    });
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
+for (const surface of ['drawer', 'tree', 'todo']) {
+  test(`multi-status completion remains stable in ${surface} after delayed replies and remote edits`, async ({ page, browser, request }) => {
+    test.setTimeout(60000);
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, { project_id: state.project.id, group_id: state.group.id, title: 'Stable multi completion ' + surface, assignee_email: state.owner.email, due_mode: 'date', due_at: isoDateWithOffset(0) });
+    await createAssignment(page, task.id, state.member.email);
+    await page.goto(`/task/${task.id}`);
+    await page.locator('[data-status-mode-option="multi"]').click();
+    await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_mode).toBe('multi');
+    const context = await browser.newContext();
+    const observer = await context.newPage();
+    await login(observer, state.member.email, state.member.password);
+    await observer.goto(`/task/${task.id}`);
+    await expect(observer.locator('#task-settings-status')).toHaveAttribute('data-status-mode', 'multi');
+
+    let captured;
+    const capturedPromise = new Promise(resolve => { captured = resolve; });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route(`**/api/tasks/${task.id}`, async route => {
+      const body = route.request().postDataJSON();
+      if (route.request().method() !== 'PATCH' || !body || body.user_status !== 'complete') return route.continue();
+      const response = await route.fetch();
+      captured();
+      await gate;
+      await route.fulfill({ response });
+    });
+    try {
+      if (surface === 'tree') {
+        await page.goto(`/tree/project/${state.project.id}`);
+        await waitForTreeProjectReady(page, state.project.id, task.id);
+        await page.locator(`[data-task-row-id="${task.id}"] .task-status-multi-button`).first().click();
+      } else if (surface === 'todo') {
+        await page.goto('/todo');
+        await page.locator(`.todo-item[data-task-id="${task.id}"] .task-status-multi-button`).click();
+      } else {
+        await page.locator('#task-settings-status').click();
+      }
+      const choice = page.locator(`#multi-status-menu [data-multi-status-user-id="${state.owner.id}"] [data-status-value="complete"]`);
+      await choice.click();
+      await capturedPromise;
+      // Keep the HTTP acknowledgment pending for three seconds. The socket
+      // update arrives first, followed by a newer edit in the other browser.
+      await expectStableFor(async () => {
+        const fresh = await fetchTaskViaApi(page, task.id);
+        expect(fresh.status_meta.my_status).toBe('complete');
+        const remote = await observer.evaluate(() => window.__getCurrentTaskData());
+        expect(remote.status_meta.user_statuses.find(row => row.user_id === state.owner.id).status).toBe('complete');
+      }, 3000);
+      await patchTask(observer, task.id, { title: 'Remote edit after completing ' + surface, user_status: 'complete', status_user_id: state.member.id });
+      const memberChoice = page.locator(`#multi-status-menu [data-multi-status-user-id="${state.member.id}"] [data-status-value="complete"]`);
+      await expect.poll(() => page.evaluate(id => {
+        const host = document.querySelector('[data-task-status-host="' + id + '"]');
+        return host && host._taskPayload && host._taskPayload.status_meta.aggregate_state;
+      }, task.id)).toBe('complete');
+      release();
+      await expect(choice).toHaveClass(/is-active/);
+      await expectStableFor(async () => {
+        const fresh = await fetchTaskViaApi(page, task.id);
+        expect(fresh.status_mode).toBe('multi');
+        expect(fresh.status_meta.my_status).toBe('complete');
+        expect(fresh.status_meta.user_statuses.find(row => row.user_id === state.member.id).status).toBe('complete');
+        expect(await memberChoice.getAttribute('class')).toContain('is-active');
+        expect(await choice.getAttribute('class')).toContain('is-active');
+        expect(await page.evaluate(id => {
+          const host = document.querySelector('[data-task-status-host="' + id + '"]');
+          return host && host._taskPayload && host._taskPayload.status_meta.aggregate_state;
+        }, task.id)).toBe('complete');
+      });
+      await page.goto(`/task/${task.id}`);
+      await page.locator('#task-settings-status').click();
+      await expect(choice).toHaveClass(/is-active/);
+      await expect(page.locator('#task-settings-status-mode')).toHaveValue('multi');
+    } finally {
+      release();
+      await page.unrouteAll({ behavior: 'wait' });
+      await context.close();
+    }
+  });
+}
