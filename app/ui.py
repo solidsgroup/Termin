@@ -1544,6 +1544,15 @@ def _apply_invite_response(invite: Invite, action: str, calendar_opt_in: bool) -
         if not assignment:
             abort(409, description="An assignment response requires an assignment")
         db.session.refresh(assignment)
+        if action == "unvolunteer":
+            if task.locked:
+                abort(409, description="This task is locked")
+            assignment.volunteered_at = None
+            assignment.status = "link_sent"
+            invite.status = "sent"
+            invite.calendar_opt_in = False
+            task.updated_at = datetime.utcnow()
+            return
         if action == "accept":
             confirmed, error = confirm_volunteer(task, assignment)
             if error:
@@ -3724,7 +3733,9 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     invite = _ensure_assignment_invite(assignment, calendar_opt_in=False)
     action = request.form.get("action")
     task = _resolve_work_item(assignment.task_id)
-    if action in {"accept", "decline"}:
+    if action == "unvolunteer" and (not task or task_assignee_mode(task) not in {"volunteer", "confirm"}):
+        abort(409, description="This task is not seeking volunteers")
+    if action in {"accept", "decline", "unvolunteer"}:
         _apply_invite_response(invite, action, False)
     elif action == "complete":
         _set_collaborator_work_item_status(task, collaborator.email, "complete")
@@ -3734,7 +3745,7 @@ def update_collaborator_assignment(token: str, assignment_id: int):
     exclude_notification_user_id = _queue_collaborator_task_action_notification(task, collaborator, action)
     db.session.commit()
 
-    if task and action in {"complete", "uncomplete", "accept", "decline"}:
+    if task and action in {"complete", "uncomplete", "accept", "decline", "unvolunteer"}:
         emit_task_updated(task)
     if task:
         emit_assignment_updated(task, assignment, action="deleted" if action == "decline" and task_assignee_mode(task) in {"volunteer", "confirm"} else "updated")

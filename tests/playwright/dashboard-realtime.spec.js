@@ -6102,6 +6102,12 @@ test('email collaborators can volunteer and notify the creator without exceeding
   const notifications = await page.request.get('/api/notifications');
   expect(JSON.stringify(await notifications.json())).toContain('volunteer_accepted');
   expect((await fetchTaskViaApi(page, task.id)).volunteer.accepted_count).toBe(1);
+  await expect(button.locator('option[value="unvolunteer"]')).toHaveText('Un-volunteer');
+  await button.selectOption('unvolunteer');
+  await expect(button.locator('option[value="accept"]')).toHaveCount(1);
+  await expect(page.locator('#volunteer-assignment-summary')).toHaveText('1 invited; 0 confirmed');
+  await button.selectOption('accept');
+  await expect(page.locator('#volunteer-assignment-summary')).toHaveText('1 invited; 1 confirmed');
   await button.selectOption('decline');
   await expect(button).toHaveCount(0);
   await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).assignments.length).toBe(0);
@@ -6367,4 +6373,101 @@ test('a delayed volunteer response cannot erase a newer assignee from the open l
     await page.unrouteAll({ behavior: 'wait' });
     await context.close();
   }
+});
+
+
+for (const confirmation of [true, false]) {
+  test(`volunteer dropdown ${confirmation ? 'Unaccept' : 'Un-volunteer'} restores pending requests without removing invitation`, async ({ page, browser, request }) => {
+    test.setTimeout(60000);
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, { project_id: state.project.id, title: 'Withdraw confirmation', assignee_email: state.member.email, assignee_mode: confirmation ? 'confirm' : 'volunteer', volunteers_required: 1 });
+    if (!confirmation) {
+      expect((await page.request.post('/api/assignments', { data: { target_type: 'task', target_id: task.id, email: state.owner.email } })).ok()).toBeTruthy();
+    }
+    await page.goto(`/task/${task.id}`);
+    const context = await browser.newContext();
+    const member = await context.newPage();
+    await login(member, state.member.email, state.member.password);
+    await member.goto('/todo');
+    const menu = member.locator(`.todo-item[data-task-id="${task.id}"] [data-volunteer-task]`);
+    await expect(menu).toBeVisible();
+    await expect(menu).toHaveCSS('background-color', 'rgb(37, 99, 235)');
+    const before = await fetchTaskViaApi(page, task.id);
+    await menu.selectOption('volunteer');
+    await expect(page.locator('#volunteer-assignment-summary')).toContainText('1 confirmed');
+    await expect(menu.locator('option[value="unvolunteer"]')).toHaveText(confirmation ? 'Unaccept' : 'Un-volunteer');
+    await menu.selectOption('unvolunteer');
+    await expect(page.locator('#volunteer-assignment-summary')).toContainText('0 confirmed');
+    await expect(member.locator(`[data-todo-date-key="volunteer"] .todo-item[data-task-id="${task.id}"]`)).toBeVisible();
+    await expect(member.locator(`[data-alert-task-id="${task.id}"]`)).toHaveCount(1);
+    const after = await fetchTaskViaApi(page, task.id);
+    expect(after.assignments.map(row => row.id)).toEqual(before.assignments.map(row => row.id));
+    await member.goto('/dashboard');
+    const homeMenu = member.locator(`[data-dashboard-action-task-id="${task.id}"] [data-volunteer-task]`);
+    await expect(homeMenu).toBeVisible({ timeout: 15000 });
+    await homeMenu.selectOption('volunteer');
+    await expect(page.locator('#volunteer-assignment-summary')).toContainText('1 confirmed');
+    await context.close();
+  });
+}
+
+for (const visibility of ['everyone', 'creator']) {
+  test(`unassigned poll creator can open read-only results from drawer and tree (${visibility})`, async ({ page, browser, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, { project_id: state.project.id, group_id: state.group.id, title: 'Unassigned poll creator', assignee_email: state.member.email });
+    await patchTask(page, task.id, { task_type: 'poll', poll: { question: 'Which day?', results_visibility: visibility, options: [{ id: 'monday', label: 'Monday' }, { id: 'tuesday', label: 'Tuesday' }] } });
+    const context = await browser.newContext();
+    const member = await context.newPage();
+    await login(member, state.member.email, state.member.password);
+    expect((await member.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['monday'] } })).ok()).toBeTruthy();
+    await page.goto(`/task/${task.id}`);
+    const status = page.locator('#task-settings-status');
+    await expect(status).toBeEnabled();
+    await status.click();
+    await expect(page.locator('#poll-response-dialog')).toBeVisible();
+    await expect(page.locator('[data-poll-response-option="monday"] .poll-response-responder')).toHaveCount(1);
+    await expect(page.locator('#poll-response-save')).toBeDisabled();
+    await expect(page.locator('[data-poll-response-option="monday"]')).toBeDisabled();
+    expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['tuesday'] } })).status()).toBe(403);
+    await page.goto(`/tree/project/${state.project.id}`);
+    await waitForTreeProjectReady(page, state.project.id, task.id);
+    await openPollDialogFromTree(page, task.id);
+    await expect(page.locator('[data-poll-response-option="monday"] .poll-response-responder')).toHaveCount(1);
+    await expect(page.locator('#poll-response-save')).toBeDisabled();
+    await context.close();
+  });
+}
+
+test('unassigned non-creator can view public poll results but not creator-only results', async ({ page, browser, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, group_id: state.group.id, title: 'Read only poll viewer', assignee_email: state.owner.email });
+  const poll = { question: 'Which venue?', results_visibility: 'everyone', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
+  await patchTask(page, task.id, { task_type: 'poll', poll });
+  expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['a'] } })).ok()).toBeTruthy();
+  const context = await browser.newContext();
+  const member = await context.newPage();
+  await login(member, state.member.email, state.member.password);
+  await member.goto(`/task/${task.id}`);
+  await expect(member.locator('#task-settings-status')).toBeEnabled();
+  await member.locator('#task-settings-status').click();
+  await expect(member.locator('#poll-response-dialog')).toBeVisible();
+  await expect(member.locator('[data-poll-response-option="a"] .poll-response-responder')).toHaveCount(1);
+  await expect(member.locator('#poll-response-save')).toBeDisabled();
+  expect((await member.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['b'] } })).status()).toBe(403);
+  await patchTask(page, task.id, { poll: { ...poll, results_visibility: 'creator' } });
+  await member.goto(`/task/${task.id}`);
+  await expect(member.locator('#task-settings-status')).toBeVisible();
+  await expect(member.locator('#task-settings-status')).toBeDisabled();
+  const privateTask = await fetchTaskViaApi(member, task.id);
+  expect(privateTask.status_meta.poll_results_visible).toBe(false);
+  expect(privateTask.status_meta.poll_option_results.flatMap(option => option.responders)).toEqual([]);
+  await member.goto(`/tree/project/${state.project.id}`);
+  await waitForTreeProjectReady(member, state.project.id, task.id);
+  await openPollDialogFromTree(member, task.id);
+  await expect(member.locator('#poll-response-options .poll-response-responder')).toHaveCount(0);
+  await expect(member.locator('#poll-response-save')).toBeDisabled();
+  await context.close();
 });

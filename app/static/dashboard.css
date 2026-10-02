@@ -4765,7 +4765,7 @@ body[data-theme="light"] .todo-mode-menu {
 .task-volunteer-button {
   display: inline-block; flex: 0 0 auto; width: auto; max-width: 145px;
   min-height: 0; height: 24px; padding: 0 .3rem; border-radius: 4px;
-  border: 1px solid var(--border); background: var(--panel); color: var(--ink);
+  border: 1px solid #1769a5; background: #1476bd; color: #fff;
   font-size: .7rem; font-weight: 400; line-height: 1.2; cursor: pointer; opacity: 1;
 }
 .task-volunteer-button:disabled { cursor: default; background: var(--panel); border-color: var(--border); color: var(--ink); }

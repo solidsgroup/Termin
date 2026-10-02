@@ -15067,6 +15067,7 @@
           ' aria-label="' + (state.confirmation ? 'Assignment confirmation' : 'Volunteer response') + '" title="' + description + '">' +
           '<option value="" selected disabled>' + label + progress + '</option>' +
           (state.pending ? '<option value="volunteer">' + state.label + '</option>' : '') +
+          (state.accepted ? '<option value="unvolunteer">' + (state.confirmation ? 'Unaccept' : 'Un-volunteer') + '</option>' : '') +
           (state.mine ? '<option value="decline">Decline</option>' : '') + '</select>';
       }
       return '<span class="task-volunteer-host" data-volunteer-host="' + escapeHtml(task.id) + '">' + content + '</span>';
@@ -15144,9 +15145,16 @@
       if (!menu || menu.disabled || !menu.value) return;
       event.stopPropagation();
       var suffix = menu.value === 'decline' ? '/volunteer/decline' : '/volunteer';
+      var method = 'POST';
+      if (menu.value === 'unvolunteer') {
+        var state = volunteerState(dashboardTaskEntity(menu.dataset.volunteerTask));
+        if (!state.mine) return;
+        suffix = '/volunteer/' + encodeURIComponent(state.mine.id);
+        method = 'DELETE';
+      }
       menu.value = '';
       menu.disabled = true;
-      volunteerRequest(menu.dataset.volunteerTask, 'POST', suffix).catch(function (error) {
+      volunteerRequest(menu.dataset.volunteerTask, method, suffix).catch(function (error) {
         menu.disabled = false;
         if (window.__showActionToast) window.__showActionToast({ title: "Volunteer request", body: error.message });
       });
@@ -20014,7 +20022,6 @@
         taskSettingsStatusEl.dataset.statusBaseline = effectiveStatus;
         taskSettingsStatusEl.setAttribute("data-payload-field", meta.mode === "single" ? "status" : (meta.mode === "poll" ? "poll_response" : "user_status"));
         taskSettingsStatusEl.hidden = false;
-        taskSettingsStatusEl.disabled = meta.mode === "poll" ? (!!meta.prereq_blocked || meta.viewer_can_set === false) : locked;
         taskSettingsStatusEl.dataset.statusMode = meta.mode || "single";
         taskSettingsStatusEl.dataset.statusModeBaseline = meta.mode || "single";
         var label = taskSettingsStatusEl.querySelector(".discussion-setting-status-label");
@@ -20039,7 +20046,8 @@
         }
         taskSettingsStatusEl.setAttribute("data-status-state", taskAggregateStatusState(task));
         var statusDisabled = meta.mode === "poll"
-          ? (blockedByPrereq || meta.viewer_can_set === false)
+          // Opening results does not grant permission to submit a response.
+          ? (blockedByPrereq || (meta.viewer_can_set === false && !meta.poll_results_visible))
           : (locked || blockedByPrereq);
         taskSettingsStatusEl.disabled = statusDisabled;
         taskSettingsStatusEl.setAttribute("aria-disabled", statusDisabled ? "true" : "false");

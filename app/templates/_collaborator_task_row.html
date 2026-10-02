@@ -20,9 +20,10 @@
       <span>{{ task.title if task else 'Unknown task' }}</span>
       {% if entry.volunteer and assignment %}
         <form method="post" action="{{ url_for('ui.update_collaborator_assignment', token=collaborator.access_token, assignment_id=assignment.id) }}">
-          <select name="action" class="{% if entry.volunteer.pending %}is-response-needed{% endif %}" aria-label="{{ 'Assignment confirmation' if entry.volunteer.label == 'Confirm' else 'Volunteer response' }}" data-collab-volunteer="{{ task.id }}" onchange="this.form.requestSubmit()" style="width:auto; min-height:0; height:24px; padding:0 .3rem; font-size:.7rem; border-radius:4px" {% if task.locked %}disabled{% endif %}>
+          <select name="action" class="{% if entry.volunteer.pending %}is-response-needed{% endif %}" aria-label="{{ 'Assignment confirmation' if entry.volunteer.label == 'Confirm' else 'Volunteer response' }}" data-collab-volunteer="{{ task.id }}" onchange="this.form.requestSubmit()" style="width:auto; min-height:0; height:24px; padding:0 .3rem; font-size:.7rem; border-radius:4px; background:#1476bd; color:#fff; border:1px solid #1769a5" {% if task.locked %}disabled{% endif %}>
             <option value="" selected disabled>{{ entry.volunteer.accepted_label if entry.volunteer.accepted else entry.volunteer.label if entry.volunteer.pending else 'Filled' }}{% if entry.volunteer.required is not none %} {{ entry.volunteer.accepted_count }}/{{ entry.volunteer.required }}{% endif %}</option>
             {% if entry.volunteer.pending %}<option value="accept">{{ entry.volunteer.label }}</option>{% endif %}
+            {% if entry.volunteer.accepted %}<option value="unvolunteer">{{ 'Unaccept' if entry.volunteer.label == 'Confirm' else 'Un-volunteer' }}</option>{% endif %}
             <option value="decline">Decline</option>
           </select>
         </form>
