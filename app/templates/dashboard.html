@@ -694,15 +694,15 @@
         <div class="todo-mode-dropdown" data-todo-mode-dropdown>
           <button class="todo-mode-trigger" type="button" data-todo-mode-trigger aria-expanded="false" aria-haspopup="listbox">
             <span class="todo-mode-trigger-label">
-              <i class="fa-solid fa-rectangle-list" data-todo-mode-summary-icon aria-hidden="true"></i>
-              <span data-todo-mode-summary>Default</span>
+              <i class="fa-solid fa-chart-gantt" data-todo-mode-summary-icon aria-hidden="true"></i>
+              <span data-todo-mode-summary>Gantt</span>
             </span>
             <span class="todo-assignee-caret" aria-hidden="true">▾</span>
           </button>
           <div class="todo-mode-menu" data-todo-mode-menu role="listbox" aria-label="Todo view mode" hidden>
-            <button class="todo-mode-option" type="button" data-todo-mode-option="default" role="option" aria-selected="true">
+            <button class="todo-mode-option" type="button" data-todo-mode-option="default" role="option" aria-selected="false">
               <i class="fa-solid fa-rectangle-list" aria-hidden="true"></i>
-              <span><strong>Default</strong><small>Comfortable task cards</small></span>
+              <span><strong>List</strong><small>Comfortable task cards</small></span>
               <i class="fa-solid fa-check todo-mode-option-check" aria-hidden="true"></i>
             </button>
             <button class="todo-mode-option" type="button" data-todo-mode-option="compact" role="option" aria-selected="false">
@@ -710,7 +710,7 @@
               <span><strong>Compact</strong><small>Dense single-row tasks</small></span>
               <i class="fa-solid fa-check todo-mode-option-check" aria-hidden="true"></i>
             </button>
-            <button class="todo-mode-option" type="button" data-todo-mode-option="gantt" role="option" aria-selected="false">
+            <button class="todo-mode-option" type="button" data-todo-mode-option="gantt" role="option" aria-selected="true">
               <i class="fa-solid fa-chart-gantt" aria-hidden="true"></i>
               <span><strong>Gantt</strong><small>Tasks on a persistent timeline</small></span>
               <i class="fa-solid fa-check todo-mode-option-check" aria-hidden="true"></i>
@@ -19095,7 +19095,9 @@
       var mine = meta.user_statuses.find(function (row) {
         return row && String(row.user_id || "") === String(currentUserId || "");
       });
-      return (mine && mine.status) ? mine.status : "open";
+      // Observers have no personal response. Use the task's actual aggregate
+      // instead of inventing an open status for somebody else's completed task.
+      return (mine && mine.status) ? mine.status : taskAggregateStatusState(task);
     }
 
     function taskMyStatusState(task) {
@@ -30894,23 +30896,23 @@
       var options = Array.from(document.querySelectorAll("[data-todo-mode-option]"));
       var storageKey = "termin:todo-view-mode:v1:user:{{ user.id }}";
       var modes = {
-        default: { label: "Default", icon: "fa-rectangle-list" },
+        default: { label: "List", icon: "fa-rectangle-list" },
         compact: { label: "Compact", icon: "fa-table-list" },
         gantt: { label: "Gantt", icon: "fa-chart-gantt" },
       };
       var mobileModeMql = window.matchMedia ? window.matchMedia("(max-width: 900px)") : null;
-      var preferredMode = "default";
+      var preferredMode = "gantt";
       if (!pane || !board || !dropdown || !trigger || !menu || !summary) return;
 
       function normalizeMode(value) {
-        return Object.prototype.hasOwnProperty.call(modes, value) ? value : "default";
+        return Object.prototype.hasOwnProperty.call(modes, value) ? value : "gantt";
       }
 
       function loadMode() {
         try {
           return normalizeMode(localStorage.getItem(storageKey));
         } catch (err) {
-          return "default";
+          return "gantt";
         }
       }
 

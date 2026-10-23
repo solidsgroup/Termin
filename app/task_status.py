@@ -655,7 +655,9 @@ def effective_task_status_for_user(task: Task, *, viewer_user_id: int | None = N
     if normalize_task_status_mode(meta.get("mode"), default="single") == "percent":
         return "complete" if int(meta.get("percentage_complete") or 0) >= 100 else "open"
     if meta.get("enabled"):
-        return normalize_task_status(meta.get("my_status"))
+        # A viewer who is not assigned has no personal status; the aggregate
+        # keeps completed tasks complete in Todo filters and timeline bounds.
+        return normalize_task_status(meta.get("my_status") or meta.get("aggregate_state"))
     return normalize_task_status(task.status)
 
 

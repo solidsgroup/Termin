@@ -16,6 +16,8 @@ Brief, living record of key decisions, changes, and known issues while iterating
 - `invites` ties magic links to assignments.
 
 ## UI/UX Notes
+- Todo defaults to Gantt on desktop when no valid view preference is saved. Explicit list/compact preferences persist; the existing mobile list layout remains in place.
+- Todo uses aggregate multi-task status for viewers without a personal assignment. Completed tasks viewed through other-assignee filters stay complete and do not extend the Todo Gantt range; assigned users retain their personal completion state.
 - Assignment modes distinguish direct assignment, volunteer requests, and confirmation requests. A blank volunteer count asks every invitee to respond; confirmation mode always asks every assignee. Existing volunteer limits are preserved by the nullable-capacity migration.
 - Gantt tracks in project and Todo views accept clicks to set an undated task's due date, or add a missing start date before an existing due date. Date selection is computed on pointer press, without depending on hovering over the provisional handle. Locked tasks and relative-date rules remain protected.
 - Playwright coverage checks Gantt date creation, persistence after reload, clearing/recreating start dates, due-date dragging, and locked tasks.

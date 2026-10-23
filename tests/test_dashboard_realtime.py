@@ -117,6 +117,29 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         db.session.commit()
         return assignment
 
+    def test_multi_status_observer_uses_aggregate_but_assignees_keep_personal_status(self):
+        from app.task_status import effective_task_status_for_user
+        with self.app.app_context():
+            owner = self.create_user("observer@example.com")
+            member = self.create_user("assignee@example.com")
+            project = self.create_project(owner, direct_peer=member)
+            task = self.create_task(project, "Completed multi task", creator=owner)
+            task.status_mode = "multi"
+            task.per_user_status_enabled = True
+            self.add_assignment(task, user=member)
+            status = TaskUserStatus(task_id=task.id, user_id=member.id, status="complete")
+            db.session.add(status)
+            db.session.commit()
+            self.assertEqual(effective_task_status_for_user(task, viewer_user_id=owner.id), "complete")
+            status.status = "critical"
+            db.session.commit()
+            self.assertEqual(effective_task_status_for_user(task, viewer_user_id=owner.id), "critical")
+            status.status = "complete"
+            self.add_assignment(task, user=owner)
+            db.session.commit()
+            self.assertEqual(effective_task_status_for_user(task, viewer_user_id=owner.id), "open")
+            self.assertEqual(effective_task_status_for_user(task, viewer_user_id=member.id), "complete")
+
     def test_dashboard_routes_render_dashboard_view(self):
         with self.app.app_context():
             user = self.create_user("owner@example.com", "Owner")

@@ -44,11 +44,27 @@ async function fetchSeedState(request) {
   return response.json();
 }
 
-async function login(page, email, password) {
+async function login(page, email, password, todoMode = 'default') {
   await page.goto('/login');
+  // List-view scenarios start with an explicit saved preference. Passing null
+  // exercises the real default, without changing modes after application startup.
+  let seededUser = null;
+  if (todoMode !== null) {
+    const seed = await (await page.request.get('/_e2e/state')).json();
+    seededUser = Object.values(seed).find(value => value && value.email === email && value.id);
+    if (seededUser) {
+      await page.evaluate(({ id, mode }) => {
+        localStorage.setItem(`termin:todo-view-mode:v1:user:${id}`, mode);
+      }, { id: seededUser.id, mode: todoMode });
+    }
+  }
   await page.locator('#login-email').fill(email);
   await page.locator('#login-password').fill(password);
   await page.locator('.auth-submit').click();
+  if (todoMode !== null && !seededUser) {
+    await page.waitForFunction(() => typeof window.__setTodoViewMode === 'function');
+    await page.evaluate(mode => window.__setTodoViewMode(mode), todoMode);
+  }
 }
 
 async function installFakeGooglePicker(page, selectedFile, action = 'picked') {
@@ -4713,7 +4729,7 @@ test.describe('dashboard and realtime flows', () => {
     const modeTrigger = page.locator('[data-todo-mode-trigger]');
     await expect(board).toHaveAttribute('data-todo-board-ready', '1');
     await expect(task).toBeVisible();
-    await expect(modeTrigger).toContainText('Default');
+    await expect(modeTrigger).toContainText('List');
 
     const defaultHeight = (await task.boundingBox()).height;
     await modeTrigger.click();
@@ -5139,7 +5155,7 @@ test.describe('dashboard and realtime flows', () => {
     await expect(pane).toHaveAttribute('data-todo-view-mode', 'default');
     await expect(board).toHaveAttribute('data-todo-view-mode', 'default');
     await expect(ganttView).toBeHidden();
-    await expect(modeTrigger).toContainText('Default');
+    await expect(modeTrigger).toContainText('List');
     await expect(page.locator('[data-todo-mode-option="compact"]')).toBeDisabled();
     await expect(page.locator('[data-todo-mode-option="gantt"]')).toBeDisabled();
     await expect.poll(() => page.evaluate((userId) => (
@@ -6644,3 +6660,72 @@ for (const surface of ['drawer', 'tree', 'todo']) {
     }
   });
 }
+
+test('completed multi-status tasks for other assignees do not extend Todo Gantt', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, {
+    project_id: state.project.id, title: 'Old completed task for someone else',
+    assignee_email: state.member.email, status_mode: 'multi',
+    due_mode: 'date', due_at: '2020-01-01', start_date: '2019-12-01',
+  });
+  await patchTask(page, task.id, { status_mode: 'multi' });
+  await patchTask(page, task.id, { user_status: 'complete', status_user_id: state.member.id });
+  const saved = await fetchTaskViaApi(page, task.id);
+  expect(saved.status_meta.aggregate_state).toBe('complete');
+  expect(saved.status_meta.my_status).toBeNull();
+  await page.goto('/todo');
+  await expect(page.locator('[data-todo-client-board]')).toHaveAttribute('data-todo-board-ready', '1');
+  await page.locator('[data-todo-assignee-dropdown]').click();
+  await page.locator('[data-todo-assignees-none]').click();
+  await page.locator(`[data-todo-assignee="user:${state.member.id}"]`).check();
+  await page.locator('[data-todo-assignee-dropdown]').click();
+  await page.locator('[data-todo-show-completed-master]').check();
+  await page.locator('[data-todo-show-completed-window="past"]').check();
+  await page.locator('[data-todo-mode-trigger]').click();
+  await page.locator('[data-todo-mode-option="gantt"]').click();
+  const panel = page.locator('[data-todo-gantt]');
+  const row = panel.locator(`[data-todo-gantt-task="${task.id}"]`);
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute('data-status-state', 'complete');
+  await expect(row.locator('[data-todo-check-toggle]')).toHaveAttribute('aria-pressed', 'true');
+  const normalStart = await panel.getAttribute('data-project-start-date');
+  expect(normalStart > '2020-01-01').toBeTruthy();
+  await page.locator('[data-todo-show-completed-master]').uncheck();
+  await expect(row).toHaveCount(0);
+  await expect(panel).toHaveAttribute('data-project-start-date', normalStart);
+  // An actual incomplete assignee must still extend the range, and completion
+  // must shrink it again immediately, without changing the viewer's assignments.
+  await patchTask(page, task.id, { user_status: 'open', status_user_id: state.member.id });
+  await expect(row).toHaveAttribute('data-status-state', 'open');
+  await expect(panel).toHaveAttribute('data-project-start-date', '2020-01-01');
+  await patchTask(page, task.id, { user_status: 'complete', status_user_id: state.member.id });
+  await expect(row).toHaveCount(0);
+  await expect(panel).toHaveAttribute('data-project-start-date', normalStart);
+  await page.reload();
+  await expect(panel).toHaveAttribute('data-todo-gantt-ready', '1');
+  await expect(row).toHaveCount(0);
+  await expect(panel).toHaveAttribute('data-project-start-date', normalStart);
+});
+
+test('Todo defaults to Gantt and remembers explicit list or compact preferences', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password, null);
+  await page.goto('/todo');
+  const pane = page.locator('[data-dashboard-view="todo"]');
+  await expect(pane).toHaveAttribute('data-todo-view-mode', 'gantt');
+  await expect(page.locator('[data-todo-gantt]')).toHaveAttribute('data-todo-gantt-ready', '1');
+  await page.reload();
+  await expect(pane).toHaveAttribute('data-todo-view-mode', 'gantt');
+  for (const mode of ['default', 'compact', 'gantt']) {
+    await page.locator('[data-todo-mode-trigger]').click();
+    await page.locator(`[data-todo-mode-option="${mode}"]`).click();
+    await expect(pane).toHaveAttribute('data-todo-view-mode', mode);
+    await page.reload();
+    await expect(pane).toHaveAttribute('data-todo-view-mode', mode);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(pane).toHaveAttribute('data-todo-view-mode', 'default');
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(pane).toHaveAttribute('data-todo-view-mode', 'gantt');
+});
