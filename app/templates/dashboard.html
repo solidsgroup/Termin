@@ -27880,10 +27880,6 @@
           renderTaskSettings();
           return;
         }
-        if (currentTaskData && taskStatusBlockedByPrereq(currentTaskData)) {
-          renderTaskSettings();
-          return;
-        }
         // Capture the changed mode before optimistic rendering resets the
         // input's saved-value baseline. Otherwise the PATCH omits status_mode.
         persistEntitySettings();
@@ -27916,7 +27912,6 @@
       button.addEventListener("click", function () {
         if (!taskSettingsStatusModeEl) return;
         if (currentTaskData && taskIsLocked(currentTaskData)) return;
-        if (currentTaskData && taskStatusBlockedByPrereq(currentTaskData)) return;
         var nextMode = String(button.getAttribute("data-status-mode-option") || "single");
         if (taskSettingsStatusModeEl.value === nextMode) return;
         taskSettingsStatusModeEl.value = nextMode;

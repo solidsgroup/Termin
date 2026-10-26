@@ -14,6 +14,12 @@
 - SQLite-backed persistence suitable for Render/any deploy with optional Postgres later
 - volunteer requests with a required count, persistent alerts, and live confirmations
 
+### Task Completion Modes
+
+Adding a second assignee automatically changes a task's default completion mode to **Multi status**, including when using **Assign all**. Account users and email collaborators both count. You can choose **Single status** in the task drawer instead; that explicit choice is preserved when more people are added. Polls and percentage-progress tasks keep their existing modes.
+
+You can configure the completion mode while prerequisites are incomplete, but the task remains blocked from completion until its prerequisites are satisfied.
+
 ### Volunteer Requests
 
 In a task's settings, select **Get Volunteer** under **Assignment mode**, set the number of volunteers needed, and add invitees using the usual assignee picker. The selector stays red until enough people have been invited. Invitees see a **Volunteer** button next to the title, or **Accept** when every invitee is needed. Requests appear first in their todo list, in Home, and in persistent alerts until they respond or all places are filled. The creator receives a notification for each confirmation. Email collaborators can respond from their existing Termin link too.

@@ -6729,3 +6729,50 @@ test('Todo defaults to Gantt and remembers explicit list or compact preferences'
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(pane).toHaveAttribute('data-todo-view-mode', 'gantt');
 });
+
+test('prerequisite-blocked task can configure multi-completion without completing it', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Configure blocked completion', assignee_email: state.owner.email });
+  await createTaskPrerequisite(page, task.id, state.task.id);
+  await page.goto(`/task/${task.id}`);
+  const multi = page.locator('[data-status-mode-option="multi"]');
+  await expect(multi).toBeEnabled();
+  await multi.click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_mode).toBe('multi');
+  await expectStableFor(async () => {
+    const fresh = await fetchTaskViaApi(page, task.id);
+    expect(fresh.status_mode).toBe('multi');
+    expect(fresh.status_meta.prereq_blocked).toBe(true);
+    expect(await multi.getAttribute('aria-pressed')).toBe('true');
+  });
+  await expect(page.locator('#task-settings-status')).toBeDisabled();
+  await page.locator('[data-status-mode-option="single"]').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_mode).toBe('single');
+});
+
+test('second assignee enables multi-completion live and explicit single choice persists', async ({ page, browser, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Automatic multi-completion', assignee_email: state.owner.email });
+  await page.goto(`/task/${task.id}`);
+  const context = await browser.newContext();
+  const member = await context.newPage();
+  await login(member, state.member.email, state.member.password);
+  await member.goto(`/task/${task.id}`);
+  await createAssignment(page, task.id, state.member.email);
+  await expect(page.locator('[data-status-mode-option="multi"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(member.locator('[data-status-mode-option="multi"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('[data-status-mode-option="single"]').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_mode).toBe('single');
+  await createAssignment(page, task.id, state.collaborator.email);
+  await expectStableFor(async () => {
+    expect((await fetchTaskViaApi(page, task.id)).status_mode).toBe('single');
+    expect(await page.locator('[data-status-mode-option="single"]').getAttribute('aria-pressed')).toBe('true');
+  });
+  await page.goto(`/task/${task.id}`);
+  await expect(page.locator('[data-status-mode-option="single"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('[data-status-mode-option="multi"]').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_mode).toBe('multi');
+  await context.close();
+});

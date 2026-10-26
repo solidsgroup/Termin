@@ -2,6 +2,7 @@ from app.extensions import db
 from app.models import Assignment, Project, Task, User
 from app.team_shares import project_access_user_ids
 from app.volunteers import merge_assignment_response, task_assignee_mode
+from app.task_status import enable_multi_completion_for_assignees
 
 
 def group_assignment_candidate_users(task: Task) -> list[User]:
@@ -69,4 +70,6 @@ def sync_group_task_assignments(task: Task) -> dict:
     for row in deleted:
         db.session.delete(row)
 
+    if created:
+        enable_multi_completion_for_assignees(task)
     return {"created": created, "deleted": deleted}

@@ -117,6 +117,56 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         db.session.commit()
         return assignment
 
+    def test_assignment_count_auto_mode_and_manual_override(self):
+        with self.app.app_context():
+            owner = self.create_user("auto-owner@example.com")
+            member = self.create_user("auto-member@example.com")
+            project = self.create_project(owner, direct_peer=member)
+            task = self.create_task(project, "Auto mode", creator=owner)
+            task_id, owner_id = task.id, owner.id
+        self.login(self.client, owner_id)
+        def assign(email):
+            response = self.client.post("/api/assignments", json={
+                "target_type": "task", "target_id": task_id, "email": email,
+            })
+            self.assertIn(response.status_code, (200, 201))
+        def mode():
+            return self.client.get(f"/api/tasks/{task_id}").json["status_mode"]
+        assign("auto-owner@example.com")
+        self.assertEqual(mode(), "single")
+        assign("auto-owner@example.com")
+        self.assertEqual(mode(), "single")
+        assign("auto-member@example.com")
+        self.assertEqual(mode(), "multi")
+        self.assertEqual(self.client.patch(f"/api/tasks/{task_id}", json={"status_mode": "single"}).status_code, 200)
+        assign("external@example.com")
+        self.assertEqual(mode(), "single")
+        self.assertEqual(self.client.post(f"/api/tasks/{task_id}/assign_all").status_code, 200)
+        self.assertEqual(mode(), "single")
+
+    def test_bulk_assignment_auto_mode_preserves_explicit_modes(self):
+        with self.app.app_context():
+            owner = self.create_user("bulk-owner@example.com")
+            member = self.create_user("bulk-member@example.com")
+            project = self.create_project(owner, direct_peer=member)
+            project_id, owner_id = project.id, owner.id
+        self.login(self.client, owner_id)
+        for selected in (None, "single", "percent", "poll", "legacy-single"):
+            with self.subTest(mode=selected):
+                task_id = self.client.post("/api/tasks", json={"project_id": project_id, "title": "Bulk " + str(selected)}).json["id"]
+                if selected == "poll":
+                    payload = {"task_type": "poll", "poll": {"question": "Which?", "options": [{"id": "a", "label": "A"}]}}
+                elif selected == "legacy-single":
+                    payload = {"per_user_status_enabled": False}
+                else:
+                    payload = {"status_mode": selected} if selected else None
+                if payload:
+                    self.assertEqual(self.client.patch(f"/api/tasks/{task_id}", json=payload).status_code, 200)
+                self.assertEqual(self.client.post(f"/api/tasks/{task_id}/assign_all").status_code, 200)
+                fresh = self.client.get(f"/api/tasks/{task_id}").json
+                self.assertEqual(fresh["status_meta"]["mode"], "single" if selected == "legacy-single" else selected or "multi")
+                self.assertEqual(len(fresh["assignments"]), 2)
+
     def test_multi_status_observer_uses_aggregate_but_assignees_keep_personal_status(self):
         from app.task_status import effective_task_status_for_user
         with self.app.app_context():

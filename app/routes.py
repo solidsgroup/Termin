@@ -125,7 +125,7 @@ from app.sidebar_layout import (
     sidebar_preference_map,
     top_level_sidebar_items,
 )
-from app.task_status import effective_task_status_for_user, normalize_task_status, normalize_task_status_mode, set_task_user_status, task_status_meta, task_status_meta_map
+from app.task_status import effective_task_status_for_user, enable_multi_completion_for_assignees, normalize_task_status, normalize_task_status_mode, set_task_user_status, task_status_meta, task_status_meta_map
 from app.themes import DEFAULT_THEME_NAME, color_slot_from_palette, division_effective_color, normalize_theme_name, theme_palette
 import secrets
 
@@ -3174,8 +3174,7 @@ def update_task(task_id: int):
         if preserved_single_status is not None:
             task.status = preserved_single_status
     elif per_user_status_enabled is not None:
-        task.status_mode = "multi" if bool(per_user_status_enabled) else "single"
-        task.per_user_status_enabled = bool(per_user_status_enabled)
+        _set_task_status_mode(task, "multi" if bool(per_user_status_enabled) else "single")
     if assign_group_members is not None:
         next_group_mode = bool(assign_group_members)
         task.assign_group_members = next_group_mode
@@ -6411,6 +6410,7 @@ def create_assignment():
     task.updated_at = datetime.utcnow()
     if _task_assignee_mode(task) not in {"volunteer", "confirm"}:
         _set_task_assignee_mode(task, "default")
+    enable_multi_completion_for_assignees(task)
     db.session.commit()
     assignment = _collapse_duplicate_task_assignments(
         task_id=task.id,

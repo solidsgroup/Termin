@@ -2,12 +2,38 @@ from collections import Counter
 
 from app.volunteers import task_assignee_mode
 from app.extensions import db
-from app.info_utils import load_info_payload
+from app.info_utils import load_info_payload, normalize_info_payload
 from app.models import Assignment, Task, TaskCollaboratorStatus, TaskPrerequisite, TaskUserStatus, User
 
 
 COMPLETE_STATUS_VALUES = {"complete", "completed", "done", "closed", "pr closed", "pr merged"}
 TASK_STATUS_MODES = {"single", "multi", "percent", "poll"}
+
+
+def enable_multi_completion_for_assignees(task: Task) -> bool:
+    """Promote the default mode, never a user's explicitly chosen mode."""
+    if not task or not task.id or task.locked or _task_type(task) == "poll":
+        return False
+    if task_status_mode(task) != "single":
+        return False
+    info = load_info_payload(task.info, task.link)
+    meta = dict(info.get("meta") or {})
+    # The mode setter records explicit choices here; new tasks have no entry.
+    if meta.get("status_mode"):
+        return False
+    rows = Assignment.query.filter_by(task_id=task.id).all()
+    identities = {
+        ("user", row.user_id) if row.user_id else ("email", (row.email or "").strip().lower())
+        for row in rows if row.user_id or (row.email or "").strip()
+    }
+    if len(identities) < 2:
+        return False
+    task.status_mode = "multi"
+    task.per_user_status_enabled = True
+    meta["status_mode"] = "multi"
+    info["meta"] = meta
+    task.info = normalize_info_payload(info, task.link)
+    return True
 
 
 def normalize_task_status_mode(value: str | None, *, default: str = "single") -> str:
