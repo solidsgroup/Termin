@@ -4816,6 +4816,9 @@ body[data-theme="light"] .todo-mode-menu {
 .poll-results-table .poll-results-person { width: 40px; min-width: 40px; padding: 5px 3px; }
 .poll-results-person button { flex-direction: column; width: 100%; }
 .poll-results-person-name { writing-mode: vertical-rl; transform: rotate(180deg); max-height: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.poll-results-person.is-pending .poll-results-person-name { color: #ff929a; }
+body[data-theme="light"] .poll-results-person.is-pending .poll-results-person-name { color: #b42332; }
+.poll-results-person.is-pending .poll-results-avatar { border-color: #d53a41; }
 .poll-results-avatar { width: 22px; height: 22px; min-width: 22px; font-size: .65rem; border: 1px solid var(--border, #7f8a992b); background: color-mix(in srgb, #318ad6 12%, var(--panel)); }
 .poll-results-table .poll-results-cell { color: var(--muted); }
 .poll-results-table .poll-results-cell.is-selected { background: color-mix(in srgb, #318ad6 14%, var(--panel)); color: var(--ink); }

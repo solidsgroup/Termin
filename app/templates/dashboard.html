@@ -1653,7 +1653,7 @@
   </div>
   <p id="poll-results-summary" class="poll-results-summary"></p>
   <div class="poll-results-scroll" tabindex="0" aria-label="Poll results grid" id="poll-results-grid"></div>
-  <p class="poll-results-legend">Check = selected. Dash = not selected or awaiting response. Click any column heading to sort; click again to reverse. # restores the original option order.</p>
+  <p class="poll-results-legend">Check = selected. Dash = not selected or awaiting response. Red names = awaiting response. Click any column heading to sort; click again to reverse. # restores the original option order.</p>
 </dialog>
 
 <div id="context-menu" class="context-menu">
@@ -19457,9 +19457,10 @@
         columns.map(function (column) {
           var person = column.person;
           var label = person.display_name || person.email || "User";
-          return heading(column.key, label,
+          var pending = !responded.has(column.key);
+          return heading(column.key, label + (pending ? " - Awaiting response" : " - Responded"),
             '<span class="poll-results-person-name">' + escapeHtml(label) + '</span>' +
-            renderPollParticipantAvatar(person, "poll-results-avatar"), "poll-results-person");
+            renderPollParticipantAvatar(person, "poll-results-avatar"), "poll-results-person" + (pending ? " is-pending" : ""));
         }).join("");
       var body = rows.map(function (row) {
         return '<tr data-poll-results-option="' + escapeHtml(row.id) + '"><td class="poll-results-number">' + row.order +
@@ -25180,7 +25181,7 @@
         if (!prerequisiteId) continue;
         var fullPrerequisite = taskMap[String(prerequisiteId)] || prerequisite;
         if (!taskIsIncompleteForAlert(fullPrerequisite)) continue;
-        if (taskAssignedToCurrentViewer(fullPrerequisite)) {
+        if (taskAssignedToCurrentViewer(fullPrerequisite) && taskMyStatusState(fullPrerequisite) !== "complete") {
           return fullPrerequisite;
         }
       }
@@ -25197,7 +25198,7 @@
           if (!todoTaskIds.has(String(task.id))) return null;
           if (String(task.due_mode || "").toLowerCase() !== "urgent") return null;
           if (!taskIsIncompleteForAlert(task)) return null;
-          if (taskAssignedToCurrentViewer(task)) {
+          if (taskAssignedToCurrentViewer(task) && taskMyStatusState(task) !== "complete") {
             return { task: task, reason: "assigned" };
           }
           var dependency = urgentTaskViewerDependency(task);
@@ -31054,7 +31055,7 @@
         compact: { label: "Compact", icon: "fa-table-list" },
         gantt: { label: "Gantt", icon: "fa-chart-gantt" },
       };
-      var mobileModeMql = window.matchMedia ? window.matchMedia("(max-width: 900px)") : null;
+      var mobileModeMql = window.matchMedia ? window.matchMedia("(max-width: 640px)") : null;
       var preferredMode = "gantt";
       if (!pane || !board || !dropdown || !trigger || !menu || !summary) return;
 

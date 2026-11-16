@@ -6805,6 +6805,12 @@ test('poll results grid sorts locally, preserves option order and updates live',
   await expect(page.locator('#poll-results-summary')).toContainText('3 responded; 1 awaiting response');
   await expect(dialog.locator('.poll-results-avatar')).toHaveCount(4);
   await expect(dialog.locator('.poll-results-person-name').first()).toHaveCSS('writing-mode', 'vertical-rl');
+  const pendingHeader = dialog.locator('[data-poll-results-sort="email:pending@example.com"]');
+  await expect(pendingHeader.locator('..')).toHaveClass(/is-pending/);
+  await expect(pendingHeader).toHaveAttribute('title', /Awaiting response/);
+  await expect(pendingHeader.locator('.poll-results-person-name')).toHaveCSS('color', 'rgb(255, 146, 154)');
+  const memberHeader = dialog.locator(`[data-poll-results-sort="user:${state.member.id}"]`);
+  await expect(memberHeader.locator('..')).not.toHaveClass(/is-pending/);
   const rows = dialog.locator('tbody tr');
   const order = () => rows.evaluateAll(items => items.map(item => item.dataset.pollResultsOption));
   expect(await order()).toEqual(['z', 'a', 'm']);
@@ -6844,8 +6850,14 @@ test('poll results grid sorts locally, preserves option order and updates live',
   await expect(dialog.locator('[data-poll-results-sort="total"]').locator('..')).toHaveAttribute('aria-sort', 'descending');
   expect(await order()).toEqual(['z', 'm', 'a']);
   await page.screenshot({ path: test.info().outputPath('poll-results-desktop.png') });
+  expect((await member.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: [] } })).ok()).toBeTruthy();
+  await expect(memberHeader.locator('..')).toHaveClass(/is-pending/);
+  await expect(memberHeader).toHaveAttribute('aria-label', /Awaiting response/);
+  expect((await member.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['z'] } })).ok()).toBeTruthy();
+  await expect(memberHeader.locator('..')).not.toHaveClass(/is-pending/);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => document.body.dataset.theme = 'light');
+  await expect(pendingHeader.locator('.poll-results-person-name')).toHaveCSS('color', 'rgb(180, 35, 50)');
   const bounds = await dialog.boundingBox();
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
@@ -6915,4 +6927,67 @@ test('poll results grid handles no responses, no options and closed polls', asyn
   await expect(page.locator('[data-poll-results-total]')).toHaveText('0');
   await expect(page.locator('.poll-results-cell')).toHaveAttribute('aria-label', 'Awaiting response');
   await page.screenshot({ path: test.info().outputPath('poll-results-desktop-dark.png') });
+});
+
+for (const mode of ['multi', 'poll']) {
+  test(`urgent alerts stop after personal ${mode} completion while others are pending`, async ({ page, request }) => {
+    const state = await fetchSeedState(request);
+    await login(page, state.owner.email, state.owner.password);
+    const task = await createTask(page, { project_id: state.project.id, title: 'Urgent personal completion', assignee_email: state.owner.email, due_mode: 'urgent' });
+    await createAssignment(page, task.id, state.member.email);
+    await patchTask(page, task.id, mode === 'poll'
+      ? { task_type: 'poll', poll: { question: 'Choose', options: [{ id: 'yes', label: 'Yes' }] } }
+      : { status_mode: 'multi' });
+    await page.goto('/dashboard');
+    const alert = page.locator(`[data-alerts-menu] [data-alert-task-id="${task.id}"]`);
+    await expect(alert).toHaveCount(1);
+    async function respond(complete) {
+      if (mode === 'poll') {
+        expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: complete ? ['yes'] : [] } })).ok()).toBeTruthy();
+      } else {
+        await patchTask(page, task.id, { user_status: complete ? 'complete' : 'open', status_user_id: state.owner.id });
+      }
+    }
+    await respond(true);
+    await expect(alert).toHaveCount(0);
+    await expectStableFor(async () => {
+      await expect(alert).toHaveCount(0);
+      const fresh = await fetchTaskViaApi(page, task.id);
+      expect(fresh.status_meta.my_status_state).toBe('complete');
+      expect(fresh.status_meta.aggregate_state).not.toBe('complete');
+    });
+    await page.reload();
+    await expect(page.locator('[data-alerts-menu]')).toBeVisible();
+    await expect(alert).toHaveCount(0);
+    await respond(false);
+    await expect(alert).toHaveCount(1);
+  });
+}
+
+test('tablet Todo permits Gantt and compact and retains preferences across viewport changes', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await login(page, state.owner.email, state.owner.password, null);
+  await page.goto('/todo');
+  const pane = page.locator('[data-dashboard-view="todo"]');
+  for (const mode of ['gantt', 'compact']) {
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.locator('[data-todo-mode-trigger]').click();
+    const option = page.locator(`[data-todo-mode-option="${mode}"]`);
+    await expect(option).toBeEnabled();
+    await option.click();
+    await expect(pane).toHaveAttribute('data-todo-view-mode', mode);
+    if (mode === 'gantt') {
+      await expect(page.locator('[data-todo-gantt]')).toHaveAttribute('data-todo-gantt-ready', '1');
+      await expect(page.locator('[data-todo-gantt-view]')).toBeVisible();
+    } else {
+      await expect(pane.locator('.todo-board')).toBeVisible();
+    }
+    await page.reload();
+    await expect(pane).toHaveAttribute('data-todo-view-mode', mode);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(pane).toHaveAttribute('data-todo-view-mode', 'default');
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await expect(pane).toHaveAttribute('data-todo-view-mode', mode);
+  }
 });
