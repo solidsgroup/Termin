@@ -6776,3 +6776,143 @@ test('second assignee enables multi-completion live and explicit single choice p
   await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_mode).toBe('multi');
   await context.close();
 });
+
+test('poll results grid sorts locally, preserves option order and updates live', async ({ page, browser, request }) => {
+  test.setTimeout(60000);
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Grid poll', assignee_email: state.owner.email });
+  await createAssignment(page, task.id, state.member.email);
+  const emailAssignment = await createAssignment(page, task.id, state.collaborator.email);
+  expect((await request.post(`/collaborators/${state.collaborator.access_token}/assignments/${emailAssignment.id}`, { form: { action: 'accept' } })).ok()).toBeTruthy();
+  await createAssignment(page, task.id, 'pending@example.com');
+  await patchTask(page, task.id, { task_type: 'poll', poll: { question: 'Which options?', allows_multiple: true, results_visibility: 'everyone', options: [
+    { id: 'z', label: 'Zebra' }, { id: 'a', label: 'Alpha' }, { id: 'm', label: 'Middle' },
+  ] } });
+  expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['z', 'm'] } })).ok()).toBeTruthy();
+  const context = await browser.newContext();
+  const member = await context.newPage();
+  await login(member, state.member.email, state.member.password);
+  expect((await member.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['a', 'm'] } })).ok()).toBeTruthy();
+  expect((await request.post(`/collaborators/${state.collaborator.access_token}/tasks/${task.id}/poll_response`, { data: { option_ids: ['m'] } })).ok()).toBeTruthy();
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-settings-status').click();
+  // An unsaved choice must survive opening and closing the read-only matrix.
+  await page.locator('[data-poll-response-option="a"]').click();
+  await page.locator('#poll-response-results').click();
+  const dialog = page.locator('#poll-results-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('#poll-results-summary')).toContainText('3 responded; 1 awaiting response');
+  await expect(dialog.locator('.poll-results-avatar')).toHaveCount(4);
+  await expect(dialog.locator('.poll-results-person-name').first()).toHaveCSS('writing-mode', 'vertical-rl');
+  const rows = dialog.locator('tbody tr');
+  const order = () => rows.evaluateAll(items => items.map(item => item.dataset.pollResultsOption));
+  expect(await order()).toEqual(['z', 'a', 'm']);
+  await expect(rows.locator('[data-poll-results-total]')).toHaveText(['1', '1', '3']);
+  async function sort(key) {
+    await dialog.locator(`[data-poll-results-sort="${key}"]`).click();
+  }
+  await sort('order');
+  expect(await order()).toEqual(['m', 'a', 'z']);
+  await sort('order');
+  expect(await order()).toEqual(['z', 'a', 'm']);
+  await sort('option');
+  expect(await order()).toEqual(['a', 'm', 'z']);
+  await sort('option');
+  expect(await order()).toEqual(['z', 'm', 'a']);
+  await sort('total');
+  expect(await order()).toEqual(['z', 'a', 'm']);
+  await sort('total');
+  expect(await order()).toEqual(['m', 'z', 'a']);
+  await expect(rows.locator('.poll-results-number')).toHaveText(['3', '1', '2']);
+  await sort('user:' + state.owner.id);
+  expect(await order()).toEqual(['a', 'z', 'm']);
+  await sort('user:' + state.owner.id);
+  expect(await order()).toEqual(['z', 'm', 'a']);
+  await expect(dialog.locator('[data-poll-results-person="email:pending@example.com"]').first()).toHaveAttribute('aria-label', 'Awaiting response');
+  for (const key of ['user:' + state.member.id, 'email:' + state.collaborator.email, 'email:pending@example.com']) {
+    await sort(key);
+    await expect(dialog.locator(`[data-poll-results-sort="${key}"]`).locator('..')).toHaveAttribute('aria-sort', 'ascending');
+    await sort(key);
+    await expect(dialog.locator(`[data-poll-results-sort="${key}"]`).locator('..')).toHaveAttribute('aria-sort', 'descending');
+  }
+  await sort('total');
+  await sort('total');
+  expect((await fetchTaskViaApi(page, task.id)).status_meta.poll_viewer_option_ids.sort()).toEqual(['m', 'z']);
+  expect((await member.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['z'] } })).ok()).toBeTruthy();
+  await expect(dialog.locator('[data-poll-results-option="a"] [data-poll-results-total]')).toHaveText('0');
+  await expect(dialog.locator('[data-poll-results-sort="total"]').locator('..')).toHaveAttribute('aria-sort', 'descending');
+  expect(await order()).toEqual(['z', 'm', 'a']);
+  await page.screenshot({ path: test.info().outputPath('poll-results-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => document.body.dataset.theme = 'light');
+  const bounds = await dialog.boundingBox();
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(844);
+  await expect(page.locator('#poll-results-grid')).toHaveCSS('overflow-x', 'auto');
+  await page.screenshot({ path: test.info().outputPath('poll-results-mobile-light.png') });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#poll-response-dialog')).toBeVisible();
+  await expect(page.locator('[data-poll-response-option="a"]')).toHaveAttribute('data-selected', '1');
+  await expect(page.locator('#poll-response-results')).toBeFocused();
+  await context.close();
+});
+
+test('poll results grid respects creator-only visibility including live revocation', async ({ page, browser, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Private grid poll', assignee_email: state.member.email });
+  const poll = { question: 'Private results?', results_visibility: 'everyone', options: [{ id: 'yes', label: 'Yes <script>alert(1)</script>' }] };
+  await patchTask(page, task.id, { task_type: 'poll', poll });
+  const context = await browser.newContext();
+  const member = await context.newPage();
+  await login(member, state.member.email, state.member.password);
+  expect((await member.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['yes'] } })).ok()).toBeTruthy();
+  await member.goto(`/task/${task.id}`);
+  await member.locator('#task-settings-status').click();
+  await member.locator('#poll-response-results').click();
+  await expect(member.locator('#poll-results-dialog')).toBeVisible();
+  await patchTask(page, task.id, { poll: { ...poll, results_visibility: 'creator' } });
+  await expect(member.locator('#poll-results-dialog')).toBeHidden();
+  await expect(member.locator('#poll-results-grid')).toBeEmpty();
+  await expect(member.locator('#poll-response-results')).toBeHidden();
+  await member.locator('#poll-response-results').evaluate(button => button.click());
+  await expect(member.locator('#poll-results-dialog')).toBeHidden();
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-settings-status').click();
+  await expect(page.locator('#poll-response-save')).toBeDisabled();
+  await page.locator('#poll-response-results').click();
+  await expect(page.locator('#poll-results-dialog')).toBeVisible();
+  await expect(page.locator('#poll-results-grid tbody .poll-results-option')).toHaveText('Yes <script>alert(1)</script>');
+  await expect(page.locator('#poll-results-grid script')).toHaveCount(0);
+  await expect(page.locator('[data-poll-results-total]')).toHaveText('1');
+  await page.locator('#poll-results-close').click();
+  await expect(page.locator('#poll-response-dialog')).toBeVisible();
+  await context.close();
+});
+
+test('poll results grid handles no responses, no options and closed polls', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Empty poll results' });
+  await patchTask(page, task.id, { task_type: 'poll', poll: { question: 'No options yet', options: [], results_visibility: 'everyone' } });
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-settings-status').click();
+  await page.locator('#poll-response-results').click();
+  await expect(page.locator('#poll-results-grid')).toContainText('No poll options configured yet.');
+  await expect(page.locator('#poll-results-summary')).toContainText('0 responded; 0 awaiting response');
+  await page.locator('#poll-results-close').click();
+  await page.locator('#poll-response-close').click();
+  await createAssignment(page, task.id, state.member.email);
+  await patchTask(page, task.id, { poll: { question: 'Closed poll', closed: true, results_visibility: 'everyone', options: [{ id: 'first', label: 'First' }] } });
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-settings-status').click();
+  await page.locator('#poll-response-results').click();
+  await expect(page.locator('#poll-results-summary')).toContainText('0 responded; 1 awaiting response');
+  await expect(page.locator('#poll-results-summary')).toContainText('Poll closed.');
+  await expect(page.locator('[data-poll-results-total]')).toHaveText('0');
+  await expect(page.locator('.poll-results-cell')).toHaveAttribute('aria-label', 'Awaiting response');
+  await page.screenshot({ path: test.info().outputPath('poll-results-desktop-dark.png') });
+});

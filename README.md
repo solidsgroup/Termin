@@ -20,6 +20,10 @@ Adding a second assignee automatically changes a task's default completion mode 
 
 You can configure the completion mode while prerequisites are incomplete, but the task remains blocked from completion until its prerequisites are satisfied.
 
+### Poll Results
+
+Open a task's Poll dialog and choose **View results** for a compact, read-only grid of options, totals, and respondents. Click any column heading to sort locally; click it again to reverse the order. The **#** column preserves the original option numbering. Respondent headers show rotated names and avatars, and cells distinguish selected options from pending responses through their labels. Results update live and follow the poll's existing visibility permissions.
+
 ### Volunteer Requests
 
 In a task's settings, select **Get Volunteer** under **Assignment mode**, set the number of volunteers needed, and add invitees using the usual assignee picker. The selector stays red until enough people have been invited. Invitees see a **Volunteer** button next to the title, or **Accept** when every invitee is needed. Requests appear first in their todo list, in Home, and in persistent alerts until they respond or all places are filled. The creator receives a notification for each confirmation. Email collaborators can respond from their existing Termin link too.

@@ -4777,3 +4777,46 @@ body[data-theme="light"] .todo-mode-menu {
 .volunteer-settings select, .volunteer-settings input { width: 100%; min-width: 0; }
 .volunteer-settings .needs-volunteers { border: 2px solid #d53a41 !important; }
 #volunteer-assignment-summary { grid-column: 1 / -1; font-size: .8rem; }
+
+/* A separate, read-only poll matrix; scrolling stays inside the dialog. */
+#poll-response-results[hidden] { display: none !important; }
+.poll-results-dialog {
+  width: max-content;
+  min-width: min(500px, calc(100vw - 24px));
+  max-width: min(1100px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  box-sizing: border-box;
+  padding: 16px;
+  border: 1px solid var(--border, #7f8a992b);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 20px 60px #0004;
+}
+.poll-results-dialog[open] { display: flex; flex-direction: column; gap: 10px; }
+.poll-results-dialog::backdrop { background: #0006; }
+.poll-results-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.poll-results-header h2 { margin: 3px 0 0; font-size: 1rem; overflow-wrap: anywhere; }
+.poll-results-header .btn { flex-shrink: 0; }
+.poll-results-summary, .poll-results-legend { margin: 0; font-size: .75rem; line-height: 1.4; }
+.poll-results-legend { opacity: .75; max-width: 68ch; }
+.poll-results-scroll { min-height: 0; max-width: 100%; overflow: auto; border: 1px solid var(--border, #7f8a992b); border-radius: 6px; }
+.poll-results-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: .75rem; margin: 0; }
+.poll-results-table th, .poll-results-table td { box-sizing: border-box; padding: 5px 7px; border: 0; border-bottom: 1px solid var(--border, #7f8a992b); border-right: 1px solid var(--border, #7f8a992b); text-align: center; }
+.poll-results-table thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); vertical-align: bottom; }
+.poll-results-table thead button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 0; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.poll-results-table thead button:focus-visible { outline: 2px solid #318ad6; outline-offset: 2px; }
+.poll-results-sort-icon { opacity: .55; font-size: .65rem; }
+.poll-results-table [aria-sort="ascending"] .poll-results-sort-icon,
+.poll-results-table [aria-sort="descending"] .poll-results-sort-icon { color: #318ad6; opacity: 1; }
+.poll-results-table .poll-results-number { position: sticky; left: 0; min-width: 38px; width: 38px; background: var(--panel); z-index: 1; font-variant-numeric: tabular-nums; }
+.poll-results-table .poll-results-option { position: sticky; left: 38px; min-width: 140px; max-width: 300px; width: clamp(140px, 25vw, 300px); background: var(--panel); z-index: 1; text-align: left; white-space: normal; overflow-wrap: anywhere; font-weight: 400; }
+.poll-results-table thead .poll-results-option, .poll-results-table thead .poll-results-number { z-index: 3; }
+.poll-results-table .poll-results-total { min-width: 56px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.poll-results-table .poll-results-person { width: 40px; min-width: 40px; padding: 5px 3px; }
+.poll-results-person button { flex-direction: column; width: 100%; }
+.poll-results-person-name { writing-mode: vertical-rl; transform: rotate(180deg); max-height: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.poll-results-avatar { width: 22px; height: 22px; min-width: 22px; font-size: .65rem; border: 1px solid var(--border, #7f8a992b); background: color-mix(in srgb, #318ad6 12%, var(--panel)); }
+.poll-results-table .poll-results-cell { color: var(--muted); }
+.poll-results-table .poll-results-cell.is-selected { background: color-mix(in srgb, #318ad6 14%, var(--panel)); color: var(--ink); }
+.poll-results-table tbody tr:hover td, .poll-results-table tbody tr:hover th { background: color-mix(in srgb, #318ad6 8%, var(--panel)); }

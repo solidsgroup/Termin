@@ -1638,12 +1638,23 @@
     <div class="poll-response-actions">
       <div class="poll-response-note" id="poll-response-note"></div>
       <div style="display:flex; gap:8px;">
+        <button class="btn secondary" type="button" id="poll-response-results" hidden>View results</button>
         <button class="btn secondary" type="button" id="poll-response-clear">Clear</button>
         <button class="btn primary" type="button" id="poll-response-save">Save</button>
       </div>
     </div>
   </div>
 </div>
+
+<dialog class="poll-results-dialog" id="poll-results-dialog" aria-labelledby="poll-results-title" aria-describedby="poll-results-summary">
+  <div class="poll-results-header">
+    <div><div class="poll-response-kicker">Poll Results</div><h2 id="poll-results-title">Poll</h2></div>
+    <button class="btn secondary" type="button" id="poll-results-close" autofocus>Close</button>
+  </div>
+  <p id="poll-results-summary" class="poll-results-summary"></p>
+  <div class="poll-results-scroll" tabindex="0" aria-label="Poll results grid" id="poll-results-grid"></div>
+  <p class="poll-results-legend">Check = selected. Dash = not selected or awaiting response. Click any column heading to sort; click again to reverse. # restores the original option order.</p>
+</dialog>
 
 <div id="context-menu" class="context-menu">
   <button data-action="add-project">Add Project</button>
@@ -19375,7 +19386,153 @@
     window.__openPercentageStatusMenu = openPercentageStatusMenu;
     window.__closePercentageStatusMenu = closePercentageStatusMenu;
 
+    var pollResultsDialog = document.getElementById("poll-results-dialog");
+    var pollResultsGrid = document.getElementById("poll-results-grid");
+    var pollResultsTrigger = document.getElementById("poll-response-results");
+    var pollResultsTask = null;
+    var pollResultsSort = { key: "order", direction: 1 };
+
+    function pollParticipantKey(person) {
+      return person.user_id != null ? "user:" + person.user_id
+        : "email:" + String(person.email || person.display_name || "").trim().toLowerCase();
+    }
+
+    function renderPollResultsGrid(task) {
+      var meta = taskStatusMeta(task);
+      if (!meta.poll_results_visible) {
+        pollResultsGrid.replaceChildren();
+        if (pollResultsDialog.open) pollResultsDialog.close();
+        return;
+      }
+      var focusedSort = document.activeElement && document.activeElement.dataset.pollResultsSort;
+      var scrollLeft = pollResultsGrid.scrollLeft;
+      var scrollTop = pollResultsGrid.scrollTop;
+      var people = new Map();
+      var aliases = new Map();
+      function addPerson(person) {
+        var key = pollParticipantKey(person);
+        var email = String(person.email || "").trim().toLowerCase();
+        if (email && aliases.has(email)) key = aliases.get(email);
+        if (!people.has(key)) people.set(key, person);
+        if (email) aliases.set(email, key);
+        return key;
+      }
+      (meta.assignees || []).forEach(addPerson);
+      var selectedByOption = new Map();
+      var responded = new Set();
+      (meta.poll_option_results || []).forEach(function (option) {
+        var selected = new Set();
+        (option.responders || []).forEach(function (person) {
+          var key = addPerson(person);
+          selected.add(key);
+          responded.add(key);
+        });
+        selectedByOption.set(String(option.id), selected);
+      });
+      var columns = Array.from(people, function (entry) { return { key: entry[0], person: entry[1] }; });
+      var rows = taskPollConfig(task).options.map(function (option, index) {
+        var selected = selectedByOption.get(String(option.id)) || new Set();
+        return { id: option.id, order: index + 1, label: option.label || "", total: selected.size, selected: selected };
+      });
+      var validSort = ["order", "option", "total"].concat(columns.map(function (column) { return column.key; }));
+      if (validSort.indexOf(pollResultsSort.key) < 0) pollResultsSort = { key: "order", direction: 1 };
+      rows.sort(function (a, b) {
+        var key = pollResultsSort.key;
+        var compare = key === "option" ? a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" })
+          : key === "order" ? a.order - b.order
+          : key === "total" ? a.total - b.total
+          : Number(a.selected.has(key)) - Number(b.selected.has(key));
+        return compare * pollResultsSort.direction || a.order - b.order;
+      });
+      function heading(key, label, content, className) {
+        var active = pollResultsSort.key === key;
+        var order = active ? (pollResultsSort.direction === 1 ? "ascending" : "descending") : "none";
+        var icon = active ? (pollResultsSort.direction === 1 ? "fa-sort-up" : "fa-sort-down") : "fa-sort";
+        return '<th scope="col" class="' + className + '" aria-sort="' + order + '"><button type="button" data-poll-results-sort="' + escapeHtml(key) + '" aria-label="Sort by ' + escapeHtml(label) + '" title="' + escapeHtml(label) + '">' +
+          content + '<i class="fa-solid ' + icon + ' poll-results-sort-icon" aria-hidden="true"></i></button></th>';
+      }
+      var headers = heading("order", "original order", "#", "poll-results-number") +
+        heading("option", "option", "Option", "poll-results-option") +
+        heading("total", "total responses", "Total", "poll-results-total") +
+        columns.map(function (column) {
+          var person = column.person;
+          var label = person.display_name || person.email || "User";
+          return heading(column.key, label,
+            '<span class="poll-results-person-name">' + escapeHtml(label) + '</span>' +
+            renderPollParticipantAvatar(person, "poll-results-avatar"), "poll-results-person");
+        }).join("");
+      var body = rows.map(function (row) {
+        return '<tr data-poll-results-option="' + escapeHtml(row.id) + '"><td class="poll-results-number">' + row.order +
+          '</td><th scope="row" class="poll-results-option">' + escapeHtml(row.label) +
+          '</th><td class="poll-results-total" data-poll-results-total>' + row.total + '</td>' +
+          columns.map(function (column) {
+            var selected = row.selected.has(column.key);
+            var status = selected ? "Selected" : responded.has(column.key) ? "Not selected" : "Awaiting response";
+            return '<td data-poll-results-person="' + escapeHtml(column.key) + '" class="poll-results-cell' + (selected ? ' is-selected' : '') +
+              '" aria-label="' + status + '" title="' + status + '">' +
+              (selected ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '<span aria-hidden="true">&ndash;</span>') + '</td>';
+          }).join("") + '</tr>';
+      }).join("");
+      document.getElementById("poll-results-title").textContent = taskPollConfig(task).question || task.title || "Poll";
+      document.getElementById("poll-results-summary").textContent = responded.size + " responded; " + (people.size - responded.size) +
+        " awaiting response. " + rows.length + " options." + (meta.poll_closed ? " Poll closed." : "");
+      pollResultsGrid.innerHTML = '<table class="poll-results-table" aria-label="Responses by option and respondent"><thead><tr>' + headers +
+        '</tr></thead><tbody>' + body + '</tbody></table>' + (!rows.length ? '<p class="footer-note">No poll options configured yet.</p>' : '');
+      pollResultsGrid.scrollLeft = scrollLeft;
+      pollResultsGrid.scrollTop = scrollTop;
+      if (focusedSort) {
+        var focusTarget = Array.from(pollResultsGrid.querySelectorAll('[data-poll-results-sort]')).find(function (button) {
+          return button.dataset.pollResultsSort === focusedSort;
+        });
+        if (focusTarget) focusTarget.focus({ preventScroll: true });
+      }
+    }
+
+    function syncPollResultsTask(task) {
+      if (!pollResultsDialog) return;
+      if (activePollDialogTask && String(activePollDialogTask.id) === String(task.id)) {
+        activePollDialogTask = task;
+        pollResultsTrigger.hidden = !taskStatusMeta(task).poll_results_visible;
+      }
+      if (!pollResultsDialog.open || !pollResultsTask || String(pollResultsTask.id) !== String(task.id)) return;
+      pollResultsTask = task;
+      renderPollResultsGrid(task);
+    }
+
+    pollResultsTrigger.addEventListener("click", function () {
+      if (!activePollDialogTask) return;
+      var task = resolveFreshestTaskPayload(activePollDialogTask);
+      if (!taskStatusMeta(task).poll_results_visible) return;
+      pollResultsTask = task;
+      pollResultsSort = { key: "order", direction: 1 };
+      renderPollResultsGrid(task);
+      pollResultsDialog.showModal();
+    });
+    pollResultsGrid.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-poll-results-sort]");
+      if (!button || !pollResultsTask) return;
+      var key = button.dataset.pollResultsSort;
+      pollResultsSort = { key: key, direction: pollResultsSort.key === key ? -pollResultsSort.direction : 1 };
+      renderPollResultsGrid(pollResultsTask);
+      Array.from(pollResultsGrid.querySelectorAll("[data-poll-results-sort]")).find(function (item) {
+        return item.dataset.pollResultsSort === key;
+      }).focus();
+    });
+    document.getElementById("poll-results-close").addEventListener("click", function () { pollResultsDialog.close(); });
+    window.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || !pollResultsDialog.open) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pollResultsDialog.close();
+    }, true);
+    pollResultsDialog.addEventListener("close", function () {
+      pollResultsTask = null;
+      pollResultsGrid.replaceChildren();
+      if (!pollResponseDialogEl.hidden) (pollResultsTrigger.hidden ? pollResponseCloseEl : pollResultsTrigger).focus();
+    });
+
     function closeTaskPollDialog() {
+      if (pollResultsDialog.open) pollResultsDialog.close();
       if (!pollResponseDialogEl) return;
       pollResponseDialogEl.hidden = true;
       pollResponseDialogEl.setAttribute("aria-hidden", "true");
@@ -19421,6 +19578,7 @@
       var canRespond = !!meta.viewer_can_set && !pollClosed && !taskStatusBlockedByPrereq(task || {});
       var canAddOptions = canRespond && !!(meta.poll_allow_voter_options || poll.allow_voter_options);
       var resultsVisible = !!meta.poll_results_visible;
+      pollResultsTrigger.hidden = !resultsVisible;
       var optionResultsById = {};
       if (Array.isArray(meta.poll_option_results)) {
         meta.poll_option_results.forEach(function (item) {
@@ -22630,6 +22788,7 @@
       var existingTask = existingHost && existingHost._taskPayload ? existingHost._taskPayload : null;
       var drawerTask = String(currentTaskId || "") === taskId && currentTaskData ? currentTaskData : null;
       var effectiveTask = mergeTaskStatusPayload(existingTask, drawerTask, task);
+      syncPollResultsTask(effectiveTask);
       var matched = false;
       var normalizedTitle = effectiveTask.title || "";
       var normalizedDue = effectiveTask.due_at ? String(effectiveTask.due_at).slice(0, 10) : "";
