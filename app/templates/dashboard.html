@@ -1653,7 +1653,7 @@
   </div>
   <p id="poll-results-summary" class="poll-results-summary"></p>
   <div class="poll-results-scroll" tabindex="0" aria-label="Poll results grid" id="poll-results-grid"></div>
-  <p class="poll-results-legend">Check = selected. Dash = not selected or awaiting response. Red names = awaiting response. Click any column heading to sort; click again to reverse. # restores the original option order.</p>
+  <p class="poll-results-legend">Check = selected. Dash = not selected or awaiting response. Red names = awaiting response. Click a row to toggle its highlight. Use the highlighter button in a heading to toggle that column. Any number can be highlighted. Click heading text to sort; click again to reverse. # restores the original option order.</p>
 </dialog>
 
 <div id="context-menu" class="context-menu">
@@ -19391,6 +19391,26 @@
     var pollResultsTrigger = document.getElementById("poll-response-results");
     var pollResultsTask = null;
     var pollResultsSort = { key: "order", direction: 1 };
+    var pollResultsHighlightTaskId = null;
+    var pollResultsHighlightedRows = new Set();
+    var pollResultsHighlightedColumns = new Set();
+
+    function syncPollResultsHighlights() {
+      pollResultsGrid.querySelectorAll("[data-poll-results-option]").forEach(function (row) {
+        row.classList.toggle("is-highlighted", pollResultsHighlightedRows.has(row.dataset.pollResultsOption));
+      });
+      pollResultsGrid.querySelectorAll("[data-poll-results-column]").forEach(function (cell) {
+        var row = cell.closest("[data-poll-results-option]");
+        cell.classList.toggle("is-row-highlighted", !!row && pollResultsHighlightedRows.has(row.dataset.pollResultsOption));
+        cell.classList.toggle("is-column-highlighted", pollResultsHighlightedColumns.has(cell.dataset.pollResultsColumn));
+      });
+      pollResultsGrid.querySelectorAll("[data-poll-results-highlight-column]").forEach(function (button) {
+        button.setAttribute("aria-pressed", String(pollResultsHighlightedColumns.has(button.dataset.pollResultsHighlightColumn)));
+      });
+      pollResultsGrid.querySelectorAll("[data-poll-results-highlight-row]").forEach(function (button) {
+        button.setAttribute("aria-pressed", String(pollResultsHighlightedRows.has(button.dataset.pollResultsHighlightRow)));
+      });
+    }
 
     function pollParticipantKey(person) {
       return person.user_id != null ? "user:" + person.user_id
@@ -19404,7 +19424,12 @@
         if (pollResultsDialog.open) pollResultsDialog.close();
         return;
       }
-      var focusedSort = document.activeElement && document.activeElement.dataset.pollResultsSort;
+      var focusedControl = null;
+      ["data-poll-results-sort", "data-poll-results-highlight-row", "data-poll-results-highlight-column"].forEach(function (attribute) {
+        if (document.activeElement && document.activeElement.hasAttribute(attribute)) {
+          focusedControl = { attribute: attribute, key: document.activeElement.getAttribute(attribute) };
+        }
+      });
       var scrollLeft = pollResultsGrid.scrollLeft;
       var scrollTop = pollResultsGrid.scrollTop;
       var people = new Map();
@@ -19448,8 +19473,9 @@
         var active = pollResultsSort.key === key;
         var order = active ? (pollResultsSort.direction === 1 ? "ascending" : "descending") : "none";
         var icon = active ? (pollResultsSort.direction === 1 ? "fa-sort-up" : "fa-sort-down") : "fa-sort";
-        return '<th scope="col" class="' + className + '" aria-sort="' + order + '"><button type="button" data-poll-results-sort="' + escapeHtml(key) + '" aria-label="Sort by ' + escapeHtml(label) + '" title="' + escapeHtml(label) + '">' +
-          content + '<i class="fa-solid ' + icon + ' poll-results-sort-icon" aria-hidden="true"></i></button></th>';
+        return '<th scope="col" data-poll-results-column="' + escapeHtml(key) + '" class="' + className + '" aria-sort="' + order + '"><button type="button" data-poll-results-sort="' + escapeHtml(key) + '" aria-label="Sort by ' + escapeHtml(label) + '" title="' + escapeHtml(label) + '">' +
+          content + '<i class="fa-solid ' + icon + ' poll-results-sort-icon" aria-hidden="true"></i></button>' +
+          '<button type="button" class="poll-results-column-toggle" data-poll-results-highlight-column="' + escapeHtml(key) + '" aria-pressed="false" aria-label="Highlight column: ' + escapeHtml(label) + '" title="Toggle column highlight"><i class="fa-solid fa-highlighter" aria-hidden="true"></i></button></th>';
       }
       var headers = heading("order", "original order", "#", "poll-results-number") +
         heading("option", "option", "Option", "poll-results-option") +
@@ -19463,13 +19489,13 @@
             renderPollParticipantAvatar(person, "poll-results-avatar"), "poll-results-person" + (pending ? " is-pending" : ""));
         }).join("");
       var body = rows.map(function (row) {
-        return '<tr data-poll-results-option="' + escapeHtml(row.id) + '"><td class="poll-results-number">' + row.order +
-          '</td><th scope="row" class="poll-results-option">' + escapeHtml(row.label) +
-          '</th><td class="poll-results-total" data-poll-results-total>' + row.total + '</td>' +
+        return '<tr data-poll-results-option="' + escapeHtml(row.id) + '"><td class="poll-results-number" data-poll-results-column="order">' + row.order +
+          '</td><th scope="row" class="poll-results-option" data-poll-results-column="option"><button type="button" class="poll-results-row-toggle" data-poll-results-highlight-row="' + escapeHtml(row.id) + '" aria-pressed="false" aria-label="Highlight row: ' + escapeHtml(row.label) + '">' + escapeHtml(row.label) +
+          '</button></th><td class="poll-results-total" data-poll-results-column="total" data-poll-results-total>' + row.total + '</td>' +
           columns.map(function (column) {
             var selected = row.selected.has(column.key);
             var status = selected ? "Selected" : responded.has(column.key) ? "Not selected" : "Awaiting response";
-            return '<td data-poll-results-person="' + escapeHtml(column.key) + '" class="poll-results-cell' + (selected ? ' is-selected' : '') +
+            return '<td data-poll-results-person="' + escapeHtml(column.key) + '" data-poll-results-column="' + escapeHtml(column.key) + '" class="poll-results-cell' + (selected ? ' is-selected' : '') +
               '" aria-label="' + status + '" title="' + status + '">' +
               (selected ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '<span aria-hidden="true">&ndash;</span>') + '</td>';
           }).join("") + '</tr>';
@@ -19481,9 +19507,10 @@
         '</tr></thead><tbody>' + body + '</tbody></table>' + (!rows.length ? '<p class="footer-note">No poll options configured yet.</p>' : '');
       pollResultsGrid.scrollLeft = scrollLeft;
       pollResultsGrid.scrollTop = scrollTop;
-      if (focusedSort) {
-        var focusTarget = Array.from(pollResultsGrid.querySelectorAll('[data-poll-results-sort]')).find(function (button) {
-          return button.dataset.pollResultsSort === focusedSort;
+      syncPollResultsHighlights();
+      if (focusedControl) {
+        var focusTarget = Array.from(pollResultsGrid.querySelectorAll('[' + focusedControl.attribute + ']')).find(function (button) {
+          return button.getAttribute(focusedControl.attribute) === focusedControl.key;
         });
         if (focusTarget) focusTarget.focus({ preventScroll: true });
       }
@@ -19504,12 +19531,28 @@
       if (!activePollDialogTask) return;
       var task = resolveFreshestTaskPayload(activePollDialogTask);
       if (!taskStatusMeta(task).poll_results_visible) return;
+      if (pollResultsHighlightTaskId !== String(task.id)) {
+        pollResultsHighlightTaskId = String(task.id);
+        pollResultsHighlightedRows.clear();
+        pollResultsHighlightedColumns.clear();
+      }
       pollResultsTask = task;
       pollResultsSort = { key: "order", direction: 1 };
       renderPollResultsGrid(task);
       pollResultsDialog.showModal();
     });
     pollResultsGrid.addEventListener("click", function (event) {
+      if (!pollResultsTask) return;
+      var columnToggle = event.target.closest("[data-poll-results-highlight-column]");
+      var row = event.target.closest("[data-poll-results-option]");
+      if (columnToggle || row) {
+        var selected = columnToggle ? pollResultsHighlightedColumns : pollResultsHighlightedRows;
+        var selectedKey = columnToggle ? columnToggle.dataset.pollResultsHighlightColumn : row.dataset.pollResultsOption;
+        if (selected.has(selectedKey)) selected.delete(selectedKey);
+        else selected.add(selectedKey);
+        syncPollResultsHighlights();
+        return;
+      }
       var button = event.target.closest("[data-poll-results-sort]");
       if (!button || !pollResultsTask) return;
       var key = button.dataset.pollResultsSort;
@@ -26363,7 +26406,9 @@
           });
           if (taskSettingsPollNewOptionEl) taskSettingsPollNewOptionEl.value = "";
           renderTaskPollSettings();
-          schedulePollSettingsPersist();
+          // Capture the added option before an earlier settings response can
+          // redraw the editor during the debounce delay.
+          persistPollSettingsNow();
         });
       }
       if (taskSettingsPollNewOptionEl) {

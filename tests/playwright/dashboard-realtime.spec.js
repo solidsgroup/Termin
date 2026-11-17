@@ -6991,3 +6991,93 @@ test('tablet Todo permits Gantt and compact and retains preferences across viewp
     await expect(pane).toHaveAttribute('data-todo-view-mode', mode);
   }
 });
+
+test('poll results independently highlight multiple rows and columns through sorting and live updates', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Highlight scheduling results', assignee_email: state.owner.email });
+  await createAssignment(page, task.id, state.member.email);
+  await patchTask(page, task.id, { task_type: 'poll', poll: { question: 'Pick a meeting time', allows_multiple: true, results_visibility: 'everyone', options: [
+    { id: 'mon', label: 'Monday' }, { id: 'tue', label: 'Tuesday' }, { id: 'wed', label: 'Wednesday' },
+  ] } });
+  expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['mon'] } })).ok()).toBeTruthy();
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-settings-status').click();
+  await page.locator('#poll-response-results').click();
+  const dialog = page.locator('#poll-results-dialog');
+  const row = id => dialog.locator(`[data-poll-results-option="${id}"]`);
+  const rowToggle = id => dialog.locator(`[data-poll-results-highlight-row="${id}"]`);
+  const columnToggle = id => dialog.locator(`[data-poll-results-highlight-column="${id}"]`);
+  const personKey = `user:${state.owner.id}`;
+  const writes = [];
+  page.on('request', req => { if (req.url().includes('/api/') && ['POST', 'PATCH', 'DELETE'].includes(req.method())) writes.push(req.url()); });
+  // Both whole-row clicks and keyboard activation support independent toggles.
+  await row('mon').locator('[data-poll-results-total]').click();
+  await rowToggle('tue').focus();
+  await page.keyboard.press('Space');
+  await expect(rowToggle('mon')).toHaveAttribute('aria-pressed', 'true');
+  await expect(rowToggle('tue')).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.locator('tbody tr.is-highlighted')).toHaveCount(2);
+  await columnToggle(personKey).click();
+  await columnToggle('total').focus();
+  await page.keyboard.press('Enter');
+  await expect(columnToggle(personKey)).toHaveAttribute('aria-pressed', 'true');
+  await expect(columnToggle('total')).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.locator('thead .is-column-highlighted')).toHaveCount(2);
+  const intersection = row('mon').locator(`[data-poll-results-person="${personKey}"]`);
+  await expect(intersection).toHaveClass(/is-row-highlighted/);
+  await expect(intersection).toHaveClass(/is-column-highlighted/);
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate(value => document.body.dataset.theme = value, theme);
+    const colors = await dialog.evaluate(el => {
+      const color = selector => getComputedStyle(el.querySelector(selector)).backgroundColor;
+      return { both: color('tbody .is-row-highlighted.is-column-highlighted'), row: color('tbody .is-row-highlighted:not(.is-column-highlighted)'), plain: color('tbody [data-poll-results-column]:not(.is-row-highlighted):not(.is-column-highlighted)') };
+    });
+    expect(colors.both).not.toBe(colors.row);
+    expect(colors.row).not.toBe(colors.plain);
+    await page.screenshot({ path: test.info().outputPath(`poll-highlights-${theme}.png`) });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await columnToggle(personKey).scrollIntoViewIfNeeded();
+  await expect(columnToggle(personKey)).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('poll-highlights-mobile.png') });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await dialog.locator('[data-poll-results-sort="option"]').click();
+  await dialog.locator('[data-poll-results-sort="option"]').click();
+  await expect(dialog.locator('tbody .poll-results-option')).toHaveText(['Wednesday', 'Tuesday', 'Monday']);
+  await expect(rowToggle('mon')).toHaveAttribute('aria-pressed', 'true');
+  await expect(columnToggle(personKey)).toHaveAttribute('aria-pressed', 'true');
+  await row('mon').locator(`[data-poll-results-person="${personKey}"]`).click();
+  await expect(intersection).not.toHaveClass(/is-row-highlighted/);
+  await expect(intersection).toHaveClass(/is-column-highlighted/);
+  await columnToggle('total').click();
+  await expect(row('tue').locator('[data-poll-results-total]')).toHaveClass(/is-row-highlighted/);
+  await expect(row('tue').locator('[data-poll-results-total]')).not.toHaveClass(/is-column-highlighted/);
+  expect(writes).toEqual([]);
+  // A real response update redraws the grid without losing highlights or focus.
+  await columnToggle(personKey).focus();
+  expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { option_ids: ['wed'] } })).ok()).toBeTruthy();
+  await expect(row('wed').locator('[data-poll-results-total]')).toHaveText('1');
+  await expect(rowToggle('tue')).toHaveAttribute('aria-pressed', 'true');
+  await expect(columnToggle(personKey)).toHaveAttribute('aria-pressed', 'true');
+  await expect(columnToggle(personKey)).toBeFocused();
+  await page.locator('#poll-results-close').click();
+  await page.locator('#poll-response-results').click();
+  await expect(rowToggle('tue')).toHaveAttribute('aria-pressed', 'true');
+  await columnToggle(personKey).click();
+  await rowToggle('tue').click();
+  await expect(dialog.locator('.is-row-highlighted, .is-column-highlighted')).toHaveCount(0);
+  await rowToggle('tue').click();
+  await columnToggle(personKey).click();
+  await page.locator('#poll-results-close').click();
+  await page.locator('#poll-response-close').click();
+  // Selections are local to this poll, even when another poll reuses option IDs.
+  const other = await createTask(page, { project_id: state.project.id, title: 'Another poll', assignee_email: state.owner.email });
+  await patchTask(page, other.id, { task_type: 'poll', poll: { question: 'Different meeting', options: [{ id: 'tue', label: 'Tuesday' }] } });
+  await page.evaluate(id => window.__openTaskDrawer(id), other.id);
+  await expect(page.locator('#task-settings-title')).toHaveValue('Another poll');
+  await page.locator('#task-settings-status').click();
+  await page.locator('#poll-response-results').click();
+  await expect(rowToggle('tue')).toHaveAttribute('aria-pressed', 'false');
+  await expect(columnToggle(personKey)).toHaveAttribute('aria-pressed', 'false');
+});
