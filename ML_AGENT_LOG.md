@@ -16,7 +16,7 @@ Brief, living record of key decisions, changes, and known issues while iterating
 - `invites` ties magic links to assignments.
 
 ## UI/UX Notes
-- Poll results support independent row and column highlights, including keyboard toggles. Highlights follow option/person identities through sorting and live redraws, survive reopening the same poll in-page, and never change poll answers or carry to a different poll.
+- Poll results support independent row and column highlights by clicking body/header cells, including keyboard toggles. Separate sort arrows retain sorting without changing highlights. Highlights follow option/person identities through sorting and live redraws, survive reopening the same poll in-page, and never change poll answers or carry to a different poll.
 - Todo defaults to Gantt on desktop when no valid view preference is saved. Explicit list/compact preferences persist; the existing mobile list layout remains in place.
 - Todo uses aggregate multi-task status for viewers without a personal assignment. Completed tasks viewed through other-assignee filters stay complete and do not extend the Todo Gantt range; assigned users retain their personal completion state.
 - Assignment modes distinguish direct assignment, volunteer requests, and confirmation requests. A blank volunteer count asks every invitee to respond; confirmation mode always asks every assignee. Existing volunteer limits are preserved by the nullable-capacity migration.

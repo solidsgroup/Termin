@@ -1653,7 +1653,7 @@
   </div>
   <p id="poll-results-summary" class="poll-results-summary"></p>
   <div class="poll-results-scroll" tabindex="0" aria-label="Poll results grid" id="poll-results-grid"></div>
-  <p class="poll-results-legend">Check = selected. Dash = not selected or awaiting response. Red names = awaiting response. Click a row to toggle its highlight. Use the highlighter button in a heading to toggle that column. Any number can be highlighted. Click heading text to sort; click again to reverse. # restores the original option order.</p>
+  <p class="poll-results-legend">Check = selected. Dash = not selected or awaiting response. Red names = awaiting response. Click a body cell to highlight its row, or a header cell to highlight its column. Click again to clear. Any number can be highlighted. Use the sort arrows to sort or reverse; the arrow beside # restores the original option order.</p>
 </dialog>
 
 <div id="context-menu" class="context-menu">
@@ -19473,9 +19473,9 @@
         var active = pollResultsSort.key === key;
         var order = active ? (pollResultsSort.direction === 1 ? "ascending" : "descending") : "none";
         var icon = active ? (pollResultsSort.direction === 1 ? "fa-sort-up" : "fa-sort-down") : "fa-sort";
-        return '<th scope="col" data-poll-results-column="' + escapeHtml(key) + '" class="' + className + '" aria-sort="' + order + '"><button type="button" data-poll-results-sort="' + escapeHtml(key) + '" aria-label="Sort by ' + escapeHtml(label) + '" title="' + escapeHtml(label) + '">' +
-          content + '<i class="fa-solid ' + icon + ' poll-results-sort-icon" aria-hidden="true"></i></button>' +
-          '<button type="button" class="poll-results-column-toggle" data-poll-results-highlight-column="' + escapeHtml(key) + '" aria-pressed="false" aria-label="Highlight column: ' + escapeHtml(label) + '" title="Toggle column highlight"><i class="fa-solid fa-highlighter" aria-hidden="true"></i></button></th>';
+        return '<th scope="col" data-poll-results-column="' + escapeHtml(key) + '" class="' + className + '" aria-sort="' + order + '">' +
+          '<button type="button" class="poll-results-column-toggle" data-poll-results-highlight-column="' + escapeHtml(key) + '" aria-pressed="false" aria-label="Highlight column: ' + escapeHtml(label) + '" title="' + escapeHtml(label) + ' — Click to highlight column">' + content + '</button>' +
+          '<button type="button" data-poll-results-sort="' + escapeHtml(key) + '" aria-label="Sort by ' + escapeHtml(label) + '" title="Sort by ' + escapeHtml(label) + '"><i class="fa-solid ' + icon + ' poll-results-sort-icon" aria-hidden="true"></i></button></th>';
       }
       var headers = heading("order", "original order", "#", "poll-results-number") +
         heading("option", "option", "Option", "poll-results-option") +
@@ -19543,7 +19543,9 @@
     });
     pollResultsGrid.addEventListener("click", function (event) {
       if (!pollResultsTask) return;
-      var columnToggle = event.target.closest("[data-poll-results-highlight-column]");
+      var button = event.target.closest("[data-poll-results-sort]");
+      var header = event.target.closest("thead th[data-poll-results-column]");
+      var columnToggle = !button && header ? header.querySelector("[data-poll-results-highlight-column]") : null;
       var row = event.target.closest("[data-poll-results-option]");
       if (columnToggle || row) {
         var selected = columnToggle ? pollResultsHighlightedColumns : pollResultsHighlightedRows;
@@ -19553,7 +19555,6 @@
         syncPollResultsHighlights();
         return;
       }
-      var button = event.target.closest("[data-poll-results-sort]");
       if (!button || !pollResultsTask) return;
       var key = button.dataset.pollResultsSort;
       pollResultsSort = { key: key, direction: pollResultsSort.key === key ? -pollResultsSort.direction : 1 };

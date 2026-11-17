@@ -6805,11 +6805,11 @@ test('poll results grid sorts locally, preserves option order and updates live',
   await expect(page.locator('#poll-results-summary')).toContainText('3 responded; 1 awaiting response');
   await expect(dialog.locator('.poll-results-avatar')).toHaveCount(4);
   await expect(dialog.locator('.poll-results-person-name').first()).toHaveCSS('writing-mode', 'vertical-rl');
-  const pendingHeader = dialog.locator('[data-poll-results-sort="email:pending@example.com"]');
+  const pendingHeader = dialog.locator('[data-poll-results-highlight-column="email:pending@example.com"]');
   await expect(pendingHeader.locator('..')).toHaveClass(/is-pending/);
   await expect(pendingHeader).toHaveAttribute('title', /Awaiting response/);
   await expect(pendingHeader.locator('.poll-results-person-name')).toHaveCSS('color', 'rgb(255, 146, 154)');
-  const memberHeader = dialog.locator(`[data-poll-results-sort="user:${state.member.id}"]`);
+  const memberHeader = dialog.locator(`[data-poll-results-highlight-column="user:${state.member.id}"]`);
   await expect(memberHeader.locator('..')).not.toHaveClass(/is-pending/);
   const rows = dialog.locator('tbody tr');
   const order = () => rows.evaluateAll(items => items.map(item => item.dataset.pollResultsOption));
@@ -7018,7 +7018,10 @@ test('poll results independently highlight multiple rows and columns through sor
   await expect(rowToggle('mon')).toHaveAttribute('aria-pressed', 'true');
   await expect(rowToggle('tue')).toHaveAttribute('aria-pressed', 'true');
   await expect(dialog.locator('tbody tr.is-highlighted')).toHaveCount(2);
-  await columnToggle(personKey).click();
+  await expect(dialog.locator('.fa-highlighter')).toHaveCount(0);
+  // Clicking the header cell itself (including padding) toggles its column.
+  await columnToggle(personKey).locator('..').click({ position: { x: 2, y: 2 } });
+  await expect(columnToggle(personKey).locator('..')).toHaveAttribute('aria-sort', 'none');
   await columnToggle('total').focus();
   await page.keyboard.press('Enter');
   await expect(columnToggle(personKey)).toHaveAttribute('aria-pressed', 'true');
