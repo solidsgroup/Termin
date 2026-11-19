@@ -22,7 +22,11 @@ You can configure the completion mode while prerequisites are incomplete, but th
 
 ### Poll Results
 
+In the task drawer's **Poll** tab, choose **Single option**, **Checkbox** (multiple selections), or **Custom Options**. Custom responses are configured inline with text, a circled number, Font Awesome icon or emoji, and a Matplotlib C0-C9 or custom color. Selecting Custom Options activates the default responses immediately; use **Save responses** to save edits to their definitions. The voting grid shows vertical response labels above gray icon boxes; selected boxes fill with the configured color. Partial answers can be saved, but custom polls count as completed only after every item has an answer. An explicit "No" is an answer, not an unanswered item. Account users and email collaborators use the same response modes.
+
 Open a task's Poll dialog and choose **View results** for a compact, read-only grid of options, totals, and respondents. Click any column heading to sort locally; click it again to reverse the order. The **#** column preserves the original option numbering. Respondent headers show rotated names and avatars, and cells distinguish selected options from pending responses through their labels. Results update live and follow the poll's existing visibility permissions.
+
+For custom polls, results cells show the chosen response icon and its text on hover. Totals count all answers, including "No". Modes cannot be changed once responses exist, and response choices already in use cannot be deleted.
 
 ### Volunteer Requests
 

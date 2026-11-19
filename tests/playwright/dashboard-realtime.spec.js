@@ -1558,7 +1558,7 @@ test.describe('dashboard and realtime flows', () => {
     await steps.step('Open the same poll task in two Tree views and verify the initial poll badge count is 0/2.', ownerPage);
 
     await openPollDialogFromTree(memberPage, pollTask.id);
-    await expect(memberPage.locator('#poll-response-question')).toContainText('Choose a session');
+    await expect(memberPage.locator('#poll-response-question')).toContainText('Live Poll Task');
     await submitPollResponse(memberPage, 'session-a');
     await steps.step('Respond to the poll from the member browser by selecting Session A.', memberPage);
 
@@ -1616,17 +1616,11 @@ test.describe('dashboard and realtime flows', () => {
     await expect(votedInput).toBeDisabled();
     await expect(ownerPage.locator('[data-poll-option-locked="durable-a"]')).toHaveCount(1);
     await expect(ownerPage.locator('[data-poll-option-input="durable-b"]')).toBeEnabled();
-    await expect(ownerPage.locator('#task-settings-poll-multiple')).toBeDisabled();
+    await expect(ownerPage.locator('#task-settings-poll-response-mode')).toBeDisabled();
     await expect(ownerPage.locator('#task-settings-type')).toBeDisabled();
     await steps.step('Open the poll editor and verify the voted option and selection mode are locked.', ownerPage);
 
-    await ownerPage.locator('#task-settings-poll-question').click();
-    await ownerPage.locator('#task-settings-poll-question').fill('Choose the updated durable option');
-    await ownerPage.locator('#task-settings-poll-question').blur();
-    await expect.poll(async () => {
-      const task = await fetchTaskViaApi(ownerPage, pollTask.id);
-      return task.poll.question;
-    }).toBe('Choose the updated durable option');
+    await expect(ownerPage.locator('#task-settings-poll-question')).toHaveCount(0);
 
     await ownerPage.locator('#task-settings-poll-results-visibility').selectOption('creator');
     await ownerPage.locator('#task-settings-poll-new-option').click();
@@ -1988,7 +1982,7 @@ test.describe('dashboard and realtime flows', () => {
     await memberPollBadge.click();
     await expect(memberPage.locator('#poll-response-dialog')).toBeVisible();
     await expect(memberPage.locator('#status-menu')).toBeHidden();
-    await expect(memberPage.locator('#poll-response-question')).toContainText('Which time works?');
+    await expect(memberPage.locator('#poll-response-question')).toContainText('Non Owner Poll Task');
     await steps.step('Click the non-owner poll badge and verify it opens the poll dialog instead of the normal status menu.', memberPage);
 
     await ownerContext.close();
@@ -7083,4 +7077,107 @@ test('poll results independently highlight multiple rows and columns through sor
   await page.locator('#poll-response-results').click();
   await expect(rowToggle('tue')).toHaveAttribute('aria-pressed', 'false');
   await expect(columnToggle(personKey)).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('poll response modes activate immediately and custom grid responses persist', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Custom scheduling poll', assignee_email: state.owner.email });
+  await createAssignment(page, task.id, state.member.email);
+  await patchTask(page, task.id, { task_type: 'poll', poll: { question: 'Legacy question', options: [{ id: 'a', label: 'Monday' }, { id: 'b', label: 'Tuesday' }] } });
+  await page.goto(`/task/${task.id}`);
+  await page.locator('[data-drawer-tab="poll"]').click();
+  await expect(page.locator('#task-settings-poll-question, #task-settings-poll-multiple, .discussion-poll-hero')).toHaveCount(0);
+  const mode = page.locator('#task-settings-poll-response-mode');
+  await expect(mode).toHaveValue('single');
+  for (const [value, expectedCount] of [['single', 1], ['checkbox', 2]]) {
+    if (value === 'checkbox') {
+      await mode.selectOption(value);
+      await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).poll.allows_multiple).toBe(true);
+    }
+    await page.locator('[data-drawer-tab="settings"]').click();
+    await page.locator('#task-settings-status').click();
+    const choices = page.locator('[data-poll-response-option]');
+    await choices.nth(0).click();
+    await choices.nth(1).click();
+    await expect(page.locator('[data-poll-response-option][data-selected="1"]')).toHaveCount(expectedCount);
+    await page.locator('#poll-response-close').click();
+    await page.locator('[data-drawer-tab="poll"]').click();
+  }
+  await mode.selectOption('custom');
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).poll.response_mode).toBe('custom');
+  await expect(page.locator('#poll-choice-editor')).toBeVisible();
+  await page.locator('[data-choice-icon="0"]').click();
+  await page.locator('[data-discussion-emoji="fa-check"]').click();
+  await page.locator('[data-choice-icon="1"]').click();
+  await page.locator('[data-discussion-emoji=":star:"]').click();
+  await page.locator('[data-choice-row="0"] [data-choice-field="label"]').fill('Yes "please" <now>');
+  await page.locator('[data-choice-row="0"] [data-choice-field="color"]').fill('#ffff00');
+  await page.locator('#poll-choice-save').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).poll.response_options[1].icon).toBe('emoji-2b50');
+  await page.locator('[data-drawer-tab="settings"]').click();
+  await page.locator('#task-settings-status').click();
+  await expect(page.locator('#poll-response-question')).toHaveText('Custom scheduling poll');
+  const rows = page.locator('[data-custom-poll-item]');
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator('.poll-vote-column-label')).toHaveText(['Yes "please" <now>', 'Prefer', 'If need be', 'No']);
+  await expect(page.locator('.poll-vote-column-label').first()).toHaveCSS('writing-mode', 'vertical-rl');
+  const yes = rows.first().locator('button').first();
+  await expect(yes.locator('.poll-choice-glyph')).toHaveCSS('filter', 'grayscale(1)');
+  await yes.click();
+  await expect(yes).toHaveCSS('background-color', 'rgb(255, 255, 0)');
+  await expect(yes.locator('.poll-choice-glyph')).toHaveCSS('color', 'rgb(17, 17, 17)');
+  await page.locator('#poll-response-save').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_meta.my_status_state).toBe('open');
+  await page.locator('#task-settings-status').click();
+  await expect(yes).toHaveAttribute('aria-pressed', 'true');
+  await rows.nth(1).locator('button').last().click();
+  await page.locator('#poll-response-save').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_meta.my_status_state).toBe('complete');
+  await page.goto(`/task/${task.id}`);
+  await page.locator('#task-settings-status').click();
+  await page.locator('#poll-response-results').click();
+  const grid = page.locator('#poll-results-dialog');
+  await expect(grid.locator('[data-poll-results-total]')).toHaveText(['1', '1']);
+  await expect(grid.locator(`[data-poll-results-option="a"] [data-poll-results-person="user:${state.owner.id}"]`)).toHaveAttribute('aria-label', 'Yes "please" <now>');
+  await expect(grid.locator('now')).toHaveCount(0);
+  await grid.locator('[data-poll-results-option="a"]').click();
+  await expect(grid.locator('[data-poll-results-option="a"]')).toHaveClass(/is-highlighted/);
+  await page.locator('#poll-results-close').click();
+  await page.locator('#poll-response-clear').click();
+  await page.locator('#poll-response-save').click();
+  await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).status_meta.poll_viewer_answers).toEqual({});
+  await page.locator('[data-drawer-tab="messages"]').click();
+  await page.locator('#discussion-emoji-trigger').click();
+  await expect(page.locator('#discussion-emoji-menu')).toHaveClass(/is-open/);
+});
+
+test('custom poll response validation and email collaborator voting preserve privacy', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, { project_id: state.project.id, title: 'Custom email poll', assignee_email: state.owner.email });
+  const assignment = await createAssignment(page, task.id, state.collaborator.email);
+  const portal = `/collaborators/${state.collaborator.access_token}`;
+  expect((await request.post(`${portal}/assignments/${assignment.id}`, { form: { action: 'accept' } })).ok()).toBeTruthy();
+  const poll = { response_mode: 'custom', results_visibility: 'creator', response_options: [{ id: 'yes', label: 'Yes', icon: 'fa-check', color: '#1f77b4' }, { id: 'no', label: 'No', icon: 'number', color: '#d62728' }], options: [{ id: 'a', label: 'Monday' }, { id: 'b', label: 'Tuesday' }] };
+  await patchTask(page, task.id, { task_type: 'poll', poll });
+  for (const answers of [{ a: 'invalid' }, { invalid: 'yes' }, { a: [] }]) {
+    expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { answers } })).status()).toBe(409);
+  }
+  expect((await page.request.post(`/api/tasks/${task.id}/poll_response`, { data: { answers: { a: 'yes', b: 'no' } } })).ok()).toBeTruthy();
+  expect((await page.request.patch(`/api/tasks/${task.id}`, { data: { poll: { ...poll, response_options: [poll.response_options[0]] } } })).status()).toBe(409);
+  expect((await page.request.patch(`/api/tasks/${task.id}`, { data: { poll: { ...poll, response_mode: 'checkbox' } } })).status()).toBe(409);
+  const response = await request.get(`${portal}/tasks/${task.id}/poll`);
+  expect(response.ok()).toBeTruthy();
+  const emailTask = (await response.json()).task;
+  expect(emailTask.status_meta.poll_results_visible).toBe(false);
+  expect(emailTask.status_meta.poll_option_results.flatMap(row => row.responders)).toEqual([]);
+  expect(emailTask.status_meta.poll_viewer_answers).toEqual({});
+  expect((await request.post(`${portal}/tasks/${task.id}/poll_response`, { data: { answers: { a: 'no', b: 'yes' } } })).ok()).toBeTruthy();
+  const saved = (await (await request.get(`${portal}/tasks/${task.id}/poll`)).json()).task;
+  expect(saved.status_meta.poll_viewer_answers).toEqual({ a: 'no', b: 'yes' });
+  expect(saved.status_meta.my_status_state).toBe('complete');
+  const full = await fetchTaskViaApi(page, task.id);
+  expect(full.status_meta.poll_complete_count).toBe(2);
+  expect(full.status_meta.poll_option_results[0].responders.map(row => row.response_option_id).sort()).toEqual(['no', 'yes']);
 });

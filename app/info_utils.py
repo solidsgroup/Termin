@@ -99,8 +99,37 @@ def _normalize_google_drive_meta(value) -> dict:
         google_drive["resolved"] = bool(value.get("resolved"))
     return google_drive
 
+POLL_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+               "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+
+
+def normalize_poll_response_options(value) -> list[dict]:
+    choices = []
+    seen = set()
+    for index, item in enumerate(value if isinstance(value, list) else []):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()[:200]
+        if not label:
+            continue
+        choice_id = str(item.get("id") or "").strip()
+        if not choice_id or choice_id in seen:
+            choice_id = uuid.uuid4().hex[:8]
+        seen.add(choice_id)
+        icon = str(item.get("icon") or "number")
+        if icon != "number" and not re.fullmatch(r"(?:fa-[a-z0-9-]+|emoji-[0-9a-f-]+)", icon):
+            icon = "number"
+        color = str(item.get("color") or "")
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            color = POLL_COLORS[index % len(POLL_COLORS)]
+        choices.append({"id": choice_id, "label": label, "icon": icon, "color": color})
+    return choices
+
+
 def _normalize_poll_meta(value) -> dict:
     poll = value if isinstance(value, dict) else {}
+    response_mode = "custom" if poll.get("response_mode") == "custom" else "checkbox"
+    response_options = normalize_poll_response_options(poll.get("response_options"))
     question = str(poll.get("question") or "").strip()
     allows_multiple = bool(poll.get("allows_multiple"))
     allow_voter_options = bool(poll.get("allow_voter_options"))
@@ -153,7 +182,13 @@ def _normalize_poll_meta(value) -> dict:
                         continue
                     if normalized_option_id not in selected_option_ids:
                         selected_option_ids.append(normalized_option_id)
-            if not allows_multiple and len(selected_option_ids) > 1:
+            answers = item.get("answers") if isinstance(item.get("answers"), dict) else {}
+            valid_choices = {choice["id"] for choice in response_options}
+            answers = {str(key): str(value) for key, value in answers.items()
+                       if str(key) in valid_option_ids and str(value) in valid_choices}
+            if response_mode == "custom":
+                selected_option_ids = list(answers)
+            if response_mode != "custom" and not allows_multiple and len(selected_option_ids) > 1:
                 selected_option_ids = selected_option_ids[:1]
             seen_response_keys.add(key)
             responses.append(
@@ -161,10 +196,13 @@ def _normalize_poll_meta(value) -> dict:
                     "user_id": user_id,
                     "email": email,
                     "option_ids": selected_option_ids,
+                    "answers": answers if response_mode == "custom" else {},
                     "updated_at": str(item.get("updated_at") or "").strip() or datetime.utcnow().isoformat(timespec="seconds"),
                 }
             )
     return {
+        "response_mode": response_mode,
+        "response_options": response_options,
         "question": question,
         "allows_multiple": allows_multiple,
         "allow_voter_options": allow_voter_options,

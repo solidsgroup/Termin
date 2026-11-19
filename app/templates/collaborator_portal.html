@@ -884,16 +884,16 @@
         }
         var allowsMultiple = !!meta.poll_allows_multiple;
         var canRespond = !!taskData.can_respond;
-        var canAddOptions = canRespond && !!(meta.poll_allow_voter_options || poll.allow_voter_options);
+        var canAddOptions = canRespond && poll.response_mode !== "custom" && !!(meta.poll_allow_voter_options || poll.allow_voter_options);
         if (pollQuestionEl) {
-          pollQuestionEl.textContent = poll.question || taskData.title || "Poll";
+          pollQuestionEl.textContent = taskData.title || "Poll";
         }
         if (pollMetaEl) {
           pollMetaEl.textContent = renderPollStatusLabel(meta) + " responses";
         }
         if (pollNoteEl) {
           if (canRespond) {
-            pollNoteEl.textContent = (allowsMultiple ? "Select one or more options." : "Select one option.")
+            pollNoteEl.textContent = (poll.response_mode === "custom" ? "Choose a response for each item. Answer all items to complete the poll." : (allowsMultiple ? "Select one or more options." : "Select one option."))
               + (canAddOptions ? " You may also add a new option." : "");
           } else if (meta.poll_closed || poll.closed) {
             pollNoteEl.textContent = "This poll is closed to new responses.";
@@ -918,7 +918,9 @@
           pollPendingAvatarsEl.innerHTML = incompleteAssignees.map(renderResponderAvatar).join("");
         }
         var options = Array.isArray(poll.options) ? poll.options : [];
-        if (!options.length) {
+        if (poll.response_mode === "custom") {
+          pollOptionsEl.innerHTML = window.TerminPollResponses.render(poll, meta, canRespond);
+        } else if (!options.length) {
           pollOptionsEl.innerHTML = '<div class="footer-note">No poll options configured yet.</div>';
         } else {
           pollOptionsEl.innerHTML = options.map(function (option) {
@@ -1106,6 +1108,7 @@
       if (pollClearEl) {
         pollClearEl.addEventListener("click", function () {
           if (!pollOptionsEl) return;
+          window.TerminPollResponses.clear(pollOptionsEl);
           pollOptionsEl.querySelectorAll("[data-collab-poll-response-option]").forEach(function (node) {
             node.setAttribute("data-selected", "0");
             node.classList.remove("is-selected");
@@ -1124,7 +1127,7 @@
           fetch("{{ url_for('ui.collaborator_portal', token=collaborator.access_token) }}/tasks/0/poll_response".replace("/0/poll_response", "/" + activePollTask.id + "/poll_response"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ option_ids: selectedOptionIds, new_option_label: newOptionLabel }),
+            body: JSON.stringify({ option_ids: selectedOptionIds, new_option_label: newOptionLabel, answers: window.TerminPollResponses.answers(pollOptionsEl) }),
           })
             .then((res) => res.json().catch(() => ({})))
             .then((result) => {

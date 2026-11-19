@@ -1550,27 +1550,23 @@
   </div>
   <div class="discussion-pane" id="discussion-poll-pane" data-drawer-pane="poll">
     <div class="discussion-poll-settings" id="discussion-poll-settings">
-      <div class="discussion-poll-hero">
-        <div class="discussion-poll-hero-icon" aria-hidden="true">
-          <i class="fa-solid fa-square-poll-vertical"></i>
-        </div>
-        <div class="discussion-poll-hero-copy">
-          <div class="discussion-poll-hero-title">Poll Task</div>
-          <div class="discussion-poll-hero-text">Configure this task as a poll with a question and answer options.</div>
-        </div>
-      </div>
       <div class="discussion-poll-editor" id="task-settings-poll-editor">
         <div class="discussion-setting-field is-inline">
-          <span class="discussion-setting-label discussion-setting-label--row">Question</span>
-          <input id="task-settings-poll-question" type="text" aria-label="Poll question" placeholder="What are we deciding?" autocomplete="termin-nope-poll-question" autocorrect="off" autocapitalize="sentences" spellcheck="true" />
+          <label class="discussion-setting-label discussion-setting-label--row" for="task-settings-poll-response-mode">Response mode</label>
+          <select id="task-settings-poll-response-mode">
+            <option value="single">Single option</option><option value="checkbox">Checkbox</option><option value="custom">Custom Options</option>
+          </select>
         </div>
-        <div class="discussion-setting-field is-inline">
-          <span class="discussion-setting-label discussion-setting-label--row">Selection</span>
-          <label class="discussion-poll-checkbox">
-            <input id="task-settings-poll-multiple" type="checkbox" />
-            <span>Allow multiple options per person</span>
-          </label>
-        </div>
+        <section id="poll-choice-editor" class="poll-choice-editor" aria-label="Custom responses" hidden>
+          <div class="poll-choice-table-heading"><span>Icon</span><span>Response</span><span>Palette</span><span>Color</span><span></span></div>
+          <div id="poll-choice-editor-list" class="poll-choice-editor-list"></div>
+          <div class="poll-choice-editor-actions">
+            <button type="button" class="btn secondary" id="poll-choice-add">Add response</button>
+            <button type="button" class="btn secondary" id="poll-choice-cancel">Reset</button>
+            <button type="button" class="btn" id="poll-choice-save">Save responses</button>
+          </div>
+          <p role="alert" class="poll-choice-editor-error" id="poll-choice-editor-error"></p>
+        </section>
         <div class="discussion-setting-field is-inline">
           <span class="discussion-setting-label discussion-setting-label--row">Suggestions</span>
           <label class="discussion-poll-checkbox">
@@ -14902,8 +14898,6 @@
     var pollTabButtonEl = drawer.querySelector('[data-drawer-tab="poll"]');
     var pollPaneEl = document.getElementById("discussion-poll-pane");
     var taskSettingsPollEditorEl = document.getElementById("task-settings-poll-editor");
-    var taskSettingsPollQuestionEl = document.getElementById("task-settings-poll-question");
-    var taskSettingsPollMultipleEl = document.getElementById("task-settings-poll-multiple");
     var taskSettingsPollVoterOptionsEl = document.getElementById("task-settings-poll-voter-options");
     var taskSettingsPollClosedEl = document.getElementById("task-settings-poll-closed");
     var taskSettingsPollResultsVisibilityEl = document.getElementById("task-settings-poll-results-visibility");
@@ -15254,6 +15248,8 @@
         return { id: optionId, label: label };
       }).filter(Boolean);
       return {
+        response_mode: source.response_mode === "custom" ? "custom" : "checkbox",
+        response_options: Array.isArray(source.response_options) ? source.response_options.map(function (choice) { return Object.assign({}, choice); }) : [],
         question: String(source.question || "").trim(),
         allows_multiple: !!source.allows_multiple,
         allow_voter_options: !!source.allow_voter_options,
@@ -18677,6 +18673,137 @@
       }).join("");
     }
 
+    var pollResponseModeEl = document.getElementById("task-settings-poll-response-mode");
+    var pollChoiceEditor = document.getElementById("poll-choice-editor");
+    var pollChoiceDraft = [];
+    var pollChoiceTaskId = null;
+    var pollChoiceDirty = false;
+    var pollChoiceIcons = ["number", "fa-check", "fa-circle-check", "fa-star", "fa-heart", "fa-thumbs-up", "fa-thumbs-down", "fa-question", "fa-circle-question", "fa-xmark", "fa-circle-xmark", "fa-clock", "fa-calendar", "fa-calendar-check", "fa-user", "fa-users", "fa-exclamation", "fa-circle-exclamation", "fa-minus", "fa-plus", "fa-circle", "fa-square", "fa-flag", "fa-bolt", "fa-face-smile", "fa-face-meh", "fa-face-frown"];
+    function renderPollChoiceEditor() {
+      var helper = window.TerminPollResponses;
+      document.getElementById("poll-choice-editor-list").innerHTML = pollChoiceDraft.map(function (choice, index) {
+        return '<div class="poll-choice-editor-row" data-choice-row="' + index + '">' +
+          '<button type="button" class="poll-choice-icon-button" data-choice-icon="' + index + '" aria-label="Choose response icon" title="Choose icon"><span data-choice-preview>' + helper.glyph(choice, index) + '</span></button>' +
+          '<input data-choice-field="label" aria-label="Response text" maxlength="200" placeholder="Response text" value="' + escapeHtml(choice.label) + '">' +
+          '<select data-choice-palette aria-label="Color palette"><option value="">Custom</option>' +
+          helper.colors.map(function (color, colorIndex) { return '<option value="' + color + '"' + (choice.color === color ? ' selected' : '') + '>C' + colorIndex + '</option>'; }).join('') +
+          '</select><input type="color" data-choice-field="color" aria-label="Custom response color" value="' + escapeHtml(choice.color) + '">' +
+          '<button type="button" class="btn secondary" data-choice-remove="' + index + '" aria-label="Remove response">&times;</button></div>';
+      }).join("");
+    }
+    function openPollChoiceEditor() {
+      if (!currentTaskData || taskIsLocked(currentTaskData)) return;
+      var poll = taskPollConfig(currentTaskData);
+      pollChoiceTaskId = currentTaskData.id;
+      pollChoiceDirty = true;
+      pollChoiceDraft = poll.response_options.map(function (choice) { return Object.assign({}, choice); });
+      if (!pollChoiceDraft.length) {
+        pollChoiceDraft = ["Yes", "Prefer", "If need be", "No"].map(function (label, index) {
+          return { id: "response-" + Date.now() + "-" + index, label: label, icon: "number", color: window.TerminPollResponses.colors[index] };
+        });
+      }
+      document.getElementById("poll-choice-editor-error").textContent = "";
+      renderPollChoiceEditor();
+      pollChoiceEditor.hidden = false;
+      taskSettingsPollVoterOptionsEl.closest(".discussion-setting-field").hidden = true;
+    }
+    pollResponseModeEl.addEventListener("change", function () {
+      if (pollResponseModeEl.value === "custom") {
+        openPollChoiceEditor();
+        savePollChoiceSettings();
+      } else if (currentTaskData) {
+        var poll = taskPollConfig(currentTaskData);
+        poll.response_mode = "checkbox";
+        poll.allows_multiple = pollResponseModeEl.value === "checkbox";
+        pollChoiceDirty = false;
+        currentTaskData = Object.assign({}, currentTaskData, { poll: poll });
+        renderTaskPollSettings();
+        schedulePollSettingsPersist();
+      }
+    });
+    document.getElementById("poll-choice-add").addEventListener("click", function () {
+      pollChoiceDirty = true;
+      pollChoiceDraft.push({ id: "response-" + Date.now() + "-" + Math.random().toString(36).slice(2), label: "", icon: "number", color: window.TerminPollResponses.colors[pollChoiceDraft.length % 10] });
+      renderPollChoiceEditor();
+      document.querySelector("#poll-choice-editor-list .poll-choice-editor-row:last-child input").focus();
+    });
+    pollChoiceEditor.addEventListener("input", function (event) {
+      var row = event.target.closest("[data-choice-row]");
+      if (!row) return;
+      pollChoiceDirty = true;
+      var index = Number(row.dataset.choiceRow);
+      var field = event.target.dataset.choiceField;
+      if (field) pollChoiceDraft[index][field] = event.target.value;
+      if (event.target.hasAttribute("data-choice-palette") && event.target.value) {
+        pollChoiceDraft[index].color = event.target.value;
+        row.querySelector('[data-choice-field="color"]').value = event.target.value;
+      }
+      row.querySelector("[data-choice-preview]").innerHTML = window.TerminPollResponses.glyph(pollChoiceDraft[index], index);
+      if (field === "color") row.querySelector("[data-choice-palette]").value = window.TerminPollResponses.colors.includes(event.target.value) ? event.target.value : "";
+    });
+    pollChoiceEditor.addEventListener("click", function (event) {
+      var iconButton = event.target.closest("[data-choice-icon]");
+      if (iconButton) {
+        event.stopPropagation();
+        var choice = pollChoiceDraft[Number(iconButton.dataset.choiceIcon)];
+        var taskId = pollChoiceTaskId;
+        window.__openPollResponseIconPicker(iconButton, pollChoiceIcons, function (icon) {
+          if (String(taskId) !== String(pollChoiceTaskId)) return;
+          choice.icon = icon;
+          pollChoiceDirty = true;
+          renderPollChoiceEditor();
+        });
+        return;
+      }
+      var remove = event.target.closest("[data-choice-remove]");
+      if (remove) {
+        pollChoiceDirty = true;
+        pollChoiceDraft.splice(Number(remove.dataset.choiceRemove), 1);
+        renderPollChoiceEditor();
+      }
+    });
+    document.getElementById("poll-choice-cancel").addEventListener("click", function () {
+      pollChoiceDirty = false;
+      renderTaskPollSettings();
+    });
+    async function savePollChoiceSettings() {
+      var error = document.getElementById("poll-choice-editor-error");
+      if (!currentTaskData || String(currentTaskData.id) !== String(pollChoiceTaskId)) { return; }
+      if (!pollChoiceDraft.length || pollChoiceDraft.some(function (choice) { return !choice.label.trim() || !/^(number|fa-[a-z0-9-]+|emoji-[0-9a-f-]+)$/.test(choice.icon); })) {
+        error.textContent = "Add at least one response. Each needs text and an icon name (number or fa-...).";
+        return;
+      }
+      var button = document.getElementById("poll-choice-save");
+      button.disabled = true;
+      pollResponseModeEl.disabled = true;
+      var savingTaskId = pollChoiceTaskId;
+      try {
+        if (pollSettingsPersistTimer) { clearTimeout(pollSettingsPersistTimer); pollSettingsPersistTimer = 0; }
+        var poll = taskPollPayloadFromInputs();
+        poll.response_mode = "custom";
+        poll.response_options = pollChoiceDraft;
+        var response = await fetch("/api/tasks/" + savingTaskId, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ poll: poll })
+        });
+        var task = await response.json();
+        if (!response.ok) throw new Error(task.error || "Could not save response options");
+        rememberRecentTaskSnapshot(task);
+        mergeDashboardTask(task);
+        applyTaskRowUpdate(task);
+        if (String(currentTaskId) === String(savingTaskId)) {
+          pollChoiceDirty = false;
+          currentTaskData = Object.assign({}, currentTaskData, task);
+          renderTaskPollSettings();
+        }
+      } catch (err) {
+        error.textContent = err.message;
+      } finally {
+        button.disabled = false;
+        pollResponseModeEl.disabled = !!(currentTaskData && taskIsLocked(currentTaskData)) || !!taskStatusMeta(currentTaskData || {}).poll_has_responses;
+      }
+    }
+    document.getElementById("poll-choice-save").addEventListener("click", savePollChoiceSettings);
+
     function renderTaskPollOptions() {
       if (!taskSettingsPollOptionsEl) return;
       var poll = taskPollConfig(currentTaskData || {});
@@ -18735,6 +18862,20 @@
       var poll = taskPollConfig(currentTaskData || {});
       var pollStatus = taskStatusMeta(currentTaskData || {});
       var pollHasResponses = !!pollStatus.poll_has_responses;
+      if (pollResponseModeEl) {
+        pollResponseModeEl.value = poll.response_mode === "custom" ? "custom" : (poll.allows_multiple ? "checkbox" : "single");
+        pollResponseModeEl.disabled = !!locked || taskType !== "poll" || pollHasResponses;
+        if (String(pollChoiceTaskId) !== String(currentTaskData && currentTaskData.id)) pollChoiceDirty = false;
+        if (!pollChoiceDirty) {
+          pollChoiceTaskId = currentTaskData && currentTaskData.id;
+          pollChoiceDraft = poll.response_options.map(function (choice) { return Object.assign({}, choice); });
+          pollChoiceEditor.hidden = poll.response_mode !== "custom";
+          renderPollChoiceEditor();
+        }
+        if (pollChoiceDirty) pollResponseModeEl.value = "custom";
+        pollChoiceEditor.querySelectorAll("input, select, button").forEach(function (input) { input.disabled = !!locked || taskType !== "poll"; });
+        taskSettingsPollVoterOptionsEl.closest(".discussion-setting-field").hidden = poll.response_mode === "custom";
+      }
       if (taskSettingsTypeEl) {
         taskSettingsTypeEl.value = taskType;
         taskSettingsTypeEl.disabled = !!locked || (taskType === "poll" && pollHasResponses);
@@ -18745,19 +18886,6 @@
       syncPollTabAppearance();
       if (taskSettingsPollEditorEl) {
         taskSettingsPollEditorEl.classList.toggle("is-inactive", taskType !== "poll");
-      }
-      if (taskSettingsPollQuestionEl) {
-        if (document.activeElement !== taskSettingsPollQuestionEl) {
-          taskSettingsPollQuestionEl.value = poll.question || "";
-        }
-        taskSettingsPollQuestionEl.disabled = !!locked || taskType !== "poll";
-      }
-      if (taskSettingsPollMultipleEl) {
-        taskSettingsPollMultipleEl.checked = !!poll.allows_multiple;
-        taskSettingsPollMultipleEl.disabled = !!locked || taskType !== "poll" || pollHasResponses;
-        taskSettingsPollMultipleEl.title = pollHasResponses
-          ? "Selection mode cannot be changed after responses have been submitted"
-          : "";
       }
       if (taskSettingsPollVoterOptionsEl) {
         taskSettingsPollVoterOptionsEl.checked = !!poll.allow_voter_options;
@@ -18800,8 +18928,10 @@
         });
       }
       return normalizeTaskPollConfig({
-        question: taskSettingsPollQuestionEl ? taskSettingsPollQuestionEl.value : "",
-        allows_multiple: !!(taskSettingsPollMultipleEl && taskSettingsPollMultipleEl.checked),
+        response_mode: taskPollConfig(currentTaskData).response_mode,
+        response_options: taskPollConfig(currentTaskData).response_options,
+        question: taskPollConfig(currentTaskData).question,
+        allows_multiple: taskPollConfig(currentTaskData).allows_multiple,
         allow_voter_options: !!(taskSettingsPollVoterOptionsEl && taskSettingsPollVoterOptionsEl.checked),
         closed: !!(taskSettingsPollClosedEl && taskSettingsPollClosedEl.checked),
         results_visibility: taskSettingsPollResultsVisibilityEl ? taskSettingsPollResultsVisibilityEl.value : "everyone",
@@ -19063,6 +19193,7 @@
         poll_results_visible: !!meta.poll_results_visible,
         poll_option_results: Array.isArray(meta.poll_option_results) ? meta.poll_option_results.slice() : [],
         poll_incomplete_assignees: Array.isArray(meta.poll_incomplete_assignees) ? meta.poll_incomplete_assignees.slice() : [],
+        poll_viewer_answers: meta.poll_viewer_answers || {},
         poll_viewer_option_ids: Array.isArray(meta.poll_viewer_option_ids) ? meta.poll_viewer_option_ids.slice() : [],
         task_status: baseStatus,
         task_status_state: decorateStatusState(task, getStatusState(baseStatus)),
@@ -19443,21 +19574,31 @@
         return key;
       }
       (meta.assignees || []).forEach(addPerson);
+      var pollConfig = taskPollConfig(task);
+      var customResponses = pollConfig.response_mode === "custom";
+      var choices = pollConfig.response_options || [];
+      var choicesById = new Map(choices.map(function (choice, index) { return [choice.id, { choice: choice, index: index }]; }));
+      var answerByOption = new Map();
+      var answeredCounts = new Map();
       var selectedByOption = new Map();
       var responded = new Set();
       (meta.poll_option_results || []).forEach(function (option) {
         var selected = new Set();
+        var answers = new Map();
         (option.responders || []).forEach(function (person) {
           var key = addPerson(person);
           selected.add(key);
-          responded.add(key);
+          answers.set(key, person.response_option_id);
+          answeredCounts.set(key, (answeredCounts.get(key) || 0) + 1);
+          if (!customResponses || answeredCounts.get(key) === pollConfig.options.length) responded.add(key);
         });
         selectedByOption.set(String(option.id), selected);
+        answerByOption.set(String(option.id), answers);
       });
       var columns = Array.from(people, function (entry) { return { key: entry[0], person: entry[1] }; });
       var rows = taskPollConfig(task).options.map(function (option, index) {
         var selected = selectedByOption.get(String(option.id)) || new Set();
-        return { id: option.id, order: index + 1, label: option.label || "", total: selected.size, selected: selected };
+        return { id: option.id, order: index + 1, label: option.label || "", total: selected.size, selected: selected, answers: answerByOption.get(String(option.id)) || new Map() };
       });
       var validSort = ["order", "option", "total"].concat(columns.map(function (column) { return column.key; }));
       if (validSort.indexOf(pollResultsSort.key) < 0) pollResultsSort = { key: "order", direction: 1 };
@@ -19466,7 +19607,9 @@
         var compare = key === "option" ? a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" })
           : key === "order" ? a.order - b.order
           : key === "total" ? a.total - b.total
-          : Number(a.selected.has(key)) - Number(b.selected.has(key));
+          : customResponses
+            ? (choicesById.has(a.answers.get(key)) ? choicesById.get(a.answers.get(key)).index + 1 : 0) - (choicesById.has(b.answers.get(key)) ? choicesById.get(b.answers.get(key)).index + 1 : 0)
+            : Number(a.selected.has(key)) - Number(b.selected.has(key));
         return compare * pollResultsSort.direction || a.order - b.order;
       });
       function heading(key, label, content, className) {
@@ -19494,17 +19637,26 @@
           '</button></th><td class="poll-results-total" data-poll-results-column="total" data-poll-results-total>' + row.total + '</td>' +
           columns.map(function (column) {
             var selected = row.selected.has(column.key);
-            var status = selected ? "Selected" : responded.has(column.key) ? "Not selected" : "Awaiting response";
+            var customChoice = choicesById.get(row.answers.get(column.key));
+            var status = customResponses ? (customChoice ? customChoice.choice.label : "Awaiting response")
+              : selected ? "Selected" : responded.has(column.key) ? "Not selected" : "Awaiting response";
             return '<td data-poll-results-person="' + escapeHtml(column.key) + '" data-poll-results-column="' + escapeHtml(column.key) + '" class="poll-results-cell' + (selected ? ' is-selected' : '') +
-              '" aria-label="' + status + '" title="' + status + '">' +
-              (selected ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '<span aria-hidden="true">&ndash;</span>') + '</td>';
+              '" aria-label="' + escapeHtml(status) + '" title="' + escapeHtml(status) + '">' +
+              (customResponses && customChoice ? window.TerminPollResponses.glyph(customChoice.choice, customChoice.index) : selected ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '<span aria-hidden="true">&ndash;</span>') + '</td>';
           }).join("") + '</tr>';
       }).join("");
-      document.getElementById("poll-results-title").textContent = taskPollConfig(task).question || task.title || "Poll";
+      document.getElementById("poll-results-title").textContent = task.title || "Poll";
       document.getElementById("poll-results-summary").textContent = responded.size + " responded; " + (people.size - responded.size) +
         " awaiting response. " + rows.length + " options." + (meta.poll_closed ? " Poll closed." : "");
       pollResultsGrid.innerHTML = '<table class="poll-results-table" aria-label="Responses by option and respondent"><thead><tr>' + headers +
         '</tr></thead><tbody>' + body + '</tbody></table>' + (!rows.length ? '<p class="footer-note">No poll options configured yet.</p>' : '');
+      var legend = pollResultsDialog.querySelector(".poll-results-legend");
+      if (customResponses) {
+        legend.innerHTML = choices.map(function (choice, index) { return window.TerminPollResponses.glyph(choice, index) + " " + escapeHtml(choice.label); }).join(" &nbsp; ") +
+          "<br>Totals count all answers, including No. Red names = not fully answered. Click headings to sort; # restores original order.";
+      } else {
+        legend.textContent = "Check = selected. Dash = not selected or awaiting response. Red names = awaiting response. Click headings to sort; # restores original order.";
+      }
       pollResultsGrid.scrollLeft = scrollLeft;
       pollResultsGrid.scrollTop = scrollTop;
       syncPollResultsHighlights();
@@ -19621,7 +19773,7 @@
       var allowsMultiple = !!meta.poll_allows_multiple;
       var pollClosed = !!(meta.poll_closed || poll.closed);
       var canRespond = !!meta.viewer_can_set && !pollClosed && !taskStatusBlockedByPrereq(task || {});
-      var canAddOptions = canRespond && !!(meta.poll_allow_voter_options || poll.allow_voter_options);
+      var canAddOptions = canRespond && poll.response_mode !== "custom" && !!(meta.poll_allow_voter_options || poll.allow_voter_options);
       var resultsVisible = !!meta.poll_results_visible;
       pollResultsTrigger.hidden = !resultsVisible;
       var optionResultsById = {};
@@ -19632,14 +19784,14 @@
         });
       }
       if (pollResponseQuestionEl) {
-        pollResponseQuestionEl.textContent = poll.question || (task && task.title) || "Poll";
+        pollResponseQuestionEl.textContent = (task && task.title) || "Poll";
       }
       if (pollResponseMetaEl) {
         pollResponseMetaEl.textContent = renderPollStatusLabel(meta) + " responses";
       }
       if (pollResponseNoteEl) {
         if (canRespond) {
-          pollResponseNoteEl.textContent = (allowsMultiple ? "Select one or more options." : "Select one option.")
+          pollResponseNoteEl.textContent = (poll.response_mode === "custom" ? "Choose a response for each item. All items must be answered to complete the poll." : (allowsMultiple ? "Select one or more options." : "Select one option."))
             + (canAddOptions ? " You may also add a new option." : "")
             + (resultsVisible ? "" : " Results are visible to the creator only.");
         } else if (pollClosed) {
@@ -19676,7 +19828,9 @@
           return renderPollParticipantAvatar(assignee, "poll-response-pending-avatar");
         }).join("");
       }
-      if (!poll.options.length) {
+      if (poll.response_mode === "custom") {
+        pollResponseOptionsEl.innerHTML = window.TerminPollResponses.render(poll, meta, canRespond);
+      } else if (!poll.options.length) {
         pollResponseOptionsEl.innerHTML = '<div class="footer-note">No poll options configured yet.</div>';
       } else {
         pollResponseOptionsEl.innerHTML = poll.options.map(function (option) {
@@ -19722,13 +19876,14 @@
     }
     window.__openTaskPollDialog = openTaskPollDialog;
 
-    function saveTaskPollResponse(task, optionIds, newOptionLabel) {
+    function saveTaskPollResponse(task, optionIds, newOptionLabel, answers) {
       if (!task || !task.id) return Promise.reject(new Error("Task missing"));
       return fetch("/api/tasks/" + task.id + "/poll_response", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          answers: answers,
           option_ids: Array.isArray(optionIds) ? optionIds : [],
           new_option_label: String(newOptionLabel || "").trim(),
         }),
@@ -20574,15 +20729,6 @@
       if (taskSettingsFollowerEl) {
         taskSettingsFollowerEl.value = "";
         taskSettingsFollowerEl.setAttribute("data-follow-task-id", "");
-      }
-      if (taskSettingsPollQuestionEl) {
-        taskSettingsPollQuestionEl.value = "";
-        taskSettingsPollQuestionEl.disabled = false;
-      }
-      if (taskSettingsPollMultipleEl) {
-        taskSettingsPollMultipleEl.checked = false;
-        taskSettingsPollMultipleEl.disabled = false;
-        taskSettingsPollMultipleEl.title = "";
       }
       if (taskSettingsPollVoterOptionsEl) {
         taskSettingsPollVoterOptionsEl.checked = false;
@@ -26328,33 +26474,6 @@
           persistEntitySettings();
         });
       }
-      if (taskSettingsPollQuestionEl) {
-        taskSettingsPollQuestionEl.addEventListener("input", function () {
-          if (currentTaskData) {
-            var poll = taskPollConfig(currentTaskData);
-            poll.question = String(taskSettingsPollQuestionEl.value || "");
-            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
-            if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
-            syncPollTabAppearance();
-          }
-        });
-        taskSettingsPollQuestionEl.addEventListener("blur", function () {
-          if (!currentTaskData || taskIsLocked(currentTaskData)) return;
-          persistPollSettingsNow();
-        });
-      }
-      if (taskSettingsPollMultipleEl) {
-        taskSettingsPollMultipleEl.addEventListener("change", function () {
-          if (currentTaskData) {
-            var poll = taskPollConfig(currentTaskData);
-            poll.allows_multiple = !!taskSettingsPollMultipleEl.checked;
-            currentTaskData = Object.assign({}, currentTaskData || {}, { task_type: "poll", poll: poll });
-            if (taskSettingsTypeEl) taskSettingsTypeEl.value = "poll";
-            syncPollTabAppearance();
-          }
-          schedulePollSettingsPersist();
-        });
-      }
       if (taskSettingsPollVoterOptionsEl) {
         taskSettingsPollVoterOptionsEl.addEventListener("change", function () {
           if (currentTaskData) {
@@ -26988,6 +27107,7 @@
     if (pollResponseClearEl) {
       pollResponseClearEl.addEventListener("click", function () {
         if (!pollResponseOptionsEl) return;
+        window.TerminPollResponses.clear(pollResponseOptionsEl);
         pollResponseOptionsEl.querySelectorAll("[data-poll-response-option]").forEach(function (node) {
           node.setAttribute("data-selected", "0");
           node.classList.remove("is-selected");
@@ -27003,7 +27123,7 @@
         }).filter(Boolean);
         var newOptionLabel = pollResponseNewOptionEl ? String(pollResponseNewOptionEl.value || "").trim() : "";
         pollResponseSaveEl.disabled = true;
-        saveTaskPollResponse(activePollDialogTask, selectedOptionIds, newOptionLabel)
+        saveTaskPollResponse(activePollDialogTask, selectedOptionIds, newOptionLabel, window.TerminPollResponses.answers(pollResponseOptionsEl))
           .then(function (task) {
             if (!task || !task.id) return;
             mergeDashboardTask(task);
@@ -27728,9 +27848,41 @@
       }
       closeDiscussionMentionMenu();
     }
+    var pollIconPickerTarget = null;
+    var emojiMenuHome = emojiMenuEl && emojiMenuEl.parentNode;
+    window.__openPollResponseIconPicker = function (anchor, icons, onSelect) {
+      closeDiscussionEmojiMenu();
+      pollIconPickerTarget = { anchor: anchor, onSelect: onSelect };
+      document.body.appendChild(emojiMenuEl);
+      emojiMenuEl.classList.add("is-poll-icon-picker");
+      var rect = anchor.getBoundingClientRect();
+      emojiMenuEl.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 300)) + "px";
+      emojiMenuEl.style.top = Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 330)) + "px";
+      openDiscussionEmojiMenu(icons.concat(emojiShortcodeOptions), "poll-icon");
+      emojiMenuEl.querySelector("button").focus();
+    };
+    if (emojiMenuEl) emojiMenuEl.addEventListener("keydown", function (event) {
+      if (!pollIconPickerTarget) return;
+      if (event.key === "Escape") {
+        event.preventDefault(); event.stopPropagation(); closeDiscussionEmojiMenu();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        moveDiscussionEmojiSelection(event.key === "ArrowDown" ? 1 : -1);
+        emojiMenuEl.querySelector(".is-active").focus();
+      }
+    });
     function closeDiscussionEmojiMenu() {
       if (!emojiMenuEl || !emojiTriggerEl) return;
       emojiMenuEl.classList.remove("is-open");
+      if (pollIconPickerTarget) {
+        var anchor = pollIconPickerTarget.anchor;
+        pollIconPickerTarget = null;
+        emojiMenuHome.appendChild(emojiMenuEl);
+        emojiMenuEl.classList.remove("is-poll-icon-picker");
+        emojiMenuEl.style.removeProperty("left");
+        emojiMenuEl.style.removeProperty("top");
+        if (anchor.isConnected) anchor.focus();
+      }
       emojiTriggerEl.setAttribute("aria-expanded", "false");
       discussionEmojiState = { mode: null, options: [], activeIndex: 0, start: null, end: null };
     }
@@ -27738,7 +27890,7 @@
       if (!emojiMenuEl) return;
       emojiMenuEl.innerHTML = (options || []).map(function (code, index) {
         return '<button class="discussion-emoji-option' + (index === discussionEmojiState.activeIndex ? ' is-active' : '') + '" type="button" data-discussion-emoji="' + escapeHtml(code) + '" role="menuitem">' +
-          '<span class="discussion-emoji-glyph">' + escapeHtml(emojiShortcodeMap[code] || "") + '</span>' +
+          '<span class="discussion-emoji-glyph">' + (emojiShortcodeMap[code] ? escapeHtml(emojiShortcodeMap[code]) : window.TerminPollResponses.glyph({ icon: code, color: "#1f77b4" }, 0)) + '</span>' +
           '<span class="discussion-emoji-code">' + escapeHtml(code) + '</span>' +
         '</button>';
       }).join("");
@@ -27790,6 +27942,13 @@
       return true;
     }
     function insertDiscussionEmojiShortcode(code, replacementState) {
+      if (pollIconPickerTarget) {
+        var callback = pollIconPickerTarget.onSelect;
+        var icon = emojiShortcodeMap[code] ? "emoji-" + Array.from(emojiShortcodeMap[code]).map(function (ch) { return ch.codePointAt(0).toString(16); }).join("-") : code;
+        closeDiscussionEmojiMenu();
+        callback(icon);
+        return;
+      }
       if (!inputEl || !code) return;
       var start = replacementState && typeof replacementState.start === "number"
         ? replacementState.start

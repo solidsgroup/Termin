@@ -326,6 +326,8 @@ def _serialize_task(
         "task_type": task_type,
         "poll": {
             "question": str(poll_raw.get("question") or "").strip(),
+            "response_mode": poll_raw.get("response_mode", "checkbox"),
+            "response_options": list(poll_raw.get("response_options") or []),
             "allows_multiple": bool(poll_raw.get("allows_multiple")),
             "allow_voter_options": bool(poll_raw.get("allow_voter_options")),
             "closed": bool(poll_raw.get("closed")),

@@ -3501,6 +3501,7 @@ def collaborator_task_poll_response(token: str, task_id: int):
         email=collaborator.email,
         option_ids=option_ids,
         new_option_label=new_option_label,
+        answers=request_payload.get("answers"),
     )
     if error or poll_payload is None:
         return {"error": error or "Unable to save poll response"}, 409

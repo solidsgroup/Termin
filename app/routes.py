@@ -62,7 +62,7 @@ from app.github_sync import github_identity_for_user, schedule_github_sync_for_u
 from app.group_templates import serialize_group_template
 from app.group_assignments import group_assignment_candidate_users, serialize_group_assignment_members, sync_group_task_assignments
 from app.identity import find_user_by_email, normalize_email, search_users_by_identity
-from app.info_utils import load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
+from app.info_utils import _normalize_poll_meta, load_info_payload, normalize_info_payload, save_uploaded_file, sanitize_info_html
 from app.favicon_cache import cache_favicons_for_links
 from app.notification_preferences import user_notification_channel_enabled
 from app.debug_tools import debug_print
@@ -1385,6 +1385,8 @@ def _task_poll(task: Task) -> dict:
     meta = info_payload.get("meta") if isinstance(info_payload, dict) else {}
     poll = _normalize_task_poll_payload((meta or {}).get("poll"))
     return {
+        "response_mode": poll["response_mode"],
+        "response_options": poll["response_options"],
         "question": str(poll.get("question") or "").strip(),
         "allows_multiple": bool(poll.get("allows_multiple")),
         "allow_voter_options": bool(poll.get("allow_voter_options")),
@@ -1395,79 +1397,7 @@ def _task_poll(task: Task) -> dict:
 
 
 def _normalize_task_poll_payload(poll_raw) -> dict:
-    poll = poll_raw if isinstance(poll_raw, dict) else {}
-    question = str(poll.get("question") or "").strip()
-    allows_multiple = bool(poll.get("allows_multiple"))
-    allow_voter_options = bool(poll.get("allow_voter_options"))
-    closed = bool(poll.get("closed"))
-    results_visibility = str(poll.get("results_visibility") or "everyone").strip().lower()
-    if results_visibility not in {"everyone", "creator"}:
-        results_visibility = "everyone"
-    options_raw = poll.get("options")
-    options: list[dict] = []
-    seen_ids: set[str] = set()
-    if isinstance(options_raw, list):
-        for item in options_raw:
-            if isinstance(item, dict):
-                label = str(item.get("label") or "").strip()
-                option_id = str(item.get("id") or "").strip()
-            else:
-                label = str(item or "").strip()
-                option_id = ""
-            if not label:
-                continue
-            if not option_id or option_id in seen_ids:
-                option_id = secrets.token_hex(4)
-                while option_id in seen_ids:
-                    option_id = secrets.token_hex(4)
-            seen_ids.add(option_id)
-            options.append({"id": option_id, "label": label})
-    valid_option_ids = {str(option.get("id") or "").strip() for option in options if str(option.get("id") or "").strip()}
-    responses_raw = poll.get("responses")
-    responses: list[dict] = []
-    seen_response_keys: set[str] = set()
-    if isinstance(responses_raw, list):
-        for item in responses_raw:
-            if not isinstance(item, dict):
-                continue
-            user_id_raw = item.get("user_id")
-            try:
-                user_id = int(user_id_raw) if user_id_raw not in (None, "", "null") else None
-            except (TypeError, ValueError):
-                user_id = None
-            email = str(item.get("email") or "").strip().lower()
-            response_key = f"user:{user_id}" if user_id is not None else (f"email:{email}" if email else "")
-            if not response_key or response_key in seen_response_keys:
-                continue
-            option_ids_raw = item.get("option_ids")
-            option_ids: list[str] = []
-            if isinstance(option_ids_raw, list):
-                for option_id in option_ids_raw:
-                    normalized_option_id = str(option_id or "").strip()
-                    if not normalized_option_id or normalized_option_id not in valid_option_ids:
-                        continue
-                    if normalized_option_id not in option_ids:
-                        option_ids.append(normalized_option_id)
-            if not allows_multiple and len(option_ids) > 1:
-                option_ids = option_ids[:1]
-            seen_response_keys.add(response_key)
-            responses.append(
-                {
-                    "user_id": user_id,
-                    "email": email,
-                    "option_ids": option_ids,
-                    "updated_at": str(item.get("updated_at") or "").strip() or datetime.utcnow().isoformat(),
-                }
-            )
-    return {
-        "question": question,
-        "allows_multiple": allows_multiple,
-        "allow_voter_options": allow_voter_options,
-        "closed": closed,
-        "results_visibility": results_visibility,
-        "options": options,
-        "responses": responses,
-    }
+    return _normalize_poll_meta(poll_raw)
 
 
 def _task_poll_has_configuration(poll_payload: dict | None) -> bool:
@@ -1524,6 +1454,14 @@ def _set_task_poll(task: Task, poll_raw) -> tuple[bool, str | None]:
     if voted_option_ids and bool(existing_poll.get("allows_multiple")) != bool(normalized_poll.get("allows_multiple")):
         return False, "Poll selection mode cannot be changed after responses have been submitted"
 
+    if voted_option_ids and existing_poll.get("response_mode", "checkbox") != normalized_poll["response_mode"]:
+        return False, "Response mode cannot be changed after responses have been submitted"
+    if normalized_poll["response_mode"] == "custom" and not normalized_poll["response_options"]:
+        return False, "Add at least one custom response option"
+    used_choices = {value for row in existing_responses for value in (row.get("answers") or {}).values()}
+    if not used_choices.issubset({choice["id"] for choice in normalized_poll["response_options"]}):
+        return False, "Response options that have been used cannot be removed"
+
     # Responses are writable only through the response endpoint.
     normalized_poll["responses"] = existing_responses
     meta["poll"] = normalized_poll
@@ -1539,6 +1477,7 @@ def _set_task_poll_response(
     email: str | None = None,
     option_ids=None,
     new_option_label: str | None = None,
+    answers=None,
 ) -> tuple[dict | None, str | None]:
     info_payload = load_info_payload(task.info, task.link)
     meta = dict(info_payload.get("meta") or {})
@@ -1583,6 +1522,20 @@ def _set_task_poll_response(
             normalized_option_ids = [new_option_id]
     if not poll_payload.get("allows_multiple") and len(normalized_option_ids) > 1:
         normalized_option_ids = normalized_option_ids[:1]
+    normalized_answers = {}
+    if poll_payload["response_mode"] == "custom":
+        if not isinstance(answers, dict):
+            return None, "Custom polls require an answer map"
+        valid_choices = {choice["id"] for choice in poll_payload["response_options"]}
+        if any(key not in valid_option_ids or value not in valid_choices for key, value in answers.items()
+               if isinstance(value, str)):
+            return None, "Unknown poll item or response option"
+        if any(not isinstance(value, str) for value in answers.values()):
+            return None, "Invalid response option"
+        if normalized_new_option_label:
+            return None, "Add scheduling items in poll settings before responding"
+        normalized_answers = dict(answers)
+        normalized_option_ids = list(normalized_answers)
     normalized_email = str(email or "").strip().lower()
     next_responses = []
     matched = False
@@ -1602,6 +1555,7 @@ def _set_task_poll_response(
                         "user_id": int(user_id) if user_id is not None else None,
                         "email": normalized_email,
                         "option_ids": normalized_option_ids,
+                        "answers": normalized_answers,
                         "updated_at": datetime.utcnow().isoformat(),
                     }
                 )
@@ -1613,6 +1567,7 @@ def _set_task_poll_response(
                 "user_id": int(user_id) if user_id is not None else None,
                 "email": normalized_email,
                 "option_ids": normalized_option_ids,
+                "answers": normalized_answers,
                 "updated_at": datetime.utcnow().isoformat(),
             }
         )
@@ -6773,6 +6728,7 @@ def save_task_poll_response(task_id: int):
         email=user.email,
         option_ids=option_ids,
         new_option_label=new_option_label,
+        answers=payload.get("answers"),
     )
     if error or poll_payload is None:
         return {"error": error or "Unable to save poll response"}, 409
