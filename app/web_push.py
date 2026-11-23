@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from threading import Thread
+from time import sleep
 import json
 
 from flask import current_app
@@ -237,11 +238,12 @@ def start_task_web_push_worker(app) -> None:
     global _push_worker_started
     if _push_worker_started:
         return
+    with app.app_context():
+        if not web_push_is_configured():
+            return
     _push_worker_started = True
 
     def run():
-        from time import sleep
-
         while True:
             try:
                 with app.app_context():

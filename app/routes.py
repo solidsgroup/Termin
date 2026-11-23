@@ -3238,7 +3238,6 @@ def update_task(task_id: int):
     relative_due_changed_ids = (
         _refresh_relative_due_dependents([task.id]) if old_due_at != task.due_at else []
     )
-    db.session.commit()
     propagation_ms = (perf_counter() - propagation_started_at) * 1000
     notification_started_at = perf_counter()
     new_due_mode = _task_due_mode(task)
@@ -3319,6 +3318,16 @@ def update_task(task_id: int):
             task, exclude_user_id=user.id, kind=notification_kind,
             detail_payload=detail_payload, defer_push=True,
         )
+        history_assignments = []
+        history_followers = []
+        if "assignees" in changed_fields:
+            history_assignments = [
+                _serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id)
+            ]
+        if "followers" in changed_fields:
+            history_followers = [
+                _serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id)
+            ]
         history_task_body, history_scoped_body = _task_update_history_bodies(
             actor_name=display_name_for_user(user) or user.email or "Someone",
             task_title=task.title,
@@ -3334,11 +3343,11 @@ def update_task(task_id: int):
             new_locked=bool(task.locked),
             old_poll=old_poll,
             new_poll=_task_poll(task),
-            assignments=[_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()] if "assignees" in changed_fields else None,
-            followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()] if "followers" in changed_fields else None,
+            assignments=history_assignments,
+            followers=history_followers,
         )
         log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
-        db.session.commit()
+    db.session.commit()
     notification_ms = (perf_counter() - notification_started_at) * 1000
     realtime_started_at = perf_counter()
     impacted_ids = _task_impacted_ids([task.id] + relative_due_changed_ids)
