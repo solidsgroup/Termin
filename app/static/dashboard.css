@@ -1795,7 +1795,7 @@ button.dashboard-activity-item {
     transform 320ms cubic-bezier(.22,.84,.24,1);
 }
 
-.todo-item[data-due-mode="urgent"]:not([data-status-state="complete"]) {
+.todo-item[data-due-mode="urgent"]:not([data-todo-filter-status="complete"], [data-status-state="complete"]:not([data-todo-filter-status])) {
   position: relative;
   border: 1px solid color-mix(in srgb, #e53935 52%, var(--border));
   border-left: 5px solid #e53935;
@@ -1837,12 +1837,12 @@ button.dashboard-activity-item {
   font-size: 0.9rem;
 }
 
-.todo-item[data-due-mode="urgent"]:not([data-status-state="complete"]) .todo-item-title {
+.todo-item[data-due-mode="urgent"]:not([data-todo-filter-status="complete"], [data-status-state="complete"]:not([data-todo-filter-status])) .todo-item-title {
   font-weight: 800;
 }
 
-.todo-item[data-due-mode="urgent"]:not([data-status-state="complete"]) .todo-mobile-due-text,
-.todo-item[data-due-mode="urgent"]:not([data-status-state="complete"]) .due-summary-label {
+.todo-item[data-due-mode="urgent"]:not([data-todo-filter-status="complete"], [data-status-state="complete"]:not([data-todo-filter-status])) .todo-mobile-due-text,
+.todo-item[data-due-mode="urgent"]:not([data-todo-filter-status="complete"], [data-status-state="complete"]:not([data-todo-filter-status])) .due-summary-label {
   color: color-mix(in srgb, #ff4d48 82%, var(--ink));
   font-weight: 800;
 }
@@ -4679,7 +4679,7 @@ body[data-theme="light"] .todo-mode-menu {
   display: none;
 }
 
-.todo-board[data-todo-view-mode="compact"] .todo-item[data-due-mode="urgent"]:not([data-status-state="complete"]) {
+.todo-board[data-todo-view-mode="compact"] .todo-item[data-due-mode="urgent"]:not([data-todo-filter-status="complete"], [data-status-state="complete"]:not([data-todo-filter-status])) {
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, #e53935 30%, var(--border));
   border-left: 3px solid #e53935;
@@ -4687,7 +4687,7 @@ body[data-theme="light"] .todo-mode-menu {
   box-shadow: none;
 }
 
-.todo-board[data-todo-view-mode="compact"] .todo-item[data-status-state="complete"],
+.todo-board[data-todo-view-mode="compact"] .todo-item:is([data-todo-filter-status="complete"], [data-status-state="complete"]:not([data-todo-filter-status])),
 .todo-board[data-todo-view-mode="compact"] .todo-item.is-completion-preview {
   border-radius: 0;
   box-shadow: none;

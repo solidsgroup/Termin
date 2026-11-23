@@ -6683,6 +6683,43 @@ for (const surface of ['drawer', 'tree', 'todo']) {
   });
 }
 
+test('Todo completion follows the selected assignees for a shared multi-status task', async ({ page, request }) => {
+  const state = await fetchSeedState(request);
+  await login(page, state.owner.email, state.owner.password);
+  const task = await createTask(page, {
+    project_id: state.project.id, title: 'Shared completion filter',
+    assignee_email: state.owner.email, due_mode: 'date', due_at: isoDateWithOffset(-2),
+  });
+  await createAssignment(page, task.id, state.member.email);
+  await patchTask(page, task.id, { status_mode: 'multi' });
+
+  await page.goto('/todo');
+  await expect(page.locator('[data-todo-client-board]')).toHaveAttribute('data-todo-board-ready', '1');
+  const row = page.locator(`.todo-item[data-task-id="${task.id}"]`);
+  await expect(row).toBeVisible();
+  await row.locator('[data-todo-check-toggle]').click();
+  await expect(row).toHaveCount(0);
+
+  const dropdown = page.locator('[data-todo-assignee-trigger]');
+  await dropdown.click();
+  await page.locator('[data-todo-assignees-none]').click();
+  await page.locator(`[data-todo-assignee="user:${state.member.id}"]`).check();
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute('data-todo-filter-status', 'open');
+  await page.locator(`[data-todo-assignee="user:${state.owner.id}"]`).check();
+  await expect(row).toBeVisible();
+  await dropdown.click();
+
+  await page.locator('[data-todo-mode-trigger]').click();
+  await page.locator('[data-todo-mode-option="gantt"]').click();
+  const ganttRow = page.locator(`[data-todo-gantt-task="${task.id}"]`);
+  await expect(ganttRow).toHaveAttribute('data-status-state', 'open');
+  await patchTask(page, task.id, { user_status: 'complete', status_user_id: state.member.id });
+  await expect(ganttRow).toHaveCount(0);
+  await page.locator('[data-todo-show-completed-window="past"]').check();
+  await expect(ganttRow).toHaveAttribute('data-status-state', 'complete');
+});
+
 test('completed multi-status tasks for other assignees do not extend Todo Gantt', async ({ page, request }) => {
   const state = await fetchSeedState(request);
   await login(page, state.owner.email, state.owner.password);
