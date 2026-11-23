@@ -19339,6 +19339,33 @@
       return decorateStatusState(task, getStatusState(taskMyStatus(task)));
     }
 
+    function narrowedTodoAssigneeSelection() {
+      var inputs = Array.from(document.querySelectorAll("[data-todo-assignee]"));
+      var selected = inputs.filter(function (input) { return input.checked; });
+      if (selected.length === inputs.length) return null;
+      return new Set(selected.map(function (input) { return input.getAttribute("data-todo-assignee"); }));
+    }
+
+    function todoTaskStatusState(task, selection, assumeViewerComplete) {
+      var meta = task && task.status_meta || {};
+      if (!selection || (meta.mode || (task && task.status_mode)) !== "multi") {
+        return assumeViewerComplete ? "complete" : taskMyStatusState(task);
+      }
+      var matched = taskAssigneeKeys(task).split(",").filter(function (key) { return selection.has(key); });
+      if (!matched.length) return assumeViewerComplete ? "complete" : taskMyStatusState(task);
+      var states = new Map(taskStatusMeta(task).assignees.map(function (assignee) {
+        var key = assignee.user_id != null ? "user:" + assignee.user_id : "email:" + String(assignee.email || "").trim().toLowerCase();
+        var state = assignee.state || getStatusState(assignee.status);
+        if (key === "user:" + currentUserId) {
+          state = assumeViewerComplete ? "complete" : taskMyStatusState(task);
+        }
+        return [key, state];
+      }));
+      if (meta.prereq_blocked) return "prereq";
+      if (matched.every(function (key) { return states.get(key) === "complete"; })) return "complete";
+      return matched.some(function (key) { return states.get(key) === "critical"; }) ? "critical" : "open";
+    }
+
     function renderTodoChecklistControl(task) {
       if (!task || !task.id) return "";
       var meta = taskStatusMeta(task);
@@ -20031,7 +20058,9 @@
       });
     }
 
-    function todoTaskWouldRemainVisibleWhenComplete(task) {
+    function todoTaskWouldRemainVisibleWhenComplete(task, assumeViewerComplete, selection) {
+      if (selection === undefined) selection = narrowedTodoAssigneeSelection();
+      if (todoTaskStatusState(task, selection, assumeViewerComplete) !== "complete") return true;
       var showCompletedToggle = document.querySelector("[data-todo-show-completed-master]");
       var showCompleted = showCompletedToggle ? !!showCompletedToggle.checked : true;
       if (!showCompleted) return false;
@@ -20076,6 +20105,8 @@
       }, typeof delayMs === "number" ? delayMs : 1200);
     }
 
+    var removedTodoCompletionIds = new Set();
+
     function removeTodoItemOnly(taskId) {
       var normalizedTaskId = String(taskId || "");
       if (!normalizedTaskId) return;
@@ -20112,6 +20143,7 @@
         window.__updateCachedTreeSnapshotsForTask(task, { action: "updated" });
       }
       if (taskMyStatusState(task) === "complete" && !todoTaskWouldRemainVisibleWhenComplete(task)) {
+        if (taskStatusMeta(task).mode === "multi") removedTodoCompletionIds.add(String(task.id));
         removeTodoItemOnly(task.id);
         if (typeof window.__scheduleTodoGanttRender === "function") {
           window.__scheduleTodoGanttRender();
@@ -25009,11 +25041,13 @@
         String(today.getDate()).padStart(2, "0")
       ].join("-");
       var entries = [];
+      var assigneeSelection = narrowedTodoAssigneeSelection();
 
       taskIds.forEach(function (taskId) {
         var task = taskMap[String(taskId)];
         if (!task || !task.project_id || volunteerState(task).pending) return;
-        if (String(taskMyStatusState(task) || "").toLowerCase() === "complete") return;
+        var statusState = todoTaskStatusState(task, assigneeSelection);
+        if (statusState === "complete") return;
         var startDate = String(task.start_date || "").slice(0, 10);
         if (!startDate || startDate > todayKey) return;
         var dueDate = task.due_at ? String(task.due_at).slice(0, 10) : "";
@@ -25040,7 +25074,7 @@
           startDate: startDate,
           dependents: taskDependents(task),
           assigneeKeys: taskAssigneeKeys(task),
-          statusState: String(taskMyStatusState(task) || "").trim().toLowerCase(),
+          statusState: statusState,
           completedWindow: todoCompletedWindowFor(dueDate, String(task.due_mode || (dueDate ? "date" : "none"))),
           position: Number(task.position || 0),
         });
@@ -25062,7 +25096,7 @@
       });
     }
 
-    function renderTodoActiveTasksFromStore() {
+    function renderTodoActiveTasksFromStore(options) {
       var section = document.querySelector("[data-todo-active-tasks]");
       var list = section ? section.querySelector("[data-todo-active-tasks-list]") : null;
       if (!section || !list) return false;
@@ -25103,7 +25137,7 @@
       });
       list.appendChild(fragment);
       section.hidden = false;
-      if (typeof window.__applyTodoFilters === "function") {
+      if (!(options && options.skipFilters) && typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
       }
       return true;
@@ -25278,6 +25312,7 @@
       var taskMap = dashboardEntityMap("tasks");
       var activeSection = document.querySelector("[data-todo-active-tasks]");
       if (activeSection && activeSection.parentElement === board) board.before(activeSection);
+      removedTodoCompletionIds.clear();
       board.innerHTML = "";
       board.removeAttribute("data-todo-board-ready");
       if (!taskIds.length) {
@@ -31002,6 +31037,16 @@
         var showCompleted = showCompletedMaster ? showCompletedMaster.checked : true;
         var assigneeInputs = document.querySelectorAll("[data-todo-assignee]");
         var assigneeFilterActive = assigneeInputs.length > 0;
+        var selected = assigneeSelections.length === assigneeInputs.length ? null : new Set(assigneeSelections);
+        var filteredStatusByTask = new Map();
+        removedTodoCompletionIds.forEach(function (id) {
+          var task = dashboardTaskEntity(id);
+          if (!task || document.querySelector('.todo-item[data-task-id="' + id + '"]')) {
+            removedTodoCompletionIds.delete(id);
+          } else if (todoTaskWouldRemainVisibleWhenComplete(task, false, selected) && upsertTodoItemFromSnapshot(task, { skipFilters: true })) {
+            removedTodoCompletionIds.delete(id);
+          }
+        });
         function itemVisibility(item) {
           var divisionId = String(item.getAttribute("data-division-id") || "none");
           var projectId = String(item.getAttribute("data-project-id") || "");
@@ -31021,6 +31066,15 @@
               : assigneeSelections.indexOf("__unassigned__") >= 0;
           }
           var effectiveStatusState = String(item.getAttribute("data-status-state") || "").trim().toLowerCase();
+          var taskId = item.getAttribute("data-task-id");
+          var task = selected && assigneeOk ? dashboardTaskEntity(taskId) : null;
+          if (task && ((task.status_meta || {}).mode || task.status_mode) === "multi") {
+            if (!filteredStatusByTask.has(taskId)) filteredStatusByTask.set(taskId, todoTaskStatusState(task, selected));
+            effectiveStatusState = filteredStatusByTask.get(taskId);
+            item.setAttribute("data-todo-filter-status", effectiveStatusState);
+          } else {
+            item.removeAttribute("data-todo-filter-status");
+          }
           var isComplete = effectiveStatusState === "complete";
           var completedWindow = String(item.getAttribute("data-completed-window") || "future");
           var completedOk = !isComplete || (showCompleted && completedSelections.indexOf(completedWindow) >= 0);
@@ -31195,6 +31249,7 @@
           document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
             cb.checked = true;
           });
+          renderTodoActiveTasksFromStore({ skipFilters: true });
           applyFilters();
           saveState();
           return;
@@ -31205,6 +31260,7 @@
           document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
             cb.checked = String(cb.getAttribute("data-todo-assignee")) === myAssigneeKey;
           });
+          renderTodoActiveTasksFromStore({ skipFilters: true });
           applyFilters();
           saveState();
           return;
@@ -31214,6 +31270,7 @@
           document.querySelectorAll("[data-todo-assignee]").forEach(function (cb) {
             cb.checked = false;
           });
+          renderTodoActiveTasksFromStore({ skipFilters: true });
           applyFilters();
           saveState();
           return;
@@ -31379,6 +31436,7 @@
           return;
         }
         if (event.target.closest("[data-todo-assignee]")) {
+          renderTodoActiveTasksFromStore({ skipFilters: true });
           applyFilters();
           saveState();
         }
@@ -31832,7 +31890,7 @@
               status_mode: task.status_mode || ((task.status_meta && task.status_meta.mode) || "single"),
               status_percentage: task.status_percentage != null ? task.status_percentage : (((task.status_meta || {}).percentage_complete) || 0),
               status_meta: task.status_meta || {},
-              todo_status_state: String(taskMyStatusState(task) || "open").toLowerCase(),
+              todo_status_state: row.getAttribute("data-todo-filter-status") || taskMyStatusState(task),
               locked: !!task.locked,
               dependents: Array.isArray(task.dependents) ? task.dependents : [],
               github_meta: task.github_meta || null,
@@ -32265,7 +32323,7 @@
         }
         var nextStatus = taskMyStatusState(task) === "complete" ? "open" : "complete";
         var completing = nextStatus === "complete";
-        var hideCompletedAfterToggle = completing && !todoTaskWouldRemainVisibleWhenComplete(task);
+        var hideCompletedAfterToggle = completing && !todoTaskWouldRemainVisibleWhenComplete(task, true);
         var animateTodoRowHide = !!hideCompletedAfterToggle;
         if (completing) {
           if (animateTodoRowHide && todoRow) {
