@@ -349,9 +349,9 @@ def ensure_database(interactive: bool | None = None) -> None:
 def prepare_runtime(interactive: bool | None = None) -> None:
     ensure_database(interactive=interactive)
     ensure_mail(interactive=interactive)
-    start_notification_email_worker(app, socketio)
+    start_notification_email_worker(app)
     start_task_web_push_worker(app)
-    start_google_drive_poll_worker(app, socketio)
+    start_google_drive_poll_worker(app)
 
 
 if __name__ == "__main__":

@@ -5807,12 +5807,19 @@
         return "termin.treeSnapshot.v2.user." + String(snapshotUserId || "") + ".project." + normalizedProjectId + ".showCompleted." + snapshotShowCompleted;
       }
 
+      var treeSnapshotsInMemory = new Map();
+      var snapshotsToPersist = new Map();
+      var persistTreeSnapshotsPending = false;
+
       function loadCachedTreeSnapshot(projectId, showCompletedValue) {
         var key = treeSnapshotCacheKey(projectId, showCompletedValue);
         if (!key) return null;
+        if (treeSnapshotsInMemory.has(key)) return treeSnapshotsInMemory.get(key);
         try {
           var raw = localStorage.getItem(key);
-          return raw ? JSON.parse(raw) : null;
+          var snapshot = raw ? JSON.parse(raw) : null;
+          if (snapshot) treeSnapshotsInMemory.set(key, snapshot);
+          return snapshot;
         } catch (_error) {
           return null;
         }
@@ -5821,9 +5828,21 @@
       function saveCachedTreeSnapshot(projectId, snapshot, showCompletedValue) {
         var key = treeSnapshotCacheKey(projectId, showCompletedValue);
         if (!key) return;
-        try {
-          localStorage.setItem(key, JSON.stringify(snapshot));
-        } catch (_error) {}
+        treeSnapshotsInMemory.set(key, snapshot);
+        snapshotsToPersist.set(key, snapshot);
+        if (persistTreeSnapshotsPending) return;
+        persistTreeSnapshotsPending = true;
+        function persist() {
+          persistTreeSnapshotsPending = false;
+          snapshotsToPersist.forEach(function (value, storageKey) {
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(value));
+            } catch (_error) {}
+          });
+          snapshotsToPersist.clear();
+        }
+        if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(persist);
+        else window.setTimeout(persist, 250);
       }
 
       function removeTaskFromTreeSnapshot(snapshot, taskId) {
@@ -7640,12 +7659,14 @@
 
 <script>
   (function () {
+    var compactCalendarDateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
     function formatCompactCalendarDate(value) {
       var raw = String(value || "").slice(0, 10);
       if (!raw) return "";
       var date = new Date(raw + "T00:00:00");
       if (Number.isNaN(date.getTime())) return raw;
-      return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return compactCalendarDateFormatter.format(date);
     }
 
     function formatDueSummary(dueValue, createdValue, dueMode) {
@@ -15340,12 +15361,19 @@
       return !shouldDeferStartupWarmups();
     }
 
+    var dashboardStorePersistIdle = null;
+
     function scheduleDashboardBootstrapStorePersist() {
       if (!dashboardBootstrapStore || !window.localStorage || dashboardBootstrapCacheDisabled) return;
       if (!shouldPersistDashboardBootstrapStore()) return;
       if (dashboardStorePersistTimer) window.clearTimeout(dashboardStorePersistTimer);
-      dashboardStorePersistTimer = window.setTimeout(function () {
+      if (dashboardStorePersistIdle !== null) {
+        window.cancelIdleCallback(dashboardStorePersistIdle);
+        dashboardStorePersistIdle = null;
+      }
+      function persist() {
         dashboardStorePersistTimer = null;
+        dashboardStorePersistIdle = null;
         if (!shouldPersistDashboardBootstrapStore()) return;
         try {
           window.localStorage.setItem(dashboardBootstrapCacheKey, JSON.stringify(dashboardBootstrapStore));
@@ -15360,7 +15388,15 @@
           }
           console.warn("dashboard bootstrap cache persist failed", error);
         }
-      }, 50);
+      }
+      dashboardStorePersistTimer = window.setTimeout(function () {
+        dashboardStorePersistTimer = null;
+        if (typeof window.requestIdleCallback === "function" && typeof window.cancelIdleCallback === "function") {
+          dashboardStorePersistIdle = window.requestIdleCallback(persist);
+        } else {
+          persist();
+        }
+      }, 250);
     }
 
     function hydrateDashboardBootstrapStoreFromCache() {
@@ -15474,21 +15510,38 @@
         window.__infoByTask = sharedInfoByTask;
       }
       scheduleDashboardBootstrapStorePersist();
+      if (entityType === "tasks") {
+        refreshDependencyBadgeForTask(nextPayload);
+        scheduleTaskDerivedViews();
+        return;
+      }
       refreshDashboardHomeFromTodo();
       if (typeof window.__renderTodoActiveTasksFromStore === "function") {
         window.__renderTodoActiveTasksFromStore();
       }
-      if (entityType === "tasks" && typeof window.__refreshDueDisplays === "function") {
-        window.__refreshDueDisplays();
-      }
-      if (entityType === "tasks") {
-        refreshDependencyBadgeForTask(nextPayload);
-      }
-      if (entityType === "tasks") {
-        if (typeof window.__renderProblemTasksFromStore === "function") window.__renderProblemTasksFromStore();
-        if (typeof window.__refreshDashboardAlerts === "function") window.__refreshDashboardAlerts();
-      }
     }
+
+    var taskDerivedViewsFrame = null;
+
+    function scheduleTaskDerivedViews() {
+      if (taskDerivedViewsFrame !== null) return;
+      taskDerivedViewsFrame = window.requestAnimationFrame(function () {
+        taskDerivedViewsFrame = null;
+        var view = typeof window.__getDashboardCurrentView === "function" ? window.__getDashboardCurrentView() : "";
+        if (view === "dashboard") refreshDashboardHomeFromTodo();
+        if (view === "todo" && typeof window.__renderTodoActiveTasksFromStore === "function") {
+          window.__renderTodoActiveTasksFromStore();
+        }
+        if (view === "problems" && typeof window.__renderProblemTasksFromStore === "function") {
+          window.__renderProblemTasksFromStore();
+        }
+        if (typeof window.__refreshDashboardAlerts === "function") window.__refreshDashboardAlerts();
+      });
+    }
+
+    document.addEventListener("termin:dashboard-view-change", function () {
+      scheduleTaskDerivedViews();
+    });
 
     function removeDashboardEntity(entityType, entityId) {
       if (!dashboardBootstrapStore || !dashboardBootstrapStore.entities || !dashboardBootstrapStore.entities[entityType]) return;
@@ -15567,8 +15620,6 @@
         dashboardBootstrapStore.views.todo.task_ids = taskIds;
       }
       sortDashboardTodoTaskIds();
-      scheduleDashboardBootstrapStorePersist();
-      refreshDashboardHomeFromTodo();
     }
 
     function removeDashboardTask(taskId) {
@@ -15590,6 +15641,8 @@
       if (!dashboardBootstrapStore) {
         return setDashboardBootstrapStore(payload);
       }
+      var previousTodo = dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo;
+      var previousTodoIds = previousTodo && previousTodo.task_ids || [];
       dashboardBootstrapStore.meta = Object.assign({}, dashboardBootstrapStore.meta || {}, payload.meta || {});
       dashboardBootstrapStore.views = Object.assign({}, dashboardBootstrapStore.views || {}, payload.views || {});
       dashboardBootstrapStore.access = Object.assign({}, dashboardBootstrapStore.access || {}, payload.access || {});
@@ -15629,9 +15682,35 @@
         removeDashboardEntity("notifications", notificationId);
       });
 
+      var currentTodo = dashboardBootstrapStore.views && dashboardBootstrapStore.views.todo;
+      var currentTodoIds = currentTodo && currentTodo.task_ids || [];
+      var removedTasks = false;
+      if (payload.views && payload.views.todo && Array.isArray(payload.views.todo.task_ids)) {
+        var visibleIds = new Set(currentTodoIds.map(String));
+        var tasks = dashboardEntityMap("tasks");
+        if (currentTodoIds.some(function (id) { return !tasks[String(id)]; })) {
+          return fetchDashboardBootstrapStore();
+        }
+        var cursorTime = Date.parse(payload.meta && payload.meta.cursor || "");
+        Object.keys(tasks).forEach(function (id) {
+          if (visibleIds.has(id) || taskPayloadTimestampValue(tasks[id]) > cursorTime) return;
+          var removedTask = tasks[id];
+          delete tasks[id];
+          if (window.__infoByTask) delete window.__infoByTask[id];
+          if (window.__dependentsByTask) delete window.__dependentsByTask[id];
+          if (typeof window.__updateCachedTreeSnapshotsForTask === "function") {
+            window.__updateCachedTreeSnapshotsForTask(removedTask, { action: "deleted" });
+          }
+          removeTaskRowsLocal(id);
+          removedTasks = true;
+        });
+      }
+      var todoOrderChanged = previousTodoIds.length !== currentTodoIds.length
+        || previousTodoIds.some(function (id, index) { return String(id) !== String(currentTodoIds[index]); });
       scheduleDashboardBootstrapStorePersist();
-      refreshDashboardHomeFromTodo();
-      if (typeof window.__renderTodoBoardFromStore === "function") {
+      scheduleTaskDerivedViews();
+      if ((removedTasks || todoOrderChanged || (upserts.tasks || []).length || (deletes.tasks || []).length)
+          && typeof window.__renderTodoBoardFromStore === "function") {
         window.__renderTodoBoardFromStore();
       }
       return dashboardBootstrapStore;
@@ -15876,12 +15955,13 @@
       return !!(meta.canvas && typeof meta.canvas === "object");
     }
 
-    function taskIsGoogleDriveManaged(task) {
+    function taskIsGoogleDriveManaged(task, driveGroupIds) {
       var info = task && task.info && typeof task.info === "object" ? task.info : {};
       var meta = info.meta && typeof info.meta === "object" ? info.meta : {};
       if (meta.google_drive && typeof meta.google_drive === "object") return true;
       var group = task && task.group_id ? dashboardGroupEntity(task.group_id) : null;
       if (String(group && group.specialty_type || "").trim().toLowerCase() === "google_drive") return true;
+      if (driveGroupIds) return driveGroupIds.has(String(task && task.group_id || ""));
       var groupNode = task && task.group_id
         ? document.querySelector('.group-block[data-group-id="' + String(task.group_id) + '"]')
         : null;
@@ -15889,8 +15969,8 @@
     }
     window.__taskIsGoogleDriveManaged = taskIsGoogleDriveManaged;
 
-    function taskIsExternallyManaged(task) {
-      return taskIsCanvasManaged(task) || taskIsGoogleDriveManaged(task);
+    function taskIsExternallyManaged(task, driveGroupIds) {
+      return taskIsCanvasManaged(task) || taskIsGoogleDriveManaged(task, driveGroupIds);
     }
 
     window.__taskIdIsLocked = function taskIdIsLocked(taskId) {
@@ -16767,12 +16847,12 @@
       });
     }
 
-    function renderDashboardActionItems() {
+    function renderDashboardActionItems(items) {
       var panel = document.querySelector("[data-dashboard-view=\"dashboard\"]");
       if (!panel) return;
       var list = panel.querySelector("[data-dashboard-action-list]");
       var empty = panel.querySelector("[data-dashboard-action-empty]");
-      var rows = dashboardActionItemsFromTodo().slice(0, 8);
+      var rows = items.slice(0, 8);
       if (!rows.length) {
         if (list) {
           list.innerHTML = "";
@@ -16823,12 +16903,12 @@
       }).join("");
     }
 
-    function renderDashboardStatsFromTodo() {
+    function renderDashboardStatsFromTodo(items) {
       var stats = {
         overdue: 0,
         today: 0,
       };
-      dashboardActionItemsFromTodo().forEach(function (item) {
+      items.forEach(function (item) {
         if (item.dateKey === "overdue") stats.overdue += 1;
         if (item.dateKey === "today" || item.dateKey === "asap") stats.today += 1;
       });
@@ -16839,8 +16919,9 @@
     }
 
     function refreshDashboardHomeFromTodo() {
-      renderDashboardActionItems();
-      renderDashboardStatsFromTodo();
+      var items = dashboardActionItemsFromTodo();
+      renderDashboardActionItems(items);
+      renderDashboardStatsFromTodo(items);
     }
 
     function mergeInboxFeedItems(existing, incoming) {
@@ -21237,7 +21318,11 @@
         token: token,
         payload: payload && typeof payload === "object" ? Object.assign({}, payload) : {},
       });
-      return { taskId: entry.taskId, token: token };
+      var fields = Object.keys(payload || {});
+      var dateOnly = fields.length > 0 && fields.every(function (field) {
+        return ["start_date", "due_at", "due_mode", "due_relative_task_id", "due_relative_days", "due_relative_start_days"].includes(field);
+      });
+      return { taskId: entry.taskId, token: token, dateOnly: dateOnly };
     }
 
     function applyPendingTaskMutations(task) {
@@ -21307,7 +21392,7 @@
           mergeDashboardTask(resolvedTask);
         }
         if (typeof applyTaskRowUpdate === "function") {
-          applyTaskRowUpdate(resolvedTask);
+          applyTaskRowUpdate(resolvedTask, { dateOnly: handle.dateOnly });
         }
       }
       if (!entry.mutations.length) {
@@ -22984,7 +23069,8 @@
           if (table.isConnected) applyTaskTableSort(table);
         });
         taskTablesToSort.clear();
-        if (typeof window.__applyTodoFilters === "function") {
+        var view = typeof window.__getDashboardCurrentView === "function" ? window.__getDashboardCurrentView() : "";
+        if (view === "todo" && typeof window.__applyTodoFilters === "function") {
           window.__applyTodoFilters();
         }
         ganttPanelsToRender.forEach(function (panel) {
@@ -22993,13 +23079,62 @@
           }
         });
         ganttPanelsToRender.clear();
-        refreshDashboardHomeFromTodo();
+        scheduleTaskDerivedViews();
       });
     }
 
-    function applyTaskRowUpdate(task) {
+    function updateTaskDateControls(task) {
+      var matched = false;
+      var normalizedDue = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var normalizedDueMode = task.due_mode || (normalizedDue ? "date" : "none");
+      document.querySelectorAll('.due-input[data-task-id="' + task.id + '"]').forEach(function (input) {
+        matched = true;
+        input.value = normalizedDue;
+        input.dataset.originalValue = normalizedDue;
+        input.setAttribute("data-due-mode", task.due_mode || (normalizedDue ? "date" : "none"));
+        input.setAttribute("data-start-date", task.start_date ? String(task.start_date).slice(0, 10) : "");
+        if (typeof window.__setDueInputRelativeData === "function") {
+          window.__setDueInputRelativeData(input, task.due_relative || null);
+        }
+        if (typeof window.__updateDueDisplay === "function") {
+          window.__updateDueDisplay(input);
+        }
+      });
+      var todoItem = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
+      if (todoItem && typeof moveTodoItemIfNeeded === "function") {
+        moveTodoItemIfNeeded(String(task.id), normalizedDue, task.created_at ? String(task.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"), normalizedDueMode, { deferFilters: true });
+      }
+      return matched || !!todoItem;
+    }
+
+    function queueTaskTableSort(taskId) {
+      var treeRow = document.querySelector('[data-task-row-id="' + taskId + '"]');
+      var table = treeRow && treeRow.closest(".tasks-table");
+      if (table) taskTablesToSort.add(table);
+    }
+
+    function applyTaskDateUpdate(task) {
+      var due = task.due_at ? String(task.due_at).slice(0, 10) : "";
+      var mode = task.due_mode || (due ? "date" : "none");
+      document.querySelectorAll('[data-task-row-id="' + task.id + '"], .todo-item[data-task-id="' + task.id + '"]').forEach(function (row) {
+        row.setAttribute("data-due-mode", mode);
+        row.setAttribute("data-completed-window", todoCompletedWindowFor(due, mode));
+      });
+      if (String(currentTaskId || "") === String(task.id)) {
+        currentTaskData = Object.assign({}, currentTaskData || {}, task);
+        renderTaskSettings();
+      }
+      var matched = updateTaskDateControls(task);
+      updateProjectGanttItemLocal(task, { deferRender: true, skipTodo: true });
+      queueTaskTableSort(task.id);
+      scheduleTaskRowRefresh();
+      return matched;
+    }
+
+    function applyTaskRowUpdate(task, options) {
       task = resolveFreshestTaskPayload(task);
       if (!task || !task.id) return false;
+      if (options && options.dateOnly) return applyTaskDateUpdate(task);
       reconcileLocalTaskStatusOverride(task);
       var taskId = String(task.id);
       var existingHost = document.querySelector('[data-task-status-host="' + taskId + '"]');
@@ -23068,23 +23203,7 @@
         renderEntityLinkState();
       }
       syncTaskLinkBadges(task.id, taskLinksFromPayload(effectiveTask));
-      document.querySelectorAll('.due-input[data-task-id="' + task.id + '"]').forEach(function (input) {
-        matched = true;
-        input.value = normalizedDue;
-        input.dataset.originalValue = normalizedDue;
-        input.setAttribute("data-due-mode", effectiveTask.due_mode || (normalizedDue ? "date" : "none"));
-        input.setAttribute("data-start-date", effectiveTask.start_date ? String(effectiveTask.start_date).slice(0, 10) : "");
-        if (typeof window.__setDueInputRelativeData === "function") {
-          window.__setDueInputRelativeData(input, effectiveTask.due_relative || null);
-        }
-        if (typeof window.__updateDueDisplay === "function") {
-          window.__updateDueDisplay(input);
-        }
-      });
-      var todoItem = document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
-      if (todoItem && typeof moveTodoItemIfNeeded === "function") {
-        moveTodoItemIfNeeded(String(task.id), normalizedDue, effectiveTask.created_at ? String(effectiveTask.created_at).slice(0, 10) : todoItem.getAttribute("data-created-at"), normalizedDueMode, { deferFilters: true });
-      }
+      matched = updateTaskDateControls(effectiveTask) || matched;
       if (document.querySelector('[data-task-status-host="' + task.id + '"]')) {
         matched = true;
         syncTaskStatusUi(effectiveTask);
@@ -23102,9 +23221,7 @@
         window.__updateProjectGanttItemLocal(effectiveTask, { deferRender: true });
       }
       applyTaskLockState(task.id, !!effectiveTask.locked);
-      var treeRow = document.querySelector('[data-task-row-id="' + taskId + '"]');
-      var table = treeRow && treeRow.closest(".tasks-table");
-      if (table) taskTablesToSort.add(table);
+      queueTaskTableSort(taskId);
       scheduleTaskRowRefresh();
       return matched;
     }
@@ -23177,6 +23294,7 @@
 	      if (!task || !task.id || !task.project_id) return;
 	      document.querySelectorAll('[data-project-gantt][data-project-id="' + String(task.project_id) + '"], [data-project-gantt][data-todo-gantt]').forEach(function (panel) {
         var isTodoPanel = panel.hasAttribute("data-todo-gantt");
+        if (isTodoPanel && options && options.skipTodo) return;
         var items = parseProjectGanttItemsLocal(panel);
         var taskId = String(task.id);
         var replacement = {
@@ -23636,7 +23754,7 @@
           .then(function (task) {
             if (!task || !task.id) return;
             if (typeof window.__applyTaskRowUpdate === "function") {
-              window.__applyTaskRowUpdate(task);
+              window.__applyTaskRowUpdate(task, { dateOnly: true });
             }
           })
           .catch(function () {
@@ -23667,7 +23785,7 @@
           .then(function (task) {
             if (!task || !task.id) return;
             if (typeof window.__applyTaskRowUpdate === "function") {
-              window.__applyTaskRowUpdate(task);
+              window.__applyTaskRowUpdate(task, { dateOnly: true });
             }
           })
           .catch(function (err) {
@@ -25280,10 +25398,10 @@
     }
     window.__renderTodoBoardFromStore = renderTodoBoardFromStore;
 
-    function problemTaskFlags(task) {
+    function problemTaskFlags(task, driveGroupIds) {
       if (!task || String(task.creator_user_id || "") !== String(currentUserId || "")) return null;
       if (task.github_meta) return null;
-      if (taskIsExternallyManaged(task)) return null;
+      if (taskIsExternallyManaged(task, driveGroupIds)) return null;
       if (String(taskAggregateStatusState(task) || "open") === "complete") return null;
       var assignments = Array.isArray(task.assignments) ? task.assignments : [];
       var missingAssignee = assignments.length === 0 && String(task.assignee_mode || "default") !== "none";
@@ -25296,8 +25414,11 @@
     window.__problemTaskFlags = problemTaskFlags;
 
     function problemTasksFromStore() {
+      var driveGroupIds = new Set(Array.from(document.querySelectorAll('.group-block[data-specialty-type="google_drive"]'), function (group) {
+        return group.getAttribute("data-group-id");
+      }));
       return Object.values(dashboardEntityMap("tasks"))
-        .map(function (task) { return { task: task, flags: problemTaskFlags(task) }; })
+        .map(function (task) { return { task: task, flags: problemTaskFlags(task, driveGroupIds) }; })
         .filter(function (entry) { return !!entry.flags; })
         .sort(function (a, b) {
           return String(a.task.title || "").localeCompare(String(b.task.title || ""));
@@ -29505,6 +29626,7 @@
       function processTaskSocketUpdate(data) {
         if (!data || !data.task) return;
         var task = data.task;
+        var patchExistingTodo = data.date_only && document.querySelector('.todo-item[data-task-id="' + task.id + '"]');
         updateInboxItemsForTask(task);
         if (activeDrawerTab === "messages" && currentEntityType === "task" && String(currentEntityId || "") === String(task.id || "")) {
           refreshOpenDiscussionTimeline();
@@ -29589,7 +29711,7 @@
             });
           }
           var todoUpdated = false;
-          if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+          if (!patchExistingTodo && typeof window.__upsertTodoItemFromSnapshot === "function") {
             todoUpdated = !!window.__upsertTodoItemFromSnapshot(resolvedTask, { skipFilters: true });
           }
           if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
@@ -29599,7 +29721,7 @@
               return;
             }
           }
-          var updated = applyTaskRowUpdate(resolvedTask);
+          var updated = applyTaskRowUpdate(resolvedTask, { dateOnly: !!patchExistingTodo || !!data.date_only });
           if (updated || todoUpdated) {
             pulseTask(resolvedTask.id);
             if (typeof window.__ensureTreeTaskVisible === "function") {
@@ -29622,7 +29744,7 @@
             return;
           }
           var todoUpdated = false;
-          if (typeof window.__upsertTodoItemFromSnapshot === "function") {
+          if (!patchExistingTodo && typeof window.__upsertTodoItemFromSnapshot === "function") {
             todoUpdated = !!window.__upsertTodoItemFromSnapshot(fallbackTask, { skipFilters: true });
           }
           if (typeof window.__upsertTaskRowFromSnapshot === "function" && data.action === "created") {
@@ -29639,7 +29761,7 @@
               oldProjectId: data.old_project_id || "",
             });
           }
-          var updated = applyTaskRowUpdate(fallbackTask);
+          var updated = applyTaskRowUpdate(fallbackTask, { dateOnly: !!patchExistingTodo || !!data.date_only });
           if (updated || todoUpdated) {
             pulseTask(fallbackTask.id);
             if (typeof window.__ensureTreeTaskVisible === "function") {
@@ -29689,6 +29811,7 @@
           if (!task || !task.id) return;
           processTaskSocketUpdate({
             action: data.action || "updated",
+            date_only: data.date_only,
             actor_user_id: data.actor_user_id,
             task: task,
           });
@@ -31747,11 +31870,14 @@
         }, today);
       }
 
+      var lastTodoGanttRenderKey = null;
+
       function renderNow() {
         renderFrame = 0;
         if (pane.getAttribute("data-todo-view-mode") !== "gantt") return;
         var items = visibleTodoTasks();
         if (items === null) {
+          lastTodoGanttRenderKey = null;
           panel.removeAttribute("data-todo-gantt-ready");
           panel.innerHTML = '<div class="project-gantt-shell"><div class="project-gantt-empty">Preparing Todo timeline...</div></div>';
           window.clearTimeout(renderRetryTimer);
@@ -31761,10 +31887,14 @@
         window.clearTimeout(renderRetryTimer);
         var startDate = ganttStartDate(items);
         var endDate = horizonEndDate(settings.horizon);
+        var itemsJson = JSON.stringify(items);
+        var renderKey = JSON.stringify([startDate, endDate, settings, itemsJson]);
+        if (renderKey === lastTodoGanttRenderKey && panel.getAttribute("data-project-gantt-items") === itemsJson) return;
+        lastTodoGanttRenderKey = renderKey;
         syncSharedMarkSettings();
         panel.setAttribute("data-project-start-date", startDate);
         panel.setAttribute("data-project-end-date", endDate);
-        panel.setAttribute("data-project-gantt-items", JSON.stringify(items));
+        panel.setAttribute("data-project-gantt-items", itemsJson);
         panel.setAttribute("data-todo-gantt-ready", "1");
         if (typeof window.__renderProjectGantt === "function") {
           window.__renderProjectGantt(panel);

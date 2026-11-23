@@ -304,6 +304,57 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertNotIn("entities", dashboard)
         self.assertIn("changes", dashboard)
 
+    def test_dashboard_delta_only_serializes_changed_tasks(self):
+        from app import dashboard_state
+
+        with self.app.app_context():
+            user = self.create_user("owner@example.com")
+            project = self.create_project(user)
+            self.create_task(project, "Unchanged", creator=user)
+            edited = self.create_task(project, "Edited", creator=user)
+            user_id, task_id = user.id, edited.id
+        self.login(self.client, user_id)
+        cursor = self.client.get("/api/dashboard-bootstrap").json["dashboard"]["meta"]["cursor"]
+        self.assertEqual(self.client.patch(f"/api/tasks/{task_id}", json={
+            "due_mode": "date", "due_at": "2028-01-01",
+        }).status_code, 200)
+        with patch.object(dashboard_state, "_serialize_task", wraps=dashboard_state._serialize_task) as serialize:
+            response = self.client.get("/api/dashboard-changes", query_string={"cursor": cursor})
+        self.assertEqual(response.status_code, 200)
+        dashboard = response.json["dashboard"]
+        self.assertEqual(serialize.call_count, 1)
+        self.assertEqual([task["id"] for task in dashboard["changes"]["upserts"]["tasks"]], [task_id])
+        self.assertEqual(len(dashboard["views"]["todo"]["task_ids"]), 2)
+
+    def test_task_batch_sends_each_viewer_only_their_project_tasks(self):
+        from app.realtime import emit_tasks_updated
+
+        with self.app.app_context():
+            first_user = self.create_user("first@example.com")
+            second_user = self.create_user("second@example.com")
+            first_project = self.create_project(first_user)
+            second_project = self.create_project(second_user)
+            first_task = self.create_task(first_project, "First", creator=first_user)
+            second_task = self.create_task(second_project, "Second", creator=second_user)
+            user_ids = [first_user.id, second_user.id]
+            task_ids = [first_task.id, second_task.id]
+
+        clients = []
+        try:
+            for user_id in user_ids:
+                http = self.app.test_client()
+                self.login(http, user_id)
+                clients.append(socketio.test_client(self.app, flask_test_client=http))
+            with self.app.app_context():
+                emit_tasks_updated([db.session.get(Task, task_id) for task_id in task_ids])
+            for client, task_id in zip(clients, task_ids):
+                batches = [event for event in client.get_received() if event["name"] == "tasks_updated"]
+                self.assertEqual(len(batches), 1)
+                self.assertEqual([task["id"] for task in batches[0]["args"][0]["tasks"]], [task_id])
+        finally:
+            for client in clients:
+                client.disconnect()
+
     def test_poll_incomplete_assignees_follow_results_visibility(self):
         with self.app.app_context():
             owner = self.create_user("owner@example.com", "Owner")

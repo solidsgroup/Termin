@@ -2117,13 +2117,14 @@ def notifications_feed():
 @login_required
 def dismiss_notification(notification_id: int):
     user = current_user()
-    notification = TaskNotification.query.filter_by(id=notification_id, user_id=user.id).first()
-    if not notification:
+    user_id = user.id
+    updated = TaskNotification.query.filter_by(id=notification_id, user_id=user_id).update(
+        {"read_at": datetime.utcnow(), "pinned": False}, synchronize_session=False,
+    )
+    if not updated:
         return {"error": "notification not found"}, 404
-    notification.read_at = datetime.utcnow()
-    notification.pinned = False
     db.session.commit()
-    emit_notification_state(user.id)
+    emit_notification_state(user_id)
     return {"status": "ok"}, 200
 
 
@@ -3353,8 +3354,9 @@ def update_task(task_id: int):
     impacted_ids = _task_impacted_ids([task.id] + relative_due_changed_ids)
     impacted_tasks = _touch_tasks(impacted_ids)
     if impacted_tasks:
-        emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
-    emit_task_notification_updates(task, exclude_user_id=user.id, deliver_email=False)
+        date_only = bool(payload) and set(payload) <= GOOGLE_DRIVE_EDITABLE_TASK_FIELDS
+        emit_tasks_updated(impacted_tasks, actor_user_id=user.id, date_only=date_only)
+    emit_task_notification_updates(task, exclude_user_id=user.id)
     realtime_ms = (perf_counter() - realtime_started_at) * 1000
     info_payload = _info_payload_for(task)
     status_meta = task_status_meta(task, viewer_user_id=user.id)

@@ -17,7 +17,6 @@ from app.group_assignments import serialize_group_assignment_members
 from app.info_utils import load_info_payload, sanitize_info_html
 from app.discussion_activity import build_discussion_activity_items
 from app.debug_tools import debug_print
-from app.notification_emailer import deliver_due_notification_emails_for_user
 from app.notification_preferences import notification_event_key_for_kind, user_notification_channel_enabled
 from app.models import (
     Assignment,
@@ -40,7 +39,7 @@ from app.models import (
     User,
 )
 from app.themes import DEFAULT_THEME_NAME, division_effective_color, normalize_theme_name
-from app.task_status import normalize_task_status_mode, task_status_meta, task_status_percentage
+from app.task_status import normalize_task_status_mode, task_status_meta, task_status_meta_map, task_status_percentage
 from app.team_shares import project_access_user_ids, project_has_team_access, project_team_member_user_ids
 from app.utils import current_user, display_name_for_user
 from app.web_push import queue_task_web_push, send_web_push_notification
@@ -857,6 +856,7 @@ def _serialize_task_data(
     *,
     viewer_user_id: int | None = None,
     viewer_email: str | None = None,
+    include_status: bool = True,
 ) -> dict:
     info_payload = load_info_payload(getattr(task, "info", None), getattr(task, "link", None))
     meta = info_payload.get("meta") or {}
@@ -961,7 +961,7 @@ def _serialize_task_data(
         ],
         "prerequisites": _serialize_task_prerequisites(task.id),
         "dependents": _serialize_task_dependents(task.id),
-        "status_meta": task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email),
+        "status_meta": task_status_meta(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email) if include_status else {},
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
     }
@@ -1283,16 +1283,10 @@ def notification_payload_for_user(user_id: int) -> dict:
     }
 
 
-def emit_notification_state(user_id: int, *, deliver_email: bool = True) -> None:
+def emit_notification_state(user_id: int) -> None:
     payload = notification_payload_for_user(user_id)
     _debug_socket_emit("notification_state", payload, room=user_room(user_id))
     socketio.emit("notification_state", payload, room=user_room(user_id))
-    if not deliver_email:
-        return
-    try:
-        deliver_due_notification_emails_for_user(user_id)
-    except Exception:
-        pass
 
 
 def emit_user_notification_preview(user_id: int, payload: dict) -> None:
@@ -1659,51 +1653,71 @@ def emit_task_updated(task: Task, *, action: str = "updated", old_project_id: in
         socketio.emit("task_updated", payload, room=sid)
 
 
-def emit_tasks_updated(tasks: list[Task], *, action: str = "updated", actor_user_id: int | None = None) -> None:
-    normalized_tasks = [task for task in (tasks or []) if task and getattr(task, "id", None)]
-    if not normalized_tasks:
+def emit_tasks_updated(
+    tasks: list[Task], *, action: str = "updated", actor_user_id: int | None = None, date_only: bool = False
+) -> None:
+    active_users = _sid_user.copy()
+    active_collaborators = _sid_collaborator.copy()
+    if not active_users and not active_collaborators:
         return
-    relevant_project_ids = {int(task.project_id) for task in normalized_tasks if getattr(task, "project_id", None)}
-    recipient_sids: set[str] = set()
-    for sid, project_ids in _sid_projects.items():
-        if any(int(project_id) in relevant_project_ids for project_id in project_ids):
-            recipient_sids.add(sid)
-    for project_id in relevant_project_ids:
-        for recipient_id in project_access_map(int(project_id)).keys():
-            recipient_sids.update(_user_sids(recipient_id))
-    collaborator_ids: set[int] = set()
-    for task in normalized_tasks:
-        for recipient_id in _task_notification_user_ids(task):
-            recipient_sids.update(_user_sids(recipient_id))
-        collaborator_ids.update(_task_collaborator_ids(task))
-    for collaborator_id in collaborator_ids:
-        recipient_sids.update(_collaborator_sids(collaborator_id))
+    user_sids: dict[int, set[str]] = defaultdict(set)
+    collaborator_sids: dict[int, set[str]] = defaultdict(set)
+    for sid, user_id in active_users.items():
+        user_sids[user_id].add(sid)
+    for sid, collaborator_id in active_collaborators.items():
+        collaborator_sids[collaborator_id].add(sid)
+    tasks_by_sid: dict[str, list[Task]] = defaultdict(list)
+    project_sids: dict[int, set[str]] = {}
+    active_collaborator_ids = set(collaborator_sids)
+    for task in tasks or []:
+        if not task or not task.id:
+            continue
+        project_id = task.project_id
+        if project_id not in project_sids:
+            project_sids[project_id] = {
+                sid for user_id in project_access_map(project_id) for sid in user_sids.get(user_id, ())
+            }
+        recipient_sids = set(project_sids[project_id])
+        for user_id in _task_notification_user_ids(task):
+            recipient_sids.update(user_sids.get(user_id, ()))
+        if active_collaborator_ids:
+            for collaborator_id in _task_collaborator_ids(task) & active_collaborator_ids:
+                recipient_sids.update(collaborator_sids[collaborator_id])
+        for sid in recipient_sids:
+            tasks_by_sid[sid].append(task)
+    recipient_collaborator_ids = {
+        active_collaborators[sid] for sid in tasks_by_sid if sid in active_collaborators
+    }
     collaborator_emails = {
-        row.id: (row.email or "").strip()
-        for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(list(collaborator_ids))).all()
-    } if collaborator_ids else {}
-    payload_cache: dict[tuple[str, str], dict] = {}
-    for sid in recipient_sids:
-        viewer_user_id = _sid_user.get(sid)
-        viewer_collaborator_id = _sid_collaborator.get(sid)
-        viewer_email = collaborator_emails.get(viewer_collaborator_id, "") if viewer_collaborator_id is not None else ""
-        cache_key = (
-            f"user:{int(viewer_user_id)}" if viewer_user_id is not None else "",
-            f"email:{viewer_email.strip().lower()}" if viewer_email else "",
-        )
+        row.id: (row.email or "").strip().lower()
+        for row in CollaboratorProfile.query.filter(CollaboratorProfile.id.in_(recipient_collaborator_ids)).all()
+    } if recipient_collaborator_ids else {}
+    shared_data: dict[int, dict] = {}
+    payload_cache: dict[tuple, dict] = {}
+    for sid, visible_tasks in tasks_by_sid.items():
+        viewer_user_id = active_users.get(sid)
+        viewer_email = collaborator_emails.get(active_collaborators.get(sid), "")
+        cache_key = (viewer_user_id, viewer_email, tuple(task.id for task in visible_tasks))
         payload = payload_cache.get(cache_key)
         if payload is None:
+            status_map = task_status_meta_map(
+                visible_tasks, viewer_user_id=viewer_user_id, viewer_email=viewer_email,
+            )
+            serialized_tasks = []
+            for task in visible_tasks:
+                if task.id not in shared_data:
+                    shared_data[task.id] = _serialize_task_data(task, include_status=False)
+                serialized_tasks.append({**shared_data[task.id], "status_meta": status_map.get(task.id, {})})
             payload = {
                 "action": action,
+                "date_only": date_only,
                 "actor_user_id": actor_user_id,
-                "tasks": [
-                    _serialize_task_data(task, viewer_user_id=viewer_user_id, viewer_email=viewer_email)
-                    for task in normalized_tasks
-                ],
+                "tasks": serialized_tasks,
             }
             payload_cache[cache_key] = payload
         _debug_socket_emit("tasks_updated", payload, sid=sid)
         socketio.emit("tasks_updated", payload, room=sid)
+
 
 def queue_task_notifications(
     task: Task,
@@ -1763,12 +1777,12 @@ def queue_task_notifications(
 
 
 def emit_task_notification_updates(
-    task: Task, *, exclude_user_id: int | None = None, deliver_email: bool = True
+    task: Task, *, exclude_user_id: int | None = None
 ) -> None:
     for recipient_id in _task_notification_user_ids(task):
         if exclude_user_id and recipient_id == exclude_user_id:
             continue
-        emit_notification_state(recipient_id, deliver_email=deliver_email)
+        emit_notification_state(recipient_id)
 
 
 def emit_project_updated(project: Project, *, actor_user_id: int | None = None) -> None:
