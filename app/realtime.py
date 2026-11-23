@@ -43,7 +43,7 @@ from app.themes import DEFAULT_THEME_NAME, division_effective_color, normalize_t
 from app.task_status import normalize_task_status_mode, task_status_meta, task_status_percentage
 from app.team_shares import project_access_user_ids, project_has_team_access, project_team_member_user_ids
 from app.utils import current_user, display_name_for_user
-from app.web_push import send_web_push_notification
+from app.web_push import queue_task_web_push, send_web_push_notification
 from app.canvas_sync import canvas_group_metadata
 from app.google_drive_sync import google_drive_group_metadata
 
@@ -1283,10 +1283,12 @@ def notification_payload_for_user(user_id: int) -> dict:
     }
 
 
-def emit_notification_state(user_id: int) -> None:
+def emit_notification_state(user_id: int, *, deliver_email: bool = True) -> None:
     payload = notification_payload_for_user(user_id)
     _debug_socket_emit("notification_state", payload, room=user_room(user_id))
     socketio.emit("notification_state", payload, room=user_room(user_id))
+    if not deliver_email:
+        return
     try:
         deliver_due_notification_emails_for_user(user_id)
     except Exception:
@@ -1710,6 +1712,7 @@ def queue_task_notifications(
     kind: str = "task_update",
     comment_id: int | None = None,
     detail_payload: dict | None = None,
+    defer_push: bool = False,
 ) -> None:
     now = datetime.utcnow()
     detail_json = _dump_notification_data(detail_payload)
@@ -1748,7 +1751,8 @@ def queue_task_notifications(
                 )
             )
         if push_enabled:
-            send_web_push_notification(
+            enqueue_or_send = queue_task_web_push if defer_push else send_web_push_notification
+            enqueue_or_send(
                 user_id=recipient_id,
                 payload=_web_push_payload_for_notification(
                     kind=kind,
@@ -1758,11 +1762,13 @@ def queue_task_notifications(
             )
 
 
-def emit_task_notification_updates(task: Task, *, exclude_user_id: int | None = None) -> None:
+def emit_task_notification_updates(
+    task: Task, *, exclude_user_id: int | None = None, deliver_email: bool = True
+) -> None:
     for recipient_id in _task_notification_user_ids(task):
         if exclude_user_id and recipient_id == exclude_user_id:
             continue
-        emit_notification_state(recipient_id)
+        emit_notification_state(recipient_id, deliver_email=deliver_email)
 
 
 def emit_project_updated(project: Project, *, actor_user_id: int | None = None) -> None:

@@ -1,9 +1,11 @@
+from collections import deque
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from html import escape
 import json
 from pathlib import Path
 import re
+from time import perf_counter
 from urllib.parse import urlparse
 from sqlalchemy import or_
 
@@ -2442,35 +2444,30 @@ def _task_impacted_ids(seed_task_ids) -> list[int]:
 
 
 def _refresh_relative_due_dependents(seed_task_ids) -> list[int]:
-    pending = [int(task_id) for task_id in (seed_task_ids or []) if task_id]
-    seen_refs: set[int] = set()
-    changed_ids: list[int] = []
+    pending = deque(int(task_id) for task_id in seed_task_ids if task_id)
+    visited = set(pending)
+    changed_ids = []
     while pending:
-        reference_id = pending.pop(0)
-        if reference_id in seen_refs:
-            continue
-        seen_refs.add(reference_id)
-        for candidate in Task.query.filter(Task.id != reference_id).all():
+        reference_id = pending.popleft()
+        candidates = Task.query.filter_by(relative_due_reference_id=reference_id).all()
+        for candidate in candidates:
+            if candidate.id in visited:
+                continue
+            visited.add(candidate.id)
             info_payload = load_info_payload(candidate.info, candidate.link)
-            meta = dict((info_payload.get("meta") if isinstance(info_payload, dict) else {}) or {})
-            if str(meta.get("due_mode") or "").strip().lower() != "relative":
-                continue
-            try:
-                relative_task_id = int(meta.get("due_relative_task_id") or 0)
-            except (TypeError, ValueError):
-                continue
-            if relative_task_id != reference_id:
-                continue
+            meta = info_payload["meta"]
             old_due_at = candidate.due_at
-            old_start_date = _task_start_date(candidate)
+            old_start_date = meta.get("start_date")
             ok, _error = _apply_relative_due_from_meta(candidate, meta)
             if not ok:
+                candidate.due_at = old_due_at
                 continue
-            info_payload["meta"] = meta
-            candidate.info = normalize_info_payload(info_payload, candidate.link)
-            if (old_due_at != candidate.due_at or old_start_date != _task_start_date(candidate)) and int(candidate.id) not in changed_ids:
-                changed_ids.append(int(candidate.id))
-                pending.append(int(candidate.id))
+            due_changed = old_due_at != candidate.due_at
+            if due_changed or old_start_date != meta.get("start_date"):
+                candidate.info = normalize_info_payload(info_payload, candidate.link)
+                changed_ids.append(candidate.id)
+            if due_changed:
+                pending.append(candidate.id)
     return changed_ids
 
 
@@ -2601,8 +2598,10 @@ def _serialize_task_row(
     users_by_id: dict[int, User] | None = None,
     prerequisites: list[dict] | None = None,
     dependents: list[dict] | None = None,
+    info: dict | None = None,
 ) -> dict:
-    info = load_info_payload(task.info)
+    if info is None:
+        info = load_info_payload(task.info)
     if assignments is None:
         assignments = (
             Assignment.query.filter_by(task_id=task.id)
@@ -3025,6 +3024,7 @@ def create_task():
 @api_bp.patch("/tasks/<int:task_id>")
 @login_required
 def update_task(task_id: int):
+    started_at = perf_counter()
     payload = request.get_json(silent=True) or {}
     user = current_user()
 
@@ -3192,11 +3192,11 @@ def update_task(task_id: int):
             return {"error": error}, 400
     if start_date is not None or due_at is not None or due_mode is not None or due_relative_start_days is not None:
         task_due_mode = _task_due_mode(task)
-        if task_due_mode == "date":
+        if task_due_mode == "date" and start_date is not None:
             ok, error = _set_task_start_date(task, start_date)
             if not ok:
                 return {"error": error}, 400
-        elif task_due_mode != "relative":
+        elif task_due_mode not in {"date", "relative"}:
             ok, error = _set_task_start_date(task, "")
             if not ok:
                 return {"error": error}, 400
@@ -3234,8 +3234,12 @@ def update_task(task_id: int):
             cache_favicons_for_links(current_app._get_current_object(), info_payload.get("links", []))
         except Exception:
             pass
-    db.session.commit()
-    relative_due_changed_ids = _refresh_relative_due_dependents([task.id])
+    propagation_started_at = perf_counter()
+    relative_due_changed_ids = (
+        _refresh_relative_due_dependents([task.id]) if old_due_at != task.due_at else []
+    )
+    propagation_ms = (perf_counter() - propagation_started_at) * 1000
+    notification_started_at = perf_counter()
     new_due_mode = _task_due_mode(task)
     new_start_date = _task_start_date(task)
     new_status_mode = _task_status_mode(task)
@@ -3310,7 +3314,20 @@ def update_task(task_id: int):
                     new_poll=_task_poll(task),
                 ),
             })
-        queue_task_notifications(task, exclude_user_id=user.id, kind=notification_kind, detail_payload=detail_payload)
+        queue_task_notifications(
+            task, exclude_user_id=user.id, kind=notification_kind,
+            detail_payload=detail_payload, defer_push=True,
+        )
+        history_assignments = []
+        history_followers = []
+        if "assignees" in changed_fields:
+            history_assignments = [
+                _serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id)
+            ]
+        if "followers" in changed_fields:
+            history_followers = [
+                _serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id)
+            ]
         history_task_body, history_scoped_body = _task_update_history_bodies(
             actor_name=display_name_for_user(user) or user.email or "Someone",
             task_title=task.title,
@@ -3326,59 +3343,44 @@ def update_task(task_id: int):
             new_locked=bool(task.locked),
             old_poll=old_poll,
             new_poll=_task_poll(task),
-            assignments=[_serialize_assignment_row(row) for row in Assignment.query.filter_by(task_id=task.id).all()],
-            followers=[_serialize_follower_row(row) for row in TaskFollower.query.filter_by(task_id=task.id).all()],
+            assignments=history_assignments,
+            followers=history_followers,
         )
         log_task_history(task, actor=user, action="updated", changed_fields=changed_fields, task_body=history_task_body, scoped_body=history_scoped_body)
-        db.session.commit()
+    db.session.commit()
+    notification_ms = (perf_counter() - notification_started_at) * 1000
+    realtime_started_at = perf_counter()
     impacted_ids = _task_impacted_ids([task.id] + relative_due_changed_ids)
     impacted_tasks = _touch_tasks(impacted_ids)
     if impacted_tasks:
         emit_tasks_updated(impacted_tasks, actor_user_id=user.id)
-    emit_task_notification_updates(task, exclude_user_id=user.id)
+    emit_task_notification_updates(task, exclude_user_id=user.id, deliver_email=False)
+    realtime_ms = (perf_counter() - realtime_started_at) * 1000
     info_payload = _info_payload_for(task)
     status_meta = task_status_meta(task, viewer_user_id=user.id)
     assignments = Assignment.query.filter_by(task_id=task.id).all()
     followers = TaskFollower.query.filter_by(task_id=task.id).all()
-    return {
-        "id": task.id,
-        "creator_user_id": task.creator_user_id,
-        "title": task.title,
-        "updated_at": task.updated_at.isoformat() if task.updated_at else None,
-        "position": task.position,
-        "locked": bool(task.locked),
-        "creator": _serialize_task_row(task, viewer_user_id=user.id).get("creator"),
-        "status": task.status,
-        "task_type": _task_type(task),
-        "poll": _task_poll(task),
-        "status_mode": _task_status_mode(task),
-        "status_percentage": _task_status_percentage(task),
-        "per_user_status_enabled": _task_status_mode(task) == "multi",
-        "assign_group_members": bool(task.assign_group_members),
-        "group_assignment_members": serialize_group_assignment_members(task) if task.assign_group_members else [],
-        "follow_project_members": _task_follow_project_members(task),
-        "project_follower_members": _serialize_project_follower_members(task) if _task_follow_project_members(task) else [],
-        "status_meta": status_meta,
+    response = _serialize_task_row(
+        task,
+        status_meta=status_meta,
+        assignments=assignments,
+        followers=followers,
+        info=info_payload,
+    )
+    response.update({
         "user_status": status_meta.get("my_status"),
-        "info": info_payload,
         "link": task.link,
         "links": info_payload.get("links", []),
-        "assignments": [_serialize_assignment_row(row) for row in assignments],
-        "followers": [_serialize_follower_row(row) for row in followers],
-        "prerequisites": _serialize_task_prerequisites(task.id),
-        "dependents": _serialize_task_dependents(task.id),
-        "due_at": task.due_at.isoformat() if task.due_at else None,
-        "due_mode": _task_due_mode(task),
-        "assignee_mode": _task_assignee_mode(task),
-        **volunteer_payload(task),
-        "due_relative": _task_due_relative(task),
-        "due_relative_start_days": _task_due_relative_start_days(task),
-        "start_date": _task_start_date(task),
         "created_at": task.created_at.isoformat() if task.created_at else None,
-        "description": task.description,
-        "description_format": task.description_format or DEFAULT_TASK_DESCRIPTION_FORMAT,
-        "rendered_description": _render_description(task.description, task.description_format, DEFAULT_TASK_DESCRIPTION_FORMAT),
-    }, 200
+    })
+    total_ms = (perf_counter() - started_at) * 1000
+    timing = (
+        f"task;dur={total_ms:.1f}, propagation;dur={propagation_ms:.1f}, "
+        f"history_notifications;dur={notification_ms:.1f}, realtime;dur={realtime_ms:.1f}"
+    )
+    if total_ms >= 250:
+        current_app.logger.warning("Slow task PATCH %s", timing)
+    return response, 200, {"Server-Timing": timing}
 
 
 @api_bp.get("/tasks/<int:task_id>")

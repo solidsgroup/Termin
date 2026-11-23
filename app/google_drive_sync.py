@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import re
 from threading import Lock
+from time import perf_counter
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
@@ -633,7 +634,9 @@ def emit_google_drive_sync_result(group: Group, result: GoogleDriveSyncResult, *
 
 def poll_google_drive_integrations() -> int:
     interval_seconds = max(int(current_app.config.get("GOOGLE_DRIVE_POLL_INTERVAL_SECONDS", 30)), 10)
-    cutoff = datetime.utcnow() - timedelta(seconds=interval_seconds)
+    now = datetime.utcnow()
+    cutoff = now - timedelta(seconds=interval_seconds)
+    error_cutoff = now - timedelta(seconds=max(300, interval_seconds))
     integration_ids = [
         row[0]
         for row in db.session.query(GoogleDriveIntegration.id)
@@ -644,9 +647,16 @@ def poll_google_drive_integrations() -> int:
                 Group.specialty_last_sync_attempt_at.is_(None)
                 | (Group.specialty_last_sync_attempt_at <= cutoff)
             ),
+            (
+                Group.specialty_sync_error.is_(None)
+                | (Group.specialty_sync_error == "")
+                | Group.specialty_last_sync_attempt_at.is_(None)
+                | (Group.specialty_last_sync_attempt_at <= error_cutoff)
+            ),
         )
         .all()
     ]
+    started_at = perf_counter()
     refreshed = 0
     for integration_id in integration_ids:
         integration = db.session.get(GoogleDriveIntegration, integration_id)
@@ -669,6 +679,9 @@ def poll_google_drive_integrations() -> int:
         except Exception:
             db.session.rollback()
             current_app.logger.exception("Unexpected Google Drive sync failure for group %s", group.id)
+    duration_ms = (perf_counter() - started_at) * 1000
+    if duration_ms >= 250:
+        current_app.logger.info("Drive poll took %.0f ms for %d integrations", duration_ms, len(integration_ids))
     return refreshed
 
 

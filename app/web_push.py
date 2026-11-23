@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from threading import Thread
+from time import sleep
 import json
 
 from flask import current_app
@@ -8,7 +10,7 @@ from pywebpush import WebPushException, webpush
 
 from app.debug_tools import debug_print
 from app.extensions import db
-from app.models import WebPushSubscription
+from app.models import TaskPushDelivery, WebPushSubscription
 
 
 def web_push_is_configured() -> bool:
@@ -83,7 +85,7 @@ def active_web_push_subscriptions_for_user(user_id: int) -> list[WebPushSubscrip
     )
 
 
-def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
+def send_web_push_notification(*, user_id: int, payload: dict, subscription_id: int | None = None) -> dict:
     result = {
         "configured": bool(web_push_is_configured()),
         "subscription_count": 0,
@@ -96,7 +98,11 @@ def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
         debug_print("web-push", "send skipped", "user_id=", user_id, "reason=config-disabled")
         return result
 
-    subscriptions = active_web_push_subscriptions_for_user(user_id)
+    if subscription_id is None:
+        subscriptions = active_web_push_subscriptions_for_user(user_id)
+    else:
+        subscription = WebPushSubscription.query.filter_by(id=subscription_id, user_id=user_id).first()
+        subscriptions = [subscription] if subscription else []
     result["subscription_count"] = len(subscriptions)
     if not subscriptions:
         debug_print("web-push", "send skipped", "user_id=", user_id, "reason=no-subscriptions")
@@ -122,6 +128,7 @@ def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
                 vapid_private_key=vapid_private_key,
                 vapid_claims=vapid_claims,
                 ttl=ttl_seconds,
+                timeout=5,
             )
         except WebPushException as exc:
             status_code = getattr(getattr(exc, "response", None), "status_code", None)
@@ -178,3 +185,71 @@ def send_web_push_notification(*, user_id: int, payload: dict) -> dict:
         result["failure_count"],
     )
     return result
+
+def queue_task_web_push(*, user_id: int, payload: dict) -> None:
+    if not web_push_is_configured():
+        return
+    encoded = json.dumps(payload)
+    for subscription in active_web_push_subscriptions_for_user(user_id):
+        db.session.add(TaskPushDelivery(
+            user_id=user_id, subscription_id=subscription.id, payload=encoded,
+        ))
+
+
+def deliver_task_web_push(limit: int = 20) -> None:
+    now = datetime.utcnow()
+    ids = db.session.execute(
+        db.select(TaskPushDelivery.id)
+        .where(TaskPushDelivery.available_at <= now)
+        .order_by(TaskPushDelivery.available_at, TaskPushDelivery.id)
+        .limit(limit)
+    ).scalars().all()
+    for delivery_id in ids:
+        row = db.session.get(TaskPushDelivery, delivery_id)
+        if row is None or row.available_at > now:
+            continue
+        if row.attempts >= 3:
+            db.session.delete(row)
+            db.session.commit()
+            continue
+        attempts = row.attempts + 1
+        claimed = TaskPushDelivery.query.filter(
+            TaskPushDelivery.id == delivery_id, TaskPushDelivery.available_at <= now,
+            TaskPushDelivery.attempts == row.attempts,
+        ).update({
+            TaskPushDelivery.attempts: attempts,
+            TaskPushDelivery.available_at: datetime.utcnow() + timedelta(minutes=2),
+        })
+        db.session.commit()
+        if not claimed:
+            continue
+        result = send_web_push_notification(
+            user_id=row.user_id, subscription_id=row.subscription_id, payload=json.loads(row.payload)
+        )
+        if not result["failure_count"] or attempts >= 3:
+            db.session.delete(row)
+            db.session.commit()
+
+
+_push_worker_started = False
+
+
+def start_task_web_push_worker(app) -> None:
+    global _push_worker_started
+    if _push_worker_started:
+        return
+    with app.app_context():
+        if not web_push_is_configured():
+            return
+    _push_worker_started = True
+
+    def run():
+        while True:
+            try:
+                with app.app_context():
+                    deliver_task_web_push()
+            except Exception:
+                app.logger.exception("Task web push worker failed")
+            sleep(2)
+
+    Thread(target=run, name="termin-task-web-push", daemon=True).start()
