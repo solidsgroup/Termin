@@ -344,6 +344,24 @@ def normalize_info_payload(payload, legacy_link: str | None = None) -> str | Non
     return json.dumps({"html": html, "attachments": attachments, "links": links, "meta": meta}, separators=(",", ":"))
 
 
+def relative_due_reference_id(raw_info: str | None) -> int | None:
+    """Extract the indexed reference without parsing or sanitizing unrelated fields."""
+    if not raw_info:
+        return None
+    try:
+        data = json.loads(raw_info)
+    except json.JSONDecodeError:
+        return None
+    meta = data.get("meta") if isinstance(data, dict) else None
+    if not isinstance(meta, dict) or str(meta.get("due_mode")).strip().lower() != "relative":
+        return None
+    try:
+        reference_id = int(str(meta.get("due_relative_task_id")).strip())
+    except ValueError:
+        return None
+    return reference_id if 0 < reference_id <= 2**63 - 1 else None
+
+
 def load_info_payload(raw_value: str | None, legacy_link: str | None = None) -> dict:
     if raw_value:
         try:

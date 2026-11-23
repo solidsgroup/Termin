@@ -3908,6 +3908,19 @@ test.describe('dashboard and realtime flows', () => {
   for (const view of ['project', 'todo']) {
     test(`${view} gantt track clicks set missing dates and preserve existing dates`, async ({ page, request }) => {
       test.setTimeout(60_000);
+      await page.addInitScript(() => {
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          if (window.__rejectGanttDatePatch && init?.method === 'PATCH'
+              && String(input) === window.__rejectGanttDatePatch) {
+            window.__rejectGanttDatePatch = null;
+            return Promise.resolve(new Response(JSON.stringify({ error: 'Test rejected date edit' }), {
+              status: 409, headers: { 'Content-Type': 'application/json' },
+            }));
+          }
+          return originalFetch(input, init);
+        };
+      });
       const state = await fetchSeedState(request);
       await login(page, state.owner.email, state.owner.password);
       const configured = await page.evaluate(async ({ projectId, start, end }) => {
@@ -3942,7 +3955,9 @@ test.describe('dashboard and realtime flows', () => {
       }
       const track = panel.locator(`[data-gantt-track][data-task-id="${task.id}"]`);
       async function pointAt(fraction) {
-        await track.scrollIntoViewIfNeeded();
+        await expect(async () => {
+          await track.scrollIntoViewIfNeeded({ timeout: 1000 });
+        }).toPass({ timeout: 5000 });
         const box = await track.boundingBox();
         const start = await track.getAttribute('data-project-start-date');
         const end = await track.getAttribute('data-project-end-date');
@@ -3994,14 +4009,27 @@ test.describe('dashboard and realtime flows', () => {
 
       // Existing due-date dragging continues to work.
       const endHandle = track.locator('[data-gantt-handle="end"]');
-      await endHandle.hover();
-      const handleBox = await endHandle.boundingBox();
-      const destination = await pointAt(0.8);
-      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(destination.x, destination.y, { steps: 5 });
-      await page.mouse.up();
-      await expect(track).toHaveAttribute('data-task-due-date', new RegExp(`^${destination.iso}`));
+      async function dragDue(fraction) {
+        await endHandle.hover();
+        const handleBox = await endHandle.boundingBox();
+        const destination = await pointAt(fraction);
+        await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(destination.x, destination.y, { steps: 5 });
+        await page.mouse.up();
+        return destination.iso;
+      }
+      const savedDue = await dragDue(0.8);
+      await expect(track).toHaveAttribute('data-task-due-date', new RegExp(`^${savedDue}`));
+      await expect.poll(async () => (await fetchTaskViaApi(page, task.id)).due_at).toMatch(new RegExp(`^${savedDue}`));
+
+      await page.evaluate(taskId => {
+        window.__rejectGanttDatePatch = `/api/tasks/${taskId}`;
+      }, task.id);
+      const rejectedDue = await dragDue(0.7);
+      expect(rejectedDue).not.toBe(savedDue);
+      await expect(page.getByText('Could not save Gantt date', { exact: true })).toBeVisible();
+      await expect(track).toHaveAttribute('data-task-due-date', new RegExp(`^${savedDue}`));
 
       await patchTask(page, task.id, { due_mode: 'none', due_at: '', start_date: '', locked: true });
       await expect(track).toHaveAttribute('data-task-locked', '1');

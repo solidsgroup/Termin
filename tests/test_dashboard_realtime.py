@@ -1674,6 +1674,68 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         finally:
             socket_client.disconnect()
 
+    def test_date_patch_queries_only_indexed_dependents_and_preserves_start_date(self):
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com")
+            project = self.create_project(owner)
+            root = self.create_task(project, "Reference", creator=owner)
+            child = self.create_task(project, "Child", creator=owner)
+            leaf = self.create_task(project, "Leaf", creator=owner)
+            owner_id, root_id, child_id, leaf_id = owner.id, root.id, child.id, leaf.id
+            db.session.execute(db.insert(Task), [
+                {"project_id": project.id, "title": f"Unrelated task {i}"} for i in range(1000)
+            ])
+            db.session.commit()
+            engine = db.engine
+
+        self.login(self.client, owner_id)
+        root_url = f"/api/tasks/{root_id}"
+        self.assertEqual(self.client.patch(root_url, json={
+            "due_mode": "date", "due_at": "2027-01-10", "start_date": "2027-01-01",
+        }).status_code, 200)
+        for task_id, reference_id, days in ((child_id, root_id, 3), (leaf_id, child_id, 2)):
+            response = self.client.patch(f"/api/tasks/{task_id}", json={
+                "due_mode": "relative", "due_relative_task_id": reference_id,
+                "due_relative_days": days, "due_relative_start_days": 1,
+            })
+            self.assertEqual(response.status_code, 200, response.get_json())
+
+        statements = []
+
+        def record_statement(_conn, _cursor, statement, _params, _context, _executemany):
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record_statement)
+        try:
+            response = self.client.patch(root_url, json={"start_date": "2027-01-02"})
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(any("WHERE tasks.relative_due_reference_id" in sql for sql in statements))
+            statements.clear()
+            response = self.client.patch(root_url, json={"due_at": "2027-01-15"})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json["start_date"], "2027-01-02")
+            self.assertIn("propagation;dur=", response.headers["Server-Timing"])
+            self.assertEqual(sum("WHERE tasks.relative_due_reference_id" in sql for sql in statements), 3)
+            self.assertFalse(any("WHERE tasks.id !=" in sql for sql in statements))
+        finally:
+            event.remove(engine, "before_cursor_execute", record_statement)
+
+        child = self.client.get(f"/api/tasks/{child_id}").json
+        leaf = self.client.get(f"/api/tasks/{leaf_id}").json
+        self.assertEqual((child["due_at"], child["start_date"]), ("2027-01-18T00:00:00", "2027-01-17"))
+        self.assertEqual((leaf["due_at"], leaf["start_date"]), ("2027-01-20T00:00:00", "2027-01-19"))
+
+        self.assertEqual(self.client.patch(root_url, json={"due_mode": "none"}).status_code, 200)
+        leaf = self.client.get(f"/api/tasks/{leaf_id}").json
+        self.assertIsNone(leaf["due_at"])
+        self.assertEqual(leaf["start_date"], "")
+        self.assertEqual(self.client.patch(f"/api/tasks/{child_id}", json={
+            "due_mode": "date", "due_at": "2027-02-01",
+        }).status_code, 200)
+        with self.app.app_context():
+            self.assertIsNone(db.session.get(Task, child_id).relative_due_reference_id)
+
+
     def test_task_patch_emits_one_batch_socket_update_without_individual_duplicate(self):
         with self.app.app_context():
             owner = self.create_user("owner@example.com", "Owner")
@@ -1709,6 +1771,45 @@ class DashboardRealtimeTestCase(unittest.TestCase):
             self.assertTrue(task_payload["updated_at"])
         finally:
             socket_client.disconnect()
+
+    def test_task_patch_queues_push_and_retries_failed_delivery(self):
+        from app.models import TaskPushDelivery, WebPushSubscription
+        from app.web_push import deliver_task_web_push
+
+        with self.app.app_context():
+            owner = self.create_user("owner@example.com")
+            recipient = self.create_user("recipient@example.com")
+            project = self.create_project(owner)
+            task = self.create_task(project, "Queued push", creator=owner)
+            owner_id, task_id, recipient_id = owner.id, task.id, recipient.id
+            db.session.add_all([
+                ProjectMember(project_id=project.id, user_id=recipient_id),
+                Assignment(task_id=task_id, user_id=recipient_id, status="assigned"),
+                WebPushSubscription(user_id=recipient_id, endpoint="https://push.example.com/device",
+                                    p256dh="p256dh", auth="auth"),
+            ])
+            db.session.commit()
+
+        self.login(self.client, owner_id)
+        with patch.dict(self.app.config, WEB_PUSH_ENABLED=True, WEB_PUSH_PUBLIC_KEY="public",
+                        WEB_PUSH_PRIVATE_KEY="private", WEB_PUSH_SUBJECT="mailto:push@example.com"):
+            with patch("app.web_push.webpush", side_effect=[OSError("offline"), None]) as send:
+                response = self.client.patch(f"/api/tasks/{task_id}", json={"due_mode": "date", "due_at": "2027-01-10"})
+                self.assertEqual(response.status_code, 200)
+                send.assert_not_called()
+                with self.app.app_context():
+                    self.assertEqual(TaskPushDelivery.query.one().user_id, recipient_id)
+                    with self.assertLogs(self.app.logger, level="ERROR"):
+                        deliver_task_web_push()
+                    row = TaskPushDelivery.query.one()
+                    self.assertEqual(row.attempts, 1)
+                    deliver_task_web_push()
+                    self.assertEqual(send.call_count, 1)
+                    row.available_at = datetime.utcnow() - timedelta(seconds=1)
+                    db.session.commit()
+                    deliver_task_web_push()
+                    self.assertEqual(TaskPushDelivery.query.count(), 0)
+                    self.assertEqual(send.call_count, 2)
 
     def test_task_updated_socket_payload_is_viewer_specific_for_status_meta(self):
         with self.app.app_context():

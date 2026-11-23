@@ -1,5 +1,8 @@
 from datetime import date, datetime
+from sqlalchemy.orm import validates
+
 from app.extensions import db
+from app.info_utils import relative_due_reference_id
 
 
 class User(db.Model):
@@ -55,6 +58,16 @@ class WebPushSubscription(db.Model):
     last_seen_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TaskPushDelivery(db.Model):
+    __tablename__ = "task_push_deliveries"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    subscription_id = db.Column(db.Integer, nullable=False)
+    payload = db.Column(db.Text, nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    available_at = db.Column(db.DateTime, nullable=False, index=True, default=datetime.utcnow)
 
 
 class CalendarFeed(db.Model):
@@ -226,6 +239,7 @@ class Task(db.Model):
     info = db.Column(db.Text)
     link = db.Column(db.String(1024))
     due_at = db.Column(db.DateTime)
+    relative_due_reference_id = db.Column(db.BigInteger, index=True)
     locked = db.Column(db.Boolean, default=False, nullable=False)
     assignee_email = db.Column(db.String(255))
     status = db.Column(db.String(50), default="open", nullable=False)
@@ -236,6 +250,11 @@ class Task(db.Model):
     owner_calendar_opt_in = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    @validates("info")
+    def _index_relative_due_reference(self, _key, value):
+        self.relative_due_reference_id = relative_due_reference_id(value)
+        return value
 
 
 class TaskUserStatus(db.Model):
