@@ -23095,7 +23095,7 @@
         || Object.prototype.hasOwnProperty.call(effectiveTask, "group_assignment_members")
       ) {
         if (typeof window.__renderTaskAssignments === "function") {
-          window.__renderTaskAssignments(task.id, effectiveTask.assignments || []);
+          window.__renderTaskAssignments(task.id, effectiveTask.assignments || [], { skipFilters: true, skipSort: true });
         }
       }
       if (typeof window.__updateProjectGanttItemLocal === "function") {
@@ -25647,7 +25647,9 @@
       }
       syncTaskStatusUi(task);
       if (typeof window.__renderTaskAssignments === "function") {
-        window.__renderTaskAssignments(task.id, task.assignments || []);
+        window.__renderTaskAssignments(task.id, task.assignments || [], {
+          skipFilters: !!opts.skipFilters, skipSort: !!opts.skipFilters,
+        });
       }
       if (!opts.skipFilters && typeof window.__applyTodoFilters === "function") {
         window.__applyTodoFilters();
