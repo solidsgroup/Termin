@@ -304,6 +304,52 @@ class DashboardRealtimeTestCase(unittest.TestCase):
         self.assertNotIn("entities", dashboard)
         self.assertIn("changes", dashboard)
 
+    def test_slow_notification_provider_does_not_block_health(self):
+        from app import notification_emailer
+
+        sending = Event()
+        finished = Event()
+        release = Event()
+        worker_threads = []
+        real_thread = notification_emailer.Thread
+
+        def delayed_delivery(**_kwargs):
+            sending.set()
+            release.wait(5)
+
+        def start_once_thread(*, target, **kwargs):
+            def run():
+                try:
+                    target()
+                except SystemExit:
+                    pass
+                finally:
+                    finished.set()
+
+            thread = real_thread(target=run, **kwargs)
+            worker_threads.append(thread)
+            return thread
+
+        def stop_after_delivery(_interval):
+            raise SystemExit
+
+        with (
+            patch.object(notification_emailer, "_worker_started", False),
+            patch.object(notification_emailer, "Thread", side_effect=start_once_thread),
+            patch.object(notification_emailer, "sleep", side_effect=stop_after_delivery),
+            patch.object(notification_emailer, "deliver_due_notification_emails", side_effect=delayed_delivery),
+        ):
+            try:
+                notification_emailer.start_notification_email_worker(self.app)
+                self.assertTrue(sending.wait(2))
+                self.assertEqual(self.client.get("/health").status_code, 200)
+                self.assertFalse(finished.is_set())
+            finally:
+                release.set()
+                for thread in worker_threads:
+                    thread.join(timeout=2)
+            self.assertTrue(finished.is_set())
+
     def test_dashboard_delta_only_serializes_changed_tasks(self):
         from app import dashboard_state
 
