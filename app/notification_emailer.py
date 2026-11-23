@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from html import escape
 import json
+from threading import Thread
+from time import sleep
 
 from flask import current_app, url_for
-from sqlalchemy import or_
+from sqlalchemy import or_, tuple_
 
 from app.emailer import _render_email_template, send_email
 from app.extensions import db
@@ -300,20 +302,25 @@ def deliver_due_notification_emails_for_user(user_id: int) -> bool:
         if now < due_at:
             return False
     items = [_notification_preview(row) for row in pending_rows]
+    revisions = [(row.id, row.created_at) for row in pending_rows]
+    email = user.email
+    recipient_name = display_name_for_user(user) or email
+    db.session.rollback()
     try:
-        send_notification_digest_email(
-            user.email,
-            recipient_name=display_name_for_user(user) or user.email,
-            notifications=items,
-        )
+        send_notification_digest_email(email, recipient_name=recipient_name, notifications=items)
     except Exception:
-        current_app.logger.exception("notification email delivery failed", extra={"user_id": user.id})
+        current_app.logger.exception("notification email delivery failed", extra={"user_id": user_id})
         db.session.rollback()
         return False
     sent_at = datetime.utcnow()
-    for row in pending_rows:
-        row.emailed_at = sent_at
-    user.notification_email_last_sent_at = sent_at
+    for offset in range(0, len(revisions), 400):
+        TaskNotification.query.filter(
+            TaskNotification.user_id == user_id,
+            tuple_(TaskNotification.id, TaskNotification.created_at).in_(revisions[offset:offset + 400]),
+        ).update({"emailed_at": sent_at}, synchronize_session=False)
+    User.query.filter_by(id=user_id).update(
+        {"notification_email_last_sent_at": sent_at}, synchronize_session=False,
+    )
     db.session.commit()
     return True
 
@@ -407,7 +414,7 @@ def build_test_notification_email_items(user: User, preference_map: dict[str, di
     return items
 
 
-def start_notification_email_worker(app, socketio, interval_seconds: int = 10) -> None:
+def start_notification_email_worker(app, interval_seconds: int = 10) -> None:
     global _worker_started
     if _worker_started:
         return
@@ -420,6 +427,6 @@ def start_notification_email_worker(app, socketio, interval_seconds: int = 10) -
                     deliver_due_notification_emails(limit_users=200)
             except Exception:
                 app.logger.exception("notification email worker failed")
-            socketio.sleep(interval_seconds)
+            sleep(interval_seconds)
 
-    socketio.start_background_task(_runner)
+    Thread(target=_runner, name="termin-notification-email", daemon=True).start()

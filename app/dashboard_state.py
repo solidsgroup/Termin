@@ -365,7 +365,7 @@ def _serialize_notification(notification: TaskNotification) -> dict:
     }
 
 
-def build_dashboard_bootstrap(user) -> dict:
+def build_dashboard_bootstrap(user, *, since: datetime | None = None) -> dict:
     now_utc = datetime.utcnow()
     theme_name = normalize_theme_name(getattr(user, "theme_name", None))
     projects, owned_projects, member_project_ids = _accessible_projects_for_user(user)
@@ -403,9 +403,12 @@ def build_dashboard_bootstrap(user) -> dict:
         if projects_by_id
         else []
     )
-    status_map = task_status_meta_map(tasks, viewer_user_id=user.id)
+    def changed(row) -> bool:
+        timestamp = getattr(row, "updated_at", None) or row.created_at
+        return since is None or (timestamp is not None and timestamp > since)
 
-    task_ids = [task.id for task in tasks]
+    changed_tasks = [task for task in tasks if changed(task)]
+    task_ids = {task.id for task in changed_tasks}
     assignment_rows = (
         Assignment.query.filter(Assignment.task_id.in_(task_ids))
         .order_by(Assignment.created_at.asc(), Assignment.id.asc())
@@ -439,13 +442,18 @@ def build_dashboard_bootstrap(user) -> dict:
         for related_id in (row.task_id, row.prerequisite_task_id)
         if related_id
     })
-    related_tasks = {task.id: task for task in tasks}
+    related_task_id_set = set(related_task_ids)
+    related_tasks = {task.id: task for task in tasks if task.id in related_task_id_set}
     missing_related_ids = [task_id for task_id in related_task_ids if task_id not in related_tasks]
     if missing_related_ids:
         related_tasks.update({
             task.id: task
             for task in Task.query.filter(Task.id.in_(missing_related_ids)).all()
         })
+    status_tasks = {task.id: task for task in changed_tasks}
+    related_status_tasks = {task.id: task for task in tasks if task.id in related_tasks}
+    status_tasks.update(related_status_tasks)
+    status_map = task_status_meta_map(list(status_tasks.values()), viewer_user_id=user.id)
     prerequisites_by_task: dict[int, list[dict]] = {}
     dependents_by_task: dict[int, list[dict]] = {}
 
@@ -487,7 +495,7 @@ def build_dashboard_bootstrap(user) -> dict:
             payload = serialize_dependency(row, related_tasks.get(row.task_id), dependent=True)
             if payload:
                 dependents_by_task.setdefault(row.prerequisite_task_id, []).append(payload)
-    github_task_meta, _github_project_id = _build_github_task_meta(user.id, task_ids, github_user_map)
+    github_task_meta, _github_project_id = _build_github_task_meta(user.id, sorted(task_ids), github_user_map)
 
     comment_counts = {}
     if task_ids:
@@ -517,12 +525,15 @@ def build_dashboard_bootstrap(user) -> dict:
         if task_id
     } if task_ids else set()
 
-    todo_tasks = list(tasks)
-    todo_tasks.sort(
+    project_names = {
+        project.id: (_project_display_name_for_user(project, user.id) or "").lower()
+        for project in projects
+    }
+    todo_tasks = sorted(tasks,
         key=lambda task: (
             _todo_bucket_rank(task)[0],
             task.due_at.date().isoformat() if task.due_at else "9999-12-31",
-            (_project_display_name_for_user(projects_by_id.get(task.project_id), user.id) or "").lower(),
+            project_names.get(task.project_id, ""),
             task.position or 0,
             task.id,
         )
@@ -563,7 +574,7 @@ def build_dashboard_bootstrap(user) -> dict:
         "entities": {
             "divisions": {
                 str(division.id): _serialize_division(division, theme_name=theme_name)
-                for division in divisions
+                for division in divisions if changed(division)
             },
             "projects": {
                 str(project.id): _serialize_project(
@@ -572,11 +583,11 @@ def build_dashboard_bootstrap(user) -> dict:
                     theme_name=theme_name,
                     sidebar_pref=sidebar_pref_map.get(project.id),
                 )
-                for project in projects
+                for project in projects if changed(project)
             },
             "groups": {
                 str(group.id): _serialize_group(group)
-                for group in groups
+                for group in groups if changed(group)
             },
             "tasks": {
                 str(task.id): _serialize_task(
@@ -589,11 +600,11 @@ def build_dashboard_bootstrap(user) -> dict:
                     has_unread_comments=task.id in unread_task_ids,
                     github_meta=github_task_meta.get(task.id),
                 )
-                for task in tasks
+                for task in changed_tasks
             },
             "notifications": {
                 str(row.id): _serialize_notification(row)
-                for row in notification_rows
+                for row in notification_rows if since is None or row.created_at > since
             },
         },
         "views": {
@@ -624,52 +635,11 @@ def build_dashboard_bootstrap(user) -> dict:
 
 
 def build_dashboard_changes(user, *, since: datetime) -> dict:
-    payload = build_dashboard_bootstrap(user)
-    divisions = payload.get("entities", {}).get("divisions", {})
-    projects = payload.get("entities", {}).get("projects", {})
-    groups = payload.get("entities", {}).get("groups", {})
-    tasks = payload.get("entities", {}).get("tasks", {})
-    notifications = payload.get("entities", {}).get("notifications", {})
-
-    def changed_since(timestamp_value: str | None) -> bool:
-        if not timestamp_value:
-            return False
-        try:
-            return datetime.fromisoformat(timestamp_value) > since
-        except ValueError:
-            return False
-
+    payload = build_dashboard_bootstrap(user, since=since)
+    entities = payload.pop("entities")
     payload["meta"]["previous_cursor"] = since.isoformat()
     payload["changes"] = {
-        "upserts": {
-            "divisions": [
-                row for row in divisions.values()
-                if changed_since(row.get("updated_at") or row.get("created_at"))
-            ],
-            "projects": [
-                row for row in projects.values()
-                if changed_since(row.get("updated_at") or row.get("created_at"))
-            ],
-            "groups": [
-                row for row in groups.values()
-                if changed_since(row.get("updated_at") or row.get("created_at"))
-            ],
-            "tasks": [
-                row for row in tasks.values()
-                if changed_since(row.get("updated_at") or row.get("created_at"))
-            ],
-            "notifications": [
-                row for row in notifications.values()
-                if changed_since(row.get("created_at"))
-            ],
-        },
-        "deletes": {
-            "divisions": [],
-            "projects": [],
-            "groups": [],
-            "tasks": [],
-            "notifications": [],
-        },
+        "upserts": {entity: list(rows.values()) for entity, rows in entities.items()},
+        "deletes": {entity: [] for entity in entities},
     }
-    payload.pop("entities", None)
     return payload

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import re
-from threading import Lock
-from time import perf_counter
+from threading import Lock, Thread
+from time import perf_counter, sleep
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
@@ -685,7 +685,7 @@ def poll_google_drive_integrations() -> int:
     return refreshed
 
 
-def start_google_drive_poll_worker(app, socketio) -> None:
+def start_google_drive_poll_worker(app) -> None:
     global _worker_started
     if _worker_started or app.config.get("TESTING"):
         return
@@ -695,10 +695,12 @@ def start_google_drive_poll_worker(app, socketio) -> None:
     interval_seconds = max(int(app.config.get("GOOGLE_DRIVE_POLL_INTERVAL_SECONDS", 30)), 10)
 
     def runner() -> None:
-        socketio.sleep(interval_seconds)
         while True:
-            with app.app_context():
-                poll_google_drive_integrations()
-            socketio.sleep(interval_seconds)
+            sleep(interval_seconds)
+            try:
+                with app.app_context():
+                    poll_google_drive_integrations()
+            except Exception:
+                app.logger.exception("Google Drive poll worker failed")
 
-    socketio.start_background_task(runner)
+    Thread(target=runner, name="termin-drive-poll", daemon=True).start()
